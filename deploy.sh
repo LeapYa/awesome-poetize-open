@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2025-11-13
+## 修改时间: 2025-12-12
 ## 描述: 部署 Poetize 博客系统安装脚本
-## 版本: 1.10.0
+## 版本: 1.10.1
 
 # 定义颜色
 RED='\033[0;31m'
@@ -3298,6 +3298,42 @@ disable_mysql_service() {
   }
   ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
 
+  # 注释掉 java-backend 服务对 mysql 的 depends_on 依赖
+  info "注释java-backend对mysql的依赖..."
+  awk '
+  /java-backend:/ {
+    in_java_backend = 1
+  }
+  in_java_backend && /depends_on:/ {
+    in_depends = 1
+  }
+  in_java_backend && in_depends && /mysql:/ {
+    in_mysql_dep = 1
+    sub(/^      /, "      # ")
+    print $0 " # 已禁用（使用外部数据库）"
+    next
+  }
+  in_java_backend && in_depends && in_mysql_dep && /condition:/ {
+    in_mysql_dep = 0
+    sub(/^        /, "      #   ")
+    print
+    next
+  }
+  in_java_backend && in_depends && /^      [a-zA-Z]/ && !/mysql:/ {
+    in_mysql_dep = 0
+  }
+  in_java_backend && /^  [a-zA-Z]/ && !/java-backend:/ {
+    in_java_backend = 0
+    in_depends = 0
+  }
+  in_java_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
+    in_depends = 0
+  }
+  {
+    print
+  }
+  ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+
   success "已禁用mysql容器"
 }
 
@@ -3326,6 +3362,78 @@ disable_redis_service() {
       print "  #" $0
     }
     next
+  }
+  {
+    print
+  }
+  ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+
+  # 注释掉 java-backend 服务对 redis 的 depends_on 依赖
+  info "注释java-backend对redis的依赖..."
+  awk '
+  /java-backend:/ {
+    in_java_backend = 1
+  }
+  in_java_backend && /depends_on:/ {
+    in_depends = 1
+  }
+  in_java_backend && in_depends && /redis:/ {
+    in_redis_dep = 1
+    sub(/^      /, "      # ")
+    print $0 " # 已禁用（使用外部Redis）"
+    next
+  }
+  in_java_backend && in_depends && in_redis_dep && /condition:/ {
+    in_redis_dep = 0
+    sub(/^        /, "      #   ")
+    print
+    next
+  }
+  in_java_backend && in_depends && /^      [a-zA-Z]/ && !/redis:/ {
+    in_redis_dep = 0
+  }
+  in_java_backend && /^  [a-zA-Z]/ && !/java-backend:/ {
+    in_java_backend = 0
+    in_depends = 0
+  }
+  in_java_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
+    in_depends = 0
+  }
+  {
+    print
+  }
+  ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+
+  # 注释掉 python-backend 服务对 redis 的 depends_on 依赖
+  info "注释python-backend对redis的依赖..."
+  awk '
+  /python-backend:/ {
+    in_python_backend = 1
+  }
+  in_python_backend && /depends_on:/ {
+    in_depends = 1
+  }
+  in_python_backend && in_depends && /redis:/ {
+    in_redis_dep = 1
+    sub(/^      /, "      # ")
+    print $0 " # 已禁用（使用外部Redis）"
+    next
+  }
+  in_python_backend && in_depends && in_redis_dep && /condition:/ {
+    in_redis_dep = 0
+    sub(/^        /, "      #   ")
+    print
+    next
+  }
+  in_python_backend && in_depends && /^      [a-zA-Z]/ && !/redis:/ {
+    in_redis_dep = 0
+  }
+  in_python_backend && /^  [a-zA-Z]/ && !/python-backend:/ {
+    in_python_backend = 0
+    in_depends = 0
+  }
+  in_python_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
+    in_depends = 0
   }
   {
     print

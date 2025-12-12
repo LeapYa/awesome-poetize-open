@@ -86,8 +86,8 @@ mainStore.$subscribe((mutation, state) => {
 })
 
 // 反调试（生产环境）
-const disposeAntiDebug = initAntiDebug({ 
-  enableInDev: process.env.VUE_APP_PRODUCTION_MODE === 'true' 
+const disposeAntiDebug = initAntiDebug({
+  enableInDev: process.env.VUE_APP_PRODUCTION_MODE === 'true'
 })
 if (disposeAntiDebug) {
   window.__disableAntiDebug = () => {
@@ -124,19 +124,19 @@ app.$nextTick(() => {
       mountType: window.PRERENDER_DATA ? 'hydration' : 'normal'
     }
   }))
-  
+
   // 添加挂载完成标记
   const appElement = document.getElementById('app')
   if (appElement) {
     appElement.classList.add('vue-mounted')
   }
-  
+
   // 初始化图片懒加载
   initImageLoader()
-  
+
   // 注册 PWA Service Worker
   registerServiceWorker(Vue.prototype.$notify.info)
-  
+
   // 字体加载 - 在应用挂载后执行，确保 store 已完全初始化
   if (mainStore.sysConfig) {
     loadFonts(mainStore.sysConfig).catch(err => {

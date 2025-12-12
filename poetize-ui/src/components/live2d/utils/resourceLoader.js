@@ -7,10 +7,10 @@
  * 检查资源是否已加载
  */
 export function isResourceLoaded(url, type) {
-  const selector = type === 'css' 
+  const selector = type === 'css'
     ? `link[href*="${url}"]`
     : `script[src*="${url}"]`
-  
+
   return document.querySelector(selector) !== null
 }
 
@@ -26,9 +26,9 @@ export function loadExternalResource(url, type) {
     if (isResourceLoaded(url, type)) {
       return resolve(url)
     }
-    
+
     let tag
-    
+
     if (type === 'css') {
       tag = document.createElement('link')
       tag.rel = 'stylesheet'
@@ -40,16 +40,16 @@ export function loadExternalResource(url, type) {
     } else {
       return reject(new Error(`不支持的资源类型: ${type}`))
     }
-    
+
     tag.onload = () => {
       resolve(url)
     }
-    
+
     tag.onerror = () => {
       console.error(`资源加载失败: ${url}`)
       reject(new Error(`资源加载失败: ${url}`))
     }
-    
+
     document.head.appendChild(tag)
   })
 }
@@ -74,16 +74,16 @@ export function preloadResource(url, as) {
   if (document.querySelector(`link[rel="preload"][href="${url}"]`)) {
     return // 已存在
   }
-  
+
   const link = document.createElement('link')
   link.rel = 'preload'
   link.href = url
   link.as = as
-  
+
   if (as === 'fetch') {
     link.crossOrigin = 'anonymous'
   }
-  
+
   document.head.appendChild(link)
 }
 
@@ -126,7 +126,7 @@ export async function loadLive2DResources(live2dPath) {
     { url: `${live2dPath}waifu-drag.css`, type: 'css' },
     { url: `${live2dPath}waifu-drag.js`, type: 'js' }
   ]
-  
+
   try {
     await loadResources(resources)
     return true
@@ -141,7 +141,7 @@ export async function loadLive2DResources(live2dPath) {
  */
 export async function loadMarkdownResources() {
   const resources = []
-  
+
   // KaTeX
   if (!isKatexLoaded()) {
     resources.push(
@@ -149,18 +149,18 @@ export async function loadMarkdownResources() {
       { url: '/libs/js/katex.min.js', type: 'js' }
     )
   }
-  
+
   // Markdown-it
   if (!isMarkdownItLoaded()) {
     resources.push(
       { url: '/libs/js/markdown-it.min.js', type: 'js' }
     )
   }
-  
+
   if (resources.length === 0) {
     return true
   }
-  
+
   try {
     await loadResources(resources)
     return true
@@ -176,18 +176,18 @@ export async function loadMermaidResources() {
   if (isMermaidLoaded()) {
     return true
   }
-  
+
   try {
     // 使用本地导入的Mermaid
     const mermaid = await import('mermaid')
-    
+
     // 将mermaid挂载到window对象，供其他地方使用
     window.mermaid = mermaid.default || mermaid
-    
+
     // 检测是否为暗色模式
-    const isDark = document.documentElement.classList.contains('dark-mode') || 
-                   document.body.classList.contains('dark-mode')
-    
+    const isDark = document.documentElement.classList.contains('dark-mode') ||
+      document.body.classList.contains('dark-mode')
+
     // 初始化Mermaid配置
     window.mermaid.initialize({
       startOnLoad: false,
@@ -215,7 +215,7 @@ export async function loadMermaidResources() {
         fontSize: '14px'
       }
     })
-    
+
     return true
   } catch (error) {
     return false
@@ -230,25 +230,54 @@ export function isEChartsLoaded() {
 }
 
 /**
- * 加载ECharts图表库
+ * 加载ECharts图表库（模块化导入优化）
  */
 export async function loadEChartsResources() {
   if (isEChartsLoaded()) {
     return true
   }
-  
+
   try {
-    // 动态导入ECharts
-    const echarts = await import('echarts')
-    
+    // 模块化导入 ECharts，只加载需要的组件（Tree Shaking 优化）
+    const echarts = await import('echarts/core')
+
+    // 导入需要的图表类型
+    const { LineChart, BarChart, PieChart, ScatterChart, RadarChart, GaugeChart } = await import('echarts/charts')
+
+    // 导入需要的组件
+    const {
+      TitleComponent,
+      TooltipComponent,
+      GridComponent,
+      LegendComponent,
+      DataZoomComponent,
+      ToolboxComponent,
+      MarkLineComponent,
+      MarkPointComponent
+    } = await import('echarts/components')
+
+    // 导入渲染器
+    const { CanvasRenderer } = await import('echarts/renderers')
+
+    // 注册所有模块
+    echarts.use([
+      LineChart, BarChart, PieChart, ScatterChart, RadarChart, GaugeChart,
+      TitleComponent, TooltipComponent, GridComponent,
+      LegendComponent, DataZoomComponent, ToolboxComponent,
+      MarkLineComponent, MarkPointComponent,
+      CanvasRenderer
+    ])
+
     // 将echarts挂载到window对象，供其他地方使用
     window.echarts = echarts
-    
+
     return true
   } catch (error) {
+    console.error('ECharts模块化加载失败:', error)
     return false
   }
 }
+
 
 /**
  * 检查代码高亮库是否已加载
@@ -264,20 +293,20 @@ export async function loadHighlightResources() {
   if (isHighlightJsLoaded()) {
     return true
   }
-  
+
   try {
     const resources = [
       { url: '/libs/css/highlight.min.css', type: 'css' },
       { url: '/libs/js/highlight.min.js', type: 'js' }
     ]
-    
+
     await loadResources(resources)
-    
+
     // 加载行号插件
     if (typeof window.hljs !== 'undefined') {
       await loadExternalResource('/libs/js/highlightjs-line-numbers.min.js', 'js')
     }
-    
+
     return true
   } catch (error) {
     return false
@@ -298,7 +327,7 @@ export async function loadClipboardResources() {
   if (isClipboardLoaded()) {
     return true
   }
-  
+
   try {
     await loadExternalResource('/libs/js/clipboard.min.js', 'js')
     return true
@@ -321,13 +350,13 @@ export async function loadKatexResources() {
   if (isKatexLoadedGlobal()) {
     return true
   }
-  
+
   try {
     const resources = [
       { url: '/libs/css/katex.min.css', type: 'css' },
       { url: '/libs/js/katex.min.js', type: 'js' }
     ]
-    
+
     await loadResources(resources)
     return true
   } catch (error) {
@@ -349,7 +378,7 @@ export async function loadQiniuResources() {
   if (isQiniuLoaded()) {
     return true
   }
-  
+
   try {
     await loadExternalResource('/libs/js/qiniu.min.js', 'js')
     return true
@@ -372,7 +401,7 @@ export async function loadMarkdownItResources() {
   if (isMarkdownItLoadedGlobal()) {
     return true
   }
-  
+
   try {
     await loadExternalResource('/libs/js/markdown-it.min.js', 'js')
     return true

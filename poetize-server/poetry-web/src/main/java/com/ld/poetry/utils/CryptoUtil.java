@@ -1,6 +1,7 @@
 package com.ld.poetry.utils;
 
 import com.ld.poetry.constants.CommonConst;
+import lombok.extern.slf4j.Slf4j;
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
 import javax.crypto.spec.GCMParameterSpec;
@@ -12,6 +13,7 @@ import java.util.Map;
 /**
  * 加密解密工具类
  */
+@Slf4j
 public class CryptoUtil {
     
     // 使用统一密钥，从CommonConst获取
@@ -46,7 +48,7 @@ public class CryptoUtil {
 
             return Base64.getEncoder().encodeToString(combined);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("AES加密失败", e);
             return null;
         }
     }
@@ -85,7 +87,12 @@ public class CryptoUtil {
             byte[] decrypted = cipher.doFinal(encrypted);
             return new String(decrypted, StandardCharsets.UTF_8);
         } catch (Exception e) {
-            e.printStackTrace();
+            // 记录详细错误信息，帮助诊断跨环境解密问题
+            log.error("AES解密失败 - 密钥长度: {}, 密钥前缀: {}..., 异常类型: {}", 
+                KEY.length(), 
+                KEY.substring(0, Math.min(4, KEY.length())), 
+                e.getClass().getSimpleName(), 
+                e);
             return null;
         }
     }

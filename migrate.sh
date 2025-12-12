@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2025-11-13
+## 修改时间: 2025-12-12
 ## 描述: Poetize 博客系统自动迁移脚本
-## 版本: 1.3.0
+## 版本: 1.4.0
 
 # 定义颜色
 RED='\033[0;31m'
@@ -33,6 +33,8 @@ MIGRATE_UPLOADS="yes"    # 是否迁移用户上传文件，默认为yes
 extract_dir="Awesome-poetize-open"  # 项目提取目录
 USE_EXTERNAL_DB=false  # 是否使用外部数据库
 USE_EXTERNAL_REDIS=false  # 是否使用外部Redis
+UPDATE_VERSION=""  # 迁移到指定版本（空则使用最新稳定版本）
+USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 
 # 动态生成volume名称的函数
 get_volume_name() {
@@ -836,6 +838,31 @@ pull_code_on_target() {
     
     info "使用仓库地址: $git_url"
     
+    # 确定目标版本
+    local target_version=""
+    local branch_opt=""
+    
+    if [ -n "$UPDATE_VERSION" ]; then
+        target_version="$UPDATE_VERSION"
+        info "使用指定版本: $target_version"
+    elif [ "$USE_LATEST_TAG" = "true" ]; then
+        # 获取最新稳定版本
+        info "获取最新稳定版本..."
+        target_version=$(git ls-remote --tags "$git_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
+        if [ -n "$target_version" ]; then
+            info "使用最新稳定版本: $target_version"
+        else
+            warning "无法获取最新版本标签，将使用main分支"
+        fi
+    else
+        info "使用main分支（最新开发版本）"
+    fi
+    
+    # 如果有目标版本，添加 --branch 参数
+    if [ -n "$target_version" ]; then
+        branch_opt="--branch $target_version"
+    fi
+    
     # 在目标服务器上执行命令
     local ssh_cmd="
         # 安装必要工具
@@ -865,11 +892,11 @@ pull_code_on_target() {
         fi
         
         # 克隆项目
-        git clone --depth 1 $git_url $extract_dir
+        git clone --depth 1 $branch_opt $git_url $extract_dir
         
         # 检查是否成功
         if [ -d '$extract_dir' ] && [ -f '$extract_dir/deploy.sh' ]; then
-            echo 'SUCCESS: 项目代码拉取成功'
+            echo 'SUCCESS: 项目代码拉取成功${target_version:+: $target_version}'
         else
             echo 'ERROR: 项目代码拉取失败'
             exit 1
@@ -879,7 +906,7 @@ pull_code_on_target() {
     # 使用重试机制执行代码拉取
     if ssh_retry "项目代码拉取" "$ssh_cmd" "true"; then
         save_state "$STEP_PULL_CODE" "completed"
-        success "项目代码拉取成功"
+        success "项目代码拉取成功${target_version:+: $target_version}"
     else
         save_state "$STEP_PULL_CODE" "failed"
         error "项目代码拉取失败"
@@ -1366,6 +1393,24 @@ show_summary() {
 
 # 主函数
 main() {
+    # 解析命令行参数
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --version)
+                UPDATE_VERSION="$2"
+                shift 2
+                ;;
+            --latest|--use-main|--use-latest)
+                USE_LATEST_TAG=false
+                UPDATE_VERSION=""
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
     echo ""
   printf "${GREEN}██████╗  ██████╗ ███████╗████████╗██╗███████╗███████╗${NC}\n"
   printf "${GREEN}██╔══██╗██╔═══██╗██╔════╝╚══██╔══╝██║╚══███╔╝██╔════╝${NC}\n"
@@ -1376,6 +1421,42 @@ main() {
     echo -e "${BLUE}博客迁移工具====================================================${NC}"
     echo ""
     
+    # 显示版本信息
+    if [ -n "$UPDATE_VERSION" ]; then
+        info "迁移到指定版本: $UPDATE_VERSION"
+    elif [ "$USE_LATEST_TAG" = "false" ]; then
+        info "使用main分支（最新开发版本）"
+    fi
+    
+    # 检测降级操作
+    if [ -n "$UPDATE_VERSION" ]; then
+        # 读取当前部署版本
+        local current_version=""
+        if [ -f ".config/version.txt" ]; then
+            current_version=$(grep "^VERSION=" .config/version.txt 2>/dev/null | cut -d'=' -f2)
+        fi
+        
+        if [ -n "$current_version" ] && [ "$current_version" != "main" ]; then
+            # 比较版本（去掉v前缀，使用sort -V比较）
+            local target_v=$(echo "$UPDATE_VERSION" | sed 's/^v//')
+            local current_v=$(echo "$current_version" | sed 's/^v//')
+            
+            # 使用sort -V比较版本
+            local lower_version=$(printf "%s\n%s" "$target_v" "$current_v" | sort -V | head -1)
+            
+            if [ "$lower_version" = "$target_v" ] && [ "$target_v" != "$current_v" ]; then
+                error "不支持版本降级操作！"
+                printf "\n"
+                printf "${YELLOW}当前版本: ${NC}${GREEN}$current_version${NC}\n"
+                printf "${YELLOW}目标版本: ${NC}${RED}$UPDATE_VERSION${NC}\n"
+                printf "\n"
+                printf "${RED}降级可能导致数据库兼容性问题，请使用当前版本或更高版本进行迁移。${NC}\n"
+                printf "\n"
+                exit 1
+            fi
+        fi
+    fi
+
     # 初始化状态管理
     info "初始化迁移状态管理..."
     

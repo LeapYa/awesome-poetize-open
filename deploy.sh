@@ -2,7 +2,7 @@
 ## 作者: LeapYa
 ## 修改时间: 2025-12-12
 ## 描述: 部署 Poetize 博客系统安装脚本
-## 版本: 1.10.1
+## 版本: 1.11.0
 
 # 定义颜色
 RED='\033[0;31m'
@@ -87,6 +87,10 @@ LOG_FILE="deploy.log"
 DISABLE_DOCKER_CACHE=true  # 默认禁用Docker构建缓存
 POETIZE_KEEP_GIT=false      # 默认删除Git仓库，不依赖git更新
 HTTP_PORT=""                # 自定义HTTP端口（支持任何域名）
+
+# 版本控制变量
+DEPLOY_VERSION=""            # 用户指定的版本标签
+USE_LATEST_TAG=true          # 默认使用最新稳定版本标签
 
 # 外部数据库配置变量
 DB_HOST=""                   # 外部MariaDB主机地址
@@ -410,6 +414,11 @@ show_help() {
   echo "  --keep-git              保留Git仓库（可选，支持git更新）"
   echo "  --no-git, --remove-git  删除Git仓库（默认，节省磁盘空间）"
   echo ""
+  echo "版本控制选项:"
+  echo "  --version VERSION       指定部署版本（如 v2.1.1），默认使用最新稳定版本"
+  echo "  --list-versions         列出所有可用版本"
+  echo "  --latest, --use-main, --use-latest  使用main分支而非稳定版本标签"
+  echo ""
   echo "网络问题解决方案:"
   echo "  如果遇到GitHub访问问题，脚本会自动尝试以下解决方案:"
   echo "  1. 优先使用Gitee镜像（国内环境）"
@@ -432,6 +441,69 @@ show_help() {
   echo "  $0 --domain example.com:8080            # 生产环境使用非标准端口"
   echo "  $0 --domain example.com --httpport 8080 # 或者分开指定（效果相同）"
   echo ""
+}
+
+# 列出可用版本
+list_available_versions() {
+  info "正在获取可用版本列表..."
+  local repo_url="https://gitee.com/leapya/poetize.git"
+  local github_url="https://github.com/LeapYa/Awesome-poetize-open.git"
+  
+  # 优先使用Gitee（国内环境），然后尝试GitHub
+  local tags=""
+  if is_china_environment; then
+    tags=$(git ls-remote --tags "$repo_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V)
+    if [ -z "$tags" ]; then
+      tags=$(git ls-remote --tags "$github_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V)
+    fi
+  else
+    tags=$(git ls-remote --tags "$github_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V)
+    if [ -z "$tags" ]; then
+      tags=$(git ls-remote --tags "$repo_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V)
+    fi
+  fi
+  
+  if [ -z "$tags" ]; then
+    error "无法获取版本列表，请检查网络连接"
+    return 1
+  fi
+  
+  local latest=$(echo "$tags" | tail -1)
+  
+  echo ""
+  printf "${GREEN}可用版本列表:${NC}\n"
+  echo "$tags" | while read tag; do
+    if [ "$tag" = "$latest" ]; then
+      printf "  ${GREEN}$tag${NC} (最新稳定版)\n"
+    else
+      echo "  $tag"
+    fi
+  done
+  echo ""
+  printf "使用方法: $0 ${YELLOW}--version <版本号>${NC} --domain example.com\n"
+  printf "示例: $0 ${YELLOW}--version $latest${NC} --domain example.com\n"
+  echo ""
+}
+
+# 获取最新版本标签
+get_latest_tag() {
+  local repo_url="https://gitee.com/leapya/poetize.git"
+  local github_url="https://github.com/LeapYa/Awesome-poetize-open.git"
+  
+  local latest=""
+  if is_china_environment; then
+    latest=$(git ls-remote --tags "$repo_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
+    if [ -z "$latest" ]; then
+      latest=$(git ls-remote --tags "$github_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
+    fi
+  else
+    latest=$(git ls-remote --tags "$github_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
+    if [ -z "$latest" ]; then
+      latest=$(git ls-remote --tags "$repo_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
+    fi
+  fi
+  
+  echo "$latest"
 }
 
 # 解析命令行参数
@@ -510,6 +582,20 @@ parse_arguments() {
       --httpport)
         HTTP_PORT="$2"
         shift 2
+        ;;
+      --version)
+        DEPLOY_VERSION="$2"
+        USE_LATEST_TAG=false
+        shift 2
+        ;;
+      --list-versions)
+        list_available_versions
+        exit 0
+        ;;
+      --latest|--use-main|--use-latest)
+        USE_LATEST_TAG=false
+        DEPLOY_VERSION=""
+        shift
         ;;
       --db-host)
         DB_HOST="$2"
@@ -6124,6 +6210,30 @@ download_and_extract_project() {
     info "Git仓库设置: 删除Git仓库（节省磁盘空间，需要使用全量更新）"
   fi
 
+  # 确定目标版本
+  local target_version=""
+  local clone_branch_opt=""
+  
+  if [ -n "$DEPLOY_VERSION" ]; then
+    target_version="$DEPLOY_VERSION"
+    info "使用用户指定版本: $target_version"
+  elif [ "$USE_LATEST_TAG" = "true" ]; then
+    info "正在获取最新稳定版本..."
+    target_version=$(get_latest_tag)
+    if [ -n "$target_version" ]; then
+      info "使用最新稳定版本: $target_version"
+    else
+      warning "无法获取最新版本标签，将使用main分支"
+    fi
+  else
+    info "使用main分支（最新开发版本）"
+  fi
+  
+  # 如果指定了版本，使用 --branch 参数直接克隆该版本
+  if [ -n "$target_version" ]; then
+    clone_branch_opt="--branch $target_version"
+  fi
+
   # 尝试下载项目源码
   local clone_success=false
   
@@ -6131,10 +6241,10 @@ download_and_extract_project() {
     # 国内环境，优先使用Gitee
     if [ "$keep_git" = "true" ]; then
       info "下载完整Git仓库（支持后续更新功能）..."
-      git clone "$repo_url" "$extract_dir"
+      git clone $clone_branch_opt "$repo_url" "$extract_dir"
     else
       info "下载项目源码（浅克隆，不保留Git仓库）..."
-      git clone --depth 1 "$repo_url" "$extract_dir"
+      git clone --depth 1 $clone_branch_opt "$repo_url" "$extract_dir"
       rm -rf "$extract_dir/.git"
     fi
     
@@ -6147,10 +6257,10 @@ download_and_extract_project() {
       
       if [ "$keep_git" = "true" ]; then
         info "下载完整Git仓库（支持后续更新功能）..."
-        git clone "$download_url" "$extract_dir"
+        git clone $clone_branch_opt "$download_url" "$extract_dir"
       else
         info "下载项目源码（浅克隆，不保留Git仓库）..."
-        git clone --depth 1 "$download_url" "$extract_dir"
+        git clone --depth 1 $clone_branch_opt "$download_url" "$extract_dir"
         rm -rf "$extract_dir/.git"
       fi
       
@@ -6168,10 +6278,10 @@ download_and_extract_project() {
     # 国外环境，优先使用GitHub
     if [ "$keep_git" = "true" ]; then
       info "下载完整Git仓库（支持后续更新功能）..."
-      git clone "$download_url" "$extract_dir"
+      git clone $clone_branch_opt "$download_url" "$extract_dir"
     else
       info "下载项目源码（浅克隆，不保留Git仓库）..."
-      git clone --depth 1 "$download_url" "$extract_dir"
+      git clone --depth 1 $clone_branch_opt "$download_url" "$extract_dir"
       rm -rf "$extract_dir/.git"
     fi
     
@@ -6184,10 +6294,10 @@ download_and_extract_project() {
       
       if [ "$keep_git" = "true" ]; then
         info "重新尝试下载完整Git仓库..."
-        git clone "$download_url" "$extract_dir"
+        git clone $clone_branch_opt "$download_url" "$extract_dir"
       else
         info "重新尝试下载项目源码（浅克隆）..."
-        git clone --depth 1 "$download_url" "$extract_dir"
+        git clone --depth 1 $clone_branch_opt "$download_url" "$extract_dir"
         rm -rf "$extract_dir/.git"
       fi
       
@@ -6200,10 +6310,10 @@ download_and_extract_project() {
         # 如果GitHub仍然失败，尝试Gitee
         if [ "$keep_git" = "true" ]; then
           info "尝试使用Gitee下载完整Git仓库..."
-          git clone "$repo_url" "$extract_dir"
+          git clone $clone_branch_opt "$repo_url" "$extract_dir"
         else
           info "尝试使用Gitee下载项目源码（浅克隆）..."
-          git clone --depth 1 "$repo_url" "$extract_dir"
+          git clone --depth 1 $clone_branch_opt "$repo_url" "$extract_dir"
           rm -rf "$extract_dir/.git"
         fi
         
@@ -6225,6 +6335,21 @@ download_and_extract_project() {
     error "项目源码克隆失败，请检查网络连接"
     return 1
   fi
+
+  # 显示版本信息并保存到配置目录
+  if [ -n "$target_version" ]; then
+    success "已成功获取版本: $target_version"
+  fi
+
+  # 保存版本信息到 .config/version.txt
+  mkdir -p "$extract_dir/.config"
+  cat > "$extract_dir/.config/version.txt" << EOF
+# Poetize 部署版本信息
+VERSION=${target_version:-main}
+DEPLOY_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+DEPLOY_SOURCE=$([ -n "$target_version" ] && echo "tag" || echo "main")
+EOF
+  info "版本信息已保存到 .config/version.txt"
 
   # 如果保留了Git仓库，显示相关信息
   if [ "$keep_git" = "true" ] && [ -d "$extract_dir/.git" ]; then

@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2025-11-12
+## 修改时间: 2025-12-12
 ## 描述: Poetize 博客系统全局管理命令
-## 版本: 1.7.2
+## 版本: 1.8.0
 
 # 定义颜色
 RED='\033[0;31m'
@@ -11,6 +11,10 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
+
+# 全局变量
+UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
+USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 
 # 函数
 info() { echo -e "${BLUE}[信息]${NC} $1"; }
@@ -114,12 +118,12 @@ show_help() {
     printf "  -start, -up               启动所有服务\n"
     printf "  -stop, -down              停止所有服务\n"
     printf "  -restart                  重启所有服务\n"
-    printf "  -update                   更新系统到最新版本\n"
+    printf "  -update [版本]            更新系统（如 -update v2.1.1，默认使用最新稳定版本）\n"
     printf "  -deploy, -bushu, -bs      执行部署脚本\n"
     printf "  -update-poetize-command   更新poetize命令\n"
     printf "\n"
     printf "${BLUE}系统管理:${NC}\n"
-    printf "  -qianyi, -migrate, -qy    执行博客迁移到远程服务器\n"
+    printf "  -qianyi, -migrate, -qy [版本]  执行博客迁移（如 -qy v2.1.1，默认使用最新稳定版本）\n"
     printf "  -backup [路径]            备份当前数据到指定路径\n"
     printf "  -restore [路径]            从指定路径恢复备份数据（未指定路径时恢复最新备份）\n"
     printf "  -uninstall                卸载当前项目的Poetize实例\n"
@@ -525,7 +529,16 @@ run_migration() {
     fi
     
     sudo chmod +x migrate.sh
-    sudo ./migrate.sh
+    
+    # 构建迁移命令参数
+    local migrate_args=""
+    if [ -n "$UPDATE_VERSION" ]; then
+        migrate_args="--version $UPDATE_VERSION"
+    elif [ "$USE_LATEST_TAG" = "false" ]; then
+        migrate_args="--latest"
+    fi
+    
+    sudo ./migrate.sh $migrate_args
 }
 
 # 执行部署
@@ -749,7 +762,18 @@ get_project_info() {
             | tr ' ' ', ')
 
             echo -e "   访问域名: ${BLUE}$project_nginx_domains${NC}"
-
+            
+            # 显示版本信息
+            if [ -f "$project_dir/.config/version.txt" ]; then
+                local deployed_version=$(grep "^VERSION=" "$project_dir/.config/version.txt" 2>/dev/null | cut -d'=' -f2)
+                local deploy_time=$(grep "^DEPLOY_TIME=" "$project_dir/.config/version.txt" 2>/dev/null | cut -d'=' -f2-)
+                if [ -n "$deployed_version" ]; then
+                    echo -e "   部署版本: ${GREEN}$deployed_version${NC}"
+                fi
+                if [ -n "$deploy_time" ]; then
+                    echo -e "   部署时间: ${CYAN}$deploy_time${NC}"
+                fi
+            fi
 
             printf "\n"
         done
@@ -1159,12 +1183,37 @@ pull_code_on_target() {
         exit 1
     fi
     
+    # 确定目标版本
+    local target_version=""
+    local branch_opt=""
+    
+    if [ -n "$UPDATE_VERSION" ]; then
+        target_version="$UPDATE_VERSION"
+        info "使用指定版本: $target_version"
+    elif [ "$USE_LATEST_TAG" = "true" ]; then
+        # 获取最新稳定版本
+        info "获取最新稳定版本..."
+        target_version=$(git ls-remote --tags "$git_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
+        if [ -n "$target_version" ]; then
+            info "使用最新稳定版本: $target_version"
+        else
+            warning "无法获取最新版本标签，将使用main分支"
+        fi
+    else
+        info "使用main分支（最新开发版本）"
+    fi
+    
+    # 如果有目标版本，添加 --branch 参数
+    if [ -n "$target_version" ]; then
+        branch_opt="--branch $target_version"
+    fi
+    
     # 克隆项目
-    git clone --depth 1 $git_url $BACKUP_PROJECT_NAME
+    git clone --depth 1 $branch_opt $git_url $BACKUP_PROJECT_NAME
     
     # 检查是否成功
     if [ -d "$BACKUP_PROJECT_NAME" ] && [ -f "$BACKUP_PROJECT_NAME/deploy.sh" ]; then
-        success '项目代码拉取成功'
+        success "项目代码拉取成功${target_version:+: $target_version}"
         cd "$BACKUP_PROJECT_NAME"
         return 0
     else
@@ -1607,6 +1656,35 @@ run_update() {
     # 查找项目目录
     find_project_dir
 
+    # 检测降级操作
+    if [ -n "$UPDATE_VERSION" ]; then
+        # 读取当前部署版本
+        local current_version=""
+        if [ -f ".config/version.txt" ]; then
+            current_version=$(grep "^VERSION=" .config/version.txt 2>/dev/null | cut -d'=' -f2)
+        fi
+        
+        if [ -n "$current_version" ] && [ "$current_version" != "main" ]; then
+            # 比较版本（去掉v前缀，使用sort -V比较）
+            local target_v=$(echo "$UPDATE_VERSION" | sed 's/^v//')
+            local current_v=$(echo "$current_version" | sed 's/^v//')
+            
+            # 使用sort -V比较版本
+            local lower_version=$(printf "%s\n%s" "$target_v" "$current_v" | sort -V | head -1)
+            
+            if [ "$lower_version" = "$target_v" ] && [ "$target_v" != "$current_v" ]; then
+                error "不支持版本降级操作！"
+                printf "\n"
+                printf "${YELLOW}当前版本: ${NC}${GREEN}$current_version${NC}\n"
+                printf "${YELLOW}目标版本: ${NC}${RED}$UPDATE_VERSION${NC}\n"
+                printf "\n"
+                printf "${RED}降级可能导致数据库兼容性问题，请使用当前版本或更高版本。${NC}\n"
+                printf "\n"
+                exit 1
+            fi
+        fi
+    fi
+
     # 确认操作
     printf "\n"
     printf "${YELLOW}警告：全量更新操作将会：${NC}\n"
@@ -1715,6 +1793,16 @@ main() {
     # 解析命令行参数
     case "${1:-}" in
         "-qianyi"|"-migrate"|"-qy")
+            # 支持指定版本: -qy v2.1.1 或 -qy --latest
+            if [ -n "${2:-}" ]; then
+                if [[ "${2:-}" =~ ^v[0-9] ]]; then
+                    UPDATE_VERSION="$2"
+                    info "迁移到指定版本: $UPDATE_VERSION"
+                elif [[ "${2:-}" =~ ^--?(latest|use-main|use-latest)$ ]]; then
+                    USE_LATEST_TAG=false
+                    info "迁移使用main分支"
+                fi
+            fi
             run_migration
             ;;
         "-status")
@@ -1730,6 +1818,16 @@ main() {
             restart_services
             ;;
         "-update")
+            # 支持指定版本: -update v2.1.1 或 -update --latest
+            if [ -n "${2:-}" ]; then
+                if [[ "${2:-}" =~ ^v[0-9] ]]; then
+                    UPDATE_VERSION="$2"
+                    info "更新到指定版本: $UPDATE_VERSION"
+                elif [[ "${2:-}" =~ ^--?(latest|use-main|use-latest)$ ]]; then
+                    USE_LATEST_TAG=false
+                    info "更新使用main分支"
+                fi
+            fi
             run_update
             ;;
         "-update-poetize-command")

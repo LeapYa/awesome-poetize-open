@@ -7,6 +7,7 @@ import Vue from 'vue'
 import App from './App.vue'
 import router from './router'
 import ElementUI from 'element-ui-ce'
+import 'element-ui-ce/lib/theme-chalk/index.css'
 import { createPinia, PiniaVuePlugin } from 'pinia'
 
 // 工具函数

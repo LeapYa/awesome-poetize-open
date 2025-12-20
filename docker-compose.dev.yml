@@ -1,0 +1,49 @@
+services:
+  # 本地开发用 - MariaDB 数据库
+  mysql:
+    image: mariadb:11.4
+    container_name: poetize-dev-mysql
+    environment:
+      - TZ=Asia/Shanghai
+      - MARIADB_ROOT_PASSWORD=123456
+      - MARIADB_DATABASE=poetize
+      - MARIADB_CHARACTER_SET=utf8mb4
+      - MARIADB_COLLATE=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - dev_mysql_data:/var/lib/mysql
+      # 自动初始化数据库，MariaDB 会在首次启动时执行此目录下的 SQL
+      - ./poetize-server/sql/poetry_old.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      # 挂载字符集配置文件
+      - ./docker/mysql/conf/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-p123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # 本地开发用 - Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: poetize-dev-redis
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "6379:6379"
+    volumes:
+      - dev_redis_data:/data
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "123456"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "123456", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  dev_mysql_data:
+  dev_redis_data:

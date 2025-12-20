@@ -9,9 +9,10 @@
     "./src/assets/**/*"
   ],
   "scripts": {
-    "serve": "cross-env NODE_OPTIONS=--openssl-legacy-provider vue-cli-service serve",
-    "build": "cross-env NODE_OPTIONS=--openssl-legacy-provider vue-cli-service build && npm run compress",
-    "build:no-compress": "cross-env NODE_OPTIONS=--openssl-legacy-provider vue-cli-service build",
+    "dev": "vite",
+    "serve": "vite",
+    "build": "vite build && npm run compress",
+    "build:no-compress": "vite build",
     "compress": "node scripts/compress-build.js",
     "lint": "vue-cli-service lint",
     "postinstall": "node scripts/copy-mermaid.js"
@@ -24,7 +25,6 @@
     "axios": "^1.6.7",
     "clipboard": "^2.0.11",
     "core-js": "^3.37.0",
-    "crypto-js": "^4.1.1",
     "echarts": "^5.4.2",
     "element-ui-ce": "^2.15.14",
     "highlight.js": "^11.11.1",
@@ -38,18 +38,13 @@
     "vditor": "^3.11.2",
     "vue": "^2.7.16",
     "vue-router": "^3.6.5",
-    "vue-seamless-scroll": "^1.1.23",
-    "vue-video-player": "^5.0.2"
+    "vue-seamless-scroll": "^1.1.23"
   },
   "devDependencies": {
     "@babel/eslint-parser": "^7.22.20",
-    "@vue/cli-plugin-babel": "~4.5.19",
-    "@vue/cli-plugin-eslint": "~4.5.19",
-    "@vue/cli-plugin-router": "~4.5.19",
-    "@vue/cli-service": "~4.5.19",
+    "@vitejs/plugin-vue2": "^2.3.4",
     "@vue/eslint-config-standard": "^6.1.0",
     "babel-plugin-component": "^1.1.1",
-    "compression-webpack-plugin": "^4.0.0",
     "cross-env": "^10.1.0",
     "eslint": "^7.32.0",
     "eslint-plugin-import": "^2.20.2",
@@ -58,9 +53,12 @@
     "eslint-plugin-standard": "^4.0.0",
     "eslint-plugin-vue": "^7.20.0",
     "html-minifier-terser": "^7.2.0",
-    "vue-cli-plugin-element": "^1.0.1",
-    "vue-template-compiler": "^2.7.16",
-    "webpack-dev-server": "^3.11.3",
-    "webpack-manifest-plugin": "^4.0.2"
+    "vite": "^7.3.0",
+    "vite-plugin-compression": "^0.5.1",
+    "vite-plugin-env-compatible": "^2.0.1",
+    "vue-template-compiler": "^2.7.16"
+  },
+  "overrides": {
+    "katex": "^0.16.21"
   }
 }

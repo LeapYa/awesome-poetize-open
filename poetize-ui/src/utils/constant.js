@@ -1,16 +1,16 @@
 export default {
   // 测试环境
-  // baseURL: "http://localhost:8081",
-  // pythonBaseURL: "http://localhost:5000", // Python服务URL
-  // imBaseURL: "http://localhost:81/im/",
-  // webURL: "http://localhost",
+  baseURL: "http://localhost:8081",
+  pythonBaseURL: "http://localhost:5000", // Python服务URL
+  imBaseURL: "http://localhost:81/im/",
+  webURL: "http://localhost",
 
   // 生产环境
   // 使用location.host代替location.hostname，因为location.host会自动包含端口号（如果存在）
-  webURL: location.protocol + "//" + location.host,
-  baseURL: location.protocol + "//" + location.host + "/api",
-  pythonBaseURL: location.protocol + "//" + location.host + "/python",
-  imBaseURL: location.protocol + "//" + location.host + "/im",
+  // webURL: location.protocol + "//" + location.host,
+  // baseURL: location.protocol + "//" + location.host + "/api",
+  // pythonBaseURL: location.protocol + "//" + location.host + "/python",
+  // imBaseURL: location.protocol + "//" + location.host + "/im",
 
   host: location.host,
 

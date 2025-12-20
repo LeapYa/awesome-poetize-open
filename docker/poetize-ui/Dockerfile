@@ -8,6 +8,9 @@ ARG VUE_APP_POETIZE_AES_KEY
 ARG VUE_APP_PRODUCTION_MODE
 ENV VUE_APP_POETIZE_AES_KEY=$VUE_APP_POETIZE_AES_KEY
 ENV VUE_APP_PRODUCTION_MODE=$VUE_APP_PRODUCTION_MODE
+# 为 Vite 增加 VITE_ 前缀环境变量映射
+ENV VITE_APP_POETIZE_AES_KEY=$VUE_APP_POETIZE_AES_KEY
+ENV VITE_APP_PRODUCTION_MODE=$VUE_APP_PRODUCTION_MODE
 
 # 安装必要的系统依赖
 RUN apt-get update && \
@@ -31,7 +34,7 @@ COPY poetize-ui/package*.json ./
 COPY poetize-ui/scripts ./scripts
 COPY poetize-ui/public ./public
 
-# 安装依赖（带重试和更好的错误处理）
+# 安装依赖
 RUN echo "开始安装依赖..." && \
     npm cache clean --force || true && \
     (npm install --force --legacy-peer-deps --no-fund --no-audit --prefer-offline --maxsockets 1 --network-timeout=600000 || \
@@ -47,11 +50,11 @@ COPY poetize-ui/ ./
 # 构建前端项目
 RUN npm run build
 
-# 处理静态资源复制
-RUN if [ -d "public/static" ]; then \
-      mkdir -p dist/static && \
-      cp -rf public/static/* dist/static/ 2>/dev/null || true; \
-    fi
+# 处理静态资源复制（Vite 构建时会自动将 public 内容搬运至 dist，此处仅作安全兼容性通过）
+# RUN if [ -d "public/static" ]; then \
+#       mkdir -p dist/static && \
+#       cp -rf public/static/* dist/static/ 2>/dev/null || true; \
+#     fi
 
 # ========================================
 # 阶段 2: 运行阶段 - 只保留构建产物

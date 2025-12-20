@@ -1,5 +1,4 @@
 import constant from "./constant";
-import CryptoJS from 'crypto-js';
 import { useMainStore } from '../stores/main';
 import { redirectToLogin } from './tokenExpireHandler';
 import { getDefaultAvatar, getAvatarUrl } from './default-avatar';
@@ -9,12 +8,12 @@ export default {
    * 获取默认头像
    */
   getDefaultAvatar,
-  
+
   /**
    * 获取头像URL（带默认头像回退）
    */
   getAvatarUrl,
-  
+
   pushNotification(notices, isNotification) {
     // 统一的空值检查，防止null/undefined错误
     if (this.isEmpty(notices)) {
@@ -69,9 +68,28 @@ export default {
   },
 
   /**
+   * 检查 Web Crypto API 是否可用
+   * 在移动端 HTTP 环境下，crypto.subtle 不可用
+   */
+  isWebCryptoAvailable() {
+    return typeof crypto !== 'undefined' &&
+      typeof crypto.subtle !== 'undefined' &&
+      typeof crypto.subtle.encrypt === 'function';
+  },
+
+  /**
    * 加密 - 使用AES-GCM模式（异步）
+   * 需要 Web Crypto API 支持（HTTPS 或 localhost）
    */
   async encrypt(plaintText) {
+    // 检查 Web Crypto API 是否可用
+    if (!this.isWebCryptoAvailable()) {
+      const errorMsg = '安全警告！当前环境不支持加密功能。请使用 HTTPS 访问或使用桌面浏览器。';
+      console.error(errorMsg);
+      // 抛出错误让调用方处理，而不是返回明文
+      throw new Error(errorMsg);
+    }
+
     try {
       // 使用Web Crypto API实现GCM模式
       const key = await crypto.subtle.importKey(
@@ -106,14 +124,21 @@ export default {
       return base64.replace(/\//g, "_").replace(/\+/g, "-");
     } catch (error) {
       console.error('加密失败:', error);
-      return plaintText; // 失败时返回原文本
+      throw error; // 重新抛出错误
     }
   },
 
   /**
    * 解密 - 使用AES-GCM模式（异步）
+   * 需要 Web Crypto API 支持（HTTPS 或 localhost）
    */
   async decrypt(encryptedBase64Str) {
+    // 检查 Web Crypto API 是否可用
+    if (!this.isWebCryptoAvailable()) {
+      console.error('Web Crypto API 不可用，无法解密');
+      return null;
+    }
+
     try {
       // 还原Base64特殊字符
       let base64 = encryptedBase64Str.replace(/-/g, '+').replace(/_/g, '/');
@@ -194,60 +219,60 @@ export default {
    */
   removeMarkdown(text) {
     if (this.isEmpty(text)) return '';
-    
+
     // 移除代码块
     let result = text.replace(/```[\s\S]*?```/g, '');
-    
+
     // 移除行内代码
     result = result.replace(/`([^`]+)`/g, '$1');
-    
+
     // 移除标题标记
     result = result.replace(/#{1,6}\s+/g, '');
-    
+
     // 移除链接，只保留链接文本
     result = result.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-    
+
     // 移除图片
     result = result.replace(/!\[([^\]]*)\]\([^)]+\)/g, '');
-    
+
     // 移除强调标记（加粗、斜体）
     result = result.replace(/(\*\*|__)(.*?)\1/g, '$2');
     result = result.replace(/(\*|_)(.*?)\1/g, '$2');
-    
+
     // 移除引用标记
     result = result.replace(/^\s*>\s+/gm, '');
-    
+
     // 移除分隔线
     result = result.replace(/^\s*[-*_]{3,}\s*$/gm, '');
-    
+
     // 移除列表标记
     result = result.replace(/^\s*[-*+]\s+/gm, '');
     result = result.replace(/^\s*\d+\.\s+/gm, '');
-    
+
     // 移除HTML标签
     result = result.replace(/<[^>]*>/g, '');
-    
+
     // 移除首尾空白
     result = result.trim();
-    
+
     return result;
   },
 
   imgShow(select) {
     // 使用原生 JavaScript 替代 jQuery
     const elements = document.querySelectorAll(select);
-    
+
     elements.forEach(element => {
       element.addEventListener('click', function () {
         const src = this.getAttribute('src');
         const bigImg = document.getElementById('bigImg');
         const outerImg = document.getElementById('outerImg');
         const innerImg = document.getElementById('innerImg');
-        
+
         if (!bigImg || !outerImg || !innerImg) {
           return;
         }
-        
+
         bigImg.setAttribute('src', src);
 
         /** 获取当前点击图片的真实大小，并显示弹出层及大图 */
@@ -273,14 +298,14 @@ export default {
             imgWidth = realWidth;
             imgHeight = realHeight;
           }
-          
+
           bigImg.style.width = imgWidth + 'px'; // 以最终的宽度对图片缩放
 
           const w = (windowW - imgWidth) / 2; // 计算图片与窗口左边距
           const h = (windowH - imgHeight) / 2; // 计算图片与窗口上边距
           innerImg.style.top = h + 'px';
           innerImg.style.left = w + 'px';
-          
+
           // 淡入显示效果
           outerImg.style.display = 'block';
           outerImg.style.opacity = '0';
@@ -406,9 +431,9 @@ export default {
       let maxMinDate = new Date(minTime).getDate() > maxDateDay ? maxDateDay : new Date(minTime).getDate();
       let maxMinTong;
       if (type === 'month') {
-        maxMinTong = new Date(maxTime).getFullYear() + '/' + (new Date(minTime).getMonth() + 1) + '/' + maxMinDate + ' ' + new Date(minTime).toLocaleTimeString('chinese', {hour12: false});
+        maxMinTong = new Date(maxTime).getFullYear() + '/' + (new Date(minTime).getMonth() + 1) + '/' + maxMinDate + ' ' + new Date(minTime).toLocaleTimeString('chinese', { hour12: false });
       } else {
-        maxMinTong = new Date(maxTime).getFullYear() + '/' + (new Date(maxTime).getMonth() + 1) + '/' + maxMinDate + ' ' + new Date(minTime).toLocaleTimeString('chinese', {hour12: false});
+        maxMinTong = new Date(maxTime).getFullYear() + '/' + (new Date(maxTime).getMonth() + 1) + '/' + maxMinDate + ' ' + new Date(minTime).toLocaleTimeString('chinese', { hour12: false });
       }
       return {
         minTime,
@@ -421,7 +446,7 @@ export default {
     const getYear = (time, twoTime) => {
       let oneYear = new Date(time).getFullYear();
       let twoYear = new Date(twoTime).getFullYear();
-      const {minTime, maxTime, maxMinTong} = getMaxMinDate(time, twoTime, 'month');
+      const { minTime, maxTime, maxMinTong } = getMaxMinDate(time, twoTime, 'month');
       let chaYear = Math.abs(oneYear - twoYear);
       if (new Date(maxMinTong).getTime() > new Date(maxTime).getTime()) {
         chaYear--;
@@ -433,7 +458,7 @@ export default {
     const getMonth = (time, twoTime, value) => {
       let oneMonth = new Date(time).getFullYear() * 12 + (new Date(time).getMonth() + 1);
       let twoMonth = new Date(twoTime).getFullYear() * 12 + (new Date(twoTime).getMonth() + 1);
-      const {minTime, maxTime, maxMinTong} = getMaxMinDate(time, twoTime, 'day');
+      const { minTime, maxTime, maxMinTong } = getMaxMinDate(time, twoTime, 'day');
       let chaMonth = Math.abs(oneMonth - twoMonth);
       if (new Date(maxMinTong).getTime() > new Date(maxTime).getTime()) {
         chaMonth--;
@@ -487,7 +512,7 @@ export default {
 
     // 相差年月日时分秒
     const getDiffYMDHMS = (time, twoTime) => {
-      const {minTime, maxTime, maxMinTong} = getMaxMinDate(time, twoTime, 'day');
+      const { minTime, maxTime, maxMinTong } = getMaxMinDate(time, twoTime, 'day');
       let diffDay1 = getDay(minTime, maxMinTong);
       if (new Date(maxMinTong).getTime() > new Date(maxTime).getTime()) {
         let prevMonth = new Date(maxMinTong).getMonth() - 1;

@@ -2,7 +2,7 @@
 ## 作者: LeapYa
 ## 修改时间: 2025-12-25
 ## 描述: 部署 POETIZE 博客系统安装脚本
-## 版本: 1.11.1
+## 版本: 1.11.2
 
 # 定义颜色
 RED='\033[0;31m'
@@ -6480,6 +6480,10 @@ handle_environment_status() {
 
       if [ -z "$DIR" ]; then
         error "未找到已经安装的项目目录，如果你认为这是一个错误，请提交issue，将在当前目录下安装..."
+        DIR=$(pwd)
+      # 检测当前目录是否在项目中（包含项目特征文件/目录）
+      elif [ -d "poetize-ui" ] || [ -d "py" ] || [ -d "docker" ] || [ -f "poetize" ] || [ -f "migrate.sh" ]; then
+        info "检测到当前目录已在项目中，使用当前目录..."
         DIR=$(pwd)
       else
         # 项目所在目录，/root/Awesome-poetize-open -> /root

@@ -42,8 +42,8 @@ RUN npm install -g brotli --no-fund --no-audit --maxsockets 1 || echo '警告: b
 # 复制所有源代码
 COPY poetize-im-ui/ ./
 
-# 构建前端项目
-RUN npm run build
+# 构建前端项目（限制内存使用以适应低配服务器）
+RUN NODE_OPTIONS="--max-old-space-size=1536 --max-semi-space-size=64" npm run build
 
 # ========================================
 # 阶段 2: 运行阶段 - 只保留构建产物

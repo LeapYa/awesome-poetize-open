@@ -47,8 +47,8 @@ RUN npm install -g brotli --no-fund --no-audit --maxsockets 1 || echo '警告: b
 # 复制所有源代码
 COPY poetize-ui/ ./
 
-# 构建前端项目
-RUN npm run build
+# 构建前端项目（限制内存使用以适应低配服务器）
+RUN NODE_OPTIONS="--max-old-space-size=1536 --max-semi-space-size=64" npm run build
 
 # 处理静态资源复制（Vite 构建时会自动将 public 内容搬运至 dist，此处仅作安全兼容性通过）
 # RUN if [ -d "public/static" ]; then \

@@ -35,6 +35,8 @@ export default defineConfig({
         'process.env': {}
     },
     build: {
+        sourcemap: false, // 禁用 source map 以减少内存消耗
+        minify: 'esbuild', // 使用 esbuild 替代 terser，内存效率更高
         chunkSizeWarningLimit: 2000,
         rollupOptions: {
             output: {

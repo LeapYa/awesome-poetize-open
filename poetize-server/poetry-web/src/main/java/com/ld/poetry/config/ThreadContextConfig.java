@@ -129,7 +129,7 @@ public class ThreadContextConfig implements AsyncConfigurer {
         // 队列容量
         executor.setQueueCapacity(25);
         // 线程名前缀
-        executor.setThreadNamePrefix("Poetize-Async-");
+        executor.setThreadNamePrefix("POETIZE-Async-");
         // 拒绝策略
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         // 等待所有任务结束后再关闭线程池

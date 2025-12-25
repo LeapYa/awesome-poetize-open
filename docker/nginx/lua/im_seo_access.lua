@@ -40,7 +40,7 @@ local function get_site_name()
         keepalive_pool = 5
     })
     
-    local site_name = "Poetize"
+    local site_name = "POETIZE"
     
     if res and res.status == 200 and res.body then
         local ok, data = pcall(cjson.decode, res.body)

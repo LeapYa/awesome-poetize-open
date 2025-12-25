@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2025-12-12
-## 描述: 部署 Poetize 博客系统安装脚本
-## 版本: 1.11.0
+## 修改时间: 2025-12-25
+## 描述: 部署 POETIZE 博客系统安装脚本
+## 版本: 1.11.1
 
 # 定义颜色
 RED='\033[0;31m'
@@ -199,7 +199,7 @@ print_summary() {
   
   printf "\n"
   printf "${GREEN}%80s${NC}\n" | tr ' ' '='
-  printf "${GREEN}%s${NC}\n" "$(printf '%*s' $(((80-20)/2)) '')Poetize 部署成功！$(printf '%*s' $(((80-20)/2)) '')"
+  printf "${GREEN}%s${NC}\n" "$(printf '%*s' $(((80-20)/2)) '')POETIZE 部署成功！$(printf '%*s' $(((80-20)/2)) '')"
   printf "${GREEN}%80s${NC}\n" | tr ' ' '='
   printf "\n"
   
@@ -336,7 +336,7 @@ save_config() {
   
   # 保存配置到文件
   cat > "$config_file" << EOF
-# Poetize部署配置
+# POETIZE部署配置
 # 保存时间: $(date)
 DOMAINS="$all_domains"
 PRIMARY_DOMAIN="$PRIMARY_DOMAIN"
@@ -3286,7 +3286,7 @@ interactive_configure_external_services() {
     info "=== 外部服务配置 ==="
 
     # 外部数据库配置（默认使用本地数据库，按n使用外部数据库）
-    if auto_confirm "是否使用本地MariaDB数据库？(默认: 是，30秒自动确认)" "y"; then
+    if auto_confirm "是否使用本地MariaDB数据库？[Y/n](默认: y，30秒自动确认)" "y"; then
       info "将使用本地MariaDB数据库"
     else
       # 用户选择使用外部数据库
@@ -3319,7 +3319,7 @@ interactive_configure_external_services() {
     fi
 
     # 外部Redis配置（默认使用本地Redis，按n使用外部Redis）
-    if auto_confirm "是否使用本地Redis？(默认: 是，30秒自动确认)" "y"; then
+    if auto_confirm "是否使用本地Redis？[Y/n](默认: y，30秒自动确认)" "y"; then
       info "将使用本地Redis"
     else
       # 用户选择使用外部Redis
@@ -5562,7 +5562,7 @@ load_offline_images() {
     return 0
   fi
   
-  warning "未找到离线Docker镜像文件"
+  # warning "未找到离线Docker镜像文件"
   return 1
 }
 
@@ -6014,9 +6014,9 @@ install_git() {
   esac
 }
 
-# 检测已运行的Poetize容器
+# 检测已运行的POETIZE容器
 check_existing_poetize_containers() {  
-  # 检查是否有运行中的Poetize容器
+  # 检查是否有运行中的POETIZE容器
   local running_containers=$(sudo docker ps --filter "name=poetize-" --format "{{.Names}}" 2>/dev/null | wc -l)
   
   if [ "$running_containers" -gt 0 ]; then
@@ -6025,17 +6025,17 @@ check_existing_poetize_containers() {
   return 1
 }
 
-# 停止已运行的Poetize容器
+# 停止已运行的POETIZE容器
 stop_existing_poetize_containers() {
-  info "正在停止已运行的Poetize容器..."
+  info "正在停止已运行的POETIZE容器..."
   
-  # 停止所有Poetize相关容器
+  # 停止所有POETIZE相关容器
   local containers=$(sudo docker ps --filter "name=poetize-" --format "{{.Names}}" 2>/dev/null)
   
   if [ -n "$containers" ]; then
     echo "$containers" | xargs docker stop 2>/dev/null || true
     echo "$containers" | xargs docker rm 2>/dev/null || true
-    success "已停止并删除所有Poetize容器"
+    success "已停止并删除所有POETIZE容器"
   fi
   
   # 删除相关网络
@@ -6344,7 +6344,7 @@ download_and_extract_project() {
   # 保存版本信息到 .config/version.txt
   mkdir -p "$extract_dir/.config"
   cat > "$extract_dir/.config/version.txt" << EOF
-# Poetize 部署版本信息
+# POETIZE 部署版本信息
 VERSION=${target_version:-main}
 DEPLOY_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 DEPLOY_SOURCE=$([ -n "$target_version" ] && echo "tag" || echo "main")
@@ -6404,9 +6404,9 @@ find_directory_num() {
 }
 
 # 环境检测后的处理逻辑，根据环境状态执行不同的操作，逻辑：
-# 检测是否是项目环境目录下，如果是->检测已运行的Poetize容器，如果有->二次安装/重新安装/取消安装
+# 检测是否是项目环境目录下，如果是->检测已运行的POETIZE容器，如果有->二次安装/重新安装/取消安装
 #                                                    如果没有->结束，继续部署流程
-#                       如果不是，检测已运行的Poetize容器，如果有->二次安装/重新安装/取消安装
+#                       如果不是，检测已运行的POETIZE容器，如果有->二次安装/重新安装/取消安装
 #                                                      如果没有->检测是否有项目环境目录，如果有->进入目录，不再下载项目
 #                                                                                   如果没有->下载项目
 handle_environment_status() {
@@ -6416,9 +6416,9 @@ handle_environment_status() {
   
   # 在项目环境下执行
   if [ $status -eq 0 ]; then
-    # 检测已运行的Poetize容器
+    # 检测已运行的POETIZE容器
     if check_existing_poetize_containers; then
-      warning "检测到已运行的Poetize容器:"
+      warning "检测到已运行的POETIZE容器:"
       sudo docker ps --filter "name=poetize-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
       echo ""
       
@@ -6433,8 +6433,8 @@ handle_environment_status() {
       local DIR=$(dirname "$(pwd)")
 
       if [ -z "$DIR" ]; then
-        error "未找到项目目录，如果你认为这是一个错误，请提交issue"
-        return 1
+        error "未找到已经安装的项目目录，如果你认为这是一个错误，请提交issue，将在当前目录下安装..."
+        DIR=$(pwd)
       fi
 
       case "$REPLY" in
@@ -6462,9 +6462,9 @@ handle_environment_status() {
     fi
   # 非项目环境下执行
   else
-    # 检测已运行的Poetize容器
+    # 检测已运行的POETIZE容器
     if check_existing_poetize_containers; then
-      warning "检测到已运行的Poetize容器:"
+      warning "检测到已运行的POETIZE容器:"
       sudo docker ps --filter "name=poetize-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
       echo ""
       
@@ -6479,11 +6479,12 @@ handle_environment_status() {
       local DIR=$(find_directory "Awesome-poetize-open" | head -n 1)
 
       if [ -z "$DIR" ]; then
-        error "未找到项目目录，如果你认为这是一个错误，请提交issue"
-        return 1
+        error "未找到已经安装的项目目录，如果你认为这是一个错误，请提交issue，将在当前目录下安装..."
+        DIR=$(pwd)
+      else
+        # 项目所在目录，/root/Awesome-poetize-open -> /root
+        DIR=$(dirname "$DIR")
       fi
-      # 项目所在目录，/root/Awesome-poetize-open -> /root
-      DIR=$(dirname "$DIR")
 
       case "$REPLY" in
         1)
@@ -7677,7 +7678,7 @@ main() {
   
   # 检查并加载离线Docker镜像
   if check_offline_resources; then
-    info "检测到本地离线资源，检查并加载离线Docker镜像..."
+    # info "检测到本地离线资源，检查并加载离线Docker镜像..."
     if load_offline_images; then
       # 如果成功加载离线镜像，设置跳过构建选项
       SKIP_BUILD="--no-build"
@@ -7841,7 +7842,7 @@ parse_arguments "$@"
 # 检查是否需要后台运行
 if [ "$RUN_IN_BACKGROUND" = true ]; then
   # 后台运行模式
-  echo "Poetize 部署脚本将在后台运行，日志输出到: $LOG_FILE"
+  echo "POETIZE 部署脚本将在后台运行，日志输出到: $LOG_FILE"
   echo "使用 'tail -f $LOG_FILE' 命令可以实时查看部署进度"
   echo "注意：后台运行模式下会自动回答'y'确认所有提示"
   

@@ -1223,8 +1223,8 @@ export default {
       isTouch: false, // 触摸设备检测
       seoConfig: {
         enable: false,
-        site_description: "Poetize：作诗，有诗意地描写。个人博客，生活倒影，记录生活。",
-        site_keywords: "Poetize,博客,个人网站,生活笔记,记录生活",
+        site_description: "POETIZE：作诗，有诗意地描写。个人博客，生活倒影，记录生活。",
+        site_keywords: "POETIZE,博客,个人网站,生活笔记,记录生活",
         default_author: "poetize",
         og_image: "",
         site_logo: "",

@@ -1,7 +1,7 @@
 #!/bin/bash
 ## 作者: LeapYa
 ## 修改时间: 2025-12-12
-## 描述: Poetize 博客系统自动迁移脚本
+## 描述: POETIZE 博客系统自动迁移脚本
 ## 版本: 1.4.0
 
 # 定义颜色
@@ -1351,7 +1351,7 @@ cleanup() {
 show_summary() {
     printf "\n"
     printf "${GREEN}%80s${NC}\n" | tr ' ' '='
-    printf "${GREEN}%s${NC}\n" "$(printf '%*s' $(((80-20)/2)) '')Poetize 迁移完成！$(printf '%*s' $(((80-20)/2)) '')"
+    printf "${GREEN}%s${NC}\n" "$(printf '%*s' $(((80-20)/2)) '')POETIZE 迁移完成！$(printf '%*s' $(((80-20)/2)) '')"
     printf "${GREEN}%80s${NC}\n" | tr ' ' '='
     printf "\n"
     

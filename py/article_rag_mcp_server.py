@@ -688,7 +688,7 @@ async def get_article_statistics() -> str:
             
             web_info = data.get("data", {})
             
-            web_name = web_info.get('webName', 'Poetize')
+            web_name = web_info.get('webName', 'POETIZE')
             web_title = web_info.get('webTitle', '')
             history_all_count = web_info.get('historyAllCount', '0')
             article_count = web_info.get('articleCount', 0)

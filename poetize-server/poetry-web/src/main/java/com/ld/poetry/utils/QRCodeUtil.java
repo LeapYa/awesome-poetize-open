@@ -239,7 +239,7 @@ public class QRCodeUtil {
             connection.setConnectTimeout(10000);
             connection.setReadTimeout(10000);
             connection.setInstanceFollowRedirects(true); // 自动跟随重定向
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Poetize QRCode Generator)");
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (POETIZE QRCode Generator)");
             
             // 连接并获取响应码
             int responseCode = connection.getResponseCode();

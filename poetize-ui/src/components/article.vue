@@ -436,7 +436,7 @@ const myFooter = () => import( "./common/myFooter");
     head() {
       if (!this.metaTags) {
         return {
-          title: 'Poetize博客',
+          title: 'POETIZE博客',
           meta: []
         };
       }
@@ -1226,9 +1226,9 @@ const myFooter = () => import( "./common/myFooter");
       setDefaultMetaTags() {
         if (this.article) {
           this.metaTags = {
-            title: this.article.articleTitle || 'Poetize博客',
-            description: this.article.articleTitle ? (this.article.articleTitle + ' - Poetize博客') : 'Poetize博客',
-            keywords: 'Poetize,博客,个人网站',
+            title: this.article.articleTitle || 'POETIZE博客',
+            description: this.article.articleTitle ? (this.article.articleTitle + ' - POETIZE博客') : 'POETIZE博客',
+            keywords: 'POETIZE,博客,个人网站',
             author: this.article.username || 'Admin',
             'og:url': window.location.href,
             'og:image': this.article.articleCover || '',

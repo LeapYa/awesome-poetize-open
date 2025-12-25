@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2025-12-12
-## 描述: Poetize 博客系统全局管理命令
-## 版本: 1.8.0
+## 修改时间: 2025-12-25
+## 描述: POETIZE 博客系统全局管理命令
+## 版本: 1.8.1
 
 # 定义颜色
 RED='\033[0;31m'
@@ -126,8 +126,8 @@ show_help() {
     printf "  -qianyi, -migrate, -qy [版本]  执行博客迁移（如 -qy v2.1.1，默认使用最新稳定版本）\n"
     printf "  -backup [路径]            备份当前数据到指定路径\n"
     printf "  -restore [路径]            从指定路径恢复备份数据（未指定路径时恢复最新备份）\n"
-    printf "  -uninstall                卸载当前项目的Poetize实例\n"
-    printf "  -uninstall-all            完全卸载所有Poetize系统\n"
+    printf "  -uninstall                卸载当前项目的POETIZE实例\n"
+    printf "  -uninstall-all            完全卸载所有POETIZE系统\n"
     printf "\n"
     printf "${BLUE}日志和监控:${NC}\n"
     printf "  -logs [服务名]            查看服务日志\n"
@@ -203,7 +203,7 @@ show_status() {
     if sudo docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=poetize" | grep -q "poetize"; then
         sudo docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=poetize"
     else
-        warning "未发现Poetize相关容器"
+        warning "未发现POETIZE相关容器"
     fi
     
     printf "\n"
@@ -268,7 +268,7 @@ show_status() {
 # 启动服务
 start_services() {
     find_project_dir
-    info "正在启动Poetize服务..."
+    info "正在启动POETIZE服务..."
     
     if $DOCKER_COMPOSE_CMD up -d; then
         success "服务启动成功"
@@ -283,7 +283,7 @@ start_services() {
 # 停止服务
 stop_services() {
     find_project_dir
-    info "正在停止Poetize服务..."
+    info "正在停止POETIZE服务..."
     if $DOCKER_COMPOSE_CMD down; then
         success "服务停止成功"
     else
@@ -295,7 +295,7 @@ stop_services() {
 # 重启服务
 restart_services() {
     find_project_dir
-    info "正在重启Poetize服务..."
+    info "正在重启POETIZE服务..."
 
     if $DOCKER_COMPOSE_CMD restart; then
         success "服务重启成功"
@@ -373,7 +373,7 @@ uninstall_services() {
     fi
 }
 
-# 完全卸载所有Poetize系统
+# 完全卸载所有POETIZE系统
 uninstall_all_services() {
     warning "此操作将完全卸载所有POETIZE系统，包括删除所有容器、镜像、卷和数据！"
     printf "${RED}警告: 这将删除所有博客数据，此操作不可逆！${NC}\n"
@@ -673,7 +673,7 @@ get_project_info() {
         if [ -d "$search_path" ]; then
             while IFS= read -r -d '' dir; do
                 if [ -f "$dir/docker-compose.yml" ] || [ -f "$dir/docker-compose.yaml" ]; then
-                    # 检查是否为Poetize项目
+                    # 检查是否为POETIZE项目
                     if grep -q "poetize" "$dir/docker-compose.yml" 2>/dev/null || grep -q "poetize" "$dir/docker-compose.yaml" 2>/dev/null; then
                         project_dirs+=("$dir")
                     fi

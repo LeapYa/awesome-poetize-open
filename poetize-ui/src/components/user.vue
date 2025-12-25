@@ -321,7 +321,7 @@ const proButton = () => import( "./common/proButton");
         // 优先使用webTitle，fallback到webName，最后使用默认值
         const webTitle = this.mainStore.webInfo?.webTitle || 
                         this.mainStore.webInfo?.webName || 
-                        'Poetize';
+                        'POETIZE';
         const isLoggedIn = !this.$common.isEmpty(this.mainStore.currentUser);
         
         let title, description, keywords;

@@ -270,7 +270,7 @@ public class MailServiceImpl implements MailService {
             String subject = sysConfigService.getConfigValueByKey("user.code.subject");
             if (subject == null || subject.trim().isEmpty()) {
                 // 如果数据库中没有配置，使用默认主题
-                subject = "Poetize验证码";
+                subject = "POETIZE验证码";
                 log.warn("数据库中未找到验证码邮件主题配置，使用默认主题");
             }
             

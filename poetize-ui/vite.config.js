@@ -37,6 +37,7 @@ export default defineConfig({
     build: {
         sourcemap: false, // 禁用 source map 以减少内存消耗
         minify: 'esbuild', // 使用 esbuild 替代 terser，内存效率更高
+        assetsDir: 'static', // 静态资源输出目录，与原 Vue CLI 配置一致
         chunkSizeWarningLimit: 2000,
         rollupOptions: {
             output: {

@@ -59,13 +59,13 @@ export default defineComponent({
   max-width: 250px;
   min-height: 60px;
   padding: 10px 15px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(224, 224, 224, 1);
+  background: rgba(236, 217, 188, 0.5);
+  border: 1px solid rgba(224, 186, 140, 0.62);
   border-radius: 12px;
   box-shadow: 0 3px 15px rgba(0, 0, 0, 0.2);
   font-size: 14px;
   line-height: 1.6;
-  color: #333;
+  color: #5a3d2b;
   word-wrap: break-word;
   opacity: 0;
   transform: translateY(10px);
@@ -84,6 +84,19 @@ export default defineComponent({
 .waifu-tips::before {
   content: "";
   position: absolute;
+  bottom: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 9px solid rgba(224, 186, 140, 0.62);
+}
+
+.waifu-tips::after {
+  content: "";
+  position: absolute;
   bottom: -8px;
   left: 50%;
   transform: translateX(-50%);
@@ -91,7 +104,7 @@ export default defineComponent({
   height: 0;
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
-  border-top: 8px solid rgba(255, 255, 255, 0.95);
+  border-top: 8px solid rgba(236, 217, 188, 0.5);
 }
 
 .waifu-tips >>> a {

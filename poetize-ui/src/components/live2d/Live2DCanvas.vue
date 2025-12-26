@@ -91,8 +91,14 @@ export default {
      */
     const waitForLive2D = () => {
       return new Promise((resolve, reject) => {
+        // 如果已经加载，立即返回
+        if (typeof window.loadlive2d === 'function') {
+          resolve()
+          return
+        }
+
         let attempts = 0
-        const maxAttempts = 30 // 最多等待3秒
+        const maxAttempts = 100 // 最多等待10秒
         
         const checkInterval = setInterval(() => {
           attempts++
@@ -102,7 +108,7 @@ export default {
             resolve()
           } else if (attempts >= maxAttempts) {
             clearInterval(checkInterval)
-            reject(new Error('Live2D库加载超时'))
+            reject(new Error('Live2D库加载超时，请刷新页面重试'))
           }
         }, 100)
       })

@@ -12,7 +12,8 @@
 </template>
 
 <script>
-import { defineComponent, ref } from 'vue'
+import { defineComponent, ref, onMounted, watch } from 'vue'
+import { useLive2DStore } from '@/stores/live2d'
 
 export default defineComponent({
   name: 'Live2DToggle',
@@ -20,12 +21,33 @@ export default defineComponent({
   emits: ['click'],
   
   setup(props, { emit }) {
-    const isActive = ref(false)
+    const store = useLive2DStore()
+    const isActive = ref(true) // 默认显示
     
     const handleClick = () => {
       isActive.value = false
       emit('click')
     }
+    
+    // 监听 visible 状态变化，当 toggle 需要显示时重置 isActive
+    watch(() => store.visible, (newVisible) => {
+      if (!newVisible) {
+        // 当看板娘隐藏时（toggle 将要显示），延迟重置 isActive
+        setTimeout(() => {
+          isActive.value = true
+        }, 100)
+      }
+    })
+    
+    // 组件挂载时，先隐藏然后滑入显示（实现刷新时的动画效果）
+    onMounted(() => {
+      // 先设置为 false，让元素处于隐藏状态
+      isActive.value = false
+      // 延迟设置为 true，触发 CSS transition 动画
+      setTimeout(() => {
+        isActive.value = true
+      }, 100)
+    })
     
     return {
       isActive,
@@ -37,101 +59,79 @@ export default defineComponent({
 
 <style scoped>
 .waifu-toggle {
-  position: fixed;
-  bottom: 30px;
-  right: 30px;
-  width: 60px;
-  height: 60px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 50%;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  background-color: #fa0;
+  border-radius: 5px;
+  bottom: 66px;
+  color: #fff;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  font-size: 12px;
+  left: 0;
+  margin-left: -100px;
+  padding: 5px 2px 5px 5px;
+  position: fixed;
+  transition: margin-left 1s;
+  width: 60px;
+  writing-mode: vertical-rl;
   z-index: 998;
-  transition: all 0.3s ease;
-  animation: pulse 2s infinite;
 }
 
 .waifu-toggle:hover {
-  transform: scale(1.1);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-}
-
-.waifu-toggle:active {
-  transform: scale(0.95);
+  margin-left: -20px;
 }
 
 .waifu-toggle-text {
-  color: #fff;
-  font-size: 12px;
-  font-weight: bold;
-  text-align: center;
-  line-height: 1.2;
   user-select: none;
 }
 
 .waifu-toggle-active {
-  opacity: 1;
-  pointer-events: auto;
+  margin-left: -40px;
 }
 
-/* 脉动动画 */
-@keyframes pulse {
-  0%, 100% {
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-  }
-  50% {
-    box-shadow: 0 4px 25px rgba(102, 126, 234, 0.6);
-  }
+.waifu-toggle-active:hover {
+  margin-left: -30px;
 }
 
 /* 弹跳动画 */
 .bounce-enter-active {
-  animation: bounceIn 0.6s ease;
+  animation: slideIn 1s ease;
 }
 
 .bounce-leave-active {
-  animation: bounceOut 0.4s ease;
+  animation: slideOut 0.5s ease;
 }
 
-@keyframes bounceIn {
+@keyframes slideIn {
   0% {
-    opacity: 0;
-    transform: scale(0) translateY(50px);
-  }
-  50% {
-    transform: scale(1.1) translateY(-10px);
+    margin-left: -100px;
   }
   100% {
-    opacity: 1;
-    transform: scale(1) translateY(0);
+    margin-left: -40px;
   }
 }
 
-@keyframes bounceOut {
+@keyframes slideOut {
   0% {
-    opacity: 1;
-    transform: scale(1);
+    margin-left: -40px;
   }
   100% {
-    opacity: 0;
-    transform: scale(0);
+    margin-left: -100px;
   }
 }
 
 /* 移动端适配 */
 @media screen and (max-width: 768px) {
   .waifu-toggle {
-    width: 50px;
-    height: 50px;
-    bottom: 20px;
-    right: 20px;
-  }
-  
-  .waifu-toggle-text {
+    bottom: 50px;
     font-size: 10px;
+    width: 50px;
+    padding: 4px 2px 4px 4px;
+  }
+}
+
+/* 小屏幕隐藏 */
+@media screen and (max-width: 480px) {
+  .waifu-toggle {
+    display: none !important;
   }
 }
 </style>

@@ -382,7 +382,7 @@ docker system prune -af && rm -rf Awesome-poetize-open && bash <(curl -sL instal
 
    ```bash
    cd poetize-ui
-   npm install --legacy-peer-deps
+   npm install
    ```
 3. **开发服务**
 
@@ -396,7 +396,7 @@ docker system prune -af && rm -rf Awesome-poetize-open && bash <(curl -sL instal
 
    ```bash
    cd poetize-im-ui
-   npm install --legacy-peer-deps
+   npm install
    ```
 2. **配置修改**
 

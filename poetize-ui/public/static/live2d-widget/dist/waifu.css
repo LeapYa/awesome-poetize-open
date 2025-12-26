@@ -15,7 +15,7 @@
 }
 
 #waifu-toggle.waifu-toggle-active {
-	margin-left: -50px;
+	margin-left: -40px;
 }
 
 #waifu-toggle.waifu-toggle-active:hover {
@@ -46,7 +46,7 @@
 	border: 1px solid rgba(224, 186, 140, 0.62);
 	border-radius: 12px;
 	background-color: rgba(236, 217, 188, 0.5);
-	color: #0d7377;
+	color: #5a3d2b;
 	font-size: 14px;
 	line-height: 24px;
 	text-overflow: ellipsis;
@@ -57,7 +57,7 @@
 	left: 0px;
 	top: -30px;
 	z-index: 9999 !important;
-	
+
 	/* 确保文字可以选择 */
 	user-select: text !important;
 	-webkit-user-select: text !important;
@@ -128,7 +128,8 @@
 }
 
 #waifu-tool svg:hover {
-	fill: #0684bd; /* #34495e */
+	fill: #0684bd;
+	/* #34495e */
 }
 
 @keyframes shake {
@@ -328,7 +329,8 @@
 		transform: translate(-1.5px, -1.5px) rotate(-.5deg);
 	}
 
-	0%, 100% {
+	0%,
+	100% {
 		transform: translate(0, 0) rotate(0);
 	}
 }
@@ -399,6 +401,7 @@
 		opacity: 0;
 		transform: translateY(-5px);
 	}
+
 	to {
 		opacity: 1;
 		transform: translateY(0);
@@ -406,9 +409,12 @@
 }
 
 @keyframes pulse {
-	0%, 100% {
+
+	0%,
+	100% {
 		opacity: 0.6;
 	}
+
 	50% {
 		opacity: 1;
 	}
@@ -430,15 +436,20 @@
 }
 
 @keyframes thinking-dots {
-	0%, 20% {
+
+	0%,
+	20% {
 		opacity: 0.3;
 		transform: scale(1);
 	}
+
 	40% {
 		opacity: 1;
 		transform: scale(1.1);
 	}
-	60%, 100% {
+
+	60%,
+	100% {
 		opacity: 0.3;
 		transform: scale(1);
 	}

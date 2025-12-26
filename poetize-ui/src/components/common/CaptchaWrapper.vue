@@ -308,7 +308,7 @@ export default {
   justify-content: center;
   align-items: center;
   background-color: rgba(0, 0, 0, 0.5);
-  z-index: 9999;
+  z-index: 2100; /* 验证码遮罩层，高于 el-dialog(2000-2001)，低于消息提示(2500) */
 }
 
 /* 确保验证码组件在小屏幕上也能完整显示 */

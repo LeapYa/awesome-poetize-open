@@ -14,7 +14,7 @@
           <div 
             ref="slideTrackFill" 
             class="slide-track-fill"
-            :style="{ width: slidePosition + (isDragging || verified ? buttonWidth/2 : 0) + 'px' }"
+            :style="{ width: slidePosition + (isDragging || verified || isVerifying ? buttonWidth/2 : 0) + 'px' }"
           >
             <div class="track-stars" v-if="!verified">
               <span>✨</span>
@@ -103,6 +103,7 @@ export default {
     return {
       errorMsg: '',
       verified: false,
+      isVerifying: false,  // 是否正在验证中
       screenWidth: window.innerWidth,
       slidePosition: 0,
       startX: 0,
@@ -259,8 +260,9 @@ export default {
       }
     },
     
-    // 后端验证（新增）
+    // 后端验证
     async verifyWithServer() {
+      this.isVerifying = true;  // 开始验证，保持填充条宽度
       const totalTime = Date.now() - this.slideStartTime;
 
       // 准备验证数据
@@ -273,7 +275,33 @@ export default {
       };
 
       // 加密请求数据 - 使用GCM模式
-      const encryptedData = await cryptoUtil.encrypt(verifyData);
+      let encryptedData;
+      try {
+        encryptedData = await cryptoUtil.encrypt(verifyData);
+      } catch (error) {
+        // 加密失败处理（如 HTTP 环境下 Web Crypto API 不可用）
+        console.error("加密失败:", error);
+        
+        // 检查是否是 HTTPS 相关错误
+        const isHttpsError = error.code === 'CRYPTO_NOT_AVAILABLE' || 
+          (error.message && error.message.includes('HTTPS'));
+        const errorMessage = isHttpsError
+          ? '安全验证需要 HTTPS 连接。请使用 HTTPS 访问此网站，或联系站长启用 HTTPS。'
+          : '加密失败，请刷新页面重试';
+        
+        this.$message({
+          message: errorMessage,
+          type: 'error',
+          duration: 5000,
+          showClose: true,
+          customClass: 'captcha-error-message'
+        });
+        
+        const displayError = isHttpsError ? '需要 HTTPS 连接' : '加密失败';
+        this.verifyFail(displayError);
+        return;
+      }
+
       const encryptedRequest = {
         encrypted: encryptedData
       };
@@ -336,20 +364,30 @@ export default {
         })
         .catch(error => {
           console.error("滑动验证失败:", error);
+          
+          // 检查是否是 HTTPS 相关错误
+          const errorMessage = error.isHttpsRequired || (error.message && error.message.includes('HTTPS'))
+            ? error.message
+            : '验证请求失败，请检查网络连接';
+          
           this.$message({
-            message: '验证请求失败，请检查网络连接',
+            message: errorMessage,
             type: 'error',
-            duration: 3000
+            duration: 5000,
+            showClose: true,
+            customClass: 'captcha-error-message'  // 使用自定义样式类提高 z-index
           });
           
           // 使用自定义错误消息
-          this.verifyFail('网络错误，请重试');
+          const displayError = error.isHttpsRequired ? '需要 HTTPS 连接' : '网络错误，请重试';
+          this.verifyFail(displayError);
         });
     },
     
     // 验证成功
     verifySuccess() {
       this.verified = true;
+      this.isVerifying = false;  // 验证结束
       this.errorMsg = '';
       
       // 设置为完全滑到末端
@@ -367,6 +405,7 @@ export default {
     // 验证失败
     verifyFail(customErrorMsg = null) {
       this.verified = false;
+      this.isVerifying = false;  // 验证结束
       // 如果没有自定义错误消息，使用默认消息
       if (customErrorMsg) {
         this.errorMsg = customErrorMsg;

@@ -84,7 +84,7 @@ export default {
   async encrypt(plaintText) {
     // 检查 Web Crypto API 是否可用
     if (!this.isWebCryptoAvailable()) {
-      const errorMsg = '安全警告！当前环境不支持加密功能。请使用 HTTPS 访问或使用桌面浏览器。';
+      const errorMsg = '安全警告！当前环境不支持加密功能。请使用 HTTPS 访问此网站，或联系站长启用 HTTPS。';
       console.error(errorMsg);
       // 抛出错误让调用方处理，而不是返回明文
       throw new Error(errorMsg);

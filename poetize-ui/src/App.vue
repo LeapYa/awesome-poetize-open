@@ -121,9 +121,14 @@ export default {
   font-family: 'MyAwesomeFont', serif;
 }
 
-/* 提高消息通知的层级，使其显示在对话框之上 */
+/* 消息通知全局层级，始终最高优先级显示 */
 .el-message {
-  z-index: 3000 !important;
+  z-index: 10000 !important;
+}
+
+/* 验证码错误消息同样需要最高层级 */
+.captcha-error-message {
+  z-index: 10000 !important;
 }
 
 .global-language-switch {

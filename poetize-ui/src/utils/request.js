@@ -15,17 +15,17 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5分钟缓存
 // 获取翻译配置中的超时时间
 async function getTranslationTimeout() {
   const now = Date.now();
-  
+
   // 如果缓存有效，直接使用
   if (cachedTranslationConfig && (now - configCacheTime) < CACHE_DURATION) {
     return cachedTranslationConfig.timeout || 30;
   }
-  
+
   try {
     const adminToken = localStorage.getItem('adminToken');
     const userToken = localStorage.getItem('userToken');
     const token = adminToken || userToken;
-    
+
     const headers = {
       'User-Agent': 'axios'
     };
@@ -33,12 +33,12 @@ async function getTranslationTimeout() {
       // 确保Authorization头存在并添加Bearer前缀
       headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
     }
-    
+
     const response = await axios.get(constant.pythonBaseURL + '/api/translation/config', {
       timeout: 10000,
       headers: headers
     });
-    
+
     if (response.data && response.data.code === 200 && response.data.data) {
       const timeout = response.data.data.llm?.timeout || 30;
       cachedTranslationConfig = { timeout };
@@ -48,7 +48,7 @@ async function getTranslationTimeout() {
   } catch (error) {
     // 静默失败，使用默认值
   }
-  
+
   // 如果获取失败，返回默认值
   return 30;
 }
@@ -73,24 +73,24 @@ axios.defaults.timeout = TIMEOUT_CONFIG.DEFAULT;
  */
 function configureTimeout(config) {
   if (!config.url) return config;
-  
+
   const url = config.url;
   const isDefaultTimeout = !config.timeout || config.timeout === TIMEOUT_CONFIG.DEFAULT;
-  
+
   // SEO请求：短超时 + 重试机制
   if (url.includes('/seo/')) {
     config.timeout = TIMEOUT_CONFIG.SEO;
     config.retry = 3;
     config.retryDelay = 1000;
-    
+
     // 防止请求卡住
     const source = axios.CancelToken.source();
     config.cancelToken = source.token;
     setTimeout(() => source.cancel('SEO请求超时自动取消'), TIMEOUT_CONFIG.SEO + 5000);
-    
+
     return config;
   }
-  
+
   // 文章保存/更新：动态超时（根据翻译配置）
   if (url.includes('/article/saveArticle') || url.includes('/article/updateArticle')) {
     if (isDefaultTimeout) {
@@ -100,7 +100,7 @@ function configureTimeout(config) {
     }
     return config;
   }
-  
+
   // 翻译API：长超时（AI处理需要更多时间）
   if (url.includes('/api/translation/')) {
     if (isDefaultTimeout) {
@@ -108,7 +108,7 @@ function configureTimeout(config) {
     }
     return config;
   }
-  
+
   return config;
 }
 
@@ -133,8 +133,8 @@ axios.interceptors.request.use(async function (config) {
       }
       // 对于验证码验证请求，添加加密处理
       else if ((config.url.includes('/captcha/verify-checkbox') ||
-                config.url.includes('/captcha/verify-slide')) &&
-               config.method === 'post' && config.data) {
+        config.url.includes('/captcha/verify-slide')) &&
+        config.method === 'post' && config.data) {
         // 检查数据是否已经加密
         if (config.data.encrypted) {
           // 数据已经加密，直接使用
@@ -149,8 +149,16 @@ axios.interceptors.request.use(async function (config) {
               };
             }
           } catch (error) {
+            // 检查是否是 Web Crypto API 不可用的错误
+            if (error.code === 'CRYPTO_NOT_AVAILABLE') {
+              // 抛出用户友好的错误，阻止请求发送
+              const friendlyError = new Error('安全验证需要 HTTPS 连接。请使用 HTTPS 访问此网站，或联系站长启用 HTTPS。');
+              friendlyError.isHttpsRequired = true;
+              throw friendlyError;
+            }
             console.error('加密验证码验证请求失败:', error);
-            // 加密失败时继续使用原始数据
+            // 其他加密失败也阻止请求，避免发送未加密数据
+            throw new Error('安全验证失败，请刷新页面重试');
           }
         }
       }
@@ -161,10 +169,10 @@ axios.interceptors.request.use(async function (config) {
   // 统一处理token逻辑
   // 确定是否为管理员请求，优先使用config中的isAdmin标志
   const isAdmin = config.isAdmin || false;
-  
+
   // 根据请求类型获取相应的token
   const token = isAdmin ? localStorage.getItem("adminToken") : localStorage.getItem("userToken");
-  
+
   // 如果token存在，统一添加到请求头
   if (token) {
     // 确保headers对象存在
@@ -195,7 +203,7 @@ axios.interceptors.response.use(async function (response) {
 
   // 处理验证码配置响应的解密
   if (response.config.url && response.config.url.includes('/captcha/getConfig') &&
-      response.config.method === 'get' && response.data && response.data.data) {
+    response.config.method === 'get' && response.data && response.data.data) {
     try {
       // 检查响应是否加密
       if (response.data.data.encrypted) {
@@ -213,9 +221,9 @@ axios.interceptors.response.use(async function (response) {
 
   // 处理验证码验证响应的解密
   if (response.config.url &&
-      (response.config.url.includes('/captcha/verify-checkbox') ||
-       response.config.url.includes('/captcha/verify-slide')) &&
-      response.config.method === 'post' && response.data && response.data.data) {
+    (response.config.url.includes('/captcha/verify-checkbox') ||
+      response.config.url.includes('/captcha/verify-slide')) &&
+    response.config.method === 'post' && response.data && response.data.data) {
     try {
       // 检查响应是否加密
       if (response.data.data.encrypted) {
@@ -233,9 +241,9 @@ axios.interceptors.response.use(async function (response) {
 
   // 处理登录接口响应的解密
   if (response.config.url &&
-      response.config.url.includes('/user/login') &&
-      response.config.method === 'post' && response.data && response.data.data &&
-      response.data.data.data) {
+    response.config.url.includes('/user/login') &&
+    response.config.method === 'post' && response.data && response.data.data &&
+    response.data.data.data) {
     try {
       // 使用decryptBase64方法解密登录响应数据
       const decryptedData = await cryptoUtil.decryptBase64(response.data.data.data);
@@ -279,14 +287,14 @@ export default {
       isAdmin: isAdmin,
       headers: {}
     };
-    
+
     // 注意：token处理已移至请求拦截器中统一处理，此处不再重复处理
 
     // 显式设置Content-Type，确保JSON请求正确识别
     if (json) {
       config.headers['Content-Type'] = 'application/json;charset=UTF-8';
     }
-    
+
     // 如果不是json格式，将参数转换为URLSearchParams
     const data = json ? params : new URLSearchParams(params);
 
@@ -328,12 +336,12 @@ export default {
   upload(url, param, isAdmin = false, option) {
     let config = {
       isAdmin: isAdmin,
-      headers: {"Content-Type": "multipart/form-data"},
+      headers: { "Content-Type": "multipart/form-data" },
       timeout: 60000
     };
-    
+
     // 注意：token处理已移至请求拦截器中统一处理，此处不再重复处理
-    
+
     if (typeof option !== "undefined") {
       config.onUploadProgress = progressEvent => {
         if (progressEvent.total > 0) {
@@ -357,7 +365,7 @@ export default {
 
   uploadQiniu(url, param) {
     let config = {
-      headers: {"Content-Type": "multipart/form-data"},
+      headers: { "Content-Type": "multipart/form-data" },
       timeout: 60000
     };
 

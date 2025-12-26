@@ -464,7 +464,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    z-index: 9999;
+    z-index: 2100; /* 验证码模态框层级，高于 el-dialog(2000-2001) */
   }
   
   .slider-verify-mask {

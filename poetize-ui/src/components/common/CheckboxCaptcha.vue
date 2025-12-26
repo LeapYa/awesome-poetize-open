@@ -35,7 +35,7 @@
           <i class="el-icon-loading"></i> 验证中...
         </template>
         <template v-else-if="showError">
-          <i class="el-icon-warning"></i> 验证失败，请重试
+          <i class="el-icon-warning"></i> {{ errorMessage || '验证失败，请重试' }}
         </template>
         <template v-else>
           <span>点击勾选框进行验证</span>
@@ -90,6 +90,7 @@ export default {
       checked: false,
       verified: false,
       showError: false,
+      errorMessage: '',  // 动态错误消息
       mouseTrack: [],
       startTime: 0,
       checkTime: 0,
@@ -241,12 +242,24 @@ export default {
         .catch(error => {
           this.verifying = false;
           console.error("验证请求失败:", error);
+          
+          // 检查是否是 HTTPS 相关错误
+          const isHttpsError = error.isHttpsRequired || (error.message && error.message.includes('HTTPS'));
+          const errorMessage = isHttpsError
+            ? error.message
+            : '验证请求失败，请检查网络连接';
+          
           this.$message({
-            message: '验证请求失败，请检查网络连接',
+            message: errorMessage,
             type: 'error',
-            duration: 3000
+            duration: 5000,
+            showClose: true,
+            customClass: 'captcha-error-message'  // 使用自定义样式类提高 z-index
           });
-          this.verifyFail();
+          
+          // 传递简短的错误消息到组件内显示
+          const displayMessage = isHttpsError ? '需要 HTTPS 连接' : '';
+          this.verifyFail(displayMessage);
         });
     },
     
@@ -352,11 +365,13 @@ export default {
     
     /**
      * 验证失败
+     * @param {string} customMessage - 自定义错误消息
      */
-    verifyFail() {
+    verifyFail(customMessage = '') {
       this.checked = false;
       this.verified = false;
       this.showError = true;
+      this.errorMessage = customMessage;  // 设置动态错误消息
       this.verificationToken = '';
       this.retryCount++;  // 增加重试计数
 
@@ -366,8 +381,9 @@ export default {
 
       setTimeout(() => {
         this.showError = false;
+        this.errorMessage = '';  // 清除错误消息
         this.$emit('fail');
-      }, 2000);
+      }, 3000);  // 延长到 3 秒，让用户能看清 HTTPS 提示
     },
 
     /**

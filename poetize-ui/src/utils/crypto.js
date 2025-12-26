@@ -10,6 +10,16 @@ class CryptoUtil {
   }
 
   /**
+   * 检查 Web Crypto API 是否可用
+   * 在 HTTP 环境下（非 localhost），crypto.subtle 不可用
+   */
+  isWebCryptoAvailable() {
+    return typeof crypto !== 'undefined' &&
+      typeof crypto.subtle !== 'undefined' &&
+      typeof crypto.subtle.encrypt === 'function';
+  }
+
+  /**
    * 将字符串转换为ArrayBuffer
    * @param {string} string 字符串
    * @returns {ArrayBuffer} ArrayBuffer
@@ -59,6 +69,13 @@ class CryptoUtil {
    * @returns {string} 加密后的字符串（Base64编码，格式：IV+密文）
    */
   async encrypt(data) {
+    // 检查 Web Crypto API 是否可用
+    if (!this.isWebCryptoAvailable()) {
+      const error = new Error('安全功能不可用：请使用 HTTPS 访问此网站，或使用 localhost 开发环境');
+      error.code = 'CRYPTO_NOT_AVAILABLE';
+      throw error;
+    }
+
     try {
       // 生成随机IV（12字节）
       const iv = crypto.getRandomValues(new Uint8Array(12));

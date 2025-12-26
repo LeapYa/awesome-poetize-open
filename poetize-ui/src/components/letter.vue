@@ -41,7 +41,7 @@
     </section>
 
     <div id="footer">
-      <audio id="music2" preload="auto" loop="" src=""></audio>
+      <audio id="music2" preload="auto" loop="" :src="''"></audio>
       <a id="music_btn2" href="javascript:playPause();" style="opacity: 1;"></a>
     </div>
   </div>

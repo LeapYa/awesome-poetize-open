@@ -368,6 +368,8 @@ const myFooter = () => import( "./common/myFooter");
   const proButton = () => import( "./common/proButton");
   const videoPlayer = () => import( "./common/videoPlayer");
   import MarkdownIt from 'markdown-it';
+  import markdownItMultimdTable from 'markdown-it-multimd-table';
+  import markdownItKatex from '@iktakahiro/markdown-it-katex';
   import axios from 'axios';
   import { getLanguageMapping, preloadLanguageMapping, getTocTitle } from '@/utils/languageUtils';
   // 导入资源加载器
@@ -1316,8 +1318,8 @@ const myFooter = () => import( "./common/myFooter");
             // 检查当前语言状态，决定显示内容
 
             const md = new MarkdownIt({breaks: true})
-              .use(require('markdown-it-multimd-table'))
-              .use(require('@iktakahiro/markdown-it-katex'));
+              .use(markdownItMultimdTable)
+              .use(markdownItKatex);
 
             // 判断显示原文还是翻译
             if (this.currentLang !== this.sourceLanguage && this.article.translatedContent) {
@@ -2559,8 +2561,8 @@ const myFooter = () => import( "./common/myFooter");
           if (this.translatedContent) {
             // 强制更新显示翻译内容
             const md = new MarkdownIt({breaks: true})
-              .use(require('markdown-it-multimd-table'))
-              .use(require('@iktakahiro/markdown-it-katex'));
+              .use(markdownItMultimdTable)
+              .use(markdownItKatex);
             this.articleContentHtml = md.render(this.translatedContent);
             this.articleContentKey = Date.now(); // 强制Vue重新渲染
             
@@ -2579,7 +2581,7 @@ const myFooter = () => import( "./common/myFooter");
           }
         } else if (lang === this.sourceLanguage) {
           // 切换到源语言，确保显示原始内容
-          const md = new MarkdownIt({breaks: true}).use(require('markdown-it-multimd-table'));
+          const md = new MarkdownIt({breaks: true}).use(markdownItMultimdTable);
           this.articleContentHtml = md.render(this.article.articleContent);
           this.articleContentKey = Date.now(); // 强制Vue重新渲染
           
@@ -2614,8 +2616,8 @@ const myFooter = () => import( "./common/myFooter");
             // 更新文章内容显示
             // 使用与原文相同的渲染方法
             const md = new MarkdownIt({breaks: true})
-              .use(require('markdown-it-multimd-table'))
-              .use(require('@iktakahiro/markdown-it-katex'));
+              .use(markdownItMultimdTable)
+              .use(markdownItKatex);
             this.articleContentHtml = md.render(this.translatedContent);
             this.articleContentKey = Date.now(); // 强制Vue重新渲染
 
@@ -2641,8 +2643,8 @@ const myFooter = () => import( "./common/myFooter");
             
             // 显示原文
             const md = new MarkdownIt({breaks: true})
-              .use(require('markdown-it-multimd-table'))
-              .use(require('@iktakahiro/markdown-it-katex'));
+              .use(markdownItMultimdTable)
+              .use(markdownItKatex);
             this.articleContentHtml = md.render(this.article.articleContent);
             this.articleContentKey = Date.now();
             
@@ -2669,8 +2671,8 @@ const myFooter = () => import( "./common/myFooter");
             
             // 显示原文
             const md = new MarkdownIt({breaks: true})
-              .use(require('markdown-it-multimd-table'))
-              .use(require('@iktakahiro/markdown-it-katex'));
+              .use(markdownItMultimdTable)
+              .use(markdownItKatex);
             this.articleContentHtml = md.render(this.article.articleContent);
             this.articleContentKey = Date.now();
             
@@ -2698,7 +2700,7 @@ const myFooter = () => import( "./common/myFooter");
           this.updateUrlWithLanguage(this.sourceLanguage);
           
           // 显示原文内容
-          const md = new MarkdownIt({breaks: true}).use(require('markdown-it-multimd-table'));
+          const md = new MarkdownIt({breaks: true}).use(markdownItMultimdTable);
           this.articleContentHtml = md.render(this.article.articleContent);
           this.articleContentKey = Date.now();
           

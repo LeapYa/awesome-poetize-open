@@ -7,6 +7,10 @@
  * 2. 后台管理用（getAdminLanguageMapping） - 使用中文翻译，如 英文, 日文
  */
 
+import axios from 'axios';
+import constant from './constant.js';
+
+
 // 默认语言映射 - 前台展示用（原生语言文字）
 const DEFAULT_LANGUAGE_MAP = {
   'zh': '中文',
@@ -83,29 +87,27 @@ export async function getLanguageMapping() {
   if (cachedLanguageMap !== null) {
     return cachedLanguageMap;
   }
-  
+
   // 如果正在加载，等待加载完成
   if (isLoading && loadPromise) {
     return loadPromise;
   }
-  
+
   // 开始加载
   isLoading = true;
   loadPromise = (async () => {
     try {
-      const axios = require('axios');
-      const constant = require('./constant.js').default;
-      
+
       const response = await axios.get(constant.baseURL + '/webInfo/ai/config/system/languageMapping');
-      
+
       if (response.data && response.data.code === 200 && response.data.data) {
         cachedLanguageMap = response.data.data;
         return cachedLanguageMap;
       }
-      
+
       cachedLanguageMap = DEFAULT_LANGUAGE_MAP;
       return cachedLanguageMap;
-      
+
     } catch (error) {
       cachedLanguageMap = DEFAULT_LANGUAGE_MAP;
       return cachedLanguageMap;
@@ -114,7 +116,7 @@ export async function getLanguageMapping() {
       loadPromise = null;
     }
   })();
-  
+
   return loadPromise;
 }
 
@@ -129,29 +131,27 @@ export async function getAdminLanguageMapping() {
   if (cachedAdminLanguageMap !== null) {
     return cachedAdminLanguageMap;
   }
-  
+
   // 如果正在加载，等待加载完成
   if (isAdminLoading && loadAdminPromise) {
     return loadAdminPromise;
   }
-  
+
   // 开始加载
   isAdminLoading = true;
   loadAdminPromise = (async () => {
     try {
-      const axios = require('axios');
-      const constant = require('./constant.js').default;
-      
+
       const response = await axios.get(constant.baseURL + '/webInfo/ai/config/system/languageMappingAdmin');
-      
+
       if (response.data && response.data.code === 200 && response.data.data) {
         cachedAdminLanguageMap = response.data.data;
         return cachedAdminLanguageMap;
       }
-      
+
       cachedAdminLanguageMap = DEFAULT_ADMIN_LANGUAGE_MAP;
       return cachedAdminLanguageMap;
-      
+
     } catch (error) {
       cachedAdminLanguageMap = DEFAULT_ADMIN_LANGUAGE_MAP;
       return cachedAdminLanguageMap;
@@ -160,7 +160,7 @@ export async function getAdminLanguageMapping() {
       loadAdminPromise = null;
     }
   })();
-  
+
   return loadAdminPromise;
 }
 
@@ -220,7 +220,7 @@ export function clearLanguageMappingCache() {
 export async function preloadLanguageMapping(includeAdmin = false) {
   try {
     await getLanguageMapping();
-    
+
     if (includeAdmin) {
       await getAdminLanguageMapping();
     }

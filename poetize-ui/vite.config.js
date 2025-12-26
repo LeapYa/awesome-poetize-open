@@ -18,8 +18,12 @@ export default defineConfig({
             '@': path.resolve(__dirname, 'src'),
             'static': path.resolve(__dirname, 'public'),
             'element-ui': 'element-ui-ce',
+            // 排除 axios Node.js 专用模块
+            './lib/adapters/http.js': path.resolve(__dirname, 'src/utils/empty-module.js'),
         },
         extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json', '.vue'],
+        // 解决 element-ui-ce 入口解析问题
+        mainFields: ['browser', 'module', 'jsnext:main', 'jsnext', 'main'],
     },
     server: {
         port: 80,
@@ -34,16 +38,6 @@ export default defineConfig({
     define: {
         'process.env': {}
     },
-    // 强制预打包这些 CommonJS 依赖，解决 ESM 兼容性问题
-    optimizeDeps: {
-        include: [
-            'element-ui-ce',
-            'element-ui-ce/lib/theme-chalk/index.css',
-            'async-validator',
-            'throttle-debounce',
-            'resize-observer-polyfill',
-        ],
-    },
     build: {
         sourcemap: false, // 禁用 source map 以减少内存消耗
         minify: 'esbuild', // 使用 esbuild 替代 terser，内存效率更高
@@ -51,15 +45,14 @@ export default defineConfig({
         chunkSizeWarningLimit: 2000,
         // 处理 CommonJS 模块兼容性
         commonjsOptions: {
-            include: [/node_modules/],
             transformMixedEsModules: true,
+            requireReturnsDefault: 'auto',
         },
         rollupOptions: {
             output: {
                 manualChunks(id) {
                     if (id.includes('node_modules')) {
-                        if (id.includes('element-ui-ce')) return 'element-ui';
-                        if (id.includes('highlight.js')) return 'highlight.js';
+                        if (id.includes('highlight.js')) return 'highlight';
                         if (id.includes('vditor')) return 'vditor';
                         if (id.includes('mermaid')) return 'mermaid';
                         return 'vendors';

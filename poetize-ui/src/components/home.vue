@@ -203,7 +203,7 @@
     <!-- 图片预览 -->
     <div id="outerImg">
       <div id="innerImg" style="position:absolute">
-        <img id="bigImg" src=""/>
+        <img id="bigImg" :src="''"/>
       </div>
     </div>
 

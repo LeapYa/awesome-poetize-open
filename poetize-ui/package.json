@@ -15,7 +15,7 @@
     "build:no-compress": "vite build",
     "compress": "node scripts/compress-build.js",
     "lint": "vue-cli-service lint",
-    "postinstall": "node scripts/copy-mermaid.js"
+    "postinstall": "node scripts/fix-element-ui-ce.js && node scripts/copy-mermaid.js"
   },
   "dependencies": {
     "@fingerprintjs/fingerprintjs": "^4.2.0",

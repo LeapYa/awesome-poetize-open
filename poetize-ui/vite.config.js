@@ -34,11 +34,26 @@ export default defineConfig({
     define: {
         'process.env': {}
     },
+    // 强制预打包这些 CommonJS 依赖，解决 ESM 兼容性问题
+    optimizeDeps: {
+        include: [
+            'element-ui-ce',
+            'element-ui-ce/lib/theme-chalk/index.css',
+            'async-validator',
+            'throttle-debounce',
+            'resize-observer-polyfill',
+        ],
+    },
     build: {
         sourcemap: false, // 禁用 source map 以减少内存消耗
         minify: 'esbuild', // 使用 esbuild 替代 terser，内存效率更高
         assetsDir: 'static', // 静态资源输出目录，与原 Vue CLI 配置一致
         chunkSizeWarningLimit: 2000,
+        // 处理 CommonJS 模块兼容性
+        commonjsOptions: {
+            include: [/node_modules/],
+            transformMixedEsModules: true,
+        },
         rollupOptions: {
             output: {
                 manualChunks(id) {

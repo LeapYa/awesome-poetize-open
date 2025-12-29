@@ -14,7 +14,12 @@ export default defineConfig({
         envCompatible(),
     ],
     resolve: {
+        // 确保 element-ui 和 app 使用同一个 Vue 实例
+        dedupe: ['vue'],
         alias: {
+            // 使用 runtime.common.js (CJS) 确保与 Element-UI (CJS) 的兼容性
+            // 同时也解决了 Vite 开发/生产环境的双实例问题
+            'vue': 'vue/dist/vue.runtime.common.js',
             '@': path.resolve(__dirname, 'src'),
             'static': path.resolve(__dirname, 'public'),
             'element-ui': 'element-ui-ce',

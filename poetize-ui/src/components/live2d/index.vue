@@ -15,16 +15,14 @@
 import { computed } from 'vue'
 import { useLive2DStore } from '@/stores/live2d'
 import { useMainStore } from '@/stores/main'
-import Live2DWidget from './Live2DWidget.vue'
-import AIChatButton from './AIChatButton.vue'
 
 export default {
   name: 'Live2DIndex',
   
   components: {
-    Live2DWidget,
-    AIChatButton,
-    // AI聊天面板懒加载
+    // 所有组件都使用动态导入，打破静态依赖链，避免 mermaid 等大型依赖被预加载
+    Live2DWidget: () => import('./Live2DWidget.vue'),
+    AIChatButton: () => import('./AIChatButton.vue'),
     AIChatPanel: () => import('./AIChat/index.vue')
   },
   

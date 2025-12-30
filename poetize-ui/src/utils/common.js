@@ -328,13 +328,6 @@ export default {
     });
   },
 
-  /**
-   * 字符串转换为时间戳
-   */
-  getDateTimeStamp(dateStr) {
-    return Date.parse(dateStr.replace(/-/gi, "/"));
-  },
-
   getDateDiff(dateStr) {
     let publishTime = isNaN(Date.parse(dateStr.replace(/-/gi, "/")) / 1000) ? Date.parse(dateStr) / 1000 : Date.parse(dateStr.replace(/-/gi, "/")) / 1000;
     let d_seconds,

@@ -416,6 +416,7 @@
     display: -webkit-box;
     -webkit-line-clamp: 4;
     -webkit-box-orient: vertical;
+    line-clamp: 4;
   }
 
   .leftImage .sort-label {
@@ -500,6 +501,7 @@
 
     .recent-post-desc {
       -webkit-line-clamp: 3;
+      line-clamp: 3;
     }
 
     .leftImage .sort-label {

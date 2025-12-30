@@ -621,20 +621,24 @@ body.dark-mode .el-tooltip__popper {
   color: var(--white) !important;
 }
 
-body.dark-mode .el-tooltip__popper[x-placement^="top"] .popper__arrow {
-  border-top-color: #2d2d2d !important;
+/* 暗色模式下 light 主题 tooltip 下箭头样式 (placement="top" 时显示在底部) */
+body.dark-mode .el-tooltip__popper.is-light[x-placement^="top"] .popper__arrow {
+  border-style: solid;
+  border-width: 8px 8px 0;
+  border-color: var(--lightGreen) transparent transparent transparent;
+  bottom: -8px;
 }
 
-body.dark-mode .el-tooltip__popper[x-placement^="top"] .popper__arrow::after {
-  border-top-color: #2d2d2d !important;
+body.dark-mode .el-tooltip__popper.is-light[x-placement^="top"] .popper__arrow::after {
+  display: none;
 }
 
 body.dark-mode .el-tooltip__popper[x-placement^="bottom"] .popper__arrow {
-  border-bottom-color: #2d2d2d !important;
+  border-bottom-color: var(--lightGreen) !important;
 }
 
 body.dark-mode .el-tooltip__popper[x-placement^="bottom"] .popper__arrow::after {
-  border-bottom-color: #2d2d2d !important;
+  border-bottom-color: var(--lightGreen) !important;
 }
 
 /* 树形组件暗色模式 */

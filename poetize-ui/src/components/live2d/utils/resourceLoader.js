@@ -170,113 +170,12 @@ export async function loadMarkdownResources() {
 }
 
 /**
- * 加载Mermaid图表库
- */
-export async function loadMermaidResources() {
-  if (isMermaidLoaded()) {
-    return true
-  }
-
-  try {
-    // 使用本地导入的Mermaid
-    const mermaid = await import('mermaid')
-
-    // 将mermaid挂载到window对象，供其他地方使用
-    window.mermaid = mermaid.default || mermaid
-
-    // 检测是否为暗色模式
-    const isDark = document.documentElement.classList.contains('dark-mode') ||
-      document.body.classList.contains('dark-mode')
-
-    // 初始化Mermaid配置
-    window.mermaid.initialize({
-      startOnLoad: false,
-      theme: isDark ? 'dark' : 'default',
-      securityLevel: 'loose',
-      fontFamily: 'Arial, sans-serif',
-      themeVariables: isDark ? {
-        // 深色模式的自定义主题变量
-        darkMode: true,
-        background: '#1e1e1e',
-        primaryColor: '#4a9eff',
-        primaryTextColor: '#ffffff',
-        primaryBorderColor: '#4a9eff',
-        lineColor: '#6b6b6b',
-        secondaryColor: '#2d2d2d',
-        tertiaryColor: '#3a3a3a',
-        mainBkg: '#2d2d2d',
-        secondBkg: '#383838',
-        mainContrastColor: '#ffffff',
-        darkTextColor: '#ffffff',
-        textColor: '#e0e0e0',
-        labelTextColor: '#e0e0e0',
-        fontSize: '14px'
-      } : {
-        fontSize: '14px'
-      }
-    })
-
-    return true
-  } catch (error) {
-    return false
-  }
-}
-
-/**
  * 检查ECharts是否已加载
  */
 export function isEChartsLoaded() {
   return typeof window.echarts !== 'undefined'
 }
 
-/**
- * 加载ECharts图表库（模块化导入优化）
- */
-export async function loadEChartsResources() {
-  if (isEChartsLoaded()) {
-    return true
-  }
-
-  try {
-    // 模块化导入 ECharts，只加载需要的组件（Tree Shaking 优化）
-    const echarts = await import('echarts/core')
-
-    // 导入需要的图表类型
-    const { LineChart, BarChart, PieChart, ScatterChart, RadarChart, GaugeChart } = await import('echarts/charts')
-
-    // 导入需要的组件
-    const {
-      TitleComponent,
-      TooltipComponent,
-      GridComponent,
-      LegendComponent,
-      DataZoomComponent,
-      ToolboxComponent,
-      MarkLineComponent,
-      MarkPointComponent
-    } = await import('echarts/components')
-
-    // 导入渲染器
-    const { CanvasRenderer } = await import('echarts/renderers')
-
-    // 注册所有模块
-    echarts.use([
-      LineChart, BarChart, PieChart, ScatterChart, RadarChart, GaugeChart,
-      TitleComponent, TooltipComponent, GridComponent,
-      LegendComponent, DataZoomComponent, ToolboxComponent,
-      MarkLineComponent, MarkPointComponent,
-      CanvasRenderer
-    ])
-
-    // 将echarts挂载到window对象，供其他地方使用
-    window.echarts = echarts
-
-    return true
-  } catch (error) {
-    console.error('ECharts模块化加载失败:', error)
-    return false
-  }
-}
 
 
 /**

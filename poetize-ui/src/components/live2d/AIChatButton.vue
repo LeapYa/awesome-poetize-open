@@ -30,7 +30,7 @@
 <script>
 import { computed, onMounted, onUnmounted, ref, getCurrentInstance } from 'vue'
 import { useLive2DStore } from '@/stores/live2d'
-import { useAIChatStore } from '@/stores/aiChat'
+// useAIChatStore 改为动态导入，避免 mermaid 等依赖被预加载
 
 export default {
   name: 'AIChatButton',
@@ -38,7 +38,8 @@ export default {
   setup() {
     const instance = getCurrentInstance()
     const live2dStore = useLive2DStore()
-    const aiChatStore = useAIChatStore()
+    // aiChatStore 改为动态引用
+    const aiChatStoreRef = ref(null)
     const buttonRef = ref(null) // 实际上是wrapper的ref
     
     // 拖拽状态
@@ -76,7 +77,8 @@ export default {
     
     // 计算属性
     const showChat = computed(() => live2dStore.showChat)
-    const config = computed(() => aiChatStore.config)
+    // config 改为从动态加载的 store 获取
+    const config = computed(() => aiChatStoreRef.value?.config || null)
     
     // 按钮位置样式
     const buttonStyle = computed(() => {
@@ -265,7 +267,11 @@ export default {
       })
       
       // 轻量级初始化（不加载配置，减少初始请求）
+      // 动态导入 aiChatStore，避免 mermaid 等依赖被预加载
       try {
+        const { useAIChatStore } = await import('@/stores/aiChat')
+        const aiChatStore = useAIChatStore()
+        aiChatStoreRef.value = aiChatStore
         aiChatStore.lightInit()
       } catch (error) {
         console.error('AI聊天按钮初始化失败:', error)

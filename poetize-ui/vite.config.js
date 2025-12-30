@@ -57,9 +57,35 @@ export default defineConfig({
             output: {
                 manualChunks(id) {
                     if (id.includes('node_modules')) {
-                        if (id.includes('highlight.js')) return 'highlight';
-                        if (id.includes('vditor')) return 'vditor';
-                        if (id.includes('mermaid')) return 'mermaid';
+                        // Vue 核心 + Element UI 必须在同一 chunk (CommonJS 兼容性要求)
+                        if (id.includes('vue') || id.includes('element-ui') || id.includes('vue-router') || id.includes('pinia')) {
+                            return 'framework';
+                        }
+                        // ECharts 图表库
+                        if (id.includes('echarts') || id.includes('zrender')) {
+                            return 'echarts';
+                        }
+                        // 代码高亮
+                        if (id.includes('highlight.js')) {
+                            return 'highlight';
+                        }
+                        // Vditor 编辑器
+                        if (id.includes('vditor')) {
+                            return 'vditor';
+                        }
+                        // Markdown 解析
+                        if (id.includes('markdown-it') || id.includes('katex')) {
+                            return 'markdown';
+                        }
+                        // 工具库 (axios, qs, qiniu 等)
+                        if (id.includes('axios') || id.includes('qs') || id.includes('qiniu') || id.includes('fingerprint') || id.includes('anime')) {
+                            return 'libs';
+                        }
+                        // Polyfills
+                        if (id.includes('core-js') || id.includes('babel-runtime')) {
+                            return 'polyfills';
+                        }
+                        // 其他第三方库
                         return 'vendors';
                     }
                 },

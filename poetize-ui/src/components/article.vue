@@ -359,30 +359,25 @@
 </template>
 
 <script>
-    import { useMainStore } from '@/stores/main';
+  import { useMainStore } from '@/stores/main';
 
-const myFooter = () => import( "./common/myFooter");
+  const myFooter = () => import( "./common/myFooter");
   const comment = () => import( "./comment/comment");
   const process = () => import( "./common/process");
   const commentBox = () => import( "./comment/commentBox");
   const proButton = () => import( "./common/proButton");
   const videoPlayer = () => import( "./common/videoPlayer");
-  import MarkdownIt from 'markdown-it';
-  import markdownItMultimdTable from 'markdown-it-multimd-table';
-  import markdownItKatex from '@iktakahiro/markdown-it-katex';
-  import axios from 'axios';
-  import { getLanguageMapping, preloadLanguageMapping, getTocTitle } from '@/utils/languageUtils';
-  // 导入资源加载器
+  
+  // 动态导入 Markdown 渲染工具
+  import { renderMarkdown, renderSimpleMarkdown } from '@/utils/markdownLazyRenderer';
+  
+  import { getLanguageMapping, getTocTitle } from '@/utils/languageUtils';
+  // 导入资源加载器 - 只导入检查函数，加载函数改为动态导入避免 mermaid 等大型依赖被预加载
   import { 
-    loadMermaidResources, 
     isMermaidLoaded,
-    loadEChartsResources,
     isEChartsLoaded,
-    loadHighlightResources,
     isHighlightJsLoaded,
-    loadClipboardResources,
     isClipboardLoaded,
-    loadKatexResources,
     isKatexLoadedGlobal
   } from '@/components/live2d/utils/resourceLoader';
 
@@ -1168,7 +1163,7 @@ const myFooter = () => import( "./common/myFooter");
           });
         }
       },
-      getArticleMeta() {
+      async getArticleMeta() {
         this.isLoadingMeta = true;
         const timeout = setTimeout(() => {
           if (this.isLoadingMeta) {
@@ -1177,53 +1172,46 @@ const myFooter = () => import( "./common/myFooter");
           }
         }, 3000);
         
-        // 使用带noCount参数的API，避免增加热度
-        this.$http.get(this.$constant.baseURL + "/article/getArticleByIdNoCount", {id: this.id})
-          .then((articleRes) => {
-            if (articleRes.code === 200 && articleRes.data) {
-              // 文章信息获取成功后再获取SEO元数据
-              axios.get(this.$constant.baseURL + `/seo/getArticleMeta?articleId=${this.id}&lang=${this.currentLang}`)
-                .then((res) => {
-                  clearTimeout(timeout);
-                  this.isLoadingMeta = false;
-                  
-                  if (res.data && res.data.code === 200 && res.data.data) {
-                    this.metaTags = res.data.data;
-                    this.updateMetaTags();
-                  } else {
-                    console.error('获取文章元标签失败, 服务返回错误:', res.data ? (res.data.message || '未知错误') : '返回数据为空');
-                    this.setDefaultMetaTags();
-                  }
-                })
-                .catch((error) => {
-                  clearTimeout(timeout);
-                  this.isLoadingMeta = false;
-                  console.error('获取文章元标签失败:', error);
-                  
-                  // 添加简单的自动重试，最多重试2次
-                  if (!this.metaTagRetryCount || this.metaTagRetryCount < 2) {
-                    this.metaTagRetryCount = (this.metaTagRetryCount || 0) + 1;
-                    setTimeout(() => {
-                      this.getArticleMeta();
-                    }, 1500); // 1.5秒后重试
-                  } else {
-                    // 重试失败，使用默认元标签
-                    this.setDefaultMetaTags();
-                  }
-                });
-            } else {
-              clearTimeout(timeout);
-              this.isLoadingMeta = false;
-              console.error('获取文章信息失败，无法获取元标签');
-              this.setDefaultMetaTags();
-            }
-          })
-          .catch((error) => {
+        try {
+          // 使用带noCount参数的API，避免增加热度
+          const articleRes = await this.$http.get(this.$constant.baseURL + "/article/getArticleByIdNoCount", {id: this.id});
+          
+          if (articleRes.code === 200 && articleRes.data) {
+            // 动态导入 axios 获取 SEO 元数据
+            const { default: axios } = await import('axios');
+            const res = await axios.get(this.$constant.baseURL + `/seo/getArticleMeta?articleId=${this.id}&lang=${this.currentLang}`);
+            
             clearTimeout(timeout);
             this.isLoadingMeta = false;
-            console.error('获取文章信息失败:', error);
+            
+            if (res.data && res.data.code === 200 && res.data.data) {
+              this.metaTags = res.data.data;
+              this.updateMetaTags();
+            } else {
+              console.error('获取文章元标签失败, 服务返回错误:', res.data ? (res.data.message || '未知错误') : '返回数据为空');
+              this.setDefaultMetaTags();
+            }
+          } else {
+            clearTimeout(timeout);
+            this.isLoadingMeta = false;
+            console.error('获取文章信息失败，无法获取元标签');
             this.setDefaultMetaTags();
-          });
+          }
+        } catch (error) {
+          clearTimeout(timeout);
+          this.isLoadingMeta = false;
+          console.error('获取文章信息或元标签失败:', error);
+          
+          // 如果是SEO元数据获取失败且重试次数未达到
+          if (!this.metaTagRetryCount || this.metaTagRetryCount < 2) {
+            this.metaTagRetryCount = (this.metaTagRetryCount || 0) + 1;
+            setTimeout(() => {
+              this.getArticleMeta();
+            }, 1500); // 1.5秒后重试
+          } else {
+            this.setDefaultMetaTags();
+          }
+        }
       },
       setDefaultMetaTags() {
         if (this.article) {
@@ -1316,22 +1304,17 @@ const myFooter = () => import( "./common/myFooter");
             this.article = articleRes.data;
             
             // 检查当前语言状态，决定显示内容
-
-            const md = new MarkdownIt({breaks: true})
-              .use(markdownItMultimdTable)
-              .use(markdownItKatex);
-
             // 判断显示原文还是翻译
             if (this.currentLang !== this.sourceLanguage && this.article.translatedContent) {
               // 显示翻译内容（后端已一次性返回）
               this.translatedTitle = this.article.translatedTitle;
               this.translatedContent = this.article.translatedContent;
-              this.articleContentHtml = md.render(this.translatedContent);
+              this.articleContentHtml = await renderMarkdown(this.translatedContent);
             } else {
               // 显示原文
               this.translatedTitle = '';
               this.translatedContent = '';
-              this.articleContentHtml = md.render(this.article.articleContent);
+              this.articleContentHtml = await renderMarkdown(this.article.articleContent);
             }
             
             this.articleContentKey = Date.now();
@@ -1430,7 +1413,7 @@ const myFooter = () => import( "./common/myFooter");
         });
       },
       fetchArticleMeta() {
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve) => {
           this.isLoadingMeta = true;
           const timeout = setTimeout(() => {
             if (this.isLoadingMeta) {
@@ -1440,28 +1423,29 @@ const myFooter = () => import( "./common/myFooter");
             }
           }, 3000);
 
-          axios.get(this.$constant.baseURL + `/seo/getArticleMeta?articleId=${this.id}&lang=${this.currentLang}`)
-            .then((res) => {
-              clearTimeout(timeout);
-              this.isLoadingMeta = false;
-              
-              if (res.data && res.data.code === 200 && res.data.data) {
-                this.metaTags = res.data.data;
-                this.updateMetaTags();
-              } else {
-                console.error('获取文章元标签失败, 服务返回错误:', res.data ? (res.data.message || '未知错误') : '返回数据为空');
-                this.setDefaultMetaTags();
-              }
-              resolve();
-            })
-            .catch((error) => {
-              clearTimeout(timeout);
-              this.isLoadingMeta = false;
-              console.error('获取文章元标签失败:', error);
+          try {
+            // 动态导入 axios 获取 SEO 元数据
+            const { default: axios } = await import('axios');
+            const res = await axios.get(this.$constant.baseURL + `/seo/getArticleMeta?articleId=${this.id}&lang=${this.currentLang}`);
+            
+            clearTimeout(timeout);
+            this.isLoadingMeta = false;
+            
+            if (res.data && res.data.code === 200 && res.data.data) {
+              this.metaTags = res.data.data;
+              this.updateMetaTags();
+            } else {
+              console.error('获取文章元标签失败, 服务返回错误:', res.data ? (res.data.message || '未知错误') : '返回数据为空');
               this.setDefaultMetaTags();
-              // 在Promise中，我们应该resolve而不是reject，因为这不算关键路径失败
-              resolve();
-            });
+            }
+          } catch (error) {
+            clearTimeout(timeout);
+            this.isLoadingMeta = false;
+            console.error('获取文章元标签失败:', error);
+            this.setDefaultMetaTags();
+          } finally {
+            resolve();
+          }
         });
       },
       highlight() {
@@ -1742,7 +1726,9 @@ const myFooter = () => import( "./common/myFooter");
         
         // 检测是否包含代码块（需要代码高亮 + 复制功能）
         if (content.includes('```') && !isHighlightJsLoaded()) {
-          const highlightTask = loadHighlightResources().then(() => {
+          const highlightTask = import('@/components/live2d/utils/resourceLoader').then(({ loadHighlightResources }) => {
+            return loadHighlightResources();
+          }).then(() => {
             // 检查文章是否已切换
             if (this.loadingArticleId !== articleId) {
               return;
@@ -1760,17 +1746,26 @@ const myFooter = () => import( "./common/myFooter");
         
         // 检测代码块时同时加载 Clipboard（代码复制功能）
         if (content.includes('```') && !isClipboardLoaded()) {
-          loadClipboardResources(); // 不阻塞，后台加载即可
+          // 不阻塞，后台加载即可
+          import('@/components/live2d/utils/resourceLoader').then(({ loadClipboardResources }) => {
+            loadClipboardResources();
+          });
         }
         
         // 检测是否包含数学公式（$...$ 或 $$...$$）
         if ((content.includes('$') || content.includes('$$')) && !isKatexLoadedGlobal()) {
-          loadKatexResources(); // 不阻塞，后台加载即可
+          // 不阻塞，后台加载即可
+          import('@/components/live2d/utils/resourceLoader').then(({ loadKatexResources }) => {
+            loadKatexResources();
+          });
         }
         
         // 检测是否包含 Mermaid 图表
         if (content.includes('```mermaid') && !isMermaidLoaded()) {
-          const mermaidTask = loadMermaidResources().then(() => {
+          // 动态加载 mermaidLoader
+          const mermaidTask = import('@/components/live2d/utils/mermaidLoader').then(({ loadMermaidResources }) => {
+            return loadMermaidResources();
+          }).then(() => {
             // 检查文章是否已切换
             if (this.loadingArticleId !== articleId) {
               return;
@@ -1787,7 +1782,10 @@ const myFooter = () => import( "./common/myFooter");
         
         // 检测是否包含 ECharts 图表
         if (content.includes('```echarts') && !isEChartsLoaded()) {
-          const echartsTask = loadEChartsResources().then(() => {
+          // 动态加载 echartsLoader
+          const echartsTask = import('@/components/live2d/utils/echartsLoader').then(({ loadEChartsResources }) => {
+            return loadEChartsResources();
+          }).then(() => {
             // 检查文章是否已切换
             if (this.loadingArticleId !== articleId) {
               return;
@@ -2560,10 +2558,7 @@ const myFooter = () => import( "./common/myFooter");
           // 如果已有翻译内容，直接显示
           if (this.translatedContent) {
             // 强制更新显示翻译内容
-            const md = new MarkdownIt({breaks: true})
-              .use(markdownItMultimdTable)
-              .use(markdownItKatex);
-            this.articleContentHtml = md.render(this.translatedContent);
+            this.articleContentHtml = await renderMarkdown(this.translatedContent);
             this.articleContentKey = Date.now(); // 强制Vue重新渲染
             
             // 重新应用文章内容处理
@@ -2581,8 +2576,7 @@ const myFooter = () => import( "./common/myFooter");
           }
         } else if (lang === this.sourceLanguage) {
           // 切换到源语言，确保显示原始内容
-          const md = new MarkdownIt({breaks: true}).use(markdownItMultimdTable);
-          this.articleContentHtml = md.render(this.article.articleContent);
+          this.articleContentHtml = await renderSimpleMarkdown(this.article.articleContent);
           this.articleContentKey = Date.now(); // 强制Vue重新渲染
           
           // 重新应用文章内容处理
@@ -2615,10 +2609,7 @@ const myFooter = () => import( "./common/myFooter");
 
             // 更新文章内容显示
             // 使用与原文相同的渲染方法
-            const md = new MarkdownIt({breaks: true})
-              .use(markdownItMultimdTable)
-              .use(markdownItKatex);
-            this.articleContentHtml = md.render(this.translatedContent);
+            this.articleContentHtml = await renderMarkdown(this.translatedContent);
             this.articleContentKey = Date.now(); // 强制Vue重新渲染
 
             // 重新应用文章内容处理
@@ -2642,10 +2633,8 @@ const myFooter = () => import( "./common/myFooter");
             this.updateUrlWithLanguage(this.sourceLanguage);
             
             // 显示原文
-            const md = new MarkdownIt({breaks: true})
-              .use(markdownItMultimdTable)
-              .use(markdownItKatex);
-            this.articleContentHtml = md.render(this.article.articleContent);
+            // 显示原文
+            this.articleContentHtml = await renderMarkdown(this.article.articleContent);
             this.articleContentKey = Date.now();
             
             this.$nextTick(() => {
@@ -2670,10 +2659,8 @@ const myFooter = () => import( "./common/myFooter");
             this.updateUrlWithLanguage(this.sourceLanguage);
             
             // 显示原文
-            const md = new MarkdownIt({breaks: true})
-              .use(markdownItMultimdTable)
-              .use(markdownItKatex);
-            this.articleContentHtml = md.render(this.article.articleContent);
+            // 显示原文
+            this.articleContentHtml = await renderMarkdown(this.article.articleContent);
             this.articleContentKey = Date.now();
             
             this.$nextTick(() => {
@@ -2700,8 +2687,7 @@ const myFooter = () => import( "./common/myFooter");
           this.updateUrlWithLanguage(this.sourceLanguage);
           
           // 显示原文内容
-          const md = new MarkdownIt({breaks: true}).use(markdownItMultimdTable);
-          this.articleContentHtml = md.render(this.article.articleContent);
+          this.articleContentHtml = await renderSimpleMarkdown(this.article.articleContent);
           this.articleContentKey = Date.now();
           
           this.$nextTick(() => {

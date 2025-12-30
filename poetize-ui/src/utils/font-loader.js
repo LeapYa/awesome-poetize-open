@@ -38,20 +38,20 @@ export async function loadFonts(sysConfig) {
   const loadUnicodeFromRemote = sysConfig['font.unicode.remote'] === 'true';
   // Unicode范围文件路径
   const unicodeJsonPath = sysConfig['font.unicode.path'] || '/static/assets/font_chunks/unicode_ranges.json';
-  
+
   // 如果需要从远程加载Unicode范围
   if (loadUnicodeFromRemote && !useSingleFont) {
     try {
       // 加载JSON文件
       const unicodeRanges = await fetchJson(unicodeJsonPath);
-      
+
       if (unicodeRanges) {
         // 更新Unicode范围变量
         if (unicodeRanges.base) baseRange = unicodeRanges.base.join(',');
         if (unicodeRanges.level1) level1Range = unicodeRanges.level1.join(',');
         if (unicodeRanges.level2) level2Range = unicodeRanges.level2.join(',');
         if (unicodeRanges.other) otherRange = unicodeRanges.other.join(',');
-        
+
       } else {
       }
     } catch (error) {
@@ -63,35 +63,35 @@ export async function loadFonts(sysConfig) {
     try {
       // 加载本地JSON文件
       const unicodeRanges = await fetchJson(localUnicodeJsonPath);
-      
+
       if (unicodeRanges) {
         // 更新Unicode范围变量
         if (unicodeRanges.base) baseRange = unicodeRanges.base.join(',');
         if (unicodeRanges.level1) level1Range = unicodeRanges.level1.join(',');
         if (unicodeRanges.level2) level2Range = unicodeRanges.level2.join(',');
         if (unicodeRanges.other) otherRange = unicodeRanges.other.join(',');
-        
+
       } else {
       }
     } catch (error) {
       console.error('加载本地Unicode范围失败，使用默认值', error);
     }
   }
-  
+
   // 创建style元素
   const style = document.createElement('style');
   style.type = 'text/css';
   style.id = 'dynamic-font-style';
-  
+
   // 移除旧的样式（如果存在）
   const oldStyle = document.getElementById('dynamic-font-style');
   if (oldStyle) {
     oldStyle.parentNode.removeChild(oldStyle);
   }
-  
+
   // 构建字体CSS
   let css = '';
-  
+
   if (useSingleFont) {
     // 使用单一字体文件
     css = `
@@ -143,10 +143,10 @@ export async function loadFonts(sysConfig) {
       }
     `;
   }
-  
+
   // 设置样式内容并添加到文档
   style.textContent = css;
-  
+
   // 安全地添加样式到head，避免appendChild在文本节点上的错误
   try {
     if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {

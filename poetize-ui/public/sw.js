@@ -1,7 +1,7 @@
 // POETIZE PWA Service Worker
-// 提供智能缓存和PWA功能，无自定义离线页面
+// 提供智能缓存和PWA功能
 
-const CACHE_NAME = 'poetize-pwa-v1.0.0';
+const CACHE_NAME = 'pwa-cache-v1.0.0';
 
 // 需要预缓存的关键资源
 const PRECACHE_RESOURCES = [
@@ -15,46 +15,28 @@ const PRECACHE_RESOURCES = [
 
 // 安装Service Worker时预缓存关键资源
 self.addEventListener('install', event => {
-  console.log('SW: Service Worker installing');
-
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => {
-        console.log('SW: Pre-caching critical resources');
-        return cache.addAll(PRECACHE_RESOURCES);
-      })
-      .then(() => {
-        console.log('SW: Pre-cache complete');
-        // 强制激活新的Service Worker
-        return self.skipWaiting();
-      })
-      .catch(error => {
-        console.error('SW: Pre-cache failed:', error);
-      })
+      .then(cache => cache.addAll(PRECACHE_RESOURCES))
+      .then(() => self.skipWaiting())
+      .catch(error => console.error('SW: 预缓存失败:', error))
   );
 });
 
 // 激活Service Worker时清理旧缓存
 self.addEventListener('activate', event => {
-  console.log('SW: Service Worker activating');
-
   event.waitUntil(
     caches.keys()
       .then(cacheNames => {
         return Promise.all(
           cacheNames.map(cacheName => {
             if (cacheName !== CACHE_NAME) {
-              console.log('SW: Deleting old cache:', cacheName);
               return caches.delete(cacheName);
             }
           })
         );
       })
-      .then(() => {
-        console.log('SW: Cache cleanup complete');
-        // 立即控制所有页面
-        return self.clients.claim();
-      })
+      .then(() => self.clients.claim())
   );
 });
 
@@ -64,24 +46,17 @@ self.addEventListener('fetch', event => {
   const url = new URL(request.url);
 
   // 只处理GET请求
-  if (request.method !== 'GET') {
-    return;
-  }
+  if (request.method !== 'GET') return;
 
   // 跳过chrome-extension请求
-  if (url.protocol === 'chrome-extension:') {
-    return;
-  }
+  if (url.protocol === 'chrome-extension:') return;
 
   // 不同类型资源使用不同缓存策略
   if (isPageRequest(request)) {
-    // 页面请求：网络优先，失败时使用缓存或离线页面
     event.respondWith(handlePageRequest(request));
   } else if (isStaticAsset(request)) {
-    // 静态资源：缓存优先，失败时从网络获取
     event.respondWith(handleStaticAsset(request));
   } else if (isApiRequest(request)) {
-    // API请求：网络优先，失败时返回离线提示
     event.respondWith(handleApiRequest(request));
   }
 });
@@ -95,7 +70,7 @@ function isPageRequest(request) {
 // 检查是否为静态资源
 function isStaticAsset(request) {
   const url = new URL(request.url);
-  return url.pathname.match(/\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/);
+  return url.pathname.match(/\.(css|js|png|jpg|jpeg|gif|svg|webp|ico|woff|woff2|ttf|eot|json|mp4)$/);
 }
 
 // 检查是否为API请求
@@ -106,86 +81,58 @@ function isApiRequest(request) {
     url.pathname.startsWith('/seo/');
 }
 
-// 处理页面请求
+// 处理页面请求：网络优先
 async function handlePageRequest(request) {
   try {
-    // 首先尝试网络请求
     const networkResponse = await fetch(request);
-
-    // 如果成功，缓存页面（仅缓存成功的页面）
     if (networkResponse.ok) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, networkResponse.clone());
     }
-
     return networkResponse;
   } catch (error) {
-    console.log('SW: Network failed for page, trying cache:', request.url);
-
-    // 网络失败，尝试从缓存获取
     const cachedResponse = await caches.match(request);
-    if (cachedResponse) {
-      console.log('SW: Serving cached page:', request.url);
-      return cachedResponse;
-    }
-
-    // 缓存也没有，让请求失败，浏览器会显示默认离线页面
-    console.log('SW: No cache available, letting request fail for browser default offline page');
+    if (cachedResponse) return cachedResponse;
     throw error;
   }
 }
 
-// 处理静态资源
+// 处理静态资源：缓存优先
 async function handleStaticAsset(request) {
+  const cachedResponse = await caches.match(request);
+  if (cachedResponse) return cachedResponse;
+
   try {
-    // 首先检查缓存
-    const cachedResponse = await caches.match(request);
-    if (cachedResponse) {
-      return cachedResponse;
-    }
-
-    // 缓存未命中，从网络获取
     const networkResponse = await fetch(request);
-
-    // 缓存成功的响应
     if (networkResponse.ok) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, networkResponse.clone());
     }
-
     return networkResponse;
   } catch (error) {
-    console.log('SW: Static asset request failed:', request.url);
-    // 静态资源失败时，可以返回占位符或者让请求失败
-    throw error;
+    // 返回服务不可用响应，避免抛出未捕获的Promise错误
+    return new Response('服务暂时不可用', {
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: new Headers({ 'Content-Type': 'text/plain; charset=utf-8' })
+    });
   }
 }
 
-// 处理API请求
+// 处理API请求：网络优先
 async function handleApiRequest(request) {
   try {
-    // API请求始终尝试从网络获取最新数据
     const networkResponse = await fetch(request);
-
-    // 可选：缓存某些API响应（如网站配置等）
     if (networkResponse.ok && shouldCacheApiResponse(request)) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, networkResponse.clone());
     }
-
     return networkResponse;
   } catch (error) {
-    console.log('SW: API request failed:', request.url);
-
-    // 对于某些API，可以返回缓存的版本
     if (shouldReturnCachedApiResponse(request)) {
       const cachedResponse = await caches.match(request);
-      if (cachedResponse) {
-        return cachedResponse;
-      }
+      if (cachedResponse) return cachedResponse;
     }
-
-    // 默认情况下让API请求失败，由应用处理
     throw error;
   }
 }
@@ -193,7 +140,6 @@ async function handleApiRequest(request) {
 // 判断是否应该缓存API响应
 function shouldCacheApiResponse(request) {
   const url = new URL(request.url);
-  // 缓存网站配置等相对稳定的API
   return url.pathname.includes('/webInfo/getWebInfo') ||
     url.pathname.includes('/seo/getSeoConfig');
 }
@@ -201,7 +147,6 @@ function shouldCacheApiResponse(request) {
 // 判断是否应该返回缓存的API响应
 function shouldReturnCachedApiResponse(request) {
   const url = new URL(request.url);
-  // 离线时可以使用缓存的网站配置
   return url.pathname.includes('/webInfo/getWebInfo');
 }
 
@@ -211,5 +156,3 @@ self.addEventListener('message', event => {
     self.skipWaiting();
   }
 });
-
-console.log('SW: Service Worker script loaded');

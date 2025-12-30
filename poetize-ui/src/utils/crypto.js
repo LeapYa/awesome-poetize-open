@@ -166,39 +166,6 @@ class CryptoUtil {
     return await this.decrypt(encryptedData);
   }
 
-  /**
-   * 同步加密接口（兼容旧代码，但会显示警告）
-   * @param {string} data 待加密的数据
-   * @returns {Promise<string>} 加密后的字符串
-   */
-  encryptSyncWarning(data) {
-    console.warn('警告：使用了同步加密接口，建议使用async/await');
-    return this.encrypt(data);
-  }
-
-  /**
-   * 同步解密接口（兼容旧代码，但会显示警告）
-   * @param {string} encryptedData 加密的数据
-   * @returns {Promise<object>} 解密后的对象
-   */
-  decryptSyncWarning(encryptedData) {
-    console.warn('警告：使用了同步解密接口，建议使用async/await');
-    return this.decrypt(encryptedData);
-  }
-
-  /**
-   * 生成随机密钥对
-   * @returns {object} 包含公钥和私钥的对象
-   */
-  generateKeyPair() {
-    // 简化实现，实际项目中应使用更安全的密钥生成方式
-    const timestamp = new Date().getTime();
-    const random = Math.random().toString(36).substring(2);
-    return {
-      publicKey: `pub_${timestamp}_${random}`,
-      privateKey: `priv_${timestamp}_${random}`
-    };
-  }
 }
 
 // 创建单例实例

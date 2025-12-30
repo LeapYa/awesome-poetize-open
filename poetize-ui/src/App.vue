@@ -22,17 +22,14 @@
   import { useMainStore } from '@/stores/main';
   import globalEmailCollectionMixin from '@/mixins/globalEmailCollection.js';
 
-import CaptchaContainer from '@/components/common/CaptchaContainer.vue';
-import GlobalEmailCollection from '@/components/common/GlobalEmailCollection.vue';
-import Live2D from '@/components/live2d/index.vue';
-
 export default {
   name: "App",
   mixins: [globalEmailCollectionMixin],
   components: {
-    CaptchaContainer,
-    GlobalEmailCollection,
-    Live2D
+    // 动态导入
+    CaptchaContainer: () => import('@/components/common/CaptchaContainer.vue'),
+    GlobalEmailCollection: () => import('@/components/common/GlobalEmailCollection.vue'),
+    Live2D: () => import('@/components/live2d/index.vue')
   },
   data() {
     return {
@@ -97,6 +94,16 @@ export default {
     if (this.$refs.globalNotification) {
       this.$notify.setInstance(this.$refs.globalNotification);
     }
+
+    // 后台预热 Markdown 核心包
+    // 使用 import 动态导入确保只有在 App 渲染后才开始下载
+    import('@/utils/markdownLazyRenderer').then(m => {
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(() => m.warmupMarkdown());
+      } else {
+        setTimeout(() => m.warmupMarkdown(), 2000);
+      }
+    });
   },
 
   methods: {

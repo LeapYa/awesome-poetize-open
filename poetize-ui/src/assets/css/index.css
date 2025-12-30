@@ -7,32 +7,32 @@
 .el-message-box,
 .el-notification,
 .el-loading-mask,
-.el-dropdown-menu,
+/* 移除 .el-dropdown-menu 以避免与自定义动画冲突 */
 .el-select-dropdown,
 .el-popover,
 .el-tooltip__popper {
-  will-change: transform, opacity;
-  transform: translateZ(0);
-  backface-visibility: hidden;
+    will-change: transform, opacity;
+    transform: translateZ(0);
+    backface-visibility: hidden;
 }
 
 /* 对话框圆角样式 */
 .el-dialog {
-  border-radius: 6px;
+    border-radius: 6px;
 }
 
 /* Message组件单独优化，不使用transform避免影响定位 */
 .el-message {
-  will-change: opacity;
-  backface-visibility: hidden;
+    will-change: opacity;
+    backface-visibility: hidden;
 }
 
 /* 隐藏预渲染内容 - 解决首页底部显示预渲染文本的问题 */
 .home-prerender,
-.favorite-prerender, 
+.favorite-prerender,
 .sort-prerender,
 .sort-list-prerender {
-  display: none !important;
+    display: none !important;
 }
 
 /* 性能优化: 为动画元素启用GPU硬件加速 */
@@ -41,22 +41,22 @@
 .article-detail,
 .article-content,
 .entry-content {
-  /* 提示浏览器这些元素会变化，提前优化 */
-  will-change: transform, opacity;
-  /* 启用GPU合成层，减少重绘 */
-  transform: translateZ(0);
-  /* 隐藏元素背面，提升性能 */
-  backface-visibility: hidden;
-  /* 抗锯齿优化 */
-  -webkit-font-smoothing: subpixel-antialiased;
+    /* 提示浏览器这些元素会变化，提前优化 */
+    will-change: transform, opacity;
+    /* 启用GPU合成层，减少重绘 */
+    transform: translateZ(0);
+    /* 隐藏元素背面，提升性能 */
+    backface-visibility: hidden;
+    /* 抗锯齿优化 */
+    -webkit-font-smoothing: subpixel-antialiased;
 }
 
 /* 性能优化: 为图片加载添加硬件加速 */
 .article-image,
 .my-el-image,
 img {
-  will-change: opacity;
-  transform: translateZ(0);
+    will-change: opacity;
+    transform: translateZ(0);
 }
 
 * {
@@ -68,25 +68,95 @@ html {
     scroll-behavior: smooth;
 }
 
-html, body, div, span, applet, object, iframe,
-h1, h2, h3, h4, h5, h6, p, blockquote, pre,
-a, abbr, acronym, address, big, cite, code,
-del, dfn, em, img, ins, kbd, q, s, samp,
-small, strike, strong, sub, sup, tt, var,
-b, u, i, center,
-dl, dt, dd, ol, ul, li,
-fieldset, form, label, legend,
-table, caption, tbody, tfoot, thead, tr, th, td,
-article, aside, canvas, details, embed, 
-figure, figcaption, footer, header, hgroup, 
-menu, nav, output, ruby, section, summary,
-time, mark, audio, video {
+html,
+body,
+div,
+span,
+applet,
+object,
+iframe,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+blockquote,
+pre,
+a,
+abbr,
+acronym,
+address,
+big,
+cite,
+code,
+del,
+dfn,
+em,
+img,
+ins,
+kbd,
+q,
+s,
+samp,
+small,
+strike,
+strong,
+sub,
+sup,
+tt,
+var,
+b,
+u,
+i,
+center,
+dl,
+dt,
+dd,
+ol,
+ul,
+li,
+fieldset,
+form,
+label,
+legend,
+table,
+caption,
+tbody,
+tfoot,
+thead,
+tr,
+th,
+td,
+article,
+aside,
+canvas,
+details,
+embed,
+figure,
+figcaption,
+footer,
+header,
+hgroup,
+menu,
+nav,
+output,
+ruby,
+section,
+summary,
+time,
+mark,
+audio,
+video {
     font-family: 'MyAwesomeFont', serif !important;
 }
 
 /* 确保Element UI图标正常显示 */
-[class^="el-icon-"], [class*=" el-icon-"],
-.el-icon, .el-icon-*,
+[class^="el-icon-"],
+[class*=" el-icon-"],
+.el-icon,
+.el-icon-*,
 .el-select-dropdown__item [class^="el-icon-"],
 .el-button [class^="el-icon-"],
 .el-menu-item [class^="el-icon-"],
@@ -208,16 +278,14 @@ body {
 
 ::-webkit-scrollbar-thumb {
     background-color: #49b1f5;
-    background-image: linear-gradient(
-            45deg,
+    background-image: linear-gradient(45deg,
             rgba(255, 255, 255, 0.4) 25%,
             transparent 25%,
             transparent 50%,
             rgba(255, 255, 255, 0.4) 50%,
             rgba(255, 255, 255, 0.4) 75%,
             transparent 75%,
-            transparent
-    );
+            transparent);
     border-radius: 1em;
 }
 
@@ -298,7 +366,8 @@ body {
 }
 
 /* 看板娘 */
-#waifu-toggle, #waifu {
+#waifu-toggle,
+#waifu {
     z-index: 100;
 }
 
@@ -328,7 +397,8 @@ body {
 /* 树洞留言弹幕样式已迁移到 Danmaku.vue 组件内 */
 
 
-.el-upload.el-upload--picture, .el-upload.el-upload--text {
+.el-upload.el-upload--picture,
+.el-upload.el-upload--text {
     width: 100%;
 }
 
@@ -373,7 +443,7 @@ body {
     position: relative;
 }
 
-.small-menu > li {
+.small-menu>li {
     list-style: none;
     line-height: 40px;
     cursor: pointer;
@@ -381,9 +451,9 @@ body {
 
 .el-tooltip__popper.is-light {
     background: var(--lightGreen);
-    border-radius: 10px;
+    border-radius: 6px;
     color: var(--white);
-    padding: 12px 20px;
+    padding: 8px 18px;
     letter-spacing: 1px;
     font-weight: 600;
     line-height: 1.5;
@@ -393,6 +463,18 @@ body {
 
 .el-tooltip__popper .popper__arrow {
     border-style: unset;
+}
+
+/* light 主题 tooltip 下箭头样式 (placement="top" 时显示在底部) */
+.el-tooltip__popper.is-light[x-placement^="top"] .popper__arrow {
+    border-style: solid;
+    border-width: 8px 8px 0;
+    border-color: var(--lightGreen) transparent transparent transparent;
+    bottom: -8px;
+}
+
+.el-tooltip__popper.is-light[x-placement^="top"] .popper__arrow::after {
+    display: none;
 }
 
 .message-index {
@@ -480,4 +562,17 @@ body {
 
 .el-popper[x-placement^=bottom] .popper__arrow::after {
     border-bottom-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+/* 自定义下拉菜单动画：直观的自上而下展开 */
+.el-zoom-in-top-enter-active,
+.el-zoom-in-top-leave-active {
+    transition: transform 0.3s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.3s cubic-bezier(0.23, 1, 0.32, 1) !important;
+    transform-origin: top center !important;
+}
+
+.el-zoom-in-top-enter,
+.el-zoom-in-top-leave-active {
+    opacity: 0 !important;
+    transform: scaleY(0) translateY(-10px) !important;
 }

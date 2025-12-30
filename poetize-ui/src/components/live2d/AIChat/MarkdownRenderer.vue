@@ -20,7 +20,8 @@
 
 <script>
 import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { loadMermaidResources, isMermaidLoaded } from '../utils/resourceLoader'
+import { isMermaidLoaded } from '../utils/resourceLoader'
+// 动态导入 loadMermaidResources 避免依赖污染
 
 export default {
   name: 'MarkdownRenderer',
@@ -819,7 +820,8 @@ export default {
     
     // 挂载时加载Mermaid并渲染
     onMounted(async () => {
-      // 加载Mermaid资源
+      // 动态加载Mermaid资源
+      const { loadMermaidResources } = await import('../utils/mermaidLoader')
       const loaded = await loadMermaidResources()
       if (loaded) {
         mermaidLoaded.value = true

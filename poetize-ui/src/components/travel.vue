@@ -5,7 +5,12 @@
       <div class="travel-header my-animation-slide-top">
         <!-- 背景图片 -->
         <video class="index-video" autoplay="autoplay" muted="muted" loop="loop"
-               preload="metadata" 
+               preload="auto" 
+               playsinline="true" 
+               webkit-playsinline="true" 
+               x5-video-player-type="h5" 
+               x5-video-player-fullscreen="true"
+               style="pointer-events: none;"
                :src="mainStore.sysConfig['webStaticResourcePrefix'] + 'assets/backgroundVideo.mp4'">
         </video>
         <div style="position: absolute;left: 20px;top: 20px">

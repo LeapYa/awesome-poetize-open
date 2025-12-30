@@ -95,15 +95,14 @@ import { useAIChat } from '../composables/useAIChat'
 import { useLive2DStore } from '@/stores/live2d'
 import { useChatDrag } from '../composables/useChatDrag'
 import { useChatResize } from '../composables/useChatResize'
-import AIChatMessages from './AIChatMessages.vue'
-import AIChatInput from './AIChatInput.vue'
 
 export default {
   name: 'AIChatPanel',
   
   components: {
-    AIChatMessages,
-    AIChatInput
+    // 动态导入子组件，打破与 mermaid 的静态依赖链
+    AIChatMessages: () => import('./AIChatMessages.vue'),
+    AIChatInput: () => import('./AIChatInput.vue')
   },
   
   setup() {

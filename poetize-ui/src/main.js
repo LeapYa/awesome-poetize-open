@@ -79,13 +79,6 @@ const mainStore = useMainStore(pinia)
 // 灰度模式 - 使用 Pinia store
 initGrayMode(mainStore)
 
-// 监听 sysConfig 变化
-mainStore.$subscribe((mutation, state) => {
-  if (state.sysConfig) {
-    loadFonts(state.sysConfig).catch(err => console.error('加载字体失败:', err))
-  }
-})
-
 // 反调试（生产环境）
 const disposeAntiDebug = initAntiDebug({
   enableInDev: process.env.VUE_APP_PRODUCTION_MODE === 'true'

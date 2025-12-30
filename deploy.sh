@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2025-12-25
+## 修改时间: 2025-12-31
 ## 描述: 部署 POETIZE 博客系统安装脚本
-## 版本: 1.11.2
+## 版本: 1.12.0
 
 # 定义颜色
 RED='\033[0;31m'
@@ -2199,6 +2199,254 @@ install_docker_compose() {
   fi
   sudo chmod +x "$DOCKER_CONFIG/docker-compose"
   info "成功安装Docker Compose"
+  return 0
+}
+
+# 将 docker-compose.yml 转换为 V1 兼容格式
+# 主要处理：
+# 1. 添加 version: "3.8" 头部
+# 2. 将 depends_on 带条件的格式转换为简单列表格式
+convert_compose_to_v1() {
+  local compose_file="${1:-docker-compose.yml}"
+  
+  if [ ! -f "$compose_file" ]; then
+    warning "docker-compose.yml 文件不存在: $compose_file"
+    return 1
+  fi
+  
+  info "正在将 docker-compose.yml 转换为 V1 兼容格式..."
+  
+  # 备份原始文件
+  local backup_file="${compose_file}.v2.bak"
+  if [ ! -f "$backup_file" ]; then
+    cp "$compose_file" "$backup_file"
+    info "已备份原始文件到: $backup_file"
+  fi
+  
+  # 创建临时文件
+  local temp_file=$(mktemp)
+  
+  # 检查是否已有 version 字段
+  if ! grep -q "^version:" "$compose_file"; then
+    # 添加 version 头部
+    echo 'version: "3.8"' > "$temp_file"
+    echo "" >> "$temp_file"
+    cat "$compose_file" >> "$temp_file"
+    mv "$temp_file" "$compose_file"
+    temp_file=$(mktemp)
+    info "已添加 version: \"3.8\" 头部"
+  fi
+  
+  # 使用 awk 进行 depends_on 转换
+  awk '
+  BEGIN {
+    in_depends = 0
+    dep_indent = ""
+    svc_indent_len = 0
+  }
+  
+  # 检测 depends_on: 行
+  /^[[:space:]]*depends_on:[[:space:]]*$/ {
+    in_depends = 1
+    match($0, /^[[:space:]]*/)
+    dep_indent = substr($0, RSTART, RLENGTH)
+    svc_indent_len = 0
+    print $0
+    next
+  }
+  
+  in_depends == 1 {
+    # 计算当前行缩进
+    match($0, /^[[:space:]]*/)
+    cur_len = RLENGTH
+    
+    # 空行跳过
+    if ($0 ~ /^[[:space:]]*$/) { next }
+    
+    # 缩进回退说明 depends_on 块结束
+    if (cur_len <= length(dep_indent)) {
+      in_depends = 0
+      print $0
+      next
+    }
+    
+    # 检测服务名行 (格式: "    service_name:")
+    if ($0 ~ /^[[:space:]]+[a-zA-Z0-9_-]+:[[:space:]]*$/) {
+      match($0, /[a-zA-Z0-9_-]+:/)
+      svc = substr($0, RSTART, RLENGTH - 1)
+      if (svc_indent_len == 0) { svc_indent_len = cur_len }
+      if (cur_len == svc_indent_len) {
+        print dep_indent "  - " svc
+        next
+      }
+    }
+    
+    # 已经是 V1 格式的列表项
+    if ($0 ~ /^[[:space:]]+-[[:space:]]+[a-zA-Z0-9_-]+/) {
+      print $0
+      next
+    }
+    
+    # 跳过 condition: 行和更深层的内容
+    if ($0 ~ /^[[:space:]]+condition:/ || (svc_indent_len > 0 && cur_len > svc_indent_len)) {
+      next
+    }
+    
+    # 其他情况，块结束
+    in_depends = 0
+    print $0
+    next
+  }
+  
+  { print $0 }
+  ' "$compose_file" > "$temp_file"
+  
+  # 检查 awk 是否成功
+  if [ $? -eq 0 ] && [ -s "$temp_file" ]; then
+    mv "$temp_file" "$compose_file"
+    info "已将 depends_on 转换为 V1 简单列表格式"
+  else
+    warning "awk 转换失败，尝试使用 sed 进行基本转换..."
+    rm -f "$temp_file"
+    sed_i '/^[[:space:]]*condition:[[:space:]]*service_/d' "$compose_file"
+    warning "sed 转换可能不完整，建议手动检查 docker-compose.yml"
+  fi
+  
+  success "docker-compose.yml 已转换为 V1 兼容格式"
+  warning "注意：V1 模式下，服务启动不会等待依赖服务健康检查完成"
+  warning "如果遇到问题，可从备份文件恢复: $backup_file"
+  
+  return 0
+}
+
+# 将 docker-compose.yml 从 V1 恢复为 V2 格式
+# 当 Docker Compose V2 升级成功后，恢复原始 V2 语法
+restore_compose_to_v2() {
+  local compose_file="${1:-docker-compose.yml}"
+  
+  if [ ! -f "$compose_file" ]; then
+    warning "docker-compose.yml 文件不存在: $compose_file"
+    return 1
+  fi
+  
+  # 检查是否有备份文件可以直接恢复
+  local backup_file="${compose_file}.v2.bak"
+  if [ -f "$backup_file" ]; then
+    info "发现 V2 备份文件，正在恢复..."
+    cp "$backup_file" "$compose_file"
+    rm -f "$backup_file"
+    success "已从备份恢复 docker-compose.yml 为 V2 格式"
+    return 0
+  fi
+  
+  # 检查是否需要转换（检测是否为 V1 格式）
+  if ! grep -q "^version:" "$compose_file"; then
+    info "文件已是 V2 格式（无 version 头部），无需转换"
+    return 0
+  fi
+  
+  # 检查 depends_on 是否为列表格式
+  if ! grep -qE "depends_on:" "$compose_file" || ! grep -qE "^\s+-\s+[a-zA-Z0-9_-]+\s*$" "$compose_file"; then
+    info "文件已是 V2 格式或无需转换"
+    return 0
+  fi
+  
+  info "正在将 docker-compose.yml 恢复为 V2 格式..."
+  
+  # 创建临时文件
+  local temp_file=$(mktemp)
+  
+  # 使用 awk 进行转换
+  # 服务条件映射（基于项目实际配置）
+  awk '
+  BEGIN {
+    in_depends = 0
+    dep_indent = ""
+    
+    # 服务条件映射
+    cond["poetize-ui"] = "service_completed_successfully"
+    cond["poetize-im-ui"] = "service_completed_successfully"
+    cond["java-backend"] = "service_healthy"
+    cond["python-backend"] = "service_healthy"
+    cond["redis"] = "service_healthy"
+    cond["mysql"] = "service_healthy"
+    cond["nginx"] = "service_started"
+    cond["certbot"] = "service_started"
+    cond["prerender-worker"] = "service_started"
+    
+    # 默认条件
+    default_cond = "service_started"
+  }
+  
+  # 跳过 version 行
+  /^version:/ { next }
+  
+  # 跳过 version 后的空行
+  NR == 2 && /^[[:space:]]*$/ { next }
+  
+  # 检测 depends_on: 行
+  /^[[:space:]]*depends_on:[[:space:]]*$/ {
+    in_depends = 1
+    match($0, /^[[:space:]]*/)
+    dep_indent = substr($0, RSTART, RLENGTH)
+    print $0
+    next
+  }
+  
+  in_depends == 1 {
+    match($0, /^[[:space:]]*/)
+    cur_len = RLENGTH
+    
+    # 空行跳过
+    if ($0 ~ /^[[:space:]]*$/) { next }
+    
+    # 缩进回退说明 depends_on 块结束
+    if (cur_len <= length(dep_indent)) {
+      in_depends = 0
+      print $0
+      next
+    }
+    
+    # 检测列表项 (格式: "    - service_name")
+    if ($0 ~ /^[[:space:]]+-[[:space:]]+[a-zA-Z0-9_-]+[[:space:]]*$/) {
+      match($0, /[a-zA-Z0-9_-]+[[:space:]]*$/)
+      svc = substr($0, RSTART, RLENGTH)
+      gsub(/[[:space:]]/, "", svc)
+      
+      # 获取条件
+      condition = (svc in cond) ? cond[svc] : default_cond
+      
+      # 输出 V2 格式
+      print dep_indent "  " svc ":"
+      print dep_indent "    condition: " condition
+      next
+    }
+    
+    # 已经是 V2 格式（带条件的）
+    if ($0 ~ /^[[:space:]]+[a-zA-Z0-9_-]+:[[:space:]]*$/ || $0 ~ /condition:/) {
+      print $0
+      next
+    }
+    
+    # 其他情况，块结束
+    in_depends = 0
+    print $0
+    next
+  }
+  
+  { print $0 }
+  ' "$compose_file" > "$temp_file"
+  
+  # 检查 awk 是否成功
+  if [ $? -eq 0 ] && [ -s "$temp_file" ]; then
+    mv "$temp_file" "$compose_file"
+    success "docker-compose.yml 已恢复为 V2 格式"
+  else
+    warning "V2 格式恢复失败"
+    rm -f "$temp_file"
+    return 1
+  fi
+  
   return 0
 }
 
@@ -7653,14 +7901,128 @@ main() {
       fi
     fi
   else
-    info "Docker Compose已可用"
+    # Docker Compose 可用，但需要检查是否为 V2 版本
+    # 本项目的 docker-compose.yml 仅支持 Docker Compose V2 语法
+    if docker compose version &>/dev/null || sudo docker compose version &>/dev/null; then
+      # V2 插件模式已可用
+      COMPOSE_V2_VERSION=$(docker compose version --short 2>/dev/null || sudo docker compose version --short 2>/dev/null || echo "未知")
+      info "Docker Compose V2 已可用 (版本: $COMPOSE_V2_VERSION)"
+    elif command -v docker-compose &>/dev/null || sudo docker-compose --version &>/dev/null; then
+      # 仅有 V1 独立模式，需要升级
+      COMPOSE_V1_VERSION=$(docker-compose --version 2>/dev/null | grep -oP 'version \K[0-9.]+' || echo "未知")
+      warning "检测到 Docker Compose V1 (版本: $COMPOSE_V1_VERSION)"
+      warning "本项目的 docker-compose.yml 仅支持 Docker Compose V2 语法"
+      echo ""
+      echo -e "${BLUE}=== Docker Compose 版本说明 ===${NC}"
+      echo "  V1 命令格式: docker-compose up -d"
+      echo "  V2 命令格式: docker compose up -d (推荐)"
+      echo ""
+      echo "V2 版本具有更好的性能和新特性支持，建议升级。"
+      echo ""
+      
+      auto_confirm "是否尝试升级到 Docker Compose V2? (y/n) [y=升级, n=跳过]: " "y" "-n 1 -r"
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+        info "正在尝试安装 Docker Compose V2 插件..."
+        
+        # 检测包管理器并尝试安装 docker-compose-plugin
+        local upgrade_success=false
+        
+        if command -v apt-get &>/dev/null; then
+          # Debian/Ubuntu/Deepin 系列
+          info "检测到 APT 包管理器，尝试安装 docker-compose-plugin..."
+          if sudo apt-get update -qq && sudo apt-get install -y docker-compose-plugin 2>/dev/null; then
+            upgrade_success=true
+          fi
+        elif command -v dnf &>/dev/null; then
+          # Fedora/CentOS 8+/RHEL 8+ 系列
+          info "检测到 DNF 包管理器，尝试安装 docker-compose-plugin..."
+          if sudo dnf install -y docker-compose-plugin 2>/dev/null; then
+            upgrade_success=true
+          fi
+        elif command -v yum &>/dev/null; then
+          # CentOS 7/RHEL 7 系列
+          info "检测到 YUM 包管理器，尝试安装 docker-compose-plugin..."
+          if sudo yum install -y docker-compose-plugin 2>/dev/null; then
+            upgrade_success=true
+          fi
+        elif command -v pacman &>/dev/null; then
+          # Arch Linux 系列
+          info "检测到 Pacman 包管理器，尝试安装 docker-compose..."
+          if sudo pacman -S --noconfirm docker-compose 2>/dev/null; then
+            upgrade_success=true
+          fi
+        elif command -v apk &>/dev/null; then
+          # Alpine Linux
+          info "检测到 APK 包管理器，尝试安装 docker-compose-plugin..."
+          if sudo apk add docker-compose-plugin 2>/dev/null; then
+            upgrade_success=true
+          fi
+        elif command -v zypper &>/dev/null; then
+          # openSUSE
+          info "检测到 Zypper 包管理器，尝试安装 docker-compose-plugin..."
+          if sudo zypper install -y docker-compose-plugin 2>/dev/null; then
+            upgrade_success=true
+          fi
+        fi
+        
+        # 如果包管理器安装失败，尝试下载二进制文件
+        if [ "$upgrade_success" = false ]; then
+          warning "包管理器安装失败，尝试下载 Docker Compose 二进制文件..."
+          if install_docker_compose "/usr/local/lib/docker/cli-plugins"; then
+            upgrade_success=true
+          fi
+        fi
+        
+        # 验证升级结果
+        if [ "$upgrade_success" = true ] && (docker compose version &>/dev/null || sudo docker compose version &>/dev/null); then
+          COMPOSE_V2_VERSION=$(docker compose version --short 2>/dev/null || sudo docker compose version --short 2>/dev/null || echo "未知")
+          success "Docker Compose V2 升级成功 (版本: $COMPOSE_V2_VERSION)"
+        else
+          warning "Docker Compose V2 升级失败"
+          warning "将尝试继续使用 V1 版本，需要转换 docker-compose.yml 格式"
+          auto_confirm "是否继续部署? (y/n) [y=继续, n=退出]: " "n" "-n 1 -r"
+          if [[ $REPLY =~ ^[Nn]$ ]]; then
+            error "已取消部署"
+            exit 1
+          fi
+          # 标记需要进行 V1 格式转换
+          COMPOSE_V1_FALLBACK=true
+        fi
+      else
+        warning "已跳过 Docker Compose V2 升级"
+        warning "将尝试使用 V1 版本，需要转换 docker-compose.yml 格式"
+        # 标记需要进行 V1 格式转换
+        COMPOSE_V1_FALLBACK=true
+      fi
+    fi
   fi
   
+
   # 设置Docker Compose命令
   setup_docker_compose_command
   
   # 处理环境状态，如果没有源码，则克隆源码到本地并进入目录
   handle_environment_status
+  
+  # 如果需要 V1 兼容模式，转换 docker-compose.yml
+  if [ "${COMPOSE_V1_FALLBACK:-false}" = true ]; then
+    info "检测到 Docker Compose V1 兼容模式，正在转换配置文件..."
+    if [ -f "docker-compose.yml" ]; then
+      convert_compose_to_v1 "docker-compose.yml"
+    else
+      warning "docker-compose.yml 文件不存在，跳过转换"
+    fi
+  else
+    # Docker Compose V2 可用，检查并恢复 V2 格式
+    if [ -f "docker-compose.yml" ]; then
+      # 检查是否需要从 V1 恢复到 V2
+      if grep -q "^version:" "docker-compose.yml" 2>/dev/null; then
+        info "检测到 docker-compose.yml 可能为 V1 格式，尝试恢复为 V2..."
+        restore_compose_to_v2 "docker-compose.yml"
+      fi
+    fi
+  fi
+
   # 处理Dockerfile国内镜像加速
   if is_china_environment; then
     info "检测到国内网络环境"

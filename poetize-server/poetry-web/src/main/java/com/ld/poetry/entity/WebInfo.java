@@ -204,6 +204,15 @@ public class WebInfo implements Serializable {
     @TableField(value = "enable_dynamic_title", exist = true)
     private Boolean enableDynamicTitle;
 
+    @TableField(value = "mouse_click_effect", exist = true)
+    private String mouseClickEffect;
+
+    /**
+     * 鼠标点击特效配置JSON
+     */
+    @TableField(value = "mouse_click_effect_config", exist = true)
+    private String mouseClickEffectConfig;
+
     /**
      * 移动端侧边栏配置(JSON格式)
      */

@@ -1,7 +1,21 @@
 SET NAMES utf8mb4;
 CREATE DATABASE IF NOT EXISTS poetize DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+-- ============================================
+-- 数据库迁移版本记录表（必须在最前面）
+-- ============================================
+DROP TABLE IF EXISTS `poetize`.`db_migrations`;
 
+CREATE TABLE `poetize`.`db_migrations` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `version` varchar(20) NOT NULL COMMENT '版本号（迁移脚本文件名，不含.sql后缀）',
+  `description` varchar(200) DEFAULT NULL COMMENT '迁移说明',
+  `executed_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '执行时间',
+  `execution_time_ms` int DEFAULT NULL COMMENT '执行耗时（毫秒）',
+  `success` tinyint(1) NOT NULL DEFAULT 1 COMMENT '是否执行成功 [0:失败, 1:成功]',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_version` (`version`) COMMENT '版本号唯一索引'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据库迁移版本记录表';
 
 
 DROP TABLE IF EXISTS `poetize`.`user`;
@@ -166,6 +180,8 @@ CREATE TABLE `poetize`.`web_info` (
   `enable_gray_mode` tinyint(1) DEFAULT 0 COMMENT '灰色模式开关[0:否，1:是]',
   `enable_dynamic_title` tinyint(1) DEFAULT 1 COMMENT '动态标题开关[0:否，1:是]',
   `mobile_drawer_config` TEXT NULL COMMENT '移动端侧边栏配置(JSON格式)',
+  `mouse_click_effect` VARCHAR(20) DEFAULT 'none' COMMENT '鼠标点击效果类型 [none:无, text:文字, firework:烟花]',
+  `mouse_click_effect_config` TEXT COMMENT '鼠标点击特效配置JSON',
 
   PRIMARY KEY (`id`)
 ) ENGINE=Aria DEFAULT CHARSET=utf8mb4 COMMENT='网站信息表';
@@ -230,6 +246,38 @@ CREATE TABLE `poetize`.`sys_config` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_config_key_type` (`config_key`,`config_type`) COMMENT '配置键和类型联合唯一索引'
 ) ENGINE=Aria DEFAULT CHARSET=utf8mb4 COMMENT='参数配置表';
+
+DROP TABLE IF EXISTS `poetize`.`sys_plugin`;
+
+CREATE TABLE `poetize`.`sys_plugin` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '插件ID',
+  `plugin_type` varchar(50) NOT NULL COMMENT '插件类型 [mouse_click_effect: 鼠标点击效果]',
+  `plugin_key` varchar(50) NOT NULL COMMENT '插件唯一标识符',
+  `plugin_name` varchar(100) NOT NULL COMMENT '插件名称',
+  `plugin_description` varchar(500) DEFAULT NULL COMMENT '插件描述',
+  `plugin_config` text DEFAULT NULL COMMENT '插件配置(JSON格式)',
+  `plugin_code` text DEFAULT NULL COMMENT '插件代码(JavaScript)',
+  `enabled` tinyint(1) NOT NULL DEFAULT 1 COMMENT '是否启用 [0:禁用, 1:启用]',
+  `is_system` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否系统内置 [0:用户创建, 1:系统内置]',
+  `sort_order` int NOT NULL DEFAULT 0 COMMENT '排序顺序',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_plugin_type_key` (`plugin_type`, `plugin_key`) COMMENT '插件类型和标识符联合唯一索引',
+  KEY `idx_plugin_type` (`plugin_type`) COMMENT '插件类型索引',
+  KEY `idx_enabled` (`enabled`) COMMENT '启用状态索引'
+) ENGINE=Aria DEFAULT CHARSET=utf8mb4 COMMENT='插件配置表';
+
+DROP TABLE IF EXISTS `poetize`.`sys_plugin_active`;
+
+CREATE TABLE `poetize`.`sys_plugin_active` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `plugin_type` varchar(50) NOT NULL COMMENT '插件类型',
+  `plugin_key` varchar(50) NOT NULL COMMENT '当前激活的插件标识符',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_plugin_type` (`plugin_type`) COMMENT '每种插件类型只能有一个激活项'
+) ENGINE=Aria DEFAULT CHARSET=utf8mb4 COMMENT='插件激活状态表';
 
 DROP TABLE IF EXISTS `poetize`.`sys_mail_config`;
 
@@ -817,6 +865,211 @@ INSERT INTO `poetize`.`sys_config` (`id`, `config_name`, `config_key`, `config_v
 INSERT INTO `poetize`.`sys_config` (`id`, `config_name`, `config_key`, `config_value`, `config_type`) VALUES (33, '字体Unicode范围JSON文件路径', 'font.unicode.path', '/static/assets/font_chunks/unicode_ranges.json', '2');
 INSERT INTO `poetize`.`sys_config` (`id`, `config_name`, `config_key`, `config_value`, `config_type`) VALUES (34, '腾讯位置服务Key', 'tencent.lbs.key', '', '1');
 INSERT INTO `poetize`.`sys_config` (`id`, `config_name`, `config_key`, `config_value`, `config_type`) VALUES (35, '全局评论开关', 'enableComment', 'true', '2');
+
+-- 插入默认的看板娘模型插件（使用 INSERT IGNORE 避免重复插入）
+INSERT IGNORE INTO `sys_plugin` (`plugin_type`, `plugin_key`, `plugin_name`, `plugin_description`, `plugin_config`, `enabled`, `is_system`, `sort_order`) VALUES
+('waifu_model', 'pio', 'Pio酱', '来自 Potion Maker 的可爱女孩',
+'{"modelPath": "Potion-Maker/Pio", "textures": ["Potion-Maker/Pio"], "scale": 1.0, "thumbnailUrl": "/static/waifu_previews/pio.png", "messages": {"greeting": ["你好呀~", "欢迎光临！"], "idle": ["无聊了...", "点点我嘛~"]}}',
+1, 1, 0),
+('waifu_model', 'tia', 'Tia酱', '来自 Potion Maker 的元气少女',
+'{"modelPath": "Potion-Maker/Tia", "textures": ["Potion-Maker/Tia"], "scale": 1.0, "thumbnailUrl": "/static/waifu_previews/tia.png", "messages": {"greeting": ["嗨！", "今天也要加油哦！"], "idle": ["在想什么呢？", "陪我聊聊天吧~"]}}',
+1, 1, 1),
+('waifu_model', 'bilibili_22', 'Bilibili 22娘', '来自 Bilibili Live 的22号看板娘',
+'{"modelPath": "bilibili-live/22", "textures": ["bilibili-live/22"], "scale": 1.0, "thumbnailUrl": "/static/waifu_previews/bilibili_22.png", "messages": {"greeting": ["22娘来啦~", "bilibili干杯！"], "idle": ["去看看番剧吧~", "今天投币了吗？"]}}',
+1, 1, 2),
+('waifu_model', 'bilibili_33', 'Bilibili 33娘', '来自 Bilibili Live 的33号看板娘',
+'{"modelPath": "bilibili-live/33", "textures": ["bilibili-live/33"], "scale": 1.0, "thumbnailUrl": "/static/waifu_previews/bilibili_33.png", "messages": {"greeting": ["33娘驾到！", "素质三连走起！"], "idle": ["一键三连哦~", "关注一下呗？"]}}',
+1, 1, 3),
+('waifu_model', 'shizuku', 'Shizuku', 'Shizuku Talk 系列角色',
+'{"modelPath": "ShizukuTalk/shizuku-48", "textures": ["ShizukuTalk/shizuku-48", "ShizukuTalk/shizuku-pajama"], "scale": 1.0, "thumbnailUrl": "/static/waifu_previews/shizuku.png", "messages": {"greeting": ["这里是Shizuku~", "有什么我能帮你的吗？"], "idle": ["换件衣服看看？", "今天天气真好~"]}}',
+1, 1, 4),
+('waifu_model', 'neptune', '海王星系列', '超次元游戏海王星角色合集',
+'{"modelPath": "HyperdimensionNeptunia/neptune_classic", "textures": ["HyperdimensionNeptunia/neptune_classic", "HyperdimensionNeptunia/nepnep", "HyperdimensionNeptunia/neptune_santa", "HyperdimensionNeptunia/nepmaid", "HyperdimensionNeptunia/nepswim"], "scale": 1.0, "thumbnailUrl": "/static/waifu_previews/neptune.png", "messages": {"greeting": ["Nep! Nep!", "Neptune参上！"], "idle": ["我是主角哦~", "来玩游戏吧！"]}}',
+1, 1, 5),
+('waifu_model', 'murakumo', '叢雲', '舰队Collection - 叢雲',
+'{"modelPath": "KantaiCollection/murakumo", "textures": ["KantaiCollection/murakumo"], "scale": 1.0, "thumbnailUrl": "/static/waifu_previews/murakumo.png", "messages": {"greeting": ["叢雲です", "あなたが提督？"], "idle": ["別に...", "何か用？"]}}',
+1, 1, 6);
+
+-- 设置默认激活的看板娘模型
+INSERT IGNORE INTO `sys_plugin_active` (`plugin_type`, `plugin_key`) VALUES
+('waifu_model', 'neptune');
+
+-- 初始化插件数据
+INSERT INTO `poetize`.`sys_plugin` (`plugin_type`, `plugin_key`, `plugin_name`, `plugin_description`, `plugin_config`, `plugin_code`, `enabled`, `is_system`, `sort_order`) VALUES
+('mouse_click_effect', 'none', '无效果', '关闭鼠标点击效果', '{}', NULL, 1, 1, 0),
+('mouse_click_effect', 'text', '社会主义核心价值观', '点击时显示社会主义核心价值观文字：富强、民主、文明、和谐等', 
+'{"texts": ["富强", "民主", "文明", "和谐", "自由", "平等", "公正", "法治", "爱国", "敬业", "诚信", "友善"], "color": "#ff6651", "fontSize": 16, "duration": 1500, "moveDistance": 160}',
+'const list = config.texts || [
+  "富强", "民主", "文明", "和谐",
+  "自由", "平等", "公正", "法治",
+  "爱国", "敬业", "诚信", "友善"
+];
+
+if (typeof window._textEffectIdx === "undefined") {
+  window._textEffectIdx = 0;
+}
+
+const span = document.createElement("span");
+span.textContent = list[window._textEffectIdx];
+window._textEffectIdx = (window._textEffectIdx + 1) % list.length;
+
+Object.assign(span.style, {
+  "z-index": "1000",
+  top: y - 20 + "px",
+  left: x + "px",
+  position: "absolute",
+  "pointer-events": "none",
+  "font-weight": "bold",
+  color: config.color || "#ff6651",
+  transition: "all 1.5s ease-out"
+});
+
+if (document.body && span && span.nodeType === Node.ELEMENT_NODE) {
+  document.body.appendChild(span);
+} else {
+  return;
+}
+
+setTimeout(() => {
+  span.style.top = y - 180 + "px";
+  span.style.opacity = "0";
+}, 10);
+
+setTimeout(() => {
+  if (span.parentNode) {
+    span.parentNode.removeChild(span);
+  }
+}, 1500);', 1, 1, 1),
+('mouse_click_effect', 'firework', '烟花粒子', '点击时产生彩色烟花粒子扩散效果',
+'{"colors": ["#FF1461", "#18FF92", "#5A87FF", "#FBF38C"], "particleCount": 30, "minRadius": 16, "maxRadius": 32, "minDistance": 50, "maxDistance": 180}',
+'if (!anime) { console.warn("anime.js未加载"); return; }
+
+const colors = config.colors || ["#FF1461", "#18FF92", "#5A87FF", "#FBF38C"];
+const numberOfParticules = config.particleCount || 30;
+
+// 将页面坐标转换为视口坐标（因为canvas使用position:fixed）
+const viewportX = x - window.scrollX;
+const viewportY = y - window.scrollY;
+
+// 获取或创建canvas
+let canvas = document.getElementById("mousedown-effect");
+if (!canvas) {
+  canvas = document.createElement("canvas");
+  canvas.id = "mousedown-effect";
+  Object.assign(canvas.style, {
+    position: "fixed",
+    left: "0",
+    top: "0",
+    pointerEvents: "none",
+    zIndex: "1000"
+  });
+  document.body.appendChild(canvas);
+}
+
+// 设置canvas尺寸
+canvas.width = 2 * window.innerWidth;
+canvas.height = 2 * window.innerHeight;
+canvas.style.width = window.innerWidth + "px";
+canvas.style.height = window.innerHeight + "px";
+
+const ctx = canvas.getContext("2d", {willReadFrequently: true});
+ctx.scale(2, 2);
+
+// 粒子方向
+function setParticuleDirection(p) {
+  const t = anime.random(0, 360) * Math.PI / 180;
+  const a = anime.random(50, 180);
+  const n = [-1, 1][anime.random(0, 1)] * a;
+  return {
+    x: p.x + n * Math.cos(t),
+    y: p.y + n * Math.sin(t)
+  };
+}
+
+// 创建粒子
+function createParticule(px, py) {
+  const p = {
+    x: px,
+    y: py,
+    color: colors[anime.random(0, colors.length - 1)],
+    radius: anime.random(16, 32)
+  };
+  p.endPos = setParticuleDirection(p);
+  p.draw = function() {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, 2 * Math.PI, true);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+  };
+  return p;
+}
+
+// 创建圆环
+function createCircle(px, py) {
+  const c = {
+    x: px,
+    y: py,
+    color: "#F00",
+    radius: 0.1,
+    alpha: 0.5,
+    lineWidth: 6
+  };
+  c.draw = function() {
+    ctx.globalAlpha = c.alpha;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, c.radius, 0, 2 * Math.PI, true);
+    ctx.lineWidth = c.lineWidth;
+    ctx.strokeStyle = c.color;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  };
+  return c;
+}
+
+// 创建粒子和圆环（使用视口坐标）
+const circle = createCircle(viewportX, viewportY);
+const particules = [];
+for (let i = 0; i < numberOfParticules; i++) {
+  particules.push(createParticule(viewportX, viewportY));
+}
+
+// 所有动画目标
+const allTargets = [...particules, circle];
+
+// 渲染函数 - 绘制所有元素
+function renderAll() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < allTargets.length; i++) {
+    allTargets[i].draw();
+  }
+}
+
+// 启动动画
+anime.timeline().add({
+  targets: particules,
+  x: function(p) { return p.endPos.x; },
+  y: function(p) { return p.endPos.y; },
+  radius: 0.1,
+  duration: anime.random(1200, 1800),
+  easing: "easeOutExpo",
+  update: renderAll
+}).add({
+  targets: circle,
+  radius: anime.random(80, 160),
+  lineWidth: 0,
+  alpha: {
+    value: 0,
+    easing: "linear",
+    duration: anime.random(600, 800)
+  },
+  duration: anime.random(1200, 1800),
+  easing: "easeOutExpo",
+  offset: 0
+});', 1, 1, 2);
+
+-- 初始化插件激活状态
+INSERT INTO `poetize`.`sys_plugin_active` (`plugin_type`, `plugin_key`) VALUES
+('mouse_click_effect', 'none');
 
 -- 初始化验证码配置数据
 INSERT INTO `poetize`.`sys_captcha_config` (`id`, `enable`, `login`, `register`, `comment`, `reset_password`, `screen_size_threshold`, `force_slide_for_mobile`, `slide_accuracy`, `slide_success_threshold`, `checkbox_track_sensitivity`, `checkbox_min_track_points`, `checkbox_reply_sensitivity`, `checkbox_max_retry_count`, `checkbox_retry_decrement`) VALUES (1, 1, 1, 1, 1, 1, 768, 1, 5, 0.95, 0.99, 3, 0.85, 5, 0.02);

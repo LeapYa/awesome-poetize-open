@@ -1,0 +1,57 @@
+{
+  "name": "poetize-admin",
+  "version": "1.0.0",
+  "private": true,
+  "sideEffects": [
+    "*.css",
+    "*.vue",
+    "./src/main.js",
+    "./src/assets/**/*"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "serve": "vite",
+    "build": "vite build && npm run compress",
+    "build:no-compress": "vite build",
+    "compress": "node scripts/compress-build.js",
+    "lint": "vue-cli-service lint",
+    "postinstall": "node scripts/fix-element-ui-ce.js"
+  },
+  "dependencies": {
+    "@fingerprintjs/fingerprintjs": "^4.2.0",
+    "@iktakahiro/markdown-it-katex": "^4.0.1",
+    "axios": "^1.6.7",
+    "core-js": "^3.37.0",
+    "echarts": "^5.4.2",
+    "element-ui-ce": "^2.15.14",
+    "markdown-it": "^14.0.0",
+    "markdown-it-multimd-table": "^4.2.3",
+    "pinia": "^2.0.0",
+    "qiniu-js": "^4.0.0-beta.6",
+    "qs": "^6.12.2",
+    "vditor": "^3.11.2",
+    "vue": "^2.7.16",
+    "vue-router": "^3.6.5"
+  },
+  "devDependencies": {
+    "@babel/eslint-parser": "^7.22.20",
+    "@vitejs/plugin-vue2": "^2.3.4",
+    "@vue/eslint-config-standard": "^6.1.0",
+    "babel-plugin-component": "^1.1.1",
+    "cross-env": "^10.1.0",
+    "eslint": "^7.32.0",
+    "eslint-plugin-import": "^2.20.2",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^4.2.1",
+    "eslint-plugin-standard": "^4.0.0",
+    "eslint-plugin-vue": "^7.20.0",
+    "html-minifier-terser": "^7.2.0",
+    "vite": "^7.3.0",
+    "vite-plugin-compression": "^0.5.1",
+    "vite-plugin-env-compatible": "^2.0.1",
+    "vue-template-compiler": "^2.7.16"
+  },
+  "overrides": {
+    "katex": "^0.16.21"
+  }
+}

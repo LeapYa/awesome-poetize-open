@@ -1,6 +1,7 @@
 package com.ld.poetry.im.http.controller;
 
 
+import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ld.poetry.aop.LoginCheck;
@@ -10,6 +11,9 @@ import com.ld.poetry.im.http.entity.ImChatUserMessage;
 import com.ld.poetry.im.http.service.ImChatUserMessageService;
 import com.ld.poetry.im.http.vo.UserMessageVO;
 import com.ld.poetry.im.websocket.ImConfigConst;
+import com.ld.poetry.im.websocket.ImMessage;
+import com.ld.poetry.im.websocket.TioUtil;
+import com.ld.poetry.im.websocket.TioWebsocketStarter;
 import com.ld.poetry.utils.CommonQuery;
 import com.ld.poetry.utils.PoetryUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +22,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.tio.core.Tio;
+import org.tio.websocket.common.WsResponse;
 
 import java.util.Collections;
 import java.util.List;
@@ -92,7 +98,23 @@ public class ImChatUserMessageController {
         userMessage.setFromId(ImConfigConst.DEFAULT_SYSTEM_MESSAGE_ID);
         userMessage.setToId(ImConfigConst.DEFAULT_SYSTEM_MESSAGE_ID);
         userMessage.setMessageStatus(ImConfigConst.USER_MESSAGE_STATUS_TRUE);
-        imChatUserMessageService.save(userMessage);
+        boolean isSuccess = imChatUserMessageService.save(userMessage);
+
+        if (isSuccess) {
+            TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
+            if (tioWebsocketStarter != null) {
+                ImMessage imMessage = new ImMessage();
+                imMessage.setContent(content);
+                imMessage.setFromId(ImConfigConst.DEFAULT_SYSTEM_MESSAGE_ID);
+                imMessage.setToId(ImConfigConst.DEFAULT_SYSTEM_MESSAGE_ID);
+                // 使用单聊消息类型(1)，前端会根据 fromId == -1 识别为系统消息
+                imMessage.setMessageType(1);
+
+                String jsonString = JSON.toJSONString(imMessage);
+                WsResponse wsResponse = WsResponse.fromText(jsonString, ImConfigConst.CHARSET);
+                Tio.sendToAll(tioWebsocketStarter.getServerTioConfig(), wsResponse);
+            }
+        }
         return PoetryResult.success();
     }
 

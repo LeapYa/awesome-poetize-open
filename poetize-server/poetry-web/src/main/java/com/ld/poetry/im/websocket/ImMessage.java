@@ -25,6 +25,8 @@ public class ImMessage {
 
     private Integer onlineCount;
 
+    private String createTime;
+
     private static final ObjectMapper objectMapper = new ObjectMapper();
     
     static {

@@ -1,6 +1,7 @@
 package com.ld.poetry.im.http.controller;
 
 
+import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -13,6 +14,7 @@ import com.ld.poetry.im.http.service.ImChatGroupService;
 import com.ld.poetry.im.http.service.ImChatGroupUserService;
 import com.ld.poetry.im.http.vo.GroupUserVO;
 import com.ld.poetry.im.websocket.ImConfigConst;
+import com.ld.poetry.im.websocket.ImMessage;
 import com.ld.poetry.im.websocket.TioUtil;
 import com.ld.poetry.im.websocket.TioWebsocketStarter;
 import com.ld.poetry.utils.CommonQuery;
@@ -26,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.tio.core.Tio;
+import org.tio.websocket.common.WsResponse;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -94,6 +97,7 @@ public class ImChatGroupUserController {
             TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
             if (tioWebsocketStarter != null) {
                 Tio.bindGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(userId), String.valueOf(id));
+                sendGroupSystemMessage(id, commonQuery.getUser(userId).getUsername() + " 加入了群聊");
             }
         }
         return PoetryResult.success();
@@ -153,6 +157,7 @@ public class ImChatGroupUserController {
             TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
             if (tioWebsocketStarter != null) {
                 Tio.bindGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(userId), String.valueOf(groupId));
+                sendGroupSystemMessage(groupId, commonQuery.getUser(userId).getUsername() + " 加入了群聊");
             }
         } else if (isSuccess && userStatus.intValue() == ImConfigConst.GROUP_USER_STATUS_BAN &&
                 (oldUserStatus.intValue() == ImConfigConst.GROUP_USER_STATUS_PASS ||
@@ -160,6 +165,7 @@ public class ImChatGroupUserController {
             TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
             if (tioWebsocketStarter != null) {
                 Tio.unbindGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(userId), String.valueOf(groupId));
+                sendGroupSystemMessage(groupId, commonQuery.getUser(userId).getUsername() + " 退出了群聊");
             }
         }
 
@@ -251,6 +257,7 @@ public class ImChatGroupUserController {
             TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
             if (tioWebsocketStarter != null) {
                 Tio.unbindGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(userId), String.valueOf(id));
+                sendGroupSystemMessage(id, commonQuery.getUser(userId).getUsername() + " 退出了群聊");
             }
         }
         return PoetryResult.success();
@@ -392,6 +399,22 @@ public class ImChatGroupUserController {
         result.setCurrent(page.getCurrent());
         result.setSize(page.getSize());
         return PoetryResult.success(result);
+    }
+
+    private void sendGroupSystemMessage(Integer groupId, String content) {
+        TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
+        if (tioWebsocketStarter != null) {
+            ImMessage imMessage = new ImMessage();
+            imMessage.setContent(content);
+            imMessage.setFromId(ImConfigConst.DEFAULT_SYSTEM_MESSAGE_ID);
+            imMessage.setGroupId(groupId);
+            // 改为群聊消息类型(2)，前端识别 fromId == -1 渲染为居中系统提示
+            imMessage.setMessageType(2);
+
+            String jsonString = JSON.toJSONString(imMessage);
+            WsResponse wsResponse = WsResponse.fromText(jsonString, ImConfigConst.CHARSET);
+            Tio.sendToGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(groupId), wsResponse);
+        }
     }
 }
 

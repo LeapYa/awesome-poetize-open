@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2025-12-12
+## 修改时间: 2026-01-06
 ## 描述: POETIZE 博客系统自动迁移脚本
-## 版本: 1.4.0
+## 版本: 1.5.0
 
 # 定义颜色
 RED='\033[0;31m'
@@ -1116,7 +1116,7 @@ execute_sql_scripts_on_target() {
     local target_path
     target_path="$CURRENT_DIR/$extract_dir"
     
-    # 在目标服务器上执行SQL脚本
+    # 在目标服务器上执行SQL脚本（支持版本跟踪）
     local ssh_cmd="
         cd $target_path
         
@@ -1178,23 +1178,79 @@ execute_sql_scripts_on_target() {
                 exit 0
             fi
             
-            echo \"INFO: 发现以下额外SQL脚本需要执行:\"
-            echo \"\$sql_files\" | while read -r file; do
-                echo \"  - \$file\"
-            done
+            # 检查 db_migrations 表是否存在
+            has_migrations_table=false
+            if sudo docker exec -i \"\$mariadb_container\" mariadb -u root -p\"\$db_root_password\" poetize -N -e \"SELECT 1 FROM db_migrations LIMIT 1\" 2>/dev/null | grep -q \"1\"; then
+                has_migrations_table=true
+                echo \"INFO: 检测到版本跟踪表，将只执行未记录的脚本\"
+            fi
+            
+            # 统计
+            total_count=0
+            skip_count=0
+            exec_count=0
+            fail_count=0
+            
+            # 统计总数
+            while IFS= read -r sql_file; do
+                [ -z \"\$sql_file\" ] && continue
+                total_count=\$((total_count + 1))
+            done <<< \"\$sql_files\"
+            
+            echo \"INFO: 发现 \$total_count 个SQL脚本\"
             
             # 执行每个SQL脚本
-            echo \"\$sql_files\" | while read -r sql_file; do
-                if [ -f \"\$sql_file\" ]; then
-                    echo \"INFO: 执行SQL脚本: \$sql_file\"
-                    if sudo docker exec -i \"\$mariadb_container\" mariadb -u root -p\"\$db_root_password\" poetize < \"\$sql_file\" 2>/dev/null; then
-                        echo \"SUCCESS: SQL脚本执行成功: \$sql_file\"
-                    else
-                        echo \"WARNING: SQL脚本执行失败或已存在: \$sql_file（这通常是正常的，如果表已存在）\"
+            while IFS= read -r sql_file; do
+                [ -z \"\$sql_file\" ] && continue
+                [ ! -f \"\$sql_file\" ] && continue
+                
+                # 提取版本号
+                version=\$(basename \"\$sql_file\" .sql)
+                
+                # 如果有版本跟踪表，检查是否已执行
+                if [ \"\$has_migrations_table\" = true ]; then
+                    already_executed=\$(sudo docker exec -i \"\$mariadb_container\" mariadb -u root -p\"\$db_root_password\" poetize -N -e \"SELECT COUNT(*) FROM db_migrations WHERE version='\$version' AND success=1\" 2>/dev/null | tr -d '[:space:]')
+                    if [ \"\$already_executed\" = \"1\" ]; then
+                        skip_count=\$((skip_count + 1))
+                        continue
                     fi
                 fi
-            done
+                
+                # 执行SQL脚本
+                echo \"INFO: 执行SQL脚本: \$sql_file\"
+                start_time=\$(date +%s%3N 2>/dev/null || date +%s)
+                
+                if sudo docker exec -i \"\$mariadb_container\" mariadb -u root -p\"\$db_root_password\" poetize < \"\$sql_file\" 2>/dev/null; then
+                    end_time=\$(date +%s%3N 2>/dev/null || date +%s)
+                    exec_time=\$((end_time - start_time))
+                    
+                    # 如果刚执行的是版本表初始化脚本，重新检查表是否存在
+                    if [ \"\$version\" = \"000000000000\" ] && [ \"\$has_migrations_table\" = false ]; then
+                        if sudo docker exec -i \"\$mariadb_container\" mariadb -u root -p\"\$db_root_password\" poetize -N -e \"SELECT 1 FROM db_migrations LIMIT 1\" 2>/dev/null | grep -q \"1\"; then
+                            has_migrations_table=true
+                            echo \"INFO: 版本跟踪表已创建，后续脚本执行将被记录\"
+                        fi
+                    fi
+                    
+                    # 记录到版本表
+                    if [ \"\$has_migrations_table\" = true ]; then
+                        sudo docker exec -i \"\$mariadb_container\" mariadb -u root -p\"\$db_root_password\" poetize -e \"INSERT IGNORE INTO db_migrations (version, description, execution_time_ms, success) VALUES ('\$version', '迁移执行', \$exec_time, 1)\" 2>/dev/null
+                    fi
+                    
+                    echo \"SUCCESS: SQL脚本执行成功: \$sql_file (\${exec_time}ms)\"
+                    exec_count=\$((exec_count + 1))
+                else
+                    # 记录失败
+                    if [ \"\$has_migrations_table\" = true ]; then
+                        sudo docker exec -i \"\$mariadb_container\" mariadb -u root -p\"\$db_root_password\" poetize -e \"INSERT IGNORE INTO db_migrations (version, description, success) VALUES ('\$version', '执行失败', 0)\" 2>/dev/null
+                    fi
+                    
+                    echo \"WARNING: SQL脚本执行失败或已存在: \$sql_file（这通常是正常的，如果表已存在）\"
+                    fail_count=\$((fail_count + 1))
+                fi
+            done <<< \"\$sql_files\"
             
+            echo \"INFO: SQL脚本执行统计: 总计=\$total_count, 执行=\$exec_count, 跳过=\$skip_count, 失败/已存在=\$fail_count\"
             echo \"SUCCESS: 额外SQL脚本执行完成\"
             
             # 重启所有服务以确保数据库结构变更被正确识别

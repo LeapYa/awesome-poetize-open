@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2025-12-31
+## 修改时间: 2026-01-06
 ## 描述: 部署 POETIZE 博客系统安装脚本
-## 版本: 1.12.0
+## 版本: 1.13.0
 
 # 定义颜色
 RED='\033[0;31m'
@@ -183,6 +183,80 @@ create_global_poetize_command() {
     return 0
   else
     return 1
+  fi
+}
+
+# 标记所有迁移脚本为已执行（仅新安装时使用）
+# 因为 poetry.sql 已包含最新表结构，迁移脚本不需要再执行
+# 判断逻辑：如果 db_migrations 表为空，说明是新安装；否则是升级，跳过标记
+mark_all_migrations_as_executed() {
+  info "检查是否需要标记迁移脚本..."
+  
+  # 获取数据库密码
+  local db_root_password=""
+  if [ -f ".config/db_credentials.txt" ]; then
+    db_root_password=$(grep "数据库ROOT密码:" .config/db_credentials.txt | cut -d':' -f2 | tr -d ' ')
+  fi
+  
+  if [ -z "$db_root_password" ]; then
+    warning "无法获取数据库密码，跳过迁移版本标记"
+    return 1
+  fi
+  
+  # 查找MariaDB容器
+  local mariadb_container=$(docker ps --format "{{.Names}}" | grep -E "mariadb|mysql" | head -1)
+  if [ -z "$mariadb_container" ]; then
+    warning "未找到数据库容器，跳过迁移版本标记"
+    return 1
+  fi
+  
+  # 等待数据库就绪
+  local max_wait=60
+  local wait_count=0
+  while ! docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" -e "SELECT 1" &>/dev/null; do
+    sleep 2
+    wait_count=$((wait_count + 2))
+    if [ $wait_count -ge $max_wait ]; then
+      warning "等待数据库就绪超时，跳过迁移版本标记"
+      return 1
+    fi
+  done
+  
+  # 检查 db_migrations 表是否存在
+  if ! docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1" &>/dev/null; then
+    warning "db_migrations 表不存在，跳过迁移版本标记"
+    return 1
+  fi
+  
+  # 检查 db_migrations 表是否有记录（判断是新安装还是升级）
+  local existing_count=$(docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT COUNT(*) FROM db_migrations" 2>/dev/null | tr -d '[:space:]')
+  
+  if [ -n "$existing_count" ] && [ "$existing_count" -gt 0 ]; then
+    info "检测到已有 $existing_count 条迁移记录，这是升级操作，跳过自动标记"
+    return 0
+  fi
+  
+  info "检测到空的迁移记录表，这是新安装，标记所有脚本为已执行..."
+  
+  # 查找所有迁移脚本并标记为已执行
+  if [ -d "poetize-server/sql" ]; then
+    local sql_files=$(find poetize-server/sql -name "*.sql" -not -name "poetry.sql" -not -name "poetry_old.sql" -type f | sort)
+    local count=0
+    
+    while IFS= read -r sql_file; do
+      [ -z "$sql_file" ] && continue
+      [ ! -f "$sql_file" ] && continue
+      
+      local version=$(basename "$sql_file" .sql)
+      
+      # 插入版本记录（如果不存在）
+      docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -e \
+        "INSERT IGNORE INTO db_migrations (version, description, success) VALUES ('$version', '新安装时自动标记', 1)" 2>/dev/null
+      
+      count=$((count + 1))
+    done <<< "$sql_files"
+    
+    success "已标记 $count 个迁移脚本为已执行（新安装）"
   fi
 }
 
@@ -2364,6 +2438,8 @@ restore_compose_to_v2() {
     dep_indent = ""
     
     # 服务条件映射
+    cond["poetize-web"] = "service_completed_successfully"
+    cond["poetize-admin"] = "service_completed_successfully"
     cond["poetize-ui"] = "service_completed_successfully"
     cond["poetize-im-ui"] = "service_completed_successfully"
     cond["java-backend"] = "service_healthy"
@@ -4315,6 +4391,7 @@ check_and_fix_network_conflict() {
     sed_i "s|ipv4_address: 172\.28\.147\.9|ipv4_address: $base_ip.9|g" docker-compose.yml
     sed_i "s|ipv4_address: 172\.28\.147\.10|ipv4_address: $base_ip.10|g" docker-compose.yml
     sed_i "s|ipv4_address: 172\.28\.147\.11|ipv4_address: $base_ip.11|g" docker-compose.yml
+    sed_i "s|ipv4_address: 172\.28\.147\.12|ipv4_address: $base_ip.12|g" docker-compose.yml
     
     # 更新Python服务的DOCKER_SUBNET环境变量
     sed_i "s|DOCKER_SUBNET=172\.28\.147\.0/28|DOCKER_SUBNET=$new_subnet|g" docker-compose.yml
@@ -4382,7 +4459,28 @@ start_services() {
     
     if [ -z "$SKIP_BUILD" ] && [ "$DISABLE_DOCKER_CACHE" = true ]; then
       # 如果需要构建且禁用缓存
-      info "启动所有服务中（已禁用Docker构建缓存）..."
+      # 串行构建前端项目以减少内存峰值（两个前端同时构建会占用约4GB内存）
+      info "串行构建前端项目以节省内存..."
+      
+      info "[1/2] 构建博客前端 (poetize-web)..."
+      DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
+      run_docker_compose build --no-cache poetize-web
+      if [ $? -ne 0 ]; then
+        error "poetize-web 构建失败"
+        return 1
+      fi
+      success "poetize-web 构建完成"
+      
+      info "[2/2] 构建后台管理前端 (poetize-admin)..."
+      DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
+      run_docker_compose build --no-cache poetize-admin
+      if [ $? -ne 0 ]; then
+        error "poetize-admin 构建失败"
+        return 1
+      fi
+      success "poetize-admin 构建完成"
+      
+      info "启动所有服务中..."
       DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
       run_docker_compose up -d --build
     else
@@ -6140,16 +6238,33 @@ verify_https_status() {
 
 # 检查项目环境
 check_project_environment() {
-  # 定义需要检测的目录和文件
-  local directories=("docker" "poetize-server" "py" "poetize-ui")
+  # 基础目录（新旧版本都需要）
+  local base_directories=("docker" "poetize-server" "py")
   local files=("docker-compose.yml")
   
-  # 静默检测所有目录和文件
-  for dir in "${directories[@]}"; do
+  # 静默检测基础目录
+  for dir in "${base_directories[@]}"; do
     if [ ! -d "$dir" ]; then
       return 1
     fi
   done
+  
+  # 检测前端目录：新版使用 poetize-web + poetize-admin，旧版使用 poetize-ui
+  # 只要满足其中一种即可
+  local has_new_frontend=false
+  local has_old_frontend=false
+  
+  if [ -d "poetize-web" ] && [ -d "poetize-admin" ]; then
+    has_new_frontend=true
+  fi
+  
+  if [ -d "poetize-ui" ]; then
+    has_old_frontend=true
+  fi
+  
+  if [ "$has_new_frontend" = false ] && [ "$has_old_frontend" = false ]; then
+    return 1
+  fi
   
   for file in "${files[@]}"; do
     if [ ! -f "$file" ]; then
@@ -6319,8 +6434,12 @@ modify_docker_compose_for_multi_instance() {
   
   info "正在修改docker-compose.yml以支持多实例..."
   
-  # 修改容器名称
+  # 修改容器名称（支持新旧版本）
   sed_i "s/container_name: poetize-nginx/container_name: poetize-nginx$suffix/g" docker-compose.yml
+  # 新版前端容器名称
+  sed_i "s/container_name: poetize-web/container_name: poetize-web$suffix/g" docker-compose.yml
+  sed_i "s/container_name: poetize-admin/container_name: poetize-admin$suffix/g" docker-compose.yml
+  # 旧版前端容器名称（向后兼容）
   sed_i "s/container_name: poetize-ui/container_name: poetize-ui$suffix/g" docker-compose.yml
   sed_i "s/container_name: poetize-im-ui/container_name: poetize-im-ui$suffix/g" docker-compose.yml
   sed_i "s/container_name: poetize-certbot/container_name: poetize-certbot$suffix/g" docker-compose.yml
@@ -6729,8 +6848,8 @@ handle_environment_status() {
       if [ -z "$DIR" ]; then
         error "未找到已经安装的项目目录，如果你认为这是一个错误，请提交issue，将在当前目录下安装..."
         DIR=$(pwd)
-      # 检测当前目录是否在项目中（包含项目特征文件/目录）
-      elif [ -d "poetize-ui" ] || [ -d "py" ] || [ -d "docker" ] || [ -f "poetize" ] || [ -f "migrate.sh" ]; then
+      # 检测当前目录是否在项目中（包含项目特征文件/目录）- 支持新旧版本
+      elif [ -d "poetize-web" ] || [ -d "poetize-admin" ] || [ -d "poetize-ui" ] || [ -d "py" ] || [ -d "docker" ] || [ -f "poetize" ] || [ -f "migrate.sh" ]; then
         info "检测到当前目录已在项目中，使用当前目录..."
         DIR=$(pwd)
       else
@@ -7653,8 +7772,14 @@ patch_dockerfile_mirror() {
     
     # 前端多阶段构建：动态查找 FROM 行并插入镜像源
     # 第一阶段（node:bookworm-slim）需要 Debian 镜像源
-    local ui_line=$(grep -n "FROM node.*bookworm-slim" docker/poetize-ui/Dockerfile | head -1 | cut -d: -f1)
+    # 新版前端
+    local web_line=$(grep -n "FROM node.*bookworm-slim" docker/poetize-web/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
+    local admin_line=$(grep -n "FROM node.*bookworm-slim" docker/poetize-admin/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
+    # 旧版前端（向后兼容）
+    local ui_line=$(grep -n "FROM node.*bookworm-slim" docker/poetize-ui/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
     local im_line=$(grep -n "FROM node.*bookworm-slim" docker/poetize-im-ui/Dockerfile | head -1 | cut -d: -f1)
+    [ -n "$web_line" ] && patch_dockerfile_slim_mirror "docker/poetize-web/Dockerfile" "$web_line"
+    [ -n "$admin_line" ] && patch_dockerfile_slim_mirror "docker/poetize-admin/Dockerfile" "$admin_line"
     [ -n "$ui_line" ] && patch_dockerfile_slim_mirror "docker/poetize-ui/Dockerfile" "$ui_line"
     [ -n "$im_line" ] && patch_dockerfile_slim_mirror "docker/poetize-im-ui/Dockerfile" "$im_line"
   fi
@@ -7667,8 +7792,14 @@ patch_dockerfile_mirror() {
     
     # 前端多阶段构建：第二阶段（alpine）需要 Alpine 镜像源
     # 动态查找 FROM alpine 的位置，然后在下一行插入（+1）
-    local ui_alpine_line=$(grep -n "FROM alpine" docker/poetize-ui/Dockerfile | head -1 | cut -d: -f1)
+    # 新版前端
+    local web_alpine_line=$(grep -n "FROM alpine" docker/poetize-web/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
+    local admin_alpine_line=$(grep -n "FROM alpine" docker/poetize-admin/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
+    # 旧版前端（向后兼容）
+    local ui_alpine_line=$(grep -n "FROM alpine" docker/poetize-ui/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
     local im_alpine_line=$(grep -n "FROM alpine" docker/poetize-im-ui/Dockerfile | head -1 | cut -d: -f1)
+    [ -n "$web_alpine_line" ] && patch_dockerfile_alpine_mirror "docker/poetize-web/Dockerfile" "$((web_alpine_line + 1))"
+    [ -n "$admin_alpine_line" ] && patch_dockerfile_alpine_mirror "docker/poetize-admin/Dockerfile" "$((admin_alpine_line + 1))"
     [ -n "$ui_alpine_line" ] && patch_dockerfile_alpine_mirror "docker/poetize-ui/Dockerfile" "$((ui_alpine_line + 1))"
     [ -n "$im_alpine_line" ] && patch_dockerfile_alpine_mirror "docker/poetize-im-ui/Dockerfile" "$((im_alpine_line + 1))"
 
@@ -8175,6 +8306,9 @@ main() {
   
   # 创建全局poetize命令符号链接
   create_global_poetize_command
+  
+  # 标记所有迁移脚本为已执行（新安装的系统已包含最新表结构）
+  mark_all_migrations_as_executed
   
   # 打印部署汇总信息
   print_summary

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+
+  <!-- 声明网站支持亮色和暗色模式，由网站自己控制 -->
+  <meta name="color-scheme" content="light dark">
+  <!-- 阻止移动端浏览器（如OPPO/小米/华为）强制暗色模式 -->
+  <meta name="nightmode" content="disable">
+  <meta name="force-rendering" content="webkit">
+  <meta name="renderer" content="webkit">
+  <meta name="wap-font-scale" content="no">
+
+  <!-- 默认图标 - 当动态图标不存在时使用 -->
+  <link rel="icon" href="/poetize.jpg" sizes="16x16" id="default-favicon">
+
+  <!-- 静态CSS资源 -->
+  <link rel="stylesheet" href="/static/css/inline-styles.css">
+  <title></title>
+</head>
+
+<body>
+  <!-- 标题 + 暗色模式检测 -->
+  <script src="/static/js/early-init.js"></script>
+  <div id="app"></div>
+  <script src="/static/js/inline-scripts.js"></script>
+  <!-- Vite 入口 -->
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>

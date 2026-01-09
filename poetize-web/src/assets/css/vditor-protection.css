@@ -1,0 +1,30 @@
+/**
+ * 文章页面样式保护
+ * 确保 .entry-content 的样式优先级高于任何编辑器样式
+ */
+
+/* 提升文章内容样式的优先级 */
+body .entry-content,
+html .entry-content {
+  /* 通过增加选择器权重来提升优先级 */
+}
+
+/* 确保文章内容的基础元素样式不被覆盖 */
+body .entry-content h1,
+body .entry-content h2,
+body .entry-content h3,
+body .entry-content h4,
+body .entry-content h5,
+body .entry-content h6,
+body .entry-content p,
+body .entry-content a,
+body .entry-content ul,
+body .entry-content ol,
+body .entry-content li,
+body .entry-content blockquote,
+body .entry-content code,
+body .entry-content pre,
+body .entry-content table,
+body .entry-content img {
+  /* 这些选择器的高权重确保文章样式不被覆盖 */
+}

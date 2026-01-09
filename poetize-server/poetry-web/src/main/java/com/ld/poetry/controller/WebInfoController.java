@@ -85,6 +85,9 @@ public class WebInfoController {
     @Autowired
     private com.ld.poetry.config.PoetryApplicationRunner poetryApplicationRunner;
 
+    @Autowired
+    private com.ld.poetry.service.SysPluginService sysPluginService;
+
     /**
      * 清除nginx SEO缓存
      * 在网站信息更新后调用，确保nginx不使用旧的缓存数据作为fallback
@@ -141,6 +144,7 @@ public class WebInfoController {
             Boolean enableGrayMode = (Boolean) params.get("enableGrayMode");
             Boolean enableDynamicTitle = (Boolean) params.get("enableDynamicTitle");
             String mobileDrawerConfig = (String) params.get("mobileDrawerConfig");
+            String mouseClickEffectConfig = (String) params.get("mouseClickEffectConfig");
 
             // 记录更新前的详细信息
             log.info("开始更新网站基本信息 - ID: {}, webName: {}, webTitle: {}", id, webName, webTitle);
@@ -149,7 +153,7 @@ public class WebInfoController {
             int updateResult = webInfoMapper.updateWebInfoById(id, webName, webTitle, siteAddress, footer, backgroundImage,
                     avatar, waifuJson, status, enableWaifu, waifuDisplayMode, homePagePullUpHeight, apiEnabled, apiKey,
                     navConfig, footerBackgroundImage, footerBackgroundConfig, email, minimalFooter,
-                    enableAutoNight, autoNightStart, autoNightEnd, enableGrayMode, enableDynamicTitle, mobileDrawerConfig);
+                    enableAutoNight, autoNightStart, autoNightEnd, enableGrayMode, enableDynamicTitle, mouseClickEffectConfig, mobileDrawerConfig);
             
             log.info("网站基本信息数据库更新结果: {} 行受影响, ID: {}", updateResult, id);
 
@@ -160,20 +164,17 @@ public class WebInfoController {
 
             // 验证更新是否成功：重新查询最新数据
             log.info("重新查询数据库验证更新结果...");
-            LambdaQueryChainWrapper<WebInfo> wrapper = new LambdaQueryChainWrapper<>(webInfoService.getBaseMapper());
-            List<WebInfo> list = wrapper.list();
+            WebInfo latestWebInfo = webInfoService.getById(id);
 
-            if (!CollectionUtils.isEmpty(list)) {
-                WebInfo latestWebInfo = list.get(0);
-
+            if (latestWebInfo != null) {
                 // 验证数据是否真正更新
-                log.info("数据库查询结果 - webName: {}, webTitle: {}",
-                        latestWebInfo.getWebName(), latestWebInfo.getWebTitle());
+                log.info("数据库查询结果 - webName: {}, webTitle: {}, mouseClickEffectConfig: {}",
+                        latestWebInfo.getWebName(), latestWebInfo.getWebTitle(), latestWebInfo.getMouseClickEffectConfig());
 
-                // 更新缓存
+                // 先删除旧缓存，再设置新缓存
+                cacheService.evictWebInfo();
                 cacheService.cacheWebInfo(latestWebInfo);
-                log.info("网站信息缓存更新成功 - webName: {}, webTitle: {}",
-                        latestWebInfo.getWebName(), latestWebInfo.getWebTitle());
+                log.info("网站信息缓存更新成功");
 
                 // 网站信息更新时，清除各种缓存并重新渲染页面
                 try {
@@ -183,20 +184,19 @@ public class WebInfoController {
                         log.info("网站信息更新后已清除sitemap缓存");
                     }
                     
-                    // 2. 清除nginx SEO缓存（确保nginx fallback不使用旧缓存）
-                    clearNginxSeoCache();
-                    
-                    // 3. 异步触发预渲染，避免阻塞主流程，并确保缓存数据已完全生效
+                    // 2. 异步触发清理操作和预渲染
                     CompletableFuture.runAsync(() -> {
                         try {
-                            // 等待2秒确保Redis缓存完全生效并可被预渲染服务读取
-                            Thread.sleep(2000);
+                            // 清除nginx SEO缓存（网络IO，可能超时）
+                            clearNginxSeoCache();
+                            Thread.sleep(1000);
                             
-                            log.info("开始触发预渲染，此时Redis缓存和nginx缓存清除应已完全生效");
+                            
+                            log.info("开始触发预渲染");
                             poetryApplicationRunner.executeFullPrerender();
                             log.info("网站信息更新后成功触发页面预渲染");
                         } catch (Exception e) {
-                            log.warn("异步预渲染失败", e);
+                            log.warn("异步任务执行失败", e);
                         }
                     });
                     
@@ -363,6 +363,14 @@ public class WebInfoController {
                 result.setRandomAvatar(null);
                 result.setRandomName(null);
                 result.setWaifuJson(null);
+
+                // 覆盖鼠标点击效果，使用插件系统的配置
+                try {
+                    String activeEffect = sysPluginService.getActiveMouseClickEffect();
+                    result.setMouseClickEffect(activeEffect);
+                } catch (Exception e) {
+                    log.error("获取鼠标点击效果插件失败", e);
+                }
 
                 // 并行加载访问统计和文章总数
                 try (var scope = java.util.concurrent.StructuredTaskScope.open()) {

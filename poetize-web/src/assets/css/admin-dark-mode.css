@@ -1,0 +1,1158 @@
+/* ========== 后台管理系统暗色模式样式 ========== */
+/* 当 body 有 dark-mode 类时，应用以下样式 */
+
+/* ========== 亮色模式样式 ========== */
+/* 折叠面板亮色模式 - 透明背景 */
+.el-collapse-item__header {
+  background-color: transparent !important;
+}
+
+.el-collapse-item__wrap {
+  background-color: transparent !important;
+}
+
+/* 分割线亮色模式 - 透明背景 */
+.el-divider__text {
+  background-color: transparent !important;
+}
+
+/* Element UI 表单输入框暗色模式 */
+body.dark-mode .el-input__inner,
+body.dark-mode .el-textarea__inner {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-input__inner::placeholder,
+body.dark-mode .el-textarea__inner::placeholder {
+  color: #8a8a8a !important;
+}
+
+body.dark-mode .el-input__inner:focus,
+body.dark-mode .el-textarea__inner:focus {
+  border-color: #409eff !important;
+}
+
+body.dark-mode .el-input__inner:hover,
+body.dark-mode .el-textarea__inner:hover {
+  border-color: #5a5a5a !important;
+}
+
+/* 禁用状态的输入框 */
+body.dark-mode .el-input.is-disabled .el-input__inner,
+body.dark-mode .el-textarea.is-disabled .el-textarea__inner {
+  background-color: #232323 !important;
+  border-color: #3a3a3a !important;
+  color: #6a6a6a !important;
+}
+
+/* 输入框字数统计暗色模式 */
+body.dark-mode .el-input__count {
+  background-color: #2d2d2d !important;
+  color: #8a8a8a !important;
+}
+
+body.dark-mode .el-input__count-inner {
+  background-color: transparent !important;
+  color: #8a8a8a !important;
+  line-height: 1.5;
+}
+
+body.dark-mode .el-textarea .el-input__count {
+  background-color: #2d2d2d !important;
+  color: #8a8a8a !important;
+}
+
+/* 下拉选择框暗色模式 */
+body.dark-mode .el-select-dropdown {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-select-dropdown__item {
+  color: #e0e0e0 !important;
+  background-color: #2d2d2d !important;
+}
+
+body.dark-mode .el-select-dropdown__item:hover {
+  background-color: #3a3a3a !important;
+}
+
+body.dark-mode .el-select-dropdown__item.selected {
+  color: #409eff !important;
+  background-color: #1a1a1a !important;
+}
+
+/* 数字输入框暗色模式 */
+body.dark-mode .el-input-number {
+  background-color: #2d2d2d !important;
+}
+
+body.dark-mode .el-input-number .el-input__inner {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-input-number__increase,
+body.dark-mode .el-input-number__decrease {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-input-number__increase:hover,
+body.dark-mode .el-input-number__decrease:hover {
+  background-color: #3a3a3a !important;
+  color: #409eff !important;
+}
+
+/* 表格暗色模式 */
+body.dark-mode .el-table {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-table th {
+  background-color: #1a1a1a !important;
+  color: #e0e0e0 !important;
+  border-bottom-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-table td {
+  border-bottom-color: #4a4a4a !important;
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-table tr {
+  background-color: #2d2d2d !important;
+}
+
+body.dark-mode .el-table__body tr:hover>td {
+  background-color: #3a3a3a !important;
+}
+
+body.dark-mode .el-table--striped .el-table__body tr.el-table__row--striped td {
+  background-color: #252525 !important;
+}
+
+body.dark-mode .el-table__empty-text {
+  color: #8a8a8a !important;
+}
+
+body.dark-mode .el-table--border,
+body.dark-mode .el-table--group {
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-table--border::after,
+body.dark-mode .el-table--group::after,
+body.dark-mode .el-table::before {
+  background-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-table__fixed,
+body.dark-mode .el-table__fixed-right {
+  background-color: #2d2d2d !important;
+}
+
+body.dark-mode .el-table__fixed::before,
+body.dark-mode .el-table__fixed-right::before {
+  background-color: #4a4a4a !important;
+}
+
+/* 表格中的操作按钮暗色模式 */
+body.dark-mode .el-table .el-button--text {
+  color: #409eff !important;
+}
+
+body.dark-mode .el-table .el-button--text:hover {
+  color: #66b1ff !important;
+}
+
+/* 单选框/复选框组暗色模式 */
+body.dark-mode .el-radio-group,
+body.dark-mode .el-checkbox-group {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-radio__label,
+body.dark-mode .el-checkbox__label {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-radio__inner {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-checkbox__inner {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-radio__inner:hover,
+body.dark-mode .el-checkbox__inner:hover {
+  border-color: #409eff !important;
+}
+
+/* 卡片暗色模式 */
+body.dark-mode .el-card {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-card__header {
+  background-color: #1a1a1a !important;
+  border-bottom-color: #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+/* SEO配置页面的box-card特殊处理 - 保持透明 */
+body.dark-mode .seo-management .box-card {
+  background-color: transparent !important;
+  border: none !important;
+}
+
+/* SEO配置页面的上传卡片暗色模式 */
+body.dark-mode .upload-card {
+  background: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+/* 表单提示暗色模式 */
+body.dark-mode .form-tip {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  color: #8a8a8a !important;
+}
+
+/* Alert 提示框暗色模式 */
+/* 注意：is-light 类型的 alert 保持原有颜色，不适配暗色模式 */
+body.dark-mode .el-alert:not(.is-light) {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-alert--success:not(.is-light) {
+  background-color: #1e4620 !important;
+  border-color: #2a6b2c !important;
+}
+
+body.dark-mode .el-alert--warning:not(.is-light) {
+  background-color: #5a4a1a !important;
+  border-color: #7a6a2a !important;
+}
+
+body.dark-mode .el-alert--error:not(.is-light) {
+  background-color: #5a1e1e !important;
+  border-color: #8a2e2e !important;
+}
+
+body.dark-mode .el-alert--info:not(.is-light) {
+  background-color: #1a3a52 !important;
+  border-color: #2a5a82 !important;
+}
+
+body.dark-mode .el-alert:not(.is-light) .el-alert__title,
+body.dark-mode .el-alert:not(.is-light) .el-alert__description {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-alert:not(.is-light) .el-alert__icon {
+  color: #ffffff !important;
+}
+
+/* 不同类型的 alert 图标颜色 */
+body.dark-mode .el-alert--success:not(.is-light) .el-alert__icon {
+  color: #67c23a !important;
+}
+
+body.dark-mode .el-alert--warning:not(.is-light) .el-alert__icon {
+  color: #e6a23c !important;
+}
+
+body.dark-mode .el-alert--error:not(.is-light) .el-alert__icon {
+  color: #f56c6c !important;
+}
+
+body.dark-mode .el-alert--info:not(.is-light) .el-alert__icon {
+  color: #409eff !important;
+}
+
+/* 对话框暗色模式 */
+body.dark-mode .el-dialog {
+  background-color: #2d2d2d !important;
+  border: 1px solid #4a4a4a !important;
+}
+
+/* body.dark-mode .el-dialog__header {
+  background-color: #1a1a1a !important;
+  border-bottom: 1px solid #4a4a4a !important;
+} */
+
+body.dark-mode .el-dialog__title {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-dialog__body {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-dialog__footer {
+  background-color: #2d2d2d !important;
+  border-top: 1px solid #4a4a4a !important;
+}
+
+/* Tabs暗色模式 */
+body.dark-mode .el-tabs__header {
+  background: #1a1a1a !important;
+  border-bottom-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-tabs__item {
+  color: #8a8a8a !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-tabs__item:hover {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-tabs__item.is-active {
+  color: #409eff !important;
+  background-color: #2d2d2d !important;
+}
+
+body.dark-mode .el-tabs__content {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+}
+
+/* 折叠面板暗色模式 */
+body.dark-mode .el-collapse {
+  border-color: #4a4a4a !important;
+  background-color: #2d2d2d !important;
+}
+
+body.dark-mode .el-collapse-item__header {
+  background-color: #1a1a1a !important;
+  color: #e0e0e0 !important;
+  border-bottom-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-collapse-item__wrap {
+  background-color: #2d2d2d !important;
+  border-bottom-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-collapse-item__content {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-collapse-item__arrow {
+  color: #e0e0e0 !important;
+}
+
+/* 排除 process-wrap 容器的暗色模式样式 */
+body.dark-mode .process-wrap .el-collapse {
+  background-color: transparent !important;
+}
+
+body.dark-mode .process-wrap .el-collapse-item__header {
+  background-color: transparent !important;
+  color: inherit !important;
+}
+
+body.dark-mode .process-wrap .el-collapse-item__wrap {
+  background-color: transparent !important;
+}
+
+body.dark-mode .process-wrap .el-collapse-item__content {
+  background-color: transparent !important;
+  color: inherit !important;
+}
+
+body.dark-mode .process-wrap .el-collapse-item__header.is-active {
+  color: var(--lightGreen) !important;
+}
+
+body.dark-mode .process-wrap .el-collapse-item__arrow {
+  color: inherit !important;
+}
+
+/* 标签暗色模式 */
+/* 注意：my-tag、el-tag--dark 和 el-tag--light 已经有合适的效果，不需要额外适配 */
+body.dark-mode .el-tag:not(.el-tag--dark):not(.my-tag):not(.el-tag--light) {
+  background-color: #3a3a3a !important;
+  color: #e0e0e0 !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-tag--success:not(.el-tag--dark):not(.el-tag--light) {
+  background-color: #1e4620 !important;
+  border-color: #2a6b2c !important;
+  color: #67c23a !important;
+}
+
+body.dark-mode .el-tag--warning:not(.el-tag--dark):not(.el-tag--light) {
+  background-color: #4d3a00 !important;
+  border-color: #7a5f00 !important;
+  color: #e6a23c !important;
+}
+
+body.dark-mode .el-tag--danger:not(.el-tag--dark):not(.el-tag--light) {
+  background-color: #4a1616 !important;
+  border-color: #7a2020 !important;
+  color: #f56c6c !important;
+}
+
+body.dark-mode .el-tag--info:not(.el-tag--dark):not(.el-tag--light) {
+  background-color: #2a2a2a !important;
+  border-color: #4a4a4a !important;
+  color: #909399 !important;
+}
+
+/* 分割线暗色模式 */
+body.dark-mode .el-divider {
+  background-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-divider__text {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+}
+
+/* 上传组件暗色模式 */
+body.dark-mode .el-upload-dragger {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  padding: var(--el-upload-dragger-padding-horizontal) var(--el-upload-dragger-padding-vertical);
+  background-color: var(--el-fill-color-blank);
+  border: 1px dashed var(--el-border-color);
+  border-radius: 6px;
+  box-sizing: border-box;
+  text-align: center;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+body.dark-mode .el-upload-dragger:hover {
+  border-color: #409eff !important;
+}
+
+body.dark-mode .el-upload__text {
+  color: #8a8a8a !important;
+}
+
+body.dark-mode .el-upload-list__item {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+/* 分页组件暗色模式 */
+body.dark-mode .el-pagination {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-pagination button {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-pagination button:disabled {
+  background-color: #232323 !important;
+  color: #6a6a6a !important;
+}
+
+body.dark-mode .el-pager li {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-pager li:hover {
+  color: #409eff !important;
+}
+
+body.dark-mode .el-pager li.active {
+  background-color: #409eff !important;
+  color: #ffffff !important;
+}
+
+/* 日期选择器暗色模式 */
+body.dark-mode .el-date-editor {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-date-editor .el-input__inner {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-date-editor .el-input__prefix,
+body.dark-mode .el-date-editor .el-input__suffix {
+  color: #8a8a8a !important;
+}
+
+body.dark-mode .el-picker-panel {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-date-picker__header {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-date-table th {
+  color: #8a8a8a !important;
+}
+
+body.dark-mode .el-date-table td {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-date-table td.available:hover {
+  color: #409eff !important;
+}
+
+body.dark-mode .el-date-table td.current:not(.disabled) span {
+  background-color: #409eff !important;
+  color: #ffffff !important;
+}
+
+/* 时间选择器暗色模式 */
+body.dark-mode .el-time-panel {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .el-time-panel__content {
+  color: #e0e0e0 !important;
+}
+
+/* 消息提示暗色模式 */
+body.dark-mode .el-message {
+  background: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+/* 不同类型的消息背景色 */
+body.dark-mode .el-message--success {
+  background: #1e4620 !important;
+  border: 1px solid #2a6b2c !important;
+}
+
+body.dark-mode .el-message--warning {
+  background: #5a4a1a !important;
+  border: 1px solid #7a6a2a !important;
+}
+
+body.dark-mode .el-message--error {
+  background: #5a1e1e !important;
+  border: 1px solid #8a2e2e !important;
+}
+
+body.dark-mode .el-message--info {
+  background: #1a3a52 !important;
+  border: 1px solid #2a5a82 !important;
+}
+
+/* 确保消息文字在暗色模式下可读 */
+body.dark-mode .el-message * {
+  color: #ffffff !important;
+}
+
+body.dark-mode .el-message-box {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+}
+
+
+body.dark-mode .el-message-box__title {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-message-box__content {
+  color: #e0e0e0 !important;
+}
+
+/* 下拉菜单暗色模式 - 保持磨砂玻璃效果 */
+body.dark-mode .el-dropdown-menu.el-popper {
+  background-color: rgba(45, 45, 45, 0.25) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border: none !important;
+}
+
+body.dark-mode .el-dropdown-menu__item {
+  color: #e0e0e0 !important;
+  background-color: rgba(45, 45, 45, 0.5) !important;
+  box-shadow: 0 0 10px 0 #00000020;
+}
+
+body.dark-mode .el-dropdown-menu__item:hover {
+  background-color: rgba(64, 158, 255, 0.3) !important;
+  background-color: #3a3a3a !important;
+}
+
+/* 修复深色模式下的下拉菜单箭头样式 */
+body.dark-mode .el-popper[x-placement^=bottom] .popper__arrow {
+  border-bottom-color: rgba(45, 45, 45, 0.3) !important;
+}
+
+/* Popover暗色模式 */
+body.dark-mode .el-popover {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-popover__title {
+  color: #e0e0e0 !important;
+}
+
+/* Tooltip暗色模式 */
+body.dark-mode .el-tooltip__popper {
+  background: var(--lightGreen) !important;
+  color: var(--white) !important;
+}
+
+body.dark-mode .el-tooltip__popper[x-placement^="top"] .popper__arrow {
+  border-top-color: #2d2d2d !important;
+}
+
+body.dark-mode .el-tooltip__popper[x-placement^="top"] .popper__arrow::after {
+  border-top-color: #2d2d2d !important;
+}
+
+body.dark-mode .el-tooltip__popper[x-placement^="bottom"] .popper__arrow {
+  border-bottom-color: #2d2d2d !important;
+}
+
+body.dark-mode .el-tooltip__popper[x-placement^="bottom"] .popper__arrow::after {
+  border-bottom-color: #2d2d2d !important;
+}
+
+/* 树形组件暗色模式 */
+body.dark-mode .el-tree {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-tree-node__content {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-tree-node__content:hover {
+  background-color: #3a3a3a !important;
+}
+
+body.dark-mode .el-tree-node:focus>.el-tree-node__content {
+  background-color: #3a3a3a !important;
+}
+
+/* 开关暗色模式 */
+body.dark-mode .el-switch__core {
+  border-color: #4a4a4a !important;
+  background-color: #3a3a3a !important;
+}
+
+body.dark-mode .el-switch.is-checked .el-switch__core {
+  border-color: #409eff !important;
+  background-color: #409eff !important;
+}
+
+/* 跳过翻译开关：排除暗色模式强制样式，使用自定义颜色 */
+body.dark-mode .el-switch.skip-translation-switch .el-switch__core {
+  border-color: #13CE66 !important;
+  background-color: #13CE66 !important;
+}
+
+body.dark-mode .el-switch.skip-translation-switch.is-checked .el-switch__core {
+  border-color: #F56C6C !important;
+  background-color: #F56C6C !important;
+}
+
+/* 表单标签暗色模式 */
+body.dark-mode .el-form-item__label {
+  color: #e0e0e0 !important;
+}
+
+/* ========== 验证码组件暗色模式 ========== */
+/* CheckboxCaptcha 勾选验证码 */
+body.dark-mode .checkbox-captcha {
+  background-color: #2d2d2d !important;
+  border-color: #4a4a4a !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3) !important;
+}
+
+body.dark-mode .checkbox-captcha:hover {
+  border-color: #5a5a5a !important;
+  /* 悬停时稍微亮一点的灰色 */
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* 验证码顶部装饰条 - 暗色模式下隐藏 */
+body.dark-mode .checkbox-captcha::before {
+  display: none !important;
+}
+
+/* 验证成功状态 */
+body.dark-mode .checkbox-captcha.verified {
+  background-color: #1e3a1e !important;
+  border-color: #67c23a !important;
+}
+
+/* 验证失败状态 */
+body.dark-mode .checkbox-captcha.error {
+  background-color: #3a1e1e !important;
+  border-color: #f56c6c !important;
+}
+
+/* 验证码标题 */
+body.dark-mode .captcha-title {
+  color: #e0e0e0 !important;
+}
+
+/* 验证码关闭按钮 */
+body.dark-mode .captcha-close {
+  color: #b0b0b0 !important;
+}
+
+body.dark-mode .captcha-close:hover {
+  color: #c97a85 !important;
+  /* 调暗的粉色 */
+  background-color: #3a1e1e !important;
+}
+
+/* 复选框 */
+body.dark-mode .checkmark {
+  background-color: #3a3a3a !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .custom-checkbox-label:hover .checkmark {
+  border-color: #6a6a6a !important;
+  /* 悬停时稍微亮一点的灰色 */
+}
+
+body.dark-mode .custom-checkbox-label input:checked~.checkmark {
+  background-color: #c97a85 !important;
+  /* 调暗的粉色 */
+  border-color: #c97a85 !important;
+}
+
+/* 复选框文字 */
+body.dark-mode .checkbox-text {
+  color: #b0b0b0 !important;
+}
+
+body.dark-mode .custom-checkbox-label:hover .checkbox-text {
+  color: #c97a85 !important;
+  /* 调暗的粉色 */
+}
+
+/* 验证信息 */
+body.dark-mode .captcha-info {
+  color: #b0b0b0 !important;
+  background-color: #1a1a1a !important;
+}
+
+body.dark-mode .checkbox-captcha.verified .captcha-info {
+  color: #67c23a !important;
+  background-color: #1e3a1e !important;
+}
+
+body.dark-mode .checkbox-captcha.error .captcha-info {
+  color: #f56c6c !important;
+  background-color: #3a1e1e !important;
+}
+
+/* 验证码底部 */
+body.dark-mode .captcha-footer {
+  border-top-color: #4a4a4a !important;
+  color: #8a8a8a !important;
+}
+
+body.dark-mode .refresh-btn {
+  background-color: #3a3a3a !important;
+  color: #b0b0b0 !important;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3) !important;
+}
+
+body.dark-mode .refresh-btn:hover {
+  color: #c97a85 !important;
+  /* 调暗的粉色 */
+  background-color: #3a1e1e !important;
+}
+
+body.dark-mode .captcha-brand {
+  color: #6a6a6a !important;
+}
+
+/* CaptchaWrapper 验证码容器 */
+body.dark-mode .captcha-wrapper {
+  background-color: rgba(0, 0, 0, 0.7) !important;
+}
+
+/* ========== 滑动验证码暗色模式 ========== */
+/* SlideCaptcha 滑动验证码 */
+body.dark-mode .slide-captcha-wrapper {
+  background-color: #2d2d2d !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+}
+
+body.dark-mode .slide-captcha {
+  background-color: #2d2d2d !important;
+}
+
+/* 滑动验证码标题 */
+body.dark-mode .slide-captcha-title {
+  color: #c97a85 !important;
+  /* 调暗的粉色 */
+}
+
+body.dark-mode .slide-captcha-subtitle {
+  color: #b0b0b0 !important;
+}
+
+/* 滑动验证码关闭按钮 */
+body.dark-mode .slide-captcha-close {
+  color: #b0b0b0 !important;
+}
+
+body.dark-mode .slide-captcha-close:hover {
+  color: #c97a85 !important;
+  /* 调暗的粉色 */
+  background-color: #3a1e1e !important;
+}
+
+/* 滑动轨道 - 使用柔和的深粉色 */
+body.dark-mode .slide-track {
+  /* 使用深色背景下更协调的粉色调 */
+  background-color: #4a3540 !important;
+  border-color: #6a4a5a !important;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+
+body.dark-mode .slide-track-fill {
+  /* 使用柔和的深粉色渐变 */
+  background: linear-gradient(90deg, #7a5a6a, #9a6a7a) !important;
+}
+
+body.dark-mode .slide-track-text {
+  color: #b0b0b0 !important;
+}
+
+body.dark-mode .slide-track-text.success {
+  color: #c97a85 !important;
+  /* 调暗的粉色 */
+}
+
+/* 滑动按钮 - 调暗的粉色渐变 */
+body.dark-mode .slide-button {
+  /* 使用调暗的粉色渐变 */
+  background: linear-gradient(135deg, #c97a85, #d98a95) !important;
+  box-shadow: 0 4px 10px rgba(201, 122, 133, 0.5) !important;
+}
+
+body.dark-mode .slide-button.active {
+  background: linear-gradient(135deg, #b86a75, #c97a85) !important;
+  box-shadow: 0 6px 16px rgba(201, 122, 133, 0.6) !important;
+}
+
+body.dark-mode .slide-button.success {
+  background: linear-gradient(135deg, #b5ed5f, #75e075) !important;
+  box-shadow: 0 4px 10px rgba(120, 213, 120, 0.7) !important;
+}
+
+/* 错误消息 */
+body.dark-mode .slide-message.error {
+  color: #c97a85 !important;
+  /* 调暗的粉色 */
+  background-color: #3a1e1e !important;
+  border-color: #4a4a4a !important;
+}
+
+/* 滑动验证码底部 */
+body.dark-mode .slide-captcha-footer {
+  border-top-color: #4a4a4a !important;
+}
+
+body.dark-mode .slide-captcha-refresh {
+  color: #c97a85 !important;
+  /* 调暗的粉色 */
+}
+
+body.dark-mode .slide-captcha-refresh:hover {
+  color: #d98a95 !important;
+  /* 悬停时稍微亮一点 */
+}
+
+body.dark-mode .slide-captcha-powered {
+  color: #8a8a8a !important;
+}
+
+/* Vditor编辑器暗色模式 */
+body.dark-mode .vditor {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .vditor-toolbar {
+  background-color: #1a1a1a !important;
+  border-bottom-color: #4a4a4a !important;
+}
+
+body.dark-mode .vditor-toolbar__item {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .vditor-toolbar__item:hover {
+  background-color: #3a3a3a !important;
+}
+
+body.dark-mode .vditor-toolbar__item--current {
+  background-color: #409eff !important;
+}
+
+body.dark-mode .vditor-content {
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .vditor-reset {
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .vditor-reset pre {
+  background-color: #1a1a1a !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .vditor-reset code {
+  background-color: #1a1a1a !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .vditor-reset blockquote {
+  border-left-color: #4a4a4a !important;
+  background-color: #1a1a1a !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .vditor-reset table {
+  border-color: #4a4a4a !important;
+}
+
+body.dark-mode .vditor-reset th,
+body.dark-mode .vditor-reset td {
+  border-color: #4a4a4a !important;
+  background-color: #2d2d2d !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .vditor-reset th {
+  background-color: #1a1a1a !important;
+}
+
+/* 图片预览暗色模式 */
+body.dark-mode .el-image__error {
+  background-color: #1a1a1a !important;
+  color: #8a8a8a !important;
+}
+
+body.dark-mode .table-td-thumb {
+  border-color: #4a4a4a !important;
+}
+
+/* 提示文本暗色模式 */
+body.dark-mode .tip,
+body.dark-mode .tip-text,
+body.dark-mode .template-hint {
+  color: #8a8a8a !important;
+}
+
+/* Loading 加载中暗色模式 */
+body.dark-mode .el-loading-mask {
+  background-color: rgba(0, 0, 0, 0.7) !important;
+}
+
+body.dark-mode .el-loading-spinner {
+  color: #409eff !important;
+}
+
+body.dark-mode .el-loading-spinner .el-loading-text {
+  color: #409eff !important;
+}
+
+/* 移动端表格行点击效果暗色模式 */
+@media screen and (max-width: 768px) {
+  body.dark-mode .mobile-table .el-table__row:active {
+    background-color: #3a3a3a !important;
+  }
+
+  body.dark-mode .mobile-table .el-table__row:hover {
+    background-color: #3a3a3a !important;
+  }
+}
+
+/* ========== 友人帐页面暗色模式 ========== */
+/* 友人帐主容器 */
+body.dark-mode .friend-main {
+  background: rgba(45, 45, 45, 0.85) !important;
+  color: #e0e0e0 !important;
+}
+
+/* 友人帐文字颜色 */
+body.dark-mode .friend-wrap {
+  color: #e0e0e0 !important;
+}
+
+/* 友人帐标题颜色 */
+body.dark-mode .friend-main h2,
+body.dark-mode .friend-main h3 {
+  color: #e0e0e0 !important;
+}
+
+/* 友人帐表单主体 - 温暖的渐变色 */
+body.dark-mode .form-main {
+  background: linear-gradient(135deg, #434343 0%, #2d2d2d 50%, #1a1a1a 100%) !important;
+  color: #ecf0f1 !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(82, 196, 26, 0.3) !important;
+  border: 1px solid rgba(82, 196, 26, 0.2);
+}
+
+/* 友人帐表单区域 - 半透明设计 */
+body.dark-mode .form-friend {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* 友人帐引用框 - 基础样式（绿色系） */
+body.dark-mode .friend-main blockquote {
+  background-color: rgba(82, 196, 26, 0.1) !important;
+  border-left-color: #52c41a !important;
+  color: #d0d0d0 !important;
+}
+
+/* 友人帐 - 本站信息高亮（暗色模式绿色背景） */
+body.dark-mode .friend-main blockquote.site-info-highlight {
+  background-color: rgba(40, 167, 69, 0.2) !important;
+  border-left-color: #28a745 !important;
+  font-weight: 500 !important;
+}
+
+/* 友人帐 - 温馨提示（暗色模式橙色背景） */
+body.dark-mode .friend-main blockquote.warning-info {
+  background-color: rgba(255, 193, 7, 0.15) !important;
+  border-left-color: #ffc107 !important;
+}
+
+/* 友人帐分隔线 */
+body.dark-mode .friend-main hr {
+  border-color: var(--lightGreen) !important;
+  opacity: 0.6;
+}
+
+/* 友人帐输入框 - 玻璃态设计 */
+body.dark-mode .friend-main .el-input__inner {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #ecf0f1 !important;
+  backdrop-filter: blur(10px);
+}
+
+/* 友人帐输入框悬停状态 */
+body.dark-mode .friend-main .el-input__inner:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+/* 友人帐输入框聚焦状态 */
+body.dark-mode .friend-main .el-input__inner:focus {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: #52c41a !important;
+  box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.2) !important;
+}
+
+/* 友人帐表单标签颜色 */
+body.dark-mode .friend-main .user-title {
+  color: #bdc3c7 !important;
+}
+
+/* 友人帐表单内的标题 */
+body.dark-mode .form-main h3 {
+  color: #ecf0f1 !important;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* 友人帐提示文字 */
+body.dark-mode .friend-main p {
+  color: #95a5a6 !important;
+}
+
+/* 友人帐表单底部提示 */
+body.dark-mode .form-main p {
+  color: #7f8c8d !important;
+}
+
+/* ========== 曲乐页面暗色模式 ========== */
+/* 曲乐主容器 */
+body.dark-mode .funny-wrap {
+  color: #e0e0e0 !important;
+}
+
+/* 曲乐标题 */
+body.dark-mode .funny-title {
+  color: #e0e0e0 !important;
+}
+
+/* 曲乐项标题 */
+body.dark-mode .funny-item-title {
+  color: #e0e0e0 !important;
+}
+
+/* 曲乐分隔线 */
+body.dark-mode .process-wrap hr {
+  border-color: var(--lightGreen) !important;
+  opacity: 0.6;
+}
+
+/* 曲乐折叠面板头部 */
+body.dark-mode .process-wrap .el-collapse-item__header {
+  color: var(--lightGreen) !important;
+}
+
+/* ========== 预设配置对话框暗色模式 ========== */
+/* 预设按钮暗色模式 */
+body.dark-mode .preset-dialog .preset-btn {
+  background: #2d2d2d !important;
+  border: 1px solid #4a4a4a !important;
+  color: #e0e0e0 !important;
+}
+
+body.dark-mode .preset-dialog .preset-btn:hover {
+  background: #3a3a3a !important;
+  border-color: #5a5a5a !important;
+  color: #409eff !important;
+}
+
+body.dark-mode .preset-dialog .preset-btn:active {
+  background: #1a1a1a !important;
+  border-color: #409eff !important;
+}

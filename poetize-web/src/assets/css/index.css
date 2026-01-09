@@ -1,0 +1,882 @@
+/* 通用css */
+
+/* 性能优化: Element UI组件GPU硬件加速 */
+/* 注意：Message组件不加transform，避免影响居中定位 */
+.el-dialog,
+.el-drawer,
+.el-message-box,
+.el-notification,
+.el-loading-mask,
+.el-dropdown-menu,
+.el-select-dropdown,
+.el-popover,
+.el-tooltip__popper {
+    will-change: transform, opacity;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+}
+
+/* 对话框圆角样式 */
+.el-dialog {
+    border-radius: 6px;
+}
+
+/* 移除 Element Plus 默认的关闭按钮预留 padding */
+.el-dialog__header.show-close {
+    padding-right: 0;
+}
+
+/* 还原 centered dialog body 样式 */
+.el-dialog--center .el-dialog__body {
+    text-align: initial;
+    padding: 25px 25px 30px;
+}
+
+.el-message-box--center {
+    padding-bottom: 30px;
+}
+
+.el-message-box__content {
+    padding: 10px 15px;
+    color: #606266;
+    font-size: 14px;
+}
+
+.el-message-box__header {
+    position: relative;
+    padding: 15px 15px 10px;
+}
+
+.el-dialog__header {
+    padding: 20px 20px 10px !important;
+}
+
+.el-message-box--center .el-message-box__btns,
+.el-message-box--center .el-message-box__content {
+    text-align: center;
+}
+
+/* Message组件单独优化，不使用transform避免影响定位 */
+.el-message {
+    min-width: 380px;
+    box-sizing: border-box;
+    border-radius: 4px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #EBEEF5;
+    position: fixed;
+    left: 50%;
+    top: 20px;
+    /* transform: translateX(-50%); */
+    background-color: #edf2fc;
+    transition: opacity .3s, transform .4s, top .4s;
+    overflow: hidden;
+    padding: 15px 15px 15px 20px;
+    display: flex;
+    align-items: center;
+    will-change: opacity, transform;
+    backface-visibility: hidden;
+}
+
+/* 隐藏预渲染内容 - 解决首页底部显示预渲染文本的问题 */
+.home-prerender,
+.favorite-prerender,
+.sort-prerender,
+.sort-list-prerender {
+    display: none !important;
+}
+
+/* 性能优化: 为动画元素启用GPU硬件加速 */
+.article-head,
+.article-info-container,
+.article-detail,
+.article-content,
+.entry-content {
+    /* 提示浏览器这些元素会变化，提前优化 */
+    will-change: transform, opacity;
+    /* 启用GPU合成层，减少重绘 */
+    transform: translateZ(0);
+    /* 隐藏元素背面，提升性能 */
+    backface-visibility: hidden;
+    /* 抗锯齿优化 */
+    -webkit-font-smoothing: subpixel-antialiased;
+}
+
+/* 性能优化: 为图片加载添加硬件加速 */
+.article-image,
+.my-el-image,
+img {
+    will-change: opacity;
+    transform: translateZ(0);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+/* 性能优化: 启用全局平滑滚动 */
+html {
+    scroll-behavior: smooth;
+}
+
+html,
+body,
+div,
+span,
+applet,
+object,
+iframe,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+blockquote,
+pre,
+a,
+abbr,
+acronym,
+address,
+big,
+cite,
+code,
+del,
+dfn,
+em,
+img,
+ins,
+kbd,
+q,
+s,
+samp,
+small,
+strike,
+strong,
+sub,
+sup,
+tt,
+var,
+b,
+u,
+i,
+center,
+dl,
+dt,
+dd,
+ol,
+ul,
+li,
+fieldset,
+form,
+label,
+legend,
+table,
+caption,
+tbody,
+tfoot,
+thead,
+tr,
+th,
+td,
+article,
+aside,
+canvas,
+details,
+embed,
+figure,
+figcaption,
+footer,
+header,
+hgroup,
+menu,
+nav,
+output,
+ruby,
+section,
+summary,
+time,
+mark,
+audio,
+video {
+    font-family: 'MyAwesomeFont', serif !important;
+}
+
+/* 确保Element UI图标正常显示 */
+[class^="el-icon-"],
+[class*=" el-icon-"],
+.el-select-dropdown__item [class^="el-icon-"],
+.el-button [class^="el-icon-"],
+.el-menu-item [class^="el-icon-"],
+.el-submenu [class^="el-icon-"],
+.el-form-item [class^="el-icon-"],
+.el-notification [class^="el-icon-"],
+.el-input [class^="el-icon-"],
+.el-pagination [class^="el-icon-"],
+.el-steps [class^="el-icon-"],
+i.fa {
+    font-family: "element-icons", "FontAwesome" !important;
+    font-weight: normal !important;
+    font-style: normal !important;
+}
+
+/* 额外覆盖一些特殊元素 */
+.el-message-box__status,
+.el-notification__icon,
+.el-button i,
+.el-tooltip i,
+.el-popover i,
+.el-dropdown-menu i,
+.el-radio i,
+.el-checkbox i,
+.el-tree i {
+    font-family: "element-icons", "FontAwesome" !important;
+}
+
+/* 修复iconfont的图标 */
+.iconfont {
+    font-family: "iconfont" !important;
+}
+
+body {
+    color: var(--fontColor);
+    font-family: 'MyAwesomeFont', serif !important;
+    word-break: break-word;
+}
+
+
+/* 图片 */
+.background-image {
+    width: 100vw;
+    height: 100vh;
+    /* 固定位置，不随滚动条滚动 */
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: -1;
+}
+
+.background-image::before {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, .2);
+    content: '';
+}
+
+.background-image-error {
+    background-color: var(--lightGreen);
+    width: 100vw;
+    height: 100vh;
+    /* 固定位置，不随滚动条滚动 */
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: -1;
+}
+
+/* 模块化背景色及透明度 */
+.background-opacity {
+    /*background: var(--background);*/
+    /*opacity: 0.88;*/
+}
+
+.my-el-image {
+    width: 100%;
+    height: 100%;
+}
+
+.my-el-image .image-slot {
+    width: 100%;
+    height: 100%;
+}
+
+/* 遮罩 */
+.poem-image::before {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-color: var(--translucent);
+    content: "";
+}
+
+.user-avatar {
+    cursor: pointer;
+    /* 性能优化: 只监听实际变化的属性，避免 transition: all */
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    user-select: none;
+    /* GPU硬件加速 */
+    will-change: transform, opacity;
+    transform: translateZ(0);
+}
+
+.user-avatar:hover {
+    transform: rotate(360deg);
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background-color: rgba(73, 177, 245, 0.2);
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #49b1f5;
+    background-image: linear-gradient(45deg,
+            rgba(255, 255, 255, 0.4) 25%,
+            transparent 25%,
+            transparent 50%,
+            rgba(255, 255, 255, 0.4) 50%,
+            rgba(255, 255, 255, 0.4) 75%,
+            transparent 75%,
+            transparent);
+    border-radius: 1em;
+}
+
+.el-select-dropdown.el-popper ::-webkit-scrollbar {
+    display: none;
+}
+
+/* 选中样式 */
+::selection {
+    background: var(--lightGreen);
+    color: var(--white);
+}
+
+/* 居中 */
+.myCenter {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.transformCenter {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+}
+
+/* 两边 */
+.myBetween {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* 阴影 */
+.shadow-box-mini {
+    box-shadow: 1px 1px 3px var(--mask);
+}
+
+.shadow-box {
+    box-shadow: 0 1px 20px -6px var(--borderColor);
+    /* 性能优化: 只监听实际变化的属性 */
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+    /* GPU硬件加速 */
+    will-change: box-shadow, transform;
+    transform: translateZ(0);
+}
+
+.shadow-box:hover {
+    box-shadow: 0 5px 10px 5px var(--borderHoverColor);
+}
+
+/* el弹出框样式 */
+.el-message {
+    top: 80px !important;
+    border: 0;
+}
+
+.el-message * {
+    color: var(--white) !important;
+    font-weight: 600;
+}
+
+.el-message--success {
+    background: var(--themeBackground);
+}
+
+.el-message--warning {
+    background: var(--gradientBG);
+}
+
+.el-message--error {
+    background: var(--gradualRed);
+}
+
+.el-message--info {
+    background: var(--gradualBlue);
+}
+
+/* 看板娘 */
+#waifu-toggle,
+#waifu {
+    z-index: 100;
+}
+
+#waifu-tips {
+    border: unset;
+    animation: unset;
+    width: 200px;
+    min-height: 60px;
+}
+
+#waifu-tool {
+    right: -10px;
+    bottom: 20px;
+    top: unset;
+}
+
+#waifu #live2d {
+    height: 250px;
+    width: 250px;
+}
+
+/* 图标旋转 */
+.iconRotate {
+    animation: rotate 2s linear infinite;
+}
+
+/* 树洞留言弹幕样式已迁移到 Danmaku.vue 组件内 */
+
+
+.el-upload.el-upload--picture,
+.el-upload.el-upload--text {
+    width: 100%;
+}
+
+.el-upload-dragger {
+    width: 100% !important;
+    height: 100px !important;
+    padding: var(--el-upload-dragger-padding-horizontal) var(--el-upload-dragger-padding-vertical);
+    background-color: var(--el-fill-color-blank);
+    border: 1px dashed var(--el-border-color);
+    border-radius: 6px;
+    box-sizing: border-box;
+    text-align: center;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+/* 导航栏 */
+/* Element Plus 中 class="toolbarDrawer" 直接作用于 .el-drawer 元素 */
+.toolbarDrawer {
+    background: var(--toolbar) center center / cover no-repeat !important;
+    position: relative;
+    --drawer-mask-opacity: 0.7;
+    --menu-font-color: #ffffff;
+}
+
+.toolbarDrawer .el-drawer__header {
+    font-size: 22px;
+    color: var(--white);
+    text-align: center;
+    position: relative;
+    z-index: 2;
+}
+
+.toolbarDrawer .el-drawer__body {
+    position: relative;
+    z-index: 2;
+    padding: 0;
+}
+
+.toolbarDrawer::before {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, var(--drawer-mask-opacity));
+    content: "";
+    z-index: 1;
+}
+
+/* 侧边栏滚动条优化 - 适应深色背景 */
+.toolbarDrawer .el-drawer__body::-webkit-scrollbar-track {
+    background-color: transparent !important;
+}
+
+.toolbarDrawer .el-drawer__body::-webkit-scrollbar-thumb {
+    /* 默认值给一个较低的透明度，实际由JS动态控制 */
+    background-color: var(--scrollbar-bg, rgba(255, 255, 255, 0.2)) !important;
+    background-image: none !important;
+}
+
+.small-menu {
+    color: var(--white);
+    font-size: 20px;
+    user-select: none;
+    position: relative;
+}
+
+.small-menu>li {
+    list-style: none;
+    line-height: 40px;
+    cursor: pointer;
+}
+
+.small-menu span {
+    /* 其他菜单项默认样式 */
+    margin-left: 5px;
+}
+
+.sort-menu-header span {
+    margin-left: 8px;
+}
+
+.el-tooltip__popper.is-light {
+    background: var(--lightGreen);
+    border-radius: 8px;
+    color: var(--white);
+    padding: 8px 20px;
+    letter-spacing: 1px;
+    font-weight: 600;
+    line-height: 1.5;
+    font-size: 1.2rem;
+    border: unset;
+}
+
+.el-tooltip__popper .popper__arrow {
+    border-style: unset;
+}
+
+.message-index {
+    z-index: 3000 !important;
+}
+
+.article-copy .el-dialog {
+    border-radius: 15px;
+    margin-top: 5vh !important;
+}
+
+.article-copy .el-dialog__body {
+    padding: 15px 25px 30px;
+}
+
+.index-push .el-dialog {
+    border-radius: 15px;
+    margin-top: 10vh !important;
+}
+
+.index-push .el-dialog__title {
+    font-weight: bold;
+}
+
+
+@media screen and (max-width: 800px) {
+    .el-dialog {
+        width: 70% !important;
+    }
+}
+
+@media screen and (max-width: 600px) {
+    .el-dialog {
+        width: 80% !important;
+    }
+}
+
+@media screen and (max-width: 400px) {
+    .el-dialog {
+        width: 90% !important;
+    }
+}
+
+/* 修改下拉菜单面板样式 - Element Plus 兼容 */
+/* 强制覆盖 Element Plus 的默认背景变量 */
+/* 仅针对下拉菜单 (Dropdown) 应用毛玻璃效果 */
+.el-dropdown__popper.el-popper {
+    --el-bg-color-overlay: rgba(255, 255, 255, 0.25) !important;
+    --el-popper-border-radius: 8px !important;
+
+    background-color: var(--el-bg-color-overlay) !important;
+    background: var(--el-bg-color-overlay) !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    border: none !important;
+    padding: 5px 0 !important;
+    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1) !important;
+}
+
+/* 确保内部容器没有背景 */
+.el-dropdown-menu {
+    background-color: transparent !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+.el-dropdown-menu__item {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    font-size: 16px !important;
+    color: #333 !important;
+    border-radius: 8px;
+    /* 性能优化: 只监听实际变化的属性 */
+    transition: background-color 0.3s ease, color 0.3s ease, transform 0.3s ease;
+    margin: 5px 10px !important;
+    padding: 0 10px !important;
+    /* GPU硬件加速 */
+    transform: translateZ(0);
+    background-color: rgba(255, 255, 255, 0.5) !important;
+    font-weight: bold;
+    width: 200px !important;
+    height: 40px !important;
+    line-height: normal !important;
+    /* 让flex控制垂直居中 */
+    text-align: center !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    box-shadow: 0 0 10px 0 #00000020;
+}
+
+.el-dropdown-menu__item:hover {
+    background-color: rgba(255, 255, 255, 0.7) !important;
+    color: var(--themeBackground) !important;
+}
+
+.el-dropdown-menu__item:focus {
+    background-color: rgba(255, 255, 255, 0.7) !important;
+    color: var(--themeBackground) !important;
+}
+
+/* 修复 Element Plus 箭头样式 - 终极方案：CSS边框三角形 */
+/* 禁用默认的伪元素背景 (仅针对下拉菜单 Dropdown) */
+/* 保留 Tooltip 和 Popover 的箭头 */
+.el-dropdown__popper .el-popper__arrow::before {
+    display: none !important;
+}
+
+
+
+/* 下拉菜单箭头 (Glassmorphism) */
+.el-dropdown__popper.el-popper.is-light[data-popper-placement^="bottom"] .el-popper__arrow {
+    width: 0 !important;
+    height: 0 !important;
+    border-top: 0 !important;
+    border-left: 6px solid transparent !important;
+    border-right: 6px solid transparent !important;
+    border-bottom: 6px solid rgba(255, 255, 255, 0.25) !important;
+    /* 使用 rgba 直接指定，避免变量污染 */
+    top: -6px !important;
+}
+
+.el-dropdown__popper.el-popper.is-light[data-popper-placement^="top"] .el-popper__arrow {
+    width: 0 !important;
+    height: 0 !important;
+    border-bottom: 0 !important;
+    border-left: 6px solid transparent !important;
+    border-right: 6px solid transparent !important;
+    border-top: 6px solid rgba(255, 255, 255, 0.25) !important;
+    bottom: -6px !important;
+}
+
+/* Tooltip 样式 (Green) - 还原原项目设计 */
+/* 必须排除 el-popover，否则首页设置弹窗也会变成绿色 */
+/* Element Plus Popover 可能会有 el-popover 类 */
+.el-popper.is-light[role="tooltip"]:not(.el-popover),
+.el-tooltip__popper.is-light:not(.el-popover) {
+    background: var(--lightGreen) !important;
+    border-radius: 6px !important;
+    color: var(--white) !important;
+    padding: 8px 18px !important;
+    letter-spacing: 1px;
+    font-weight: 600;
+    line-height: 1.5;
+    font-size: 1.2rem;
+    border: unset !important;
+    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* Tooltip 箭头 (Green) - Element Plus 使用 ::before 伪元素作为箭头 */
+.el-popper.is-light[role="tooltip"]:not(.el-popover) .el-popper__arrow::before {
+    display: block !important;
+    background: var(--lightGreen) !important;
+    border-color: var(--lightGreen) !important;
+}
+
+/* 隐藏旧版箭头 */
+.popper__arrow,
+.popper__arrow::after {
+    display: none !important;
+}
+
+/* 修复 Element Plus Tooltip 触发器在 focus 时出现边框的问题 */
+.el-tooltip__trigger:focus-visible {
+    outline: none !important;
+}
+
+.el-tooltip__trigger:focus {
+    outline: none !important;
+}
+
+.popper__arrow,
+.popper__arrow::after {
+    display: none !important;
+}
+
+/* 修复首页 Popover 暗色模式及图标样式 (Moved from home.vue to fix scope issues) */
+body.dark-mode .el-popover {
+    --el-popover-bg-color: #2c2c2c;
+    --el-popover-border-color: #404040;
+    --el-bg-color-overlay: #2c2c2c;
+    --el-border-color-light: #404040;
+    background-color: var(--el-popover-bg-color) !important;
+    border-color: var(--el-popover-border-color) !important;
+    color: #ffffff;
+}
+
+body.dark-mode .el-popover .el-popper__arrow::before {
+    background: var(--el-popover-bg-color) !important;
+    /* 移除显式边框颜色，依赖 CSS 变量，避免覆盖 Element Plus 的方向性边框处理 */
+}
+
+body.dark-mode .el-popover .my-setting i,
+body.dark-mode .el-popover .my-setting .el-icon {
+    color: #ffffff !important;
+}
+
+body.dark-mode .el-popover .my-setting i:hover,
+body.dark-mode .el-popover .my-setting .el-icon:hover {
+    color: var(--lightGreen) !important;
+}
+
+/* My Setting Icon Size Fix */
+.my-setting .el-icon {
+    font-size: 20px !important;
+    /* Element Plus图标有默认width/height: 1em。
+       全局 box-sizing: border-box 会导致 padding 挤压 content。
+       改为 content-box 让 padding 向外撑开 */
+    box-sizing: content-box !important;
+}
+
+/* Dark Mode Dropdown Support */
+body.dark-mode .el-dropdown__popper.el-popper {
+    --el-bg-color-overlay: rgba(0, 0, 0, 0.6) !important;
+    background-color: var(--el-bg-color-overlay) !important;
+    background: var(--el-bg-color-overlay) !important;
+}
+
+body.dark-mode .el-dropdown-menu__item {
+    color: #ffffff !important;
+    background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+body.dark-mode .el-dropdown-menu__item:hover,
+body.dark-mode .el-dropdown-menu__item:focus {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+    color: var(--themeBackground) !important;
+}
+
+/* Dark Mode Dropdown Arrow */
+body.dark-mode .el-dropdown__popper.el-popper[data-popper-placement^="bottom"] .el-popper__arrow {
+    border-bottom: 6px solid rgba(0, 0, 0, 0.6) !important;
+}
+
+body.dark-mode .el-dropdown__popper.el-popper[data-popper-placement^="top"] .el-popper__arrow {
+    border-top: 6px solid rgba(0, 0, 0, 0.6) !important;
+}
+
+/* 暗色模式对话框背景色 - 覆盖 Element Plus 默认的 --el-dialog-bg-color */
+body.dark-mode .el-dialog,
+html.dark-mode .el-dialog {
+    --el-dialog-bg-color: var(--background, #1a1a1a) !important;
+    background-color: var(--background, #1a1a1a) !important;
+}
+
+body.dark-mode .el-dialog .el-dialog__header,
+html.dark-mode .el-dialog .el-dialog__header {
+    background-color: var(--background, #1a1a1a) !important;
+    color: var(--fontColor, #ffffff) !important;
+}
+
+body.dark-mode .el-dialog .el-dialog__title,
+html.dark-mode .el-dialog .el-dialog__title {
+    color: var(--fontColor, #ffffff) !important;
+}
+
+body.dark-mode .el-dialog .el-dialog__body,
+html.dark-mode .el-dialog .el-dialog__body {
+    background-color: var(--background, #1a1a1a) !important;
+    color: var(--fontColor, #ffffff) !important;
+}
+
+body.dark-mode .el-dialog .el-dialog__close,
+html.dark-mode .el-dialog .el-dialog__close {
+    color: var(--fontColor, #ffffff) !important;
+}
+
+/* 暗色模式上传区域样式 */
+body.dark-mode .el-upload-dragger,
+html.dark-mode .el-upload-dragger {
+    background-color: var(--background, #1a1a1a) !important;
+    border-color: var(--borderColor, #404040) !important;
+}
+
+body.dark-mode .el-upload-dragger:hover,
+html.dark-mode .el-upload-dragger:hover {
+    border-color: var(--themeBackground, #409eff) !important;
+}
+
+body.dark-mode .el-upload__text,
+html.dark-mode .el-upload__text {
+    color: var(--fontColor, #ffffff) !important;
+}
+
+body.dark-mode .el-upload__tip,
+html.dark-mode .el-upload__tip {
+    color: var(--greyFont, #888888) !important;
+}
+
+/* 暗色模式 MessageBox 确认对话框样式 */
+body.dark-mode .el-message-box,
+html.dark-mode .el-message-box {
+    background-color: var(--background, #1a1a1a) !important;
+    border-color: var(--borderColor, #404040) !important;
+}
+
+body.dark-mode .el-message-box__header,
+html.dark-mode .el-message-box__header {
+    background-color: var(--background, #1a1a1a) !important;
+}
+
+body.dark-mode .el-message-box__title,
+html.dark-mode .el-message-box__title {
+    color: var(--fontColor, #ffffff) !important;
+}
+
+body.dark-mode .el-message-box__content,
+html.dark-mode .el-message-box__content {
+    color: var(--fontColor, #ffffff) !important;
+}
+
+body.dark-mode .el-message-box__message,
+html.dark-mode .el-message-box__message {
+    color: var(--fontColor, #ffffff) !important;
+}
+
+body.dark-mode .el-message-box__headerbtn .el-message-box__close,
+html.dark-mode .el-message-box__headerbtn .el-message-box__close {
+    color: var(--fontColor, #ffffff) !important;
+}
+
+body.dark-mode .el-message-box__btns .el-button--default,
+html.dark-mode .el-message-box__btns .el-button--default {
+    background-color: #404040 !important;
+    border-color: #505050 !important;
+    color: #e0e0e0 !important;
+}
+
+body.dark-mode .el-message-box__btns .el-button--default:hover,
+html.dark-mode .el-message-box__btns .el-button--default:hover {
+    background-color: #505050 !important;
+    border-color: #606060 !important;
+}

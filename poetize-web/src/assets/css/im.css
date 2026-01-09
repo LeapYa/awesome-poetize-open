@@ -1,0 +1,45 @@
+/* IM 聊天室专用 CSS 变量 - 从 poetize-im-ui/src/assets/css/color.css 迁移 */
+:root {
+    /* IM 专用颜色 */
+    --white: white;
+    --maxWhite: #fcfcfc;
+    --midWhite: #f3f3f3;
+
+    --blue: rgb(3, 169, 244);
+    --messageColor: #cfe7ff;
+
+    --imBG: #edeff3;
+
+    --lowGray: #cacacb;
+    --lightGray: #DDDDDD;
+    --maxLightGray: #EEEEEE;
+    --maxMaxLightGray: rgba(242, 242, 242, 0.5);
+
+    --greyFont: #797979;
+    --maxGreyFont: #595A5A;
+
+    --green: #67C23A;
+    --black: black;
+
+}
+
+/* 暗色模式下的 IM 专用变量 */
+body.dark-mode {
+    --fontColor: white;
+    /* --white: #272727; */
+    --maxWhite: #3a3a3a;
+    --midWhite: #303030;
+
+    --blue: #5090ff;
+    --messageColor: #4a4a4a;
+
+    --imBG: #252525;
+
+    --lightGray: #3a3a3a;
+    --maxLightGray: #4F4F4F;
+
+    --greyFont: #B0B0B0;
+    --maxGreyFont: #9a9a9a;
+
+    --black: white;
+}

@@ -9,7 +9,7 @@
 # 1.将font.ttf（字体文件）放在当前目录下
 # 2.执行python font_subset.py
 # 3.在当前目录下生成font_chunks目录，里面包含base、level1、level2、other四个子集字体文件和unicode_ranges.json文件
-# 4.将font_chunks目录（里面需包含字体文件和unicode_ranges.json）文件复制到poetize-ui/public/assets和poetize-ui/public/static/assets目录下
+# 4.将font_chunks目录（里面需包含字体文件和unicode_ranges.json）文件复制到poetize-web/public/assets和poetize-web/public/static/assets目录下
 
 import os
 import subprocess

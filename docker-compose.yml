@@ -13,8 +13,8 @@ services:
     environment:
       - TZ=Asia/Shanghai
     volumes:
-      - poetize_ui_dist:/usr/share/nginx/html/poetize
-      - poetize_im_dist:/usr/share/nginx/html/im
+      - poetize_web_dist:/usr/share/nginx/html/poetize
+      - poetize_admin_dist:/usr/share/nginx/html/admin
       - poetize_uploads:/usr/share/nginx/html/uploads
       - ./docker/nginx/enable-https.sh:/enable-https.sh
       - ./py/data:/app/data
@@ -32,9 +32,9 @@ services:
       poetize-network:
         ipv4_address: 172.28.147.2
     depends_on:
-      poetize-ui:
+      poetize-web:
         condition: service_completed_successfully
-      poetize-im-ui:
+      poetize-admin:
         condition: service_completed_successfully
       java-backend:
         condition: service_healthy
@@ -42,21 +42,21 @@ services:
         condition: service_healthy
     restart: always
 
-  # 主站前端（Vue 2）
-  poetize-ui:
+  # 主站前端+聊天室（Vue 3）
+  poetize-web:
     build:
       context: .
-      dockerfile: docker/poetize-ui/Dockerfile
+      dockerfile: docker/poetize-web/Dockerfile
       args:
         # AES加密密钥
         - VUE_APP_POETIZE_AES_KEY=${POETIZE_AES_KEY:-sarasarasarasara}
         # 生产模式(反调试、混淆、日志移除)
         - VUE_APP_PRODUCTION_MODE=true
-    container_name: poetize-ui
+    container_name: poetize-web
     environment:
       - TZ=Asia/Shanghai
     volumes:
-      - poetize_ui_dist:/app/dist
+      - poetize_web_dist:/app/dist
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     networks:
@@ -64,24 +64,24 @@ services:
         ipv4_address: 172.28.147.3
     restart: "no"
 
-  # 聊天室前端（Vue 3）
-  poetize-im-ui:
+  # 后台管理前端（Vue 2）
+  poetize-admin:
     build:
       context: .
-      dockerfile: docker/poetize-im-ui/Dockerfile
+      dockerfile: docker/poetize-admin/Dockerfile
       args:
         - VUE_APP_POETIZE_AES_KEY=${POETIZE_AES_KEY:-sarasarasarasara}
-    container_name: poetize-im-ui
+        - VUE_APP_PRODUCTION_MODE=true
+    container_name: poetize-admin
     environment:
       - TZ=Asia/Shanghai
     volumes:
-      # 输出到 /app/dist，与 nginx 的挂载点一致
-      - poetize_im_dist:/app/dist
+      - poetize_admin_dist:/app/dist
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     networks:
       poetize-network:
-        ipv4_address: 172.28.147.4
+        ipv4_address: 172.28.147.12
     restart: "no"
 
   certbot:
@@ -244,7 +244,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      poetize-ui:
+      poetize-web:
         condition: service_completed_successfully
     restart: always
     healthcheck:
@@ -337,7 +337,7 @@ services:
       - NODE_ENV=production
     volumes:
       # 从 volume 读取前端构建产物，写入预渲染结果
-      - poetize_ui_dist:/app/dist
+      - poetize_web_dist:/app/dist
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     networks:
@@ -370,7 +370,7 @@ volumes:
   certbot-etc:
   certbot-var:
   web-root:
-  poetize_ui_dist:
-  poetize_im_dist:
+  poetize_web_dist:
+  poetize_admin_dist:
   poetize_uploads:
   ollama_data:

@@ -1,0 +1,93 @@
+.toc {
+    width: 250px;
+    position: fixed;
+    top: calc(100vh / 4);
+    right: 3vh;
+    background: var(--commentContent);
+    border-radius: 8px;
+    z-index: 99;
+    /* 性能优化: 只监听位置和透明度变化 */
+    transition: opacity 1s ease, transform 1s ease;
+    padding: 10px 10px 10px 5px;
+    color: var(--maxGreyFont);
+}
+
+/* 动态目录标题 - 通过 JavaScript 设置 data-toc-title 属性 */
+.toc::before {
+    content: attr(data-toc-title);
+    font-size: 24px;
+    line-height: 40px;
+    margin-left: 55px;
+}
+
+/* 默认标题（如果 JavaScript 未设置 data-toc-title） */
+.toc:not([data-toc-title])::before {
+    content: '🏖️目录';
+}
+
+.toc > .toc-list {
+    overflow-y: scroll;
+    max-height: 52vh;
+    position: relative;
+    padding-inline-start: 35px !important;
+    padding-right: 5px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+.toc > .toc-list::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+.toc > .toc-list::-webkit-scrollbar-track {
+    background-color: rgba(73, 177, 245, 0.2);
+}
+
+.toc > .toc-list::-webkit-scrollbar-thumb {
+    background-color: var(--lightGreen);
+    border-radius: 1em;
+}
+
+.toc .toc-list {
+    padding-inline-start: 25px;
+}
+
+.toc a.toc-link {
+    color: currentColor;
+    height: 100%;
+    text-decoration: none;
+}
+
+.toc .is-collapsible {
+    max-height: 1000px;
+    overflow: hidden;
+    /* 性能优化: 只监听高度和透明度变化 */
+    transition: max-height 300ms ease-in-out, opacity 300ms ease-in-out;
+}
+
+.toc .is-collapsed {
+    max-height: 0;
+}
+
+.toc .toc-link {
+    margin: 4px 0;
+    display: block;
+}
+
+.toc .is-active-link {
+    font-weight: 700;
+    color: var(--white) !important;
+    background: var(--lightGreen);
+    padding: 4px 8px;
+    border-radius: 5px;
+}
+
+/* 暗色模式适配 */
+body.dark-mode .toc::before {
+    color: #e0e0e0;
+}
+
+body.dark-mode .toc {
+    color: #e0e0e0;
+}

@@ -8,6 +8,10 @@ server:
     max-http-form-post-size: 120MB
     connection-timeout: 60000
 
+# IM WebSocket 功能开关
+im:
+  enable: true
+
 # 预渲染配置
 prerender:
   startup:

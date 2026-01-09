@@ -432,6 +432,9 @@ public class ImWsMsgHandler implements IWsMsgHandler {
                 return null;
             }
             imMessage.setContent(content);
+            
+            // 设置消息创建时间，以便客户端显示
+            imMessage.setCreateTime(LocalDateTime.now().toString());
 
             // 使用更安全的序列化配置
             String jsonString = JSON.toJSONString(imMessage, 

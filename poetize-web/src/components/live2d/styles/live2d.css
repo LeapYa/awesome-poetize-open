@@ -1,0 +1,126 @@
+/**
+ * Live2D 看板娘全局样式
+ * Vue2.7版本
+ */
+
+/* 看板娘主容器 */
+#waifu {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: 280px;
+  z-index: 999;
+  transition: all 1s ease-in-out;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 防止右键菜单 */
+#waifu,
+#waifu * {
+  -webkit-touch-callout: none;
+}
+
+/* Canvas容器 */
+#live2d {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  pointer-events: auto;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block;
+}
+
+/* Font Awesome图标字体 */
+.fa {
+  font-family: "Font Awesome 5 Free", "FontAwesome";
+  font-weight: 900;
+  font-style: normal;
+  display: inline-block;
+  text-rendering: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 响应式设计 */
+@media screen and (max-width: 768px) {
+  #waifu {
+    width: 200px;
+    height: 240px;
+  }
+}
+
+/* 移动端隐藏规则 - 已移除限制，允许移动端显示
+@media screen and (max-width: 480px) {
+  #waifu {
+    display: none !important;
+  }
+  
+  #waifu-toggle {
+    display: none !important;
+  }
+}
+*/
+
+/* 打印时隐藏 */
+@media print {
+
+  #waifu,
+  #waifu-toggle {
+    display: none !important;
+  }
+}
+
+/* 高对比度模式适配 */
+@media (prefers-contrast: high) {
+  .waifu-tips {
+    border: 2px solid #000;
+    background: #fff;
+    color: #000;
+  }
+
+  .waifu-tool-icon {
+    border: 2px solid #000;
+  }
+}
+
+/* 深色模式适配 */
+@media (prefers-color-scheme: dark) {
+  .waifu-tips {
+    background: rgba(50, 50, 50, 0.95);
+    border-color: rgba(100, 100, 100, 1);
+    color: #e0e0e0;
+  }
+
+  .waifu-tips::before {
+    border-top-color: rgba(50, 50, 50, 0.95);
+  }
+
+  .waifu-tool-icon {
+    background: rgba(50, 50, 50, 0.9);
+    color: #e0e0e0;
+  }
+}
+
+/* 动画性能优化 */
+#waifu,
+.waifu-tips,
+.waifu-tool-icon {
+  will-change: transform, opacity;
+}
+
+/* 禁用动画时 */
+@media (prefers-reduced-motion: reduce) {
+
+  #waifu,
+  .waifu-tips,
+  .waifu-tool-icon,
+  .waifu-toggle {
+    animation: none !important;
+    transition: none !important;
+  }
+}

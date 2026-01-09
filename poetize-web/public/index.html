@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    
+    <!-- 阻止浏览器强制暗色模式，我们自己处理颜色主题 -->
+    <meta name="color-scheme" content="light dark">
+    
+    <!-- 默认图标 - 当动态图标不存在时使用 -->
+    <link rel="icon" href="./poetize.jpg" sizes="16x16" id="default-favicon">
+    
+    <!-- 静态CSS资源 -->
+    <!-- 以下CSS已改为按需加载：highlight.min.css, katex.min.css -->
+    <link rel="stylesheet" href="/static/css/inline-styles.css">
+    <title></title>
+    <!-- SEO相关元数据占位符 - 将由Nginx动态替换 -->
+    <!-- SEO_META_PLACEHOLDER -->
+</head>
+<body>
+<!-- 快速设置标题，减少闪烁 -->
+<script>
+(function() {
+    try {
+        var cachedWebInfo = localStorage.getItem('webInfo');
+        if (cachedWebInfo) {
+            var webInfoData = JSON.parse(cachedWebInfo);
+            if (webInfoData && webInfoData.data && webInfoData.data.webTitle) {
+                document.title = webInfoData.data.webTitle;
+                window.OriginTitile = webInfoData.data.webTitle;
+            }
+        }
+    } catch (e) {
+        // 静默处理错误，不影响页面加载
+    }
+})();
+</script>
+
+<!-- 自动检测暗色模式，避免闪烁 -->
+<script>
+(function() {
+    try {
+        // 获取用户手动设置的主题偏好
+        var userTheme = localStorage.getItem('theme');
+        // 检测系统暗色模式
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        // 优先级：用户设置 > 系统偏好
+        // 如果用户设置了dark，或者用户没设置且系统是暗色
+        if (userTheme === 'dark' || (userTheme !== 'light' && prefersDark)) {
+            document.documentElement.classList.add('dark-mode');
+            document.body.classList.add('dark-mode');
+            
+            // 立即设置CSS变量，避免闪烁
+            var root = document.documentElement;
+            root.style.setProperty("--background", "#272727");
+            root.style.setProperty("--fontColor", "white");
+            root.style.setProperty("--borderColor", "#4F4F4F");
+            root.style.setProperty("--borderHoverColor", "black");
+            root.style.setProperty("--articleFontColor", "#E4E4E4");
+            root.style.setProperty("--articleGreyFontColor", "#D4D4D4");
+            root.style.setProperty("--commentContent", "#383838");
+            root.style.setProperty("--favoriteBg", "#1e1e1e");
+            root.style.setProperty("--whiteMask", "rgba(56, 56, 56, 0.3)");
+            root.style.setProperty("--maxWhiteMask", "rgba(56, 56, 56, 0.5)");
+            root.style.setProperty("--maxMaxWhiteMask", "rgba(56, 56, 56, 0.7)");
+            root.style.setProperty("--miniWhiteMask", "rgba(56, 56, 56, 0.15)");
+            root.style.setProperty("--mask", "rgba(0, 0, 0, 0.5)");
+            root.style.setProperty("--miniMask", "rgba(0, 0, 0, 0.3)");
+            root.style.setProperty("--inputBackground", "#383838");
+            root.style.setProperty("--secondaryText", "#B0B0B0");
+            root.style.setProperty("--card-bg-rgb", "39, 39, 39");
+        }
+    } catch (e) {
+        // 静默处理错误
+    }
+})();
+</script>
+<div id="app"></div>
+<script src="/libs/js/anime.min.js"></script>
+<!-- 以下JS已改为按需加载：highlight.min.js, clipboard.min.js, katex.min.js, qiniu.min.js, markdown-it.min.js -->
+<script src="/static/js/inline-scripts.js"></script>
+</body>
+</html>

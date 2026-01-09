@@ -1,0 +1,255 @@
+/* ========================================
+   通用居中对话框样式 - Flex布局 + 垂直水平居中 + 内部滚动
+   
+   功能特性：
+   1. ✅ 对话框垂直水平完美居中
+   2. ✅ 对话框内部滚动（而非整个页面滚动）
+   3. ✅ Header和Footer固定不滚动
+   4. ✅ 自动适应不同高度的内容
+   5. ✅ 美观的自定义滚动条
+   6. ✅ 支持暗色模式
+   
+   使用方法：
+   在任意 el-dialog 上添加 custom-class="centered-dialog"
+   
+   示例代码：
+   <el-dialog 
+     :visible.sync="dialogVisible" 
+     width="70%" 
+     custom-class="centered-dialog">
+     <div slot="title">对话框标题</div>
+     <div>对话框内容...</div>
+     <div slot="footer">
+       <el-button @click="dialogVisible = false">关闭</el-button>
+     </div>
+   </el-dialog>
+   
+   注意事项：
+   - 此样式为全局样式，可在项目任意组件中使用
+   - test-dialog 是 centered-dialog 的别名（向后兼容）
+   - 使用 :has() 选择器，需要现代浏览器支持（Chrome 105+, Safari 15.4+, Firefox 121+）
+   ======================================== */
+
+/* ========== 核心样式 ========== */
+
+/* 对话框wrapper垂直居中 - 只对显示的centered-dialog生效 */
+.el-dialog__wrapper:has(.centered-dialog):not([style*="display: none"]),
+.el-dialog__wrapper:has(.test-dialog):not([style*="display: none"]),
+.el-overlay-dialog:has(.centered-dialog),
+.el-overlay-dialog:has(.test-dialog) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow-y: auto !important;
+}
+
+/* 对话框本身的flex布局 */
+.centered-dialog,
+.test-dialog {
+  margin: 0 !important;
+  max-height: 90vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0;
+}
+
+/* Header固定不滚动 */
+.centered-dialog .el-dialog__header,
+.test-dialog .el-dialog__header {
+  flex-shrink: 0 !important;
+}
+
+/* Body使用内部滚动 */
+.centered-dialog .el-dialog__body,
+.test-dialog .el-dialog__body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  /* 平滑滚动 */
+  scroll-behavior: smooth;
+  /* 自定义滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: #c1c1c1 #f1f1f1;
+}
+
+/* Footer固定不滚动 */
+.centered-dialog .el-dialog__footer,
+.test-dialog .el-dialog__footer {
+  flex-shrink: 0 !important;
+}
+
+/* ========== Webkit浏览器滚动条样式 ========== */
+
+.centered-dialog .el-dialog__body::-webkit-scrollbar,
+.test-dialog .el-dialog__body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.centered-dialog .el-dialog__body::-webkit-scrollbar-track,
+.test-dialog .el-dialog__body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.centered-dialog .el-dialog__body::-webkit-scrollbar-thumb,
+.test-dialog .el-dialog__body::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.centered-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover,
+.test-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* ========== 暗色模式滚动条样式 ========== */
+
+.dark-mode .centered-dialog .el-dialog__body,
+.dark-mode .test-dialog .el-dialog__body {
+  scrollbar-color: #606060 #383838;
+}
+
+.dark-mode .centered-dialog .el-dialog__body::-webkit-scrollbar-track,
+.dark-mode .test-dialog .el-dialog__body::-webkit-scrollbar-track {
+  background: #383838;
+}
+
+.dark-mode .centered-dialog .el-dialog__body::-webkit-scrollbar-thumb,
+.dark-mode .test-dialog .el-dialog__body::-webkit-scrollbar-thumb {
+  background: #606060;
+}
+
+.dark-mode .centered-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover,
+.dark-mode .test-dialog .el-dialog__body::-webkit-scrollbar-thumb:hover {
+  background: #707070;
+}
+
+/* ========== 暗色模式 dialog-footer 样式 ========== */
+
+/* 暗色模式下的对话框底部样式 */
+.dark-mode .dialog-footer {
+  background: #2c2c2c !important;
+  border-top-color: #404040 !important;
+}
+
+/* 暗色模式下dialog-footer中的按钮文字颜色 */
+.dark-mode .dialog-footer .el-button--default {
+  background-color: #404040 !important;
+  border-color: #505050 !important;
+  color: #e0e0e0 !important;
+}
+
+.dark-mode .dialog-footer .el-button--default:hover {
+  background-color: #505050 !important;
+  border-color: #606060 !important;
+}
+
+/* 主按钮在暗色模式下保持原样 */
+.dark-mode .dialog-footer .el-button--primary {
+  background-color: #409eff !important;
+  border-color: #409eff !important;
+  color: #ffffff !important;
+}
+
+.dark-mode .dialog-footer .el-button--primary:hover {
+  background-color: #66b1ff !important;
+  border-color: #66b1ff !important;
+}
+
+/* ========== 移动端适配 ========== */
+
+@media (max-width: 768px) {
+
+  .centered-dialog,
+  .test-dialog {
+    width: 95% !important;
+    max-height: 85vh !important;
+  }
+
+  .centered-dialog .el-dialog__header,
+  .test-dialog .el-dialog__header {
+    padding: 15px !important;
+  }
+
+  .centered-dialog .el-dialog__title,
+  .test-dialog .el-dialog__title {
+    font-size: 16px !important;
+  }
+
+  .centered-dialog .el-dialog__body,
+  .test-dialog .el-dialog__body {
+    padding: 15px !important;
+  }
+
+  .centered-dialog .el-dialog__footer,
+  .test-dialog .el-dialog__footer {
+    padding: 12px !important;
+  }
+}
+
+@media (max-width: 480px) {
+
+  .centered-dialog,
+  .test-dialog {
+    width: 98% !important;
+    max-height: 90vh !important;
+  }
+
+  .centered-dialog .el-dialog__header,
+  .test-dialog .el-dialog__header {
+    padding: 12px !important;
+  }
+
+  .centered-dialog .el-dialog__title,
+  .test-dialog .el-dialog__title {
+    font-size: 15px !important;
+  }
+
+  .centered-dialog .el-dialog__body,
+  .test-dialog .el-dialog__body {
+    padding: 12px !important;
+  }
+
+  .centered-dialog .el-dialog__footer,
+  .test-dialog .el-dialog__footer {
+    padding: 10px !important;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+
+  .centered-dialog .el-dialog__footer .el-button,
+  .test-dialog .el-dialog__footer .el-button {
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  /* 对话框内的标签 */
+  .centered-dialog .el-tag,
+  .test-dialog .el-tag {
+    font-size: 11px !important;
+    padding: 0 8px !important;
+    height: 24px !important;
+    line-height: 24px !important;
+  }
+
+  /* 输入提示 */
+  .centered-dialog .input-tips,
+  .test-dialog .input-tips {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: 11px;
+  }
+
+  .centered-dialog .input-tips .el-tag,
+  .test-dialog .input-tips .el-tag {
+    margin-right: 0;
+  }
+
+  .centered-dialog .input-tips span,
+  .test-dialog .input-tips span {
+    font-size: 11px;
+  }
+}

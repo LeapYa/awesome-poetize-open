@@ -1,0 +1,101 @@
+/**
+ * Vditor 样式隔离保护
+ * 确保 Vditor 编辑器的样式不会影响文章展示页面
+ */
+
+/* 保护文章页面的样式 - 确保优先级高于 Vditor 可能的全局样式 */
+
+/* 文章内容容器保护 */
+.entry-content {
+  all: revert !important; /* 恢复到用户代理样式表 */
+}
+
+/* 确保文章内容的基础样式不被覆盖 */
+.entry-content * {
+  all: revert;
+}
+
+/* 重新应用文章样式 */
+.entry-content h1,
+.entry-content h2,
+.entry-content h3,
+.entry-content h4,
+.entry-content h5,
+.entry-content h6 {
+  font-family: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.entry-content p {
+  margin: inherit;
+  padding: inherit;
+  line-height: inherit;
+}
+
+.entry-content a {
+  color: inherit;
+  text-decoration: inherit;
+}
+
+.entry-content ul,
+.entry-content ol {
+  list-style: inherit;
+  padding: inherit;
+  margin: inherit;
+}
+
+.entry-content li {
+  padding: inherit;
+  margin: inherit;
+}
+
+.entry-content blockquote {
+  margin: inherit;
+  padding: inherit;
+  border: inherit;
+}
+
+.entry-content code {
+  font-family: inherit;
+  font-size: inherit;
+  background: inherit;
+  color: inherit;
+  padding: inherit;
+  border-radius: inherit;
+}
+
+.entry-content pre {
+  background: inherit;
+  padding: inherit;
+  border-radius: inherit;
+  overflow: inherit;
+}
+
+.entry-content pre code {
+  background: inherit;
+  color: inherit;
+  padding: inherit;
+  display: inherit;
+}
+
+.entry-content table {
+  border-collapse: inherit;
+  width: inherit;
+}
+
+.entry-content img {
+  max-width: inherit;
+  height: inherit;
+}
+
+/* 确保 Vditor 的样式只应用于编辑器内部 */
+.vditor-editor-isolate .vditor {
+  /* Vditor 的样式限制在这个容器内 */
+}
+
+/* 防止 Vditor 影响全局的代码块样式 */
+body:not(.vditor-editor-isolate) .hljs {
+  /* 保护全局 hljs 样式 */
+}

@@ -197,7 +197,7 @@ public class SecurityFilter extends OncePerRequestFilter {
             // 检测常见的CMS路径扫描
             Set<String> commonCmsPatterns = Set.of(
                 "/wp-", "/wordpress", "/drupal", "/joomla", "/magento",
-                "/administrator", "/admin/login", "/phpmyadmin", "/xmlrpc", 
+                "/administrator.php", "/admin/login.php", "/phpmyadmin", "/xmlrpc", 
                 "/blog/wp-", "/cms/", "/old/", "/new/", "/backup/", "/bak/", 
                 "/beta/", "/temp/", "/dev/"
             );

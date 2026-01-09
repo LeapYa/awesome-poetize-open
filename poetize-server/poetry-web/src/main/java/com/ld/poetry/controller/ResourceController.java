@@ -315,6 +315,54 @@ public class ResourceController {
     }
 
     /**
+     * 上传看板娘模型预览图（管理员专用）
+     */
+    @PostMapping("/uploadWaifuPreview")
+    @LoginCheck(0)
+    public PoetryResult<String> uploadWaifuPreview(@RequestParam("file") MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            return PoetryResult.fail("请选择要上传的图片！");
+        }
+        
+        try {
+            // 验证是图片文件
+            String contentType = file.getContentType();
+            if (contentType == null || !contentType.startsWith("image/")) {
+                return PoetryResult.fail("只能上传图片文件！");
+            }
+            
+            // 验证文件大小（2MB限制）
+            if (file.getSize() > 2 * 1024 * 1024) {
+                return PoetryResult.fail("图片大小不能超过2MB！");
+            }
+            
+            // 生成唯一文件名
+            String originalFilename = file.getOriginalFilename();
+            String extension = originalFilename != null && originalFilename.contains(".") 
+                ? originalFilename.substring(originalFilename.lastIndexOf(".")) 
+                : ".png";
+            String fileName = "waifu_preview_" + System.currentTimeMillis() + extension;
+            
+            // 使用FileVO存储
+            FileVO fileVO = new FileVO();
+            fileVO.setFile(file);
+            fileVO.setType("waifuPreview");
+            fileVO.setRelativePath("waifu_previews/" + fileName);
+            fileVO.setOriginalName(originalFilename);
+            
+            StoreService storeService = fileStorageService.getFileStorage(fileVO.getStoreType());
+            FileVO result = storeService.saveFile(fileVO);
+            
+            log.info("看板娘预览图上传成功: {}", result.getVisitPath());
+            return PoetryResult.success(result.getVisitPath());
+            
+        } catch (Exception e) {
+            log.error("看板娘预览图上传失败: {}", e.getMessage(), e);
+            return PoetryResult.fail("上传失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 删除
      */
     @PostMapping("/deleteResource")

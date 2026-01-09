@@ -31,6 +31,7 @@
         <result column="auto_night_end" property="autoNightEnd"/>
         <result column="enable_gray_mode" property="enableGrayMode"/>
         <result column="enable_dynamic_title" property="enableDynamicTitle"/>
+        <result column="mouse_click_effect_config" property="mouseClickEffectConfig"/>
         <result column="mobile_drawer_config" property="mobileDrawerConfig"/>
     </resultMap>
 
@@ -39,7 +40,7 @@
         id, web_name, web_title, notices, footer, background_image, avatar, random_avatar, random_name, random_cover,
         waifu_json, status, enable_waifu, waifu_display_mode, home_page_pull_up_height, api_enabled, api_key, nav_config,
         footer_background_image, footer_background_config, email, minimal_footer, enable_auto_night,
-        auto_night_start, auto_night_end, enable_gray_mode, enable_dynamic_title, mobile_drawer_config
+        auto_night_start, auto_night_end, enable_gray_mode, enable_dynamic_title, mouse_click_effect_config, mobile_drawer_config
     </sql>
 
     <!-- 更新基本网站信息（不包括公告、随机名称等专门管理的字段） -->
@@ -117,6 +118,9 @@
             </if>
             <if test="enableDynamicTitle != null">
                 enable_dynamic_title = #{enableDynamicTitle},
+            </if>
+            <if test="mouseClickEffectConfig != null">
+                mouse_click_effect_config = #{mouseClickEffectConfig},
             </if>
             <if test="mobileDrawerConfig != null">
                 mobile_drawer_config = #{mobileDrawerConfig},

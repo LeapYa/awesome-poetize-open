@@ -13,6 +13,29 @@
 
 按时间顺序排列的增量迁移脚本，用于数据库结构的版本管理和升级。
 
+### 3. 版本管理机制
+
+系统使用 `db_migrations` 表自动跟踪已执行的迁移脚本：
+
+- **首次升级**：执行 `000000000000.sql` 创建版本表，之后所有脚本都会记录
+- **后续升级**：自动跳过已执行的脚本，只执行新脚本
+- **向后兼容**：对于没有版本表的老系统，所有脚本仍按幂等方式执行
+
+**版本表结构：**
+
+```sql
+CREATE TABLE `db_migrations` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `version` varchar(20) NOT NULL COMMENT '版本号（文件名）',
+  `description` varchar(200) DEFAULT NULL COMMENT '迁移说明',
+  `executed_at` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '执行时间',
+  `execution_time_ms` int DEFAULT NULL COMMENT '执行耗时（毫秒）',
+  `success` tinyint(1) NOT NULL DEFAULT 1 COMMENT '是否成功',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_version` (`version`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据库迁移版本记录';
+```
+
 ## 迁移脚本命名规范
 
 ### 命名格式
@@ -64,6 +87,26 @@ CREATE TABLE `table_name` (
 
 ## 迁移脚本编写规范
 
+### 0. 版本跟踪（重要）
+
+由于系统已引入版本跟踪机制，**新脚本只会执行一次**，因此：
+
+- ✅ **新脚本（2026-01-06 之后）**：可以使用普通 SQL 语句，无需考虑幂等性
+- ⚠️ **旧脚本（2026-01-06 之前）**：仍需保持幂等设计，以兼容老系统
+
+**示例：新脚本可以这样写**
+
+```sql
+-- 直接创建表（无需 IF NOT EXISTS）
+CREATE TABLE `new_table` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+
+-- 直接插入数据（无需 INSERT IGNORE）
+INSERT INTO `new_table` (id) VALUES (1);
+```
+
 ### 1. 文件头部注释
 
 每个迁移脚本应包含清晰的注释说明：
@@ -84,7 +127,8 @@ CREATE TABLE `table_name` (
 #### 创建表
 
 ```sql
-CREATE TABLE IF NOT EXISTS `table_name` (
+-- 新脚本可省略 IF NOT EXISTS（推荐）
+CREATE TABLE `table_name` (
   `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `field_name` varchar(100) NOT NULL COMMENT '字段说明',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -98,6 +142,7 @@ CREATE TABLE IF NOT EXISTS `table_name` (
 #### 添加字段
 
 ```sql
+-- MariaDB 支持 IF NOT EXISTS（可选，增加安全性）
 ALTER TABLE `table_name`
 ADD COLUMN `new_field` VARCHAR(100) NULL COMMENT '字段说明' AFTER `existing_field`;
 ```
@@ -199,23 +244,26 @@ WHERE condition;
 
 ### 新环境部署
 
-1. 执行 `poetry.sql` - 创建完整数据库结构
-2. 按时间顺序执行所有迁移脚本（如有需要）
+1. 执行 `poetry.sql` - 创建完整数据库结构（包含 `db_migrations` 表）
+2. 使用 `poetize -update` 自动执行所有迁移脚本
 
 ### 现有环境升级
 
-1. 确认当前数据库版本（已执行到哪个迁移脚本）
-2. 按时间顺序执行后续的迁移脚本
-3. 建议在执行前备份数据库
+1. 使用 `poetize -update` 自动升级
+2. 系统会自动检查 `db_migrations` 表，跳过已执行的脚本
+3. 如果是老系统（无版本表），会先创建版本表再执行
 
-### 执行示例
+### 手动执行示例
 
 ```bash
-# 方式1：单个执行
+# 使用 poetize 命令（推荐）
+poetize -update
+
+# 手动单个执行
 mysql -u username -p database_name < 202507220125.sql
 
-# 方式2：批量执行（按顺序）
-for file in 2025*.sql; do
+# 手动批量执行（按顺序）
+for file in *.sql; do
   echo "Executing $file..."
   mysql -u username -p database_name < "$file"
 done
@@ -225,6 +273,7 @@ done
 
 | 文件名           | 创建时间         | 说明                                 |
 | ---------------- | ---------------- | ------------------------------------ |
+| 000000000000.sql | -                | 版本跟踪表初始化（必须最先执行）      |
 | 202507220125.sql | 2025-07-22 01:25 | 添加位置字段                         |
 | 202507251802.sql | 2025-07-25 18:02 | 添加 QQ OAuth 配置                   |
 | 202509260033.sql | 2025-09-26 00:33 | SEO 配置表结构                       |
@@ -243,6 +292,7 @@ done
 | 202511010001.sql | 2025-11-01 00:01 | 优化网页标题设置                     |
 | 202511030001.sql | 2025-11-03 00:01 | SEO配置优化                          |
 | 202511051500.sql | 2025-11-05 15:00 | 修复重复配置键 + 添加唯一索引        |
+| 202601060001.sql | 2026-01-06 00:01 | 插件系统 + 鼠标点击效果管理          |
 
 ## 版本控制规范
 

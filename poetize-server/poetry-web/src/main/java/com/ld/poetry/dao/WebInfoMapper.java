@@ -43,6 +43,7 @@ public interface WebInfoMapper extends BaseMapper<WebInfo> {
                          @Param("autoNightEnd") Integer autoNightEnd,
                          @Param("enableGrayMode") Boolean enableGrayMode,
                          @Param("enableDynamicTitle") Boolean enableDynamicTitle,
+                         @Param("mouseClickEffectConfig") String mouseClickEffectConfig,
                          @Param("mobileDrawerConfig") String mobileDrawerConfig);
 
     /**

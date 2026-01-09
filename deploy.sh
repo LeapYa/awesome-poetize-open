@@ -4607,7 +4607,17 @@ setup_https() {
     CERTBOT_EXIT_CODE=$(sudo docker inspect poetize-certbot --format='{{.State.ExitCode}}' 2>/dev/null || echo "-1")
     CERTBOT_RUNNING=$(sudo docker inspect poetize-certbot --format='{{.State.Running}}' 2>/dev/null || echo "false")
     
-    # 如果certbot已完成且成功
+    # 检查日志中是否有成功标识（certbot容器持续运行进行自动续期，所以通过日志判断）
+    local cert_logs=$(sudo docker logs poetize-certbot 2>&1 || echo "")
+    
+    # 如果日志中包含"证书申请成功!"，说明证书已成功获取
+    if echo "$cert_logs" | grep -q "证书申请成功!"; then
+      info "检测到证书申请成功，退出等待循环"
+      CERTBOT_EXIT_CODE="0"  # 标记为成功
+      break
+    fi
+    
+    # 如果certbot容器已停止且成功
     if [ "$CERTBOT_EXIT_CODE" = "0" ] && [ "$CERTBOT_RUNNING" = "false" ]; then
       info "certbot执行成功，退出等待循环"
       break
@@ -4628,10 +4638,9 @@ setup_https() {
     
     # 实时检测速率限制错误，避免无谓等待
     if [ $((wait_time % 60)) -eq 0 ] && [ $wait_time -gt 0 ]; then
-      local current_logs=$(sudo docker logs poetize-certbot 2>&1 || echo "")
-      if echo "$current_logs" | grep -q "too many certificates.*already issued"; then
+      if echo "$cert_logs" | grep -q "too many certificates.*already issued"; then
         warning "在等待过程中检测到速率限制错误，立即处理..."
-        handle_rate_limit_error "$current_logs"
+        handle_rate_limit_error "$cert_logs"
         return 2
       fi
     fi

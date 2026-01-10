@@ -1358,10 +1358,8 @@ export default {
         },
       }
 
-      // 构建请求URL，添加重定向参数
-      const loginUrl = `${
-        pythonServiceConfig.baseUrl
-      }/login/${provider}?redirect=${encodeURIComponent(currentPath)}`
+      // 构建请求URL - 使用Java后端OAuth端点（通过Nginx代理，使用相对路径）
+      const loginUrl = `${this.$constant.baseURL}/oauth/login/${provider}?redirect=${encodeURIComponent(currentPath)}`
 
       // 记录当前登录方式
       localStorage.setItem('thirdPartyLoginProvider', provider)

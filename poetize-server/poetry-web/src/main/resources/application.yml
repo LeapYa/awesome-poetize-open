@@ -247,3 +247,9 @@ poetize:
       # 示例：migration-end-time: "2025-12-31 23:59:59"
       # migration-end-time: null
 
+# OAuth配置
+oauth:
+  proxy:
+    domain: ${OAUTH_PROXY_DOMAIN:}  # 可选的代理域名（用于海外平台）
+  state:
+    ttl: 600  # State token有效期（秒），默认10分钟

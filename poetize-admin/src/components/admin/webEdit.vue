@@ -3805,13 +3805,13 @@ const uploadPicture = () => import( "../common/uploadPicture");
       },
       getPlatformIcon(type) {
         const iconMapping = {
-          github: './static/svg/github.svg',
-          google: './static/svg/google.svg',
-          twitter: './static/svg/x.svg',
-          yandex: './static/svg/yandex.svg',
-          gitee: './static/svg/gitee.svg',
-          qq: './static/svg/qq.svg',
-          baidu: './static/svg/baidu.svg'
+          github: '/admin/static/svg/github.svg',
+          google: '/admin/static/svg/google.svg',
+          twitter: '/admin/static/svg/x.svg',
+          yandex: '/admin/static/svg/yandex.svg',
+          gitee: '/admin/static/svg/gitee.svg',
+          qq: '/admin/static/svg/qq.svg',
+          baidu: '/admin/static/svg/baidu.svg'
         };
         return iconMapping[type] || '';
       },

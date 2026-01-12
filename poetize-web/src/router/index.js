@@ -196,54 +196,51 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  if (to.query.userToken) {
-    await handleOAuthToken(to, from, next)
+  // 处理OAuth临时授权码
+  if (to.query.code && to.path === '/') {
+    await handleOAuthAuthCode(to, from, next)
     return
   }
+
 
   next()
 })
 
-async function handleOAuthToken(to, from, next) {
-  const userToken = to.query.userToken
-  const emailCollectionNeeded = to.query.emailCollectionNeeded === 'true'
+/**
+ * 处理OAuth临时授权码
+ * 使用一次性授权码换取真正的token
+ */
+async function handleOAuthAuthCode(to, from, next) {
+  const authCode = to.query.code
   const baseURL = constant.baseURL
 
   try {
-    const encryptedToken = await common.encrypt(userToken)
-
-    const response = await fetch(baseURL + '/user/token', {
+    // 调用后端接口，用授权码换取token
+    const response = await fetch(baseURL + '/oauth/exchange', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: 'userToken=' + encryptedToken,
+      body: 'code=' + encodeURIComponent(authCode),
     })
 
     if (response.ok) {
       const result = await response.json()
       if (result && result.code === 200) {
-        const needsEmailCollection =
-          emailCollectionNeeded || result.message === 'EMAIL_COLLECTION_NEEDED'
+        const data = result.data
+        const accessToken = data.accessToken
+        const redirectPath = data.redirectPath || sessionStorage.getItem('oauthRedirectPath') || '/'
+        const emailCollectionNeeded = data.emailCollectionNeeded
 
-        if (needsEmailCollection) {
-          const provider =
-            result.data.platformType || to.query.provider || 'unknown'
+        if (emailCollectionNeeded) {
           const tempUserData = {
-            ...result.data,
+            accessToken: accessToken,
             needsEmailCollection: true,
-            provider: provider,
           }
 
-          localStorage.setItem('userToken', result.data.accessToken)
-          localStorage.setItem('adminToken', result.data.accessToken)
+          localStorage.setItem('userToken', accessToken)
+          localStorage.setItem('adminToken', accessToken)
           localStorage.setItem('tempUserData', JSON.stringify(tempUserData))
-
-          const redirectPath =
-            to.query.redirect ||
-            from.query.redirect ||
-            sessionStorage.getItem('oauthRedirectPath') ||
-            '/'
 
           next({
             path: redirectPath,
@@ -253,40 +250,52 @@ async function handleOAuthToken(to, from, next) {
           return
         }
 
+        // 正常登录流程
         localStorage.removeItem('currentAdmin')
         localStorage.removeItem('currentUser')
+        localStorage.setItem('userToken', accessToken)
+        localStorage.setItem('adminToken', accessToken)
 
-        localStorage.setItem('userToken', result.data.accessToken)
-        localStorage.setItem('adminToken', result.data.accessToken)
-        const mainStore = useMainStore()
-        mainStore.loadCurrentUser(result.data)
-        mainStore.loadCurrentAdmin(result.data)
+        // 验证token获取用户信息
+        const encryptedToken = await common.encrypt(accessToken)
+        const tokenResponse = await fetch(baseURL + '/user/token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'userToken=' + encryptedToken,
+        })
 
-        const redirectPath =
-          to.query.redirect ||
-          from.query.redirect ||
-          sessionStorage.getItem('oauthRedirectPath') ||
-          '/'
+        if (tokenResponse.ok) {
+          const tokenResult = await tokenResponse.json()
+          if (tokenResult && tokenResult.code === 200) {
+            const mainStore = useMainStore()
+            mainStore.loadCurrentUser(tokenResult.data)
+            mainStore.loadCurrentAdmin(tokenResult.data)
+          }
+        }
+
+        // 清理sessionStorage中的临时数据
+        sessionStorage.removeItem('oauthRedirectPath')
 
         next({
           path: redirectPath,
-          query: { ...to.query, token: undefined, state: undefined },
           replace: true,
         })
         return
       } else {
-        console.error('OAuth token验证失败:', result)
-        next({ path: to.path, query: {}, replace: true })
+        console.error('OAuth授权码交换失败:', result)
+        next({ path: '/', query: {}, replace: true })
         return
       }
     } else {
-      console.error('OAuth token验证HTTP错误:', response.status)
-      next({ path: to.path, query: {}, replace: true })
+      console.error('OAuth授权码交换HTTP错误:', response.status)
+      next({ path: '/', query: {}, replace: true })
       return
     }
   } catch (error) {
-    console.error('OAuth token验证异常:', error)
-    next({ path: to.path, query: {}, replace: true })
+    console.error('OAuth授权码交换异常:', error)
+    next({ path: '/', query: {}, replace: true })
     return
   }
 }

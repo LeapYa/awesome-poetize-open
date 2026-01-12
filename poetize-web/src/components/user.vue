@@ -1314,9 +1314,25 @@ export default {
     thirdPartyLogin(provider, verificationToken) {
       if (!provider) return
 
-      // 保存当前路径，用于登录后重定向
-      const currentPath = window.location.pathname + window.location.search
-      sessionStorage.setItem('oauthRedirectPath', currentPath)
+      // 提取真正的重定向目标地址
+      // 如果当前在登录页且有 redirect 参数，使用该参数作为目标地址
+      // 否则使用当前路径（非登录页面的情况）
+      const urlParams = new URLSearchParams(window.location.search)
+      const redirectParam = urlParams.get('redirect')
+
+      let targetRedirect
+      if (window.location.pathname === '/user' && redirectParam) {
+        // 在登录页面，使用 redirect 参数指定的目标地址
+        targetRedirect = redirectParam
+      } else if (window.location.pathname === '/user') {
+        // 在登录页面但没有 redirect 参数，默认重定向到首页
+        targetRedirect = '/'
+      } else {
+        // 不在登录页面，登录后返回当前页面
+        targetRedirect = window.location.pathname + window.location.search
+      }
+
+      sessionStorage.setItem('oauthRedirectPath', targetRedirect)
 
       const params = {
         provider: provider,
@@ -1327,39 +1343,8 @@ export default {
         params.verificationToken = verificationToken
       }
 
-      // Python服务配置
-      const pythonServiceConfig = {
-        baseUrl: this.$constant.pythonBaseURL,
-        providers: {
-          github: {
-            icon: 'el-icon-s-platform',
-            name: 'GitHub',
-          },
-          google: {
-            icon: 'el-icon-s-promotion',
-            name: 'Google',
-          },
-          x: {
-            icon: 'el-icon-message',
-            name: 'Twitter',
-          },
-          yandex: {
-            icon: 'el-icon-s-custom',
-            name: 'Yandex',
-          },
-          gitee: {
-            icon: 'el-icon-s-custom',
-            name: 'Gitee',
-          },
-          qq: {
-            icon: 'el-icon-s-custom',
-            name: 'QQ',
-          },
-        },
-      }
-
       // 构建请求URL - 使用Java后端OAuth端点（通过Nginx代理，使用相对路径）
-      const loginUrl = `${this.$constant.baseURL}/oauth/login/${provider}?redirect=${encodeURIComponent(currentPath)}`
+      const loginUrl = `${this.$constant.baseURL}/oauth/login/${provider}?redirect=${encodeURIComponent(targetRedirect)}`
 
       // 记录当前登录方式
       localStorage.setItem('thirdPartyLoginProvider', provider)

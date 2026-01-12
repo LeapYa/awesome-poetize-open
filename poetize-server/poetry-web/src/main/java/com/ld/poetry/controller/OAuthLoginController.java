@@ -6,6 +6,7 @@ import com.ld.poetry.oauth.base.BaseOAuthProvider;
 import com.ld.poetry.oauth.exception.ConfigurationException;
 import com.ld.poetry.oauth.exception.OAuthException;
 import com.ld.poetry.oauth.providers.TwitterOAuthProvider;
+import com.ld.poetry.oauth.state.OAuthAuthCodeService;
 import com.ld.poetry.oauth.state.OAuthStateService;
 import com.ld.poetry.service.UserService;
 import com.ld.poetry.vo.UserVO;
@@ -40,6 +41,9 @@ public class OAuthLoginController {
 
     @Autowired
     private OAuthStateService stateService;
+
+    @Autowired
+    private OAuthAuthCodeService authCodeService;
 
     @Autowired
     private UserService userService;
@@ -234,6 +238,7 @@ public class OAuthLoginController {
 
     /**
      * 处理登录结果
+     * 使用临时授权码替代直接传递token，增强安全性
      */
     private void processLogin(Map<String, Object> userInfo, Map<String, Object> stateData,
                                HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -255,19 +260,20 @@ public class OAuthLoginController {
                 UserVO userVO = result.getData();
                 String accessToken = userVO.getAccessToken();
 
-                // 构建重定向URL（使用相对路径）
-                StringBuilder redirectUrl = new StringBuilder("/?userToken=").append(accessToken);
-
                 // 检查是否需要邮箱收集
                 boolean userHasEmail = StringUtils.hasText(userVO.getEmail());
-                if (!userHasEmail && Boolean.TRUE.equals(emailCollectionNeeded)) {
-                    redirectUrl.append("&emailCollectionNeeded=true");
-                }
+                boolean needEmailCollection = !userHasEmail && Boolean.TRUE.equals(emailCollectionNeeded);
 
-                // 添加原始重定向路径
-                if (StringUtils.hasText(redirectPath)) {
-                    redirectUrl.append("&redirect=").append(URLEncoder.encode(redirectPath, StandardCharsets.UTF_8.name()));
-                }
+                // 生成临时授权码（替代直接传递token）
+                String authCode = authCodeService.generateAuthCode(
+                    userVO.getId(),
+                    accessToken,
+                    redirectPath,
+                    needEmailCollection
+                );
+
+                // 构建重定向URL，使用临时授权码
+                StringBuilder redirectUrl = new StringBuilder("/?code=").append(authCode);
 
                 log.info("OAuth登录成功: provider={}, userId={}", provider, userVO.getId());
                 response.sendRedirect(redirectUrl.toString());
@@ -323,5 +329,38 @@ public class OAuthLoginController {
         result.put("timestamp", System.currentTimeMillis());
         result.put("state_stats", stateService.getStats());
         return PoetryResult.success(result);
+    }
+
+    /**
+     * 使用临时授权码换取访问令牌
+     * 前端通过此接口用一次性授权码换取真正的token
+     */
+    @PostMapping("/exchange")
+    public PoetryResult<Map<String, Object>> exchangeAuthCode(@RequestParam("code") String code) {
+        try {
+            if (code == null || code.isEmpty()) {
+                return PoetryResult.fail("授权码不能为空");
+            }
+
+            // 验证并消费授权码
+            Map<String, Object> codeData = authCodeService.verifyAndConsumeAuthCode(code);
+            if (codeData == null) {
+                return PoetryResult.fail("授权码无效或已过期");
+            }
+
+            // 构建响应数据
+            Map<String, Object> response = new HashMap<>();
+            response.put("accessToken", codeData.get("access_token"));
+            response.put("redirectPath", codeData.get("redirect_path"));
+            response.put("emailCollectionNeeded", codeData.get("email_collection_needed"));
+            response.put("userId", codeData.get("user_id"));
+
+            log.info("授权码交换成功: userId={}", codeData.get("user_id"));
+            return PoetryResult.success(response);
+
+        } catch (Exception e) {
+            log.error("授权码交换失败", e);
+            return PoetryResult.fail("授权码交换失败");
+        }
     }
 }

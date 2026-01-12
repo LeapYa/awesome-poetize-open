@@ -1,9 +1,6 @@
 fastapi>=0.104.1
 uvicorn[standard]>=0.24.0
 httpx>=0.25.0
-oauthlib>=3.2.2
-cryptography==41.0.5
-PyJWT==2.8.0
 itsdangerous>=2.1.0
 openai<=1.0.0
 fastmcp

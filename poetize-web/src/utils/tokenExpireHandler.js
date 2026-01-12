@@ -37,8 +37,8 @@ export function handleTokenExpire(
   // 清除认证状态
   clearAuthState()
 
-  // 确定当前路径
-  const redirectPath = currentPath || router.currentRoute.fullPath
+  // 确定当前路径，确保不为 undefined
+  const redirectPath = currentPath || router.currentRoute?.fullPath || '/'
 
   // 根据token类型决定跳转目标
   if (isAdmin) {

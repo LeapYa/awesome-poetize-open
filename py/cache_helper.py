@@ -1,6 +1,6 @@
 """
 缓存辅助工具
-提供Python端需要的Redis缓存功能（翻译、AI聊天、OAuth状态管理）
+提供Python端需要的Redis缓存功能（翻译、AI聊天）
 已修复双重JSON序列化问题
 """
 

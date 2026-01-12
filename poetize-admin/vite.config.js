@@ -5,7 +5,7 @@ import viteCompression from 'vite-plugin-compression';
 import envCompatible from 'vite-plugin-env-compatible';
 
 export default defineConfig({
-    base: '/',
+    base: '/admin/',
     plugins: [
         vue(),
         viteCompression({
@@ -36,7 +36,20 @@ export default defineConfig({
         host: true,
         proxy: {
             '/api': {
-                target: 'http://localhost:8081', // 默认后端端口，根据实际需要调整
+                target: 'http://localhost:8081', // Java后端
+                changeOrigin: true,
+            },
+            // 代理主站静态资源（开发环境）
+            '/static': {
+                target: 'http://localhost:5173', // 主站前端开发服务器
+                changeOrigin: true,
+            },
+            '/libs': {
+                target: 'http://localhost:5173', // 主站前端开发服务器
+                changeOrigin: true,
+            },
+            '/assets': {
+                target: 'http://localhost:5173', // 主站前端开发服务器
                 changeOrigin: true,
             },
         },

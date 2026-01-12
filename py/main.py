@@ -1,9 +1,8 @@
 """
 POETIZE博客系统 - FastAPI后端服务
-支持第三方登录、AI聊天、多语言翻译等功能
+支持AI聊天、多语言翻译等功能
 
 主要功能模块：
-- 第三方OAuth登录 (GitHub, Google, Twitter, Yandex, Gitee)
 - 多语言翻译
 - AI聊天
 - 多语言摘要
@@ -18,8 +17,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from config import SECRET_KEY, JAVA_BACKEND_URL, PYTHON_SERVICE_PORT, get_frontend_url, init_frontend_url
-from py_three_login import oauth_login, oauth_callback
-from redis_oauth_state_manager import oauth_state_manager
 
 from ai_chat_api import register_ai_chat_api  # 处理AI聊天功能（非配置管理）
 from translation_api import register_translation_api  # 处理翻译功能（非配置管理）
@@ -50,7 +47,7 @@ async def lifespan(app: FastAPI):
 # 安全配置：禁用自动文档功能，避免在生产环境暴露API结构
 app = FastAPI(
     title="POETIZE博客系统API",
-    description="基于FastAPI的博客系统后端服务，提供SEO优化、第三方登录等功能",
+    description="基于FastAPI的博客系统后端服务，提供AI聊天、翻译等功能",
     version="2.0.0",
     docs_url=None,        # 禁用Swagger UI文档 (/docs)
     redoc_url=None,       # 禁用ReDoc文档 (/redoc)
@@ -102,24 +99,10 @@ async def health_check_old():
     """兼容旧的健康检查路径"""
     return await health_check()
 
-# OAuth状态管理器调试端点
-@app.get("/debug/oauth-states")
-async def debug_oauth_states():
-    """获取OAuth状态管理器的统计信息"""
-    return oauth_state_manager.get_stats()
-
 
 
 def register_all_apis(app):
     """注册所有API模块"""
-    # 注册OAuth路由 - 支持多种路径格式
-    app.add_api_route('/oauth/login/{provider}', oauth_login, methods=['GET'])
-    app.add_api_route('/oauth/callback/{provider}', oauth_callback, methods=['GET'])
-
-    # 兼容路由 - 支持前端直接调用的路径
-    app.add_api_route('/login/{provider}', oauth_login, methods=['GET'])
-    app.add_api_route('/callback/{provider}', oauth_callback, methods=['GET'])
-
     # 注册各个API模块
     register_ai_chat_api(app)  # 注册AI聊天功能API（非配置管理，配置管理已迁移到Java）
     register_translation_api(app)  # 注册翻译功能API（非配置管理，配置管理已迁移到Java）

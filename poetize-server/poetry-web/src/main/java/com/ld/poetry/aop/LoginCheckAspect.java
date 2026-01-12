@@ -73,6 +73,11 @@ public class LoginCheckAspect {
         // 使用PoetryUtil获取用户信息（已集成Redis缓存）
         User user = PoetryUtil.getCurrentUser();
         if (user == null) {
+            // 如果允许过期token通过（如退出登录接口），直接放行
+            if (loginCheck.allowExpired()) {
+                log.info("Token已过期但允许通过（allowExpired=true）- IP: {}, URI: {}", clientIp, requestURI);
+                return joinPoint.proceed();
+            }
             log.warn("Token无效或已过期: {}", token);
             throw new PoetryLoginException(CodeMsg.LOGIN_EXPIRED.getMsg());
         }

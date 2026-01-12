@@ -130,9 +130,10 @@ public class UserController {
 
     /**
      * 退出
+     * 使用 allowExpired=true，即使 token 过期也允许退出
      */
     @GetMapping("/logout")
-    @LoginCheck
+    @LoginCheck(allowExpired = true)
     public PoetryResult exit() {
         try {
             // 尝试获取当前用户信息

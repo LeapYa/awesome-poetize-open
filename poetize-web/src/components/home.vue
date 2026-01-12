@@ -882,37 +882,40 @@ export default {
     },
 
     logout() {
+      // 定义清除状态和跳转的公共逻辑
+      const clearAndRedirect = () => {
+        this.mainStore.loadCurrentUser({})
+        this.mainStore.loadCurrentAdmin({})
+        localStorage.removeItem('userToken')
+        localStorage.removeItem('adminToken')
+
+        // 只有在需要登录的页面才跳转到首页，否则留在当前页面
+        const currentPath = this.$route.path
+        const needsAuthPaths = ['/user', '/admin', '/verify']
+        const needsRedirect = needsAuthPaths.some((path) =>
+          currentPath.startsWith(path)
+        )
+
+        if (needsRedirect) {
+          this.$router.push({ path: '/' })
+        } else {
+          // 留在当前页面，显示退出成功提示
+          this.$message({
+            message: '退出成功',
+            type: 'success',
+          })
+        }
+      }
+
       this.$http
         .get(this.$constant.baseURL + '/user/logout')
         .then((res) => {
-          // 只有在退出接口成功返回后才清除token和用户信息
-          this.mainStore.loadCurrentUser({})
-          this.mainStore.loadCurrentAdmin({})
-          localStorage.removeItem('userToken')
-          localStorage.removeItem('adminToken')
-
-          // 只有在需要登录的页面才跳转到首页，否则留在当前页面
-          const currentPath = this.$route.path
-          const needsAuthPaths = ['/user', '/admin', '/verify']
-          const needsRedirect = needsAuthPaths.some((path) =>
-            currentPath.startsWith(path)
-          )
-
-          if (needsRedirect) {
-            this.$router.push({ path: '/' })
-          } else {
-            // 留在当前页面，显示退出成功提示
-            this.$message({
-              message: '退出成功',
-              type: 'success',
-            })
-          }
+          // 退出接口成功返回后清除token和用户信息
+          clearAndRedirect()
         })
         .catch((error) => {
-          this.$message({
-            message: error.message,
-            type: 'error',
-          })
+          // 即使接口调用失败（如token已过期），也执行本地退出
+          clearAndRedirect()
         })
     },
     getWebInfo() {

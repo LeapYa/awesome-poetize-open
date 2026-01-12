@@ -29,7 +29,7 @@ export default {
 
   host: location.host,
 
-  // 本地看板娘资源路径
+  // 本地看板娘资源路径（使用主站的静态资源）
   live2d_path: "/static/live2d-widget/dist/",
   // 使用本地模型文件
   cdnPath: "/static/live2d_api/",

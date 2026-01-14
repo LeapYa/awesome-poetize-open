@@ -38,7 +38,7 @@
       </div>
       <div class="copyright font" :style="textStyle">
         <span class="copyright-left"
-          >© 2025 {{ mainStore.webInfo.webName }}</span
+          >© {{ currentYear }} {{ mainStore.webInfo.webName }}</span
         >
         <span class="copyright-center">保留所有权利</span>
         <span class="copyright-right"
@@ -74,6 +74,9 @@ export default {
   computed: {
     mainStore() {
       return useMainStore()
+    },
+    currentYear() {
+      return new Date().getFullYear()
     },
     hasBgImage() {
       const img = this.mainStore.webInfo.footerBackgroundImage

@@ -238,6 +238,12 @@ docker system prune -af && rm -rf Awesome-poetize-open && bash <(curl -sL instal
 * Fork版本开发：LeapYa
 * 开源协议：遵循原项目AGPL协议
 
+### 贡献者
+
+感谢所有为本项目做出贡献的人！
+
+<a href="https://github.com/mikutea"><img src="https://github.com/mikutea.png" width="50" height="50" style="border-radius:50%"></a>
+
 ## 💻 开发指南
 
 详细的开发环境配置、项目结构说明和各模块开发指南，请参阅 **[开发指南文档](docs/开发指南.md)**。
@@ -250,6 +256,10 @@ docker system prune -af && rm -rf Awesome-poetize-open && bash <(curl -sL instal
 - Python 后端开发
 - 数据库配置（MariaDB/MySQL）
 - 从 MariaDB 切换到 MySQL 的步骤
+
+其他文档：
+- **[数据库设计文档](docs/数据库设计.md)** - 表结构、字段说明、ER图
+- **[架构设计文档](docs/架构设计.md)** - 系统架构、技术栈、部署架构
 
 ### 快速开发启动
 

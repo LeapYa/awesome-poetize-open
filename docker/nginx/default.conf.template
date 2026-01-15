@@ -1,0 +1,858 @@
+# 定义上游服务块，解决容器启动时序问题
+upstream poetize-java {
+    server poetize-java:8081 max_fails=3 fail_timeout=30s;
+}
+
+upstream poetize-python {
+    server poetize-python:5000 max_fails=3 fail_timeout=30s;
+}
+
+upstream poetize-websocket {
+    server poetize-java:9324 max_fails=3 fail_timeout=30s;
+}
+
+# 定义请求限制区域
+# 注意：针对共用公网IP的场景（如企业、学校、运营商NAT），已适当放宽限制
+# TODO: 使用session/token级别的限制来替代纯IP限制
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=100r/s;        # 放宽到100r/s，支持大量并发用户
+limit_req_zone $binary_remote_addr zone=user_limit:10m rate=50r/s;        # 放宽到50r/s，避免影响正常登录注册
+limit_req_zone $binary_remote_addr zone=python_limit:10m rate=30r/s;      # 放宽到30r/s，支持AI功能正常使用
+limit_req_zone $binary_remote_addr zone=translation_limit:10m rate=20r/s; # 放宽到20r/s，翻译功能可正常使用
+limit_req_zone $binary_remote_addr zone=admin_limit:10m rate=10r/s;       # 适度放宽到10r/s，保持一定的安全性
+
+# 添加map指令用于解析请求URI，提取文章ID、分类ID等
+map $request_uri $article_id {
+    ~^/article/([0-9]+)$ $1;
+    default "";
+}
+
+map $request_uri $category_id {
+    ~^/category/([0-9]+)$ $1;
+    default "";
+}
+
+map $request_uri $tag_id {
+    ~^/tag/([0-9]+)$ $1;
+    default "";
+}
+
+# 解析sort页面的参数 - 从URL路径中提取分类ID
+map $uri $sort_id {
+    ~^/sort/([0-9]+) $1;
+    default "";
+}
+
+# 解析label参数仍然从查询参数中获取
+map $args $label_id {
+    ~labelId=([0-9]+) $1;
+    default "";
+}
+
+# 增加IM相关的map指令
+map $request_uri $is_im_page {
+    ~^/im.*$ 1;
+    default 0;
+}
+
+# 添加map解析 lang 参数 - 支持完整的8种语言
+map $arg_lang $lang_suffix {
+    default "";
+    zh "";           # 中文（默认）
+    en "-en";        # 英文
+    ja "-ja";        # 日文
+    zh-TW "-zh-TW";  # 繁体中文
+    ko "-ko";        # 韩文
+    fr "-fr";        # 法文
+    de "-de";        # 德文
+    es "-es";        # 西班牙文
+    ru "-ru";        # 俄文
+}
+
+# 添加语言验证map，确保只处理支持的语言
+map $arg_lang $is_supported_lang {
+    default 0;
+    zh 1;
+    en 1;
+    ja 1;
+    zh-TW 1;
+    ko 1;
+    fr 1;
+    de 1;
+    es 1;
+    ru 1;
+}
+
+# 智能404处理：识别API请求类型
+map $request_uri $is_api_request {
+    ~^/api/ 1;
+    ~^/user/(login|register|logout|updateUserInfo|getCode|getCodeForBind|updateUserSecretInfo|bindingUserSecretInfo|getUserInfo|listUser|saveUser|updatePassword|updateAdminInfo|deleteUsers|getAdminUserInfo|updateAdminConfig) 1;
+    ~^/python/ 1;
+    ~^/socket 1;
+    ~^/flush_seo_cache 1;
+    default 0;
+}
+
+server {
+    listen 80;
+    server_name example.com www.example.com;
+    
+    # 设置访问日志路径
+    access_log /var/log/nginx/access.log main;
+    
+    # 智能404和403处理：API保持JSON格式，其他跳转到前端
+    error_page 404 = @handle_404;
+    error_page 403 = @handle_403;
+    
+    # ===== 后台管理前端 =====
+
+    # 后台管理静态资源 - 必须在 /admin 之前定义
+    location ^~ /admin/assets/ {
+        alias /usr/share/nginx/html/admin/assets/;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+        # 确保 JS 文件返回正确的 MIME 类型
+        types {
+            application/javascript js mjs;
+            text/css css;
+        }
+    }
+
+    # 后台管理静态资源（主要路径）
+    location ^~ /admin/static/ {
+        alias /usr/share/nginx/html/admin/static/;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+        # 确保静态资源返回正确的 MIME 类型
+        types {
+            application/javascript js mjs;
+            text/css css;
+            image/svg+xml svg svgz;
+            image/png png;
+            image/jpeg jpg jpeg;
+            image/gif gif;
+            image/webp webp;
+        }
+    }
+
+    # 后台管理前端 - SPA 路由
+    location ^~ /admin {
+        alias /usr/share/nginx/html/admin;
+        index index.html;
+
+        # 使用 @admin_fallback 处理 SPA 路由
+        try_files $uri $uri/ @admin_fallback;
+
+        # 为index.html设置不缓存
+        location = /admin/index.html {
+            alias /usr/share/nginx/html/admin/index.html;
+            expires -1;
+            add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+            add_header Pragma "no-cache";
+        }
+    }
+
+    # 后台管理 SPA 回退
+    location @admin_fallback {
+        root /usr/share/nginx/html;
+        rewrite ^/admin(.*)$ /admin/index.html break;
+    }
+    
+    # ===== API 路由配置（优先级高于安全规则） =====
+    
+    # Java后端API
+    location ^~ /api/ {
+        # 增加请求速率限制，防止暴力攻击
+        limit_req zone=api_limit burst=20 nodelay;
+        
+        proxy_pass http://poetize-java/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket支持
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+    
+    # Java后端用户相关API - 只匹配具体的API端点，避免拦截前端路由
+    location ~ ^/user/(login|register|logout|updateUserInfo|getCode|getCodeForBind|updateUserSecretInfo|bindingUserSecretInfo|getUserInfo|listUser|saveUser|updatePassword|updateAdminInfo|deleteUsers|getAdminUserInfo|updateAdminConfig) {
+        # 增加更严格的请求速率限制，防止暴力破解登录
+        limit_req zone=user_limit burst=5 nodelay;
+        
+        proxy_pass http://poetize-java;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+    
+    # Python后端API（主要用于AI功能）
+    location ^~ /python/ {
+        # 增加请求速率限制，防止暴力攻击
+        limit_req zone=python_limit burst=10 nodelay;
+        
+        proxy_pass http://poetize-python/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+    
+    # OAuth第三方登录路由到Java后端（从Python迁移）
+    location ^~ /login/ {
+        limit_req zone=api_limit burst=5 nodelay;
+        
+        # 重写路径: /login/github -> /oauth/login/github
+        rewrite ^/login/(.*)$ /oauth/login/$1 break;
+        
+        proxy_pass http://poetize-java;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+    }
+    
+    # OAuth回调路由到Java后端（从Python迁移）
+    location ^~ /callback/ {
+        limit_req zone=api_limit burst=5 nodelay;
+        
+        # 重写路径: /callback/github -> /oauth/callback/github
+        rewrite ^/callback/(.*)$ /oauth/callback/$1 break;
+        
+        proxy_pass http://poetize-java;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+    }
+
+    # SEO静态文件路由到Java端
+    location = /manifest.json {
+        proxy_pass http://poetize-java/seo/manifest.json;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header Cache-Control "public, max-age=3600";
+    }
+
+    location = /robots.txt {
+        proxy_pass http://poetize-java/seo/robots.txt;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header Cache-Control "public, max-age=3600";
+    }
+    
+    location ^~ /socket {
+        proxy_pass          http://poetize-websocket;
+        proxy_http_version  1.1;
+        proxy_set_header    Upgrade $http_upgrade;
+        proxy_set_header    Connection "upgrade";
+        proxy_set_header    Host $host;
+        proxy_set_header    X-Real-IP $remote_addr;
+        proxy_set_header    X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header    X-Forwarded-Proto $scheme;
+        proxy_read_timeout  600s;
+    }
+    
+    # ===== 安全防护规则 =====
+    
+    # 1. 防止目录遍历攻击
+    location ~* \.\./  {
+        return 403 "Directory traversal not allowed";
+    }
+    
+    # 2. 禁止访问隐藏文件和目录（排除.well-known以支持SSL证书验证）
+    location ~ /\.(?!well-known/) {
+        return 403 "Access to hidden files denied";
+    }
+    
+    # 3. 禁止访问敏感文件类型
+    location ~* \.(htaccess|htpasswd|gitignore|git|env|config|ini|log|sql|bak|backup|old|tmp|temp|swp|swo)$ {
+        return 403 "Access to sensitive files denied";
+    }
+    
+    # 4. 禁止访问系统配置目录
+    location ~* /(config|configs|configuration|administrator|manager|management|system|private|secret|internal)/ {
+        return 403 "Access to system directories denied";
+    }
+    
+    # 设置默认字符集
+    charset utf-8;
+    # HTTP/3
+    add_header Alt-Svc 'h3=":443"; ma=86400';
+    
+    # 添加更多安全头信息
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' *.jsdelivr.net cdn.jsdelivr.net *.cloudflare.com cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' *.jsdelivr.net *.cloudflare.com cdnjs.cloudflare.com fonts.googleapis.com; img-src 'self' data: blob: *; font-src 'self' data: *; connect-src 'self' *;" always;
+    
+    # 防止点击劫持
+    add_header X-Frame-Options "SAMEORIGIN";
+    
+    # 限制请求大小，防止DoS攻击
+    client_max_body_size 10M;
+    
+    # 启用Brotli压缩 - 比GZIP更高效的压缩算法
+    brotli on;
+    brotli_comp_level 6;
+    brotli_static on;
+    brotli_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript application/x-font-ttf application/x-font-opentype application/font-woff application/font-woff2 font/woff2 image/svg+xml;
+    
+    # 启用GZIP压缩，但避免对已加密内容进行压缩
+    gzip on;
+    gzip_disable "msie6";
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_buffers 16 8k;
+    gzip_http_version 1.1;
+    gzip_min_length 256;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    
+    
+    # 内部代理location - 仅供内部请求使用
+    location /internal_proxy/ {
+        internal;
+        # 移除/internal_proxy前缀
+        rewrite ^/internal_proxy(/.*)$ $1 break;
+        proxy_pass http://poetize-python;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        try_files $uri $uri/ /index.html;
+    }
+    
+    # 先匹配文章详情页，交由 Node SSR 处理
+    # location ~ ^/article/[0-9]+$ {
+    #     proxy_pass http://article_ssr;
+    #     proxy_set_header Host $host;
+    #     proxy_set_header X-Real-IP $remote_addr;
+    #     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    #     proxy_set_header X-Forwarded-Proto $scheme;
+    #
+    #     # 当 SSR 服务不可用时回退到 SPA
+    #     proxy_next_upstream error timeout http_502 http_503 http_504;
+    #     proxy_intercept_errors on;
+    #     error_page 502 503 504 = /index.html;
+    # }
+
+    # 翻译文章页静态预渲染 - 新格式 /article/lang/id
+    location ~ ^/article/([a-zA-Z-]+)/([0-9]+)$ {
+        root /usr/share/nginx/html/poetize;
+        # $1=语言代码, $2=文章ID
+        # 预渲染文件路径：/prerender/article/123/index-en.html
+        try_files /prerender/article/$2/index-$1.html /prerender/article/$2/index.html @spa_article;
+    }
+    
+    # 原文文章页静态预渲染 - 格式 /article/id  
+    location ~ ^/article/([0-9]+)(\?.*)?$ {
+        root /usr/share/nginx/html/poetize;
+        # 根据 $lang_suffix 智能选择文件：en->index-en.html，否则 index.html
+        try_files /prerender/article/$1/index$lang_suffix.html /prerender/article/$1/index.html @spa_article;
+    }
+    location @spa_article {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 分类页面静态预渲染
+    location ~ ^/category/([0-9]+)(\?.*)?$ {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/category/$1/index$lang_suffix.html /prerender/category/$1/index.html @spa_category;
+    }
+    location @spa_category {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 标签页面静态预渲染
+    location ~ ^/tag/([0-9]+)(\?.*)?$ {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/tag/$1/index$lang_suffix.html /prerender/tag/$1/index.html @spa_tag;
+    }
+    location @spa_tag {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 首页静态预渲染
+    location = / {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/home/index$lang_suffix.html /prerender/home/index.html @spa_home;
+    }
+    location @spa_home {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 百宝箱页面（前端重定向，无需预渲染）
+    location = /favorite {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 友人帐页面静态预渲染
+    location = /friends {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/friends/index$lang_suffix.html /prerender/friends/index.html @spa_friends;
+    }
+    location @spa_friends {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 曲乐页面静态预渲染
+    location = /music {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/music/index$lang_suffix.html /prerender/music/index.html @spa_music;
+    }
+    location @spa_music {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 收藏夹页面静态预渲染
+    location = /favorites {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/favorites/index$lang_suffix.html /prerender/favorites/index.html @spa_favorites;
+    }
+    location @spa_favorites {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 关于页面静态预渲染
+    location = /about {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/about/index$lang_suffix.html /prerender/about/index.html @spa_about;
+    }
+    location @spa_about {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 留言板页面静态预渲染
+    location = /message {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/message/index$lang_suffix.html /prerender/message/index.html @spa_message;
+    }
+    location @spa_message {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 微言页面静态预渲染
+    location = /weiYan {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/weiYan/index$lang_suffix.html /prerender/weiYan/index.html @spa_weiyan;
+    }
+    location @spa_weiyan {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 恋爱记录页面静态预渲染
+    location = /love {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/love/index$lang_suffix.html /prerender/love/index.html @spa_love;
+    }
+    location @spa_love {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 旅行日记页面静态预渲染
+    location = /travel {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/travel/index$lang_suffix.html /prerender/travel/index.html @spa_travel;
+    }
+    location @spa_travel {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 隐私政策页面静态预渲染
+    location = /privacy {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/privacy/index$lang_suffix.html /prerender/privacy/index.html @spa_privacy;
+    }
+    location @spa_privacy {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+
+    # 信件页面静态预渲染
+    location = /letter {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/letter/index$lang_suffix.html /prerender/letter/index.html @spa_letter;
+    }
+    location @spa_letter {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+
+    # Sort页面静态预渲染 - 使用Lua脚本智能处理
+    location ~ ^/sort/([0-9]+)$ {
+        # 使用content_by_lua_block完全控制响应，避免与try_files冲突
+        content_by_lua_block {
+            local sort_id = ngx.var.sort_id
+            local label_id = ngx.var.label_id
+            local lang_suffix = ngx.var.lang_suffix
+            local is_supported_lang = ngx.var.is_supported_lang
+
+            -- 如果语言不支持，使用默认语言
+            if is_supported_lang == "0" then
+                lang_suffix = ""
+            end
+
+            local paths = {}
+            
+            if sort_id and sort_id ~= "" then
+                if label_id and label_id ~= "" then
+                    -- 有标签ID，优先尝试带标签的路径
+                    table.insert(paths, "/prerender/sort/" .. sort_id .. "/" .. label_id .. "/index" .. lang_suffix .. ".html")
+                    table.insert(paths, "/prerender/sort/" .. sort_id .. "/" .. label_id .. "/index.html")
+                end
+                
+                -- 添加只有分类ID的路径
+                table.insert(paths, "/prerender/sort/" .. sort_id .. "/index" .. lang_suffix .. ".html")
+                table.insert(paths, "/prerender/sort/" .. sort_id .. "/index.html")
+            else
+                -- 没有sortId参数，尝试默认的sort页面
+                table.insert(paths, "/prerender/sort/index" .. lang_suffix .. ".html")
+                table.insert(paths, "/prerender/sort/index.html")
+            end
+            
+            -- 检查文件是否存在并返回内容
+            for _, path in ipairs(paths) do
+                local file_path = "/usr/share/nginx/html/poetize" .. path
+                local file = io.open(file_path, "r")
+                if file then
+                    local content = file:read("*a")
+                    file:close()
+                    
+                    -- 设置正确的内容类型
+                    ngx.header.content_type = "text/html; charset=utf-8"
+                    ngx.say(content)
+                    return
+                end
+            end
+            
+            -- 没有找到预渲染文件，回退到SPA
+            ngx.exec("@spa_sort")
+        }
+    }
+    
+    # 处理纯 /sort 路径（无分类ID）
+    location = /sort {
+        root /usr/share/nginx/html/poetize;
+        try_files /prerender/sort/index$lang_suffix.html /prerender/sort/index.html @spa_sort;
+    }
+    
+    location @spa_sort {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 智能404处理器
+    location @handle_404 {
+        # API请求返回JSON格式404
+        if ($is_api_request = 1) {
+            add_header Content-Type application/json always;
+            add_header Access-Control-Allow-Origin * always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS' always;
+            add_header Access-Control-Allow-Headers 'Accept, Authorization, Cache-Control, Content-Type, DNT, If-Modified-Since, Keep-Alive, Origin, User-Agent, X-Requested-With' always;
+            return 404 '{"code":404,"message":"接口不存在","data":null,"timestamp":"$time_iso8601"}';
+        }
+        
+        # 静态资源和页面请求跳转到前端SPA，由Vue Router处理404
+        root /usr/share/nginx/html/poetize;
+        rewrite ^.*$ /index.html last;
+    }
+
+    # 智能403处理器
+    location @handle_403 {
+        # API请求返回JSON格式403
+        if ($is_api_request = 1) {
+            add_header Content-Type application/json always;
+            add_header Access-Control-Allow-Origin * always;
+            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS' always;
+            add_header Access-Control-Allow-Headers 'Accept, Authorization, Cache-Control, Content-Type, DNT, If-Modified-Since, Keep-Alive, Origin, User-Agent, X-Requested-With' always;
+            return 403 '{"code":403,"message":"访问被拒绝：请求被安全系统拦截","data":null,"timestamp":"$time_iso8601"}';
+        }
+        
+        # 页面请求跳转到前端403页面，由Vue Router处理
+        root /usr/share/nginx/html/poetize;
+        rewrite ^.*$ /index.html?redirect=403 last;
+    }
+
+    # 主站前端
+    location / {
+        root /usr/share/nginx/html/poetize;
+        index index.html;
+        
+        # 开启SSI处理
+        ssi on;
+        ssi_silent_errors on;
+        
+        # 在访问阶段统一处理SEO信息
+        access_by_lua_file   /etc/nginx/lua/seo_access.lua;
+        
+        # 用于在模板中插入完整的头部信息
+        header_filter_by_lua_file /etc/nginx/lua/seo_header_filter.lua;
+        
+        body_filter_by_lua_file /etc/nginx/lua/seo_body_filter.lua;
+        
+        # 配置sub_filter替换规则 - 尝试替换占位符
+        set $seo_data "";
+        set $title_data "";
+        set $icon_data "";
+        sub_filter "<!-- SEO_META_PLACEHOLDER -->" $seo_data;
+        sub_filter "<!-- ICON_META_PLACEHOLDER -->" $icon_data;
+        sub_filter "<head>" "<head>$seo_data$icon_data";
+        
+        # 尝试替换title标签
+        sub_filter "<title>" "<title>$title_data";
+        sub_filter "</title>" "</title>";
+        
+        # 最后尝试匹配文件路径
+        try_files $uri $uri/ /index.html;
+        
+        # Live2D资源预加载 - 使用JavaScript preload代替http2_push
+        # 注：HTTP/3不支持Server Push，改用<link rel="preload">方式
+        location = /index.html {
+            # 为index.html设置不缓存，确保用户总能获取最新的应用入口
+            expires -1;
+            add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+            add_header Pragma "no-cache";
+
+            root /usr/share/nginx/html/poetize;
+            # Live2D资源现在由前端动态preload，避免重复预加载
+            # add_header Link '</static/live2d-widget/dist/live2d.min.js>; rel=preload; as=script';
+            # add_header Link '</static/live2d-widget/dist/waifu.css>; rel=preload; as=style';
+            # add_header Link '</static/live2d_api/model_list.json>; rel=preload; as=fetch; crossorigin=anonymous';
+        }
+    }
+    
+    # Let's Encrypt验证 - 保留此部分以便certbot可以验证域名
+    location /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+        allow all;
+        # ACME验证文件如果不存在应该返回真正的404，不跳转到前端页面
+        try_files $uri =404;
+    }
+    
+    # 聊天室页面 - 现在由主站SPA处理
+    location = /im {
+        # 内部重写到主站index.html，由Vue Router处理
+        root /usr/share/nginx/html/poetize;
+        try_files /index.html =404;
+    }
+    
+    location /im/ {
+        root /usr/share/nginx/html/poetize;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # assets目录 - 直接指向static/assets
+    location /assets/ {
+        alias /usr/share/nginx/html/poetize/static/assets/;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+        
+        # assets文件如果不存在，使用智能404处理器
+        try_files $uri @handle_404;
+        
+        # 特殊处理视频文件，支持流式传输
+        location ~* \.(mp4|webm|ogg|avi|mov|flv|wmv|mkv)$ {
+            alias /usr/share/nginx/html/poetize/static/assets/;
+            
+            # 防盗链保护 - 只允许本站和空referer访问
+            valid_referers none blocked server_names ~\.example\.com$ example.com;
+            if ($invalid_referer) {
+                return 403;
+            }
+            
+            # 启用HTTP Range请求支持，允许视频流式加载
+            add_header Accept-Ranges bytes;
+            
+            # 设置适当的MIME类型
+            location ~* \.mp4$ {
+                add_header Content-Type video/mp4;
+            }
+            location ~* \.webm$ {
+                add_header Content-Type video/webm;
+            }
+            location ~* \.ogg$ {
+                add_header Content-Type video/ogg;
+            }
+            
+            # 视频文件缓存策略 - 较长缓存但允许验证
+            expires 7d;
+            add_header Cache-Control "public, max-age=604800, must-revalidate";
+            
+            # 启用sendfile和tcp_nopush优化大文件传输
+            sendfile on;
+            tcp_nopush on;
+            tcp_nodelay off;
+            
+            # 支持跨域访问（如果需要）
+            add_header Access-Control-Allow-Origin *;
+            add_header Access-Control-Allow-Methods 'GET, HEAD, OPTIONS';
+            add_header Access-Control-Allow-Headers 'Range';
+            
+            # 禁用gzip和brotli压缩（视频文件已经压缩过了）
+            gzip off;
+            brotli off;
+        }
+    }
+
+    # IM聊天室静态资源处理 - 解决poetize-im-ui的/im/static/路径问题
+    location /im/static/ {
+        alias /usr/share/nginx/html/poetize/static/;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+        
+        # 如果文件不存在，使用智能404处理器
+        try_files $uri @handle_404;
+    }
+
+    # 静态资源 - 优先从uploads目录找上传文件，然后回退到前端静态资源
+    location /static {
+        # 首先尝试从独立的uploads目录找上传的文件，去掉/static前缀
+        alias /usr/share/nginx/html/uploads;
+        try_files $uri @fallback_static;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+    }
+
+    # 为特定的chunk JS文件添加特殊处理
+    location ~* chunk-.*\.js$ {
+        root /usr/share/nginx/html/poetize;
+        # 设置正确的MIME类型
+        types { application/javascript js; }
+        # 禁用压缩
+        gzip off;
+        brotli off;
+        # 启用永久缓存
+        expires max;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        # 记录详细的访问日志用于调试
+        access_log /var/log/nginx/chunk_debug.log main;
+        # 如果chunk文件不存在，使用智能404处理器
+        try_files $uri @handle_404;
+    }
+
+    # Live2D模型和相关资源 - 专门优化Live2D资源的缓存
+    location /static/live2d_api/ {
+        root /usr/share/nginx/html/poetize;
+        expires max;  # 使用最长缓存时间，因为模型文件很少变化
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        
+        # 配置跨域
+        add_header Access-Control-Allow-Origin *;
+        add_header Access-Control-Allow-Methods 'GET, OPTIONS';
+        
+        # 特别优化model_list.json的缓存
+        location ~ model_list\.json$ {
+            expires 1d;  # 模型列表可能会更新，使用较短的缓存时间
+            add_header Cache-Control "public, max-age=86400";
+        }
+        
+        # 禁用access_log以减少磁盘IO
+        access_log off;
+        
+        # Live2D文件如果不存在，使用智能404处理器
+        try_files $uri @handle_404;
+    }
+    
+    # Live2D小部件JS和CSS资源
+    location /static/live2d-widget/ {
+        root /usr/share/nginx/html/poetize;
+        expires 7d;  # 一周的缓存时间
+        add_header Cache-Control "public, max-age=604800";
+        
+        # 禁用access_log以减少磁盘IO
+        access_log off;
+        
+        # Live2D小部件文件如果不存在，使用智能404处理器
+        try_files $uri @handle_404;
+    }
+
+    # 静态资源回退路径
+    location @fallback_static {
+        root /usr/share/nginx/html/poetize;
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+        # 如果在前端静态资源中也找不到，使用智能404处理器
+        try_files $uri @handle_404;
+    }
+
+    # 站点地图 - 代理到Java后端动态生成
+    location /sitemap.xml {
+        proxy_pass http://poetize-java;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # sitemap缓存设置
+        add_header Cache-Control "public, max-age=3600";
+        
+        # 设置正确的Content-Type
+        proxy_set_header Accept "application/xml";
+    }
+    
+    location /robots.txt {
+        proxy_pass http://poetize-java;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header Cache-Control "public, max-age=3600";
+        proxy_set_header Accept "text/plain";
+    }
+
+
+    
+    # 清理SEO缓存接口，后台修改SEO配置后调用
+    location = /flush_seo_cache {
+        # 使用请求头验证，比IP限制更安全可靠
+        if ($http_x_internal_service != "poetize-java") {
+            return 403 "Access denied: Missing or invalid internal service header";
+        }
+
+        content_by_lua_block {
+            local seo_cache = ngx.shared.seo_cache
+            -- 清理特定的SEO配置缓存键
+            local deleted_global = seo_cache:delete("seo_config_global")
+            local deleted_count = 0
+            
+            -- 清理其他SEO相关缓存
+            seo_cache:flush_all()
+            
+            ngx.log(ngx.INFO, "SEO缓存清理完成 - 全局配置缓存已删除: " .. (deleted_global and "是" or "否"))
+            ngx.say("SEO cache flushed - global config cache deleted: " .. tostring(deleted_global))
+        }
+    }
+}

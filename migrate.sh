@@ -656,8 +656,18 @@ backup_database() {
         # 备份端口配置
         info "备份端口配置..."
         local http_port=""
-        if [ -f "docker-compose.yml" ]; then
-            # 提取HTTP端口配置（支持多种格式）
+        
+        # 优先从 .env 文件读取端口配置
+        if [ -f "${SCRIPT_DIR}/lib/config.sh" ] && [ -f ".env" ]; then
+            http_port=$(read_env_config "HTTP_PORT" "")
+            if [ -n "$http_port" ] && [ "$http_port" != "80" ]; then
+                echo "$http_port" > "$BACKUP_DIR/http_port.txt"
+                success "HTTP端口配置备份完成 (从 .env): $http_port"
+            else
+                info "使用默认80端口"
+            fi
+        elif [ -f "docker-compose.yml" ]; then
+            # 回退方案：从 docker-compose.yml 提取HTTP端口配置
             http_port=$(grep -E '^\s*-\s*["'\'']*[0-9]+:80' docker-compose.yml 2>/dev/null | head -1 | grep -oE '[0-9]+' | head -1)
             if [ -n "$http_port" ]; then
                 echo "$http_port" > "$BACKUP_DIR/http_port.txt"

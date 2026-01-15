@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-01-06
+## 修改时间: 2026-01-15
 ## 描述: 部署 POETIZE 博客系统安装脚本
-## 版本: 1.13.0
+## 版本: 1.14.0
 
 # 定义颜色
 RED='\033[0;31m'
@@ -105,6 +105,10 @@ REDIS_HOST=""                # 外部Redis主机地址
 REDIS_PORT=""                # 外部Redis端口
 REDIS_PWD=""                 # 外部Redis密码
 REDIS_DB=""                  # 外部Redis数据库编号
+
+# DNS校验配置变量
+SKIP_DNS_CHECK=false         # 是否跳过DNS校验
+DNS_CHECK_TIMEOUT=5          # DNS查询超时时间（秒）
 
 # 添加sed_i跨平台兼容函数（在文件开头合适位置添加）
 sed_i() {
@@ -470,6 +474,7 @@ show_help() {
   echo "  --enable-docker-cache   启用Docker构建缓存（默认禁用以节省空间）"
   echo "  --httpport PORT         设置HTTP端口（支持任何域名，使用自定义端口时会自动禁用HTTPS）"
   echo "  --disable-https         禁用HTTPS（默认启用）"
+  echo "  --skip-dns-check        跳过DNS校验（用于内网部署或CDN配置等特殊场景）"
   echo ""
   echo "外部数据库选项:"
   echo "  --db-host HOST          设置外部MariaDB主机地址"
@@ -707,6 +712,10 @@ parse_arguments() {
         REDIS_DB="$2"
         shift 2
         ;;
+      --skip-dns-check)
+        SKIP_DNS_CHECK=true
+        shift
+        ;;
       *)
         error "未知选项: $1"
         show_help
@@ -716,6 +725,480 @@ parse_arguments() {
   done
 }
 
+
+# ==================== DNS校验相关函数 ====================
+
+# 验证字符串是否为有效的IPv4地址格式
+# 参数: $1 - 要验证的字符串
+# 返回: 0 - 是有效的IPv4地址, 1 - 不是有效的IPv4地址
+is_valid_ipv4() {
+  local ip="$1"
+  
+  # 检查基本格式：四个数字用点分隔
+  if [[ ! "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    return 1
+  fi
+  
+  # 分割IP地址并验证每个数字段
+  local IFS='.'
+  read -ra octets <<< "$ip"
+  
+  # 必须有4个数字段
+  if [ ${#octets[@]} -ne 4 ]; then
+    return 1
+  fi
+  
+  # 验证每个数字段在0-255范围内
+  for octet in "${octets[@]}"; do
+    # 去除前导零后检查（避免八进制解析问题）
+    local num=$((10#$octet))
+    if [ "$num" -lt 0 ] || [ "$num" -gt 255 ]; then
+      return 1
+    fi
+  done
+  
+  return 0
+}
+
+# 验证字符串是否为有效的IPv6地址格式
+# 参数: $1 - 要验证的字符串
+# 返回: 0 - 是有效的IPv6地址, 1 - 不是有效的IPv6地址
+is_valid_ipv6() {
+  local ip="$1"
+  
+  # 空字符串不是有效IPv6
+  if [ -z "$ip" ]; then
+    return 1
+  fi
+  
+  # IPv6地址格式：8组4位十六进制数，用冒号分隔
+  # 支持压缩格式（::）
+  # 简化验证：检查是否只包含有效字符（0-9, a-f, A-F, :）且包含冒号
+  if [[ ! "$ip" =~ ^[0-9a-fA-F:]+$ ]]; then
+    return 1
+  fi
+  
+  # 必须包含至少一个冒号
+  if [[ ! "$ip" =~ : ]]; then
+    return 1
+  fi
+  
+  # 不能以单个冒号开头或结尾（除非是::）
+  if [[ "$ip" =~ ^:[^:] ]] || [[ "$ip" =~ [^:]:$ ]]; then
+    return 1
+  fi
+  
+  # 不能有超过2个连续的冒号
+  if [[ "$ip" =~ :::+ ]]; then
+    return 1
+  fi
+  
+  # 只能有一个::（压缩标记）
+  local double_colon_count=$(echo "$ip" | grep -o '::' | wc -l)
+  if [ "$double_colon_count" -gt 1 ]; then
+    return 1
+  fi
+  
+  return 0
+}
+
+# 验证字符串是否为有效的IP地址（IPv4或IPv6）
+# 参数: $1 - 要验证的字符串
+# 返回: 0 - 是有效的IP地址, 1 - 不是有效的IP地址
+is_valid_ip() {
+  local ip="$1"
+  
+  if is_valid_ipv4 "$ip"; then
+    return 0
+  fi
+  
+  if is_valid_ipv6 "$ip"; then
+    return 0
+  fi
+  
+  return 1
+}
+
+# 判断IP地址是否为内网地址
+# 参数: $1 - 要检查的IP地址字符串
+# 返回: 0 - 是内网地址, 1 - 不是内网地址
+# IPv4内网范围: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8
+# IPv6内网范围: ::1 (loopback), fe80::/10 (link-local), fc00::/7 (unique local)
+is_private_ip() {
+  local ip="$1"
+  
+  # 检查IPv4内网地址
+  if is_valid_ipv4 "$ip"; then
+    # 分割IP地址
+    local IFS='.'
+    read -ra octets <<< "$ip"
+    local o1=$((10#${octets[0]}))
+    local o2=$((10#${octets[1]}))
+    
+    # 检查 10.0.0.0/8 (10.0.0.0 - 10.255.255.255)
+    if [ "$o1" -eq 10 ]; then
+      return 0
+    fi
+    
+    # 检查 172.16.0.0/12 (172.16.0.0 - 172.31.255.255)
+    if [ "$o1" -eq 172 ] && [ "$o2" -ge 16 ] && [ "$o2" -le 31 ]; then
+      return 0
+    fi
+    
+    # 检查 192.168.0.0/16 (192.168.0.0 - 192.168.255.255)
+    if [ "$o1" -eq 192 ] && [ "$o2" -eq 168 ]; then
+      return 0
+    fi
+    
+    # 检查 127.0.0.0/8 (127.0.0.0 - 127.255.255.255)
+    if [ "$o1" -eq 127 ]; then
+      return 0
+    fi
+    
+    return 1
+  fi
+  
+  # 检查IPv6内网地址
+  if is_valid_ipv6 "$ip"; then
+    local ip_lower=$(echo "$ip" | tr '[:upper:]' '[:lower:]')
+    
+    # 检查 ::1 (loopback)
+    if [ "$ip_lower" = "::1" ]; then
+      return 0
+    fi
+    
+    # 检查 fe80::/10 (link-local) - 以fe80开头
+    if [[ "$ip_lower" =~ ^fe[89ab] ]]; then
+      return 0
+    fi
+    
+    # 检查 fc00::/7 (unique local) - 以fc或fd开头
+    if [[ "$ip_lower" =~ ^f[cd] ]]; then
+      return 0
+    fi
+    
+    return 1
+  fi
+  
+  # 既不是有效IPv4也不是有效IPv6
+  return 1
+}
+
+# 获取服务器公网IP地址
+# 返回: 成功时输出公网IP地址字符串并返回0，失败时输出空字符串并返回1
+# 使用多个外部服务，按优先级尝试，支持故障转移
+get_server_public_ip() {
+  local ip=""
+  local timeout="${DNS_CHECK_TIMEOUT:-5}"
+  
+  # IP检测服务列表（按优先级排序）
+  local services=(
+    "ifconfig.me"
+    "ipinfo.io/ip"
+    "icanhazip.com"
+    "api.ipify.org"
+    "checkip.amazonaws.com"
+  )
+  
+  # 依次尝试各个服务
+  for service in "${services[@]}"; do
+    if command -v curl &>/dev/null; then
+      ip=$(curl -s --connect-timeout "$timeout" --max-time "$timeout" "http://$service" 2>/dev/null | tr -d '[:space:]')
+    elif command -v wget &>/dev/null; then
+      ip=$(wget -qO- --timeout="$timeout" "http://$service" 2>/dev/null | tr -d '[:space:]')
+    fi
+    
+    # 验证获取的IP是否有效
+    if [ -n "$ip" ] && is_valid_ipv4 "$ip"; then
+      echo "$ip"
+      return 0
+    fi
+  done
+  
+  # 所有服务都失败
+  echo ""
+  return 1
+}
+
+# 判断域名是否应该跳过DNS校验
+# 参数: $1 - 要检查的域名
+# 返回: 0 - 应该跳过（localhost、::1、IP地址格式）, 1 - 不应该跳过
+should_skip_dns_check() {
+  local domain="$1"
+  
+  # 检查是否为 localhost
+  if [ "$domain" = "localhost" ]; then
+    return 0
+  fi
+  
+  # 检查是否为 127.0.0.1
+  if [ "$domain" = "127.0.0.1" ]; then
+    return 0
+  fi
+  
+  # 检查是否为 ::1 (IPv6 loopback)
+  if [ "$domain" = "::1" ]; then
+    return 0
+  fi
+  
+  # 检查是否为有效的IPv4地址格式
+  if is_valid_ipv4 "$domain"; then
+    return 0
+  fi
+  
+  # 检查是否为有效的IPv6地址格式
+  if is_valid_ipv6 "$domain"; then
+    return 0
+  fi
+  
+  return 1
+}
+
+# 解析域名对应的IP地址（支持IPv4和IPv6）
+# 参数: $1 - 要解析的域名
+# 返回: 成功时输出IP地址（可能多个，空格分隔）并返回0，失败时输出空字符串并返回1
+resolve_domain_ip() {
+  local domain="$1"
+  local timeout="${DNS_CHECK_TIMEOUT:-5}"
+  local ipv4_ips=""
+  local ipv6_ips=""
+  local all_ips=""
+
+  # 优先使用 dig 命令
+  if command -v dig &>/dev/null; then
+    # 解析A记录（IPv4）
+    ipv4_ips=$(dig +short +time="$timeout" +tries=1 "$domain" A 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tr '\n' ' ' | xargs)
+    # 解析AAAA记录（IPv6）
+    ipv6_ips=$(dig +short +time="$timeout" +tries=1 "$domain" AAAA 2>/dev/null | grep -E '^[0-9a-fA-F:]+$' | tr '\n' ' ' | xargs)
+    all_ips="$ipv4_ips $ipv6_ips"
+    all_ips=$(echo "$all_ips" | xargs)
+    if [ -n "$all_ips" ]; then
+      echo "$all_ips"
+      return 0
+    fi
+  fi
+
+  # 备用 nslookup 命令
+  if command -v nslookup &>/dev/null; then
+    # 解析IPv4
+    ipv4_ips=$(nslookup "$domain" 2>/dev/null | grep -A 10 "Name:" | grep "Address:" | grep -v "#" | awk '{print $2}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tr '\n' ' ' | xargs)
+    # 解析IPv6
+    ipv6_ips=$(nslookup -type=AAAA "$domain" 2>/dev/null | grep -A 10 "Name:" | grep "Address:" | grep -v "#" | awk '{print $2}' | grep -E '^[0-9a-fA-F:]+$' | tr '\n' ' ' | xargs)
+    all_ips="$ipv4_ips $ipv6_ips"
+    all_ips=$(echo "$all_ips" | xargs)
+    if [ -n "$all_ips" ]; then
+      echo "$all_ips"
+      return 0
+    fi
+  fi
+
+  # 备用 host 命令
+  if command -v host &>/dev/null; then
+    # 解析IPv4
+    ipv4_ips=$(host -W "$timeout" "$domain" 2>/dev/null | grep "has address" | awk '{print $NF}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tr '\n' ' ' | xargs)
+    # 解析IPv6
+    ipv6_ips=$(host -W "$timeout" "$domain" 2>/dev/null | grep "has IPv6 address" | awk '{print $NF}' | grep -E '^[0-9a-fA-F:]+$' | tr '\n' ' ' | xargs)
+    all_ips="$ipv4_ips $ipv6_ips"
+    all_ips=$(echo "$all_ips" | xargs)
+    if [ -n "$all_ips" ]; then
+      echo "$all_ips"
+      return 0
+    fi
+  fi
+
+  # 兜底 getent ahosts 命令（同时返回IPv4和IPv6）
+  if command -v getent &>/dev/null; then
+    all_ips=$(getent ahosts "$domain" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' | xargs)
+    if [ -n "$all_ips" ]; then
+      echo "$all_ips"
+      return 0
+    fi
+  fi
+
+  # 所有方法都失败
+  echo ""
+  return 1
+}
+
+# 检查IP列表是否包含目标IP
+# 参数: $1 - 空格分隔的IP地址列表, $2 - 要查找的目标IP
+# 返回: 0 - 列表包含目标IP, 1 - 列表不包含目标IP
+ip_list_contains() {
+  local ip_list="$1"
+  local target_ip="$2"
+  
+  for ip in $ip_list; do
+    if [ "$ip" = "$target_ip" ]; then
+      return 0
+    fi
+  done
+  
+  return 1
+}
+
+# 显示DNS配置修复指导
+# 参数: $1 - 域名, $2 - 期望的IP（服务器IP）, $3 - 实际解析的IP（可能为空）
+show_dns_fix_guide() {
+  local domain="$1"
+  local expected_ip="$2"
+  local actual_ip="$3"
+  
+  echo ""
+  echo -e "${YELLOW}========== DNS配置修复指南 ==========${NC}"
+  echo ""
+  echo -e "域名: ${BLUE}$domain${NC}"
+  echo -e "服务器IP: ${GREEN}$expected_ip${NC}"
+  
+  if [ -n "$actual_ip" ]; then
+    echo -e "当前解析IP: ${RED}$actual_ip${NC}"
+    echo ""
+    echo -e "${YELLOW}问题: 域名解析的IP与服务器IP不匹配${NC}"
+  else
+    echo -e "当前解析IP: ${RED}无法解析${NC}"
+    echo ""
+    echo -e "${YELLOW}问题: 域名DNS记录未配置或无法解析${NC}"
+  fi
+  
+  echo ""
+  echo -e "${BLUE}修复步骤:${NC}"
+  echo "1. 登录您的域名管理控制台（如阿里云、腾讯云、Cloudflare等）"
+  echo "2. 找到域名 $domain 的DNS解析设置"
+  echo "3. 添加或修改A记录:"
+  echo -e "   - 主机记录: ${GREEN}@${NC} 或 ${GREEN}$(echo $domain | cut -d. -f1)${NC}"
+  echo -e "   - 记录类型: ${GREEN}A${NC}"
+  echo -e "   - 记录值: ${GREEN}$expected_ip${NC}"
+  echo "4. 保存设置后等待DNS生效（通常需要几分钟到48小时）"
+  echo ""
+  echo -e "${YELLOW}提示: DNS记录修改后可能需要等待一段时间才能生效${NC}"
+  echo -e "${YELLOW}您可以使用以下命令检查DNS是否生效:${NC}"
+  echo -e "  dig $domain"
+  echo -e "  nslookup $domain"
+  echo ""
+  echo -e "${YELLOW}========================================${NC}"
+  echo ""
+}
+
+# 验证单个域名的DNS配置
+# 参数: $1 - 要验证的域名, $2 - 服务器公网IP
+# 返回: 0 - 验证通过, 1 - 验证失败, 2 - 跳过验证（本地地址）
+validate_single_domain() {
+  local domain="$1"
+  local server_ip="$2"
+  
+  # 检查是否应该跳过DNS校验
+  if should_skip_dns_check "$domain"; then
+    info "跳过 $domain 的DNS校验（本地地址或IP格式）"
+    return 2
+  fi
+  
+  info "正在验证域名 $domain 的DNS配置..."
+  
+  # 解析域名IP
+  local resolved_ips=$(resolve_domain_ip "$domain")
+  
+  if [ -z "$resolved_ips" ]; then
+    error "无法解析域名 $domain 的DNS记录"
+    show_dns_fix_guide "$domain" "$server_ip" ""
+    return 1
+  fi
+  
+  # 检查解析的IP是否包含服务器IP
+  if ip_list_contains "$resolved_ips" "$server_ip"; then
+    success "域名 $domain 的DNS配置正确 (解析到: $resolved_ips)"
+    return 0
+  else
+    error "域名 $domain 的DNS配置不正确"
+    echo -e "  期望IP: ${GREEN}$server_ip${NC}"
+    echo -e "  实际IP: ${RED}$resolved_ips${NC}"
+    show_dns_fix_guide "$domain" "$server_ip" "$resolved_ips"
+    return 1
+  fi
+}
+
+# 主入口函数：验证所有域名的DNS配置
+# 使用全局变量: DOMAINS, SKIP_DNS_CHECK
+# 返回: 0 - 所有域名验证通过或用户选择继续, 1 - 验证失败
+# 参数: $1 - 可选，如果为 "no_prompt" 则不询问用户，直接返回失败
+validate_dns_for_domains() {
+  local no_prompt="${1:-}"
+  
+  # 检查是否跳过DNS校验
+  if [ "$SKIP_DNS_CHECK" = true ]; then
+    warning "已跳过DNS校验（--skip-dns-check）"
+    return 0
+  fi
+  
+  # 检查是否有域名需要验证
+  if [ ${#DOMAINS[@]} -eq 0 ]; then
+    return 0
+  fi
+  
+  info "开始DNS校验..."
+  echo ""
+  
+  # 获取服务器公网IP
+  info "正在获取服务器公网IP..."
+  local server_ip=$(get_server_public_ip)
+  
+  if [ -z "$server_ip" ]; then
+    warning "无法获取服务器公网IP，跳过DNS校验"
+    warning "请确保您的域名DNS已正确配置指向此服务器"
+    return 0
+  fi
+  
+  success "服务器公网IP: $server_ip"
+  
+  # 检查是否为内网IP
+  if is_private_ip "$server_ip"; then
+    warning "检测到服务器IP为内网地址 ($server_ip)，跳过DNS校验"
+    warning "内网环境下DNS校验不适用"
+    return 0
+  fi
+  
+  echo ""
+  
+  # 验证每个域名
+  local failed_domains=()
+  local has_failure=false
+  
+  for domain in "${DOMAINS[@]}"; do
+    validate_single_domain "$domain" "$server_ip"
+    local result=$?
+    
+    if [ $result -eq 1 ]; then
+      failed_domains+=("$domain")
+      has_failure=true
+    fi
+  done
+  
+  # 如果有验证失败的域名
+  if [ "$has_failure" = true ]; then
+    echo ""
+    warning "以下域名的DNS校验失败: ${failed_domains[*]}"
+    echo ""
+    echo -e "${YELLOW}DNS配置不正确可能导致:${NC}"
+    echo "  - HTTPS证书申请失败（Let's Encrypt需要验证域名所有权）"
+    echo "  - 网站无法通过域名访问"
+    echo ""
+    
+    # 如果指定了不询问，直接返回失败
+    if [ "$no_prompt" = "no_prompt" ]; then
+      return 1
+    fi
+    
+    # 询问用户是否继续
+    if auto_confirm "是否仍要继续部署? (y/N) " "n"; then
+      warning "用户选择继续部署，DNS校验失败的域名可能无法正常工作"
+      return 0
+    else
+      return 1
+    fi
+  fi
+  
+  echo ""
+  success "所有域名的DNS校验通过"
+  return 0
+}
 
 # 检测是否为国内环境
 is_china_environment() {
@@ -1181,32 +1664,40 @@ check_and_configure_https_mode() {
 disable_certbot_service() {
   info "禁用certbot容器..."
   
-  # 方法：将certbot服务的整个配置块注释掉
-  # 使用awk来处理多行注释
-  awk '
-  /^  certbot:/ {
-    in_certbot = 1
-    print "  # " $0 " # 已禁用（不需要SSL证书）"
-    next
-  }
-  in_certbot {
-    # 检查是否到了下一个服务定义（以两个空格开头后跟非空格字符）
-    if (/^  [^ ]/) {
-      in_certbot = 0
-      print
-    } else if (/^$/) {
-      # 空行保持原样
-      print
-    } else {
-      # 注释掉certbot服务内的所有行
-      print "  #" $0
+  # 使用 .env 文件控制 HTTPS，certbot 通过 profiles 控制
+  # 当 ENABLE_HTTPS=false 时，docker-compose 不会启动 certbot 服务
+  if [ -f "lib/config.sh" ]; then
+    source "lib/config.sh"
+    update_env_var "ENABLE_HTTPS" "false"
+    success "已通过 .env 禁用 HTTPS (certbot 将不会启动)"
+  else
+    # 回退方案：如果 config.sh 不可用，使用旧的 awk 方法
+    warning "配置库不可用，使用传统方法禁用 certbot"
+    awk '
+    /^  certbot:/ {
+      in_certbot = 1
+      print "  # " $0 " # 已禁用（不需要SSL证书）"
+      next
     }
-    next
-  }
-  {
-    print
-  }
-  ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+    in_certbot {
+      # 检查是否到了下一个服务定义（以两个空格开头后跟非空格字符）
+      if (/^  [^ ]/) {
+        in_certbot = 0
+        print
+      } else if (/^$/) {
+        # 空行保持原样
+        print
+      } else {
+        # 注释掉certbot服务内的所有行
+        print "  #" $0
+      }
+      next
+    }
+    {
+      print
+    }
+    ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+  fi
   
   success "已禁用certbot容器"
 }
@@ -1226,23 +1717,30 @@ configure_http_port() {
   
   info "配置自定义HTTP端口: $HTTP_PORT"
   
-  # 修改docker-compose.yml中nginx服务的端口映射
-  # 将 "80:80/tcp" 改为 "$HTTP_PORT:80/tcp"
-  if grep -q '"80:80/tcp"' docker-compose.yml; then
-    sed_i "s/\"80:80\/tcp\"/\"$HTTP_PORT:80\/tcp\"/g" docker-compose.yml
-    success "已将HTTP端口映射修改为 $HTTP_PORT:80"
-  elif grep -q '- "80:80"' docker-compose.yml; then
-    sed_i "s/- \"80:80\"/- \"$HTTP_PORT:80\"/g" docker-compose.yml
-    success "已将HTTP端口映射修改为 $HTTP_PORT:80"
+  # 使用 .env 文件配置端口
+  if [ -f "lib/config.sh" ]; then
+    source "lib/config.sh"
+    update_env_var "HTTP_PORT" "$HTTP_PORT"
+    update_env_var "ENABLE_HTTPS" "false"
+    success "已将HTTP端口配置为 $HTTP_PORT (通过 .env)"
+  else
+    # 回退方案：直接修改 docker-compose.yml
+    warning "配置库不可用，使用传统方法修改端口"
+    if grep -q '"80:80/tcp"' docker-compose.yml; then
+      sed_i "s/\"80:80\/tcp\"/\"$HTTP_PORT:80\/tcp\"/g" docker-compose.yml
+      success "已将HTTP端口映射修改为 $HTTP_PORT:80"
+    elif grep -q '- "80:80"' docker-compose.yml; then
+      sed_i "s/- \"80:80\"/- \"$HTTP_PORT:80\"/g" docker-compose.yml
+      success "已将HTTP端口映射修改为 $HTTP_PORT:80"
+    fi
+    
+    # 注释掉所有443端口配置
+    info "注释掉443端口配置..."
+    sed_i 's/^\([ ]*\)- "443:443\/tcp"/\1# - "443:443\/tcp"  # 已禁用HTTPS端口/g' docker-compose.yml
+    sed_i 's/^\([ ]*\)- "443:443\/udp"/\1# - "443:443\/udp"  # 已禁用HTTPS端口/g' docker-compose.yml
+    sed_i 's/^\([ ]*\)- "443:443"/\1# - "443:443"  # 已禁用HTTPS端口/g' docker-compose.yml
+    success "已注释掉所有443端口配置"
   fi
-  
-  # 注释掉所有443端口配置
-  info "注释掉443端口配置..."
-  sed_i 's/^\([ ]*\)- "443:443\/tcp"/\1# - "443:443\/tcp"  # 已禁用HTTPS端口/g' docker-compose.yml
-  sed_i 's/^\([ ]*\)- "443:443\/udp"/\1# - "443:443\/udp"  # 已禁用HTTPS端口/g' docker-compose.yml
-  sed_i 's/^\([ ]*\)- "443:443"/\1# - "443:443"  # 已禁用HTTPS端口/g' docker-compose.yml
-  
-  success "已注释掉所有443端口配置"
   
   # 禁用certbot容器
   disable_certbot_service
@@ -3875,25 +4373,46 @@ update_db_connection_config() {
     # 使用外部数据库
     info "配置外部数据库连接..."
 
-    # 根据数据库类型设置连接URL和驱动类名
-    local db_url=""
-    local db_driver=""
-    if [ "$DB_TYPE" = "mysql" ]; then
-      db_url="jdbc:mysql://${DB_HOST}:${DB_PORT:-3306}/${DB_NAME:-poetize}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
-      db_driver="com.mysql.cj.jdbc.Driver"
+    # 使用 .env 文件配置数据库
+    if [ -f "lib/config.sh" ]; then
+      source "lib/config.sh"
+      update_env_var "DB_HOST" "$DB_HOST"
+      update_env_var "DB_PORT" "${DB_PORT:-3306}"
+      update_env_var "DB_NAME" "${DB_NAME:-poetize}"
+      update_env_var "DB_USER" "${DB_USER:-poetize}"
+      update_env_var "DB_PASSWORD" "$DB_PWD"
+      update_env_var "DB_TYPE" "${DB_TYPE:-mariadb}"
+      # 根据数据库类型设置驱动类名
+      if [ "$DB_TYPE" = "mysql" ]; then
+        update_env_var "DB_DRIVER_CLASS" "com.mysql.cj.jdbc.Driver"
+      else
+        update_env_var "DB_DRIVER_CLASS" "org.mariadb.jdbc.Driver"
+      fi
+      success "已配置外部${DB_TYPE:-mariadb}连接 (通过 .env)"
     else
-      # 默认使用MariaDB
-      db_url="jdbc:mariadb://${DB_HOST}:${DB_PORT:-3306}/${DB_NAME:-poetize}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
-      db_driver="org.mariadb.jdbc.Driver"
+      # 回退方案：直接修改 docker-compose.yml
+      warning "配置库不可用，使用传统方法配置数据库"
+      
+      # 根据数据库类型设置连接URL和驱动类名
+      local db_url=""
+      local db_driver=""
+      if [ "$DB_TYPE" = "mysql" ]; then
+        db_url="jdbc:mysql://${DB_HOST}:${DB_PORT:-3306}/${DB_NAME:-poetize}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+        db_driver="com.mysql.cj.jdbc.Driver"
+      else
+        # 默认使用MariaDB
+        db_url="jdbc:mariadb://${DB_HOST}:${DB_PORT:-3306}/${DB_NAME:-poetize}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+        db_driver="org.mariadb.jdbc.Driver"
+      fi
+
+      # 更新 Java 服务配置
+      sed_i "s|SPRING_DATASOURCE_URL=.*|SPRING_DATASOURCE_URL=${db_url}|g" docker-compose.yml
+      sed_i "s|SPRING_DATASOURCE_USERNAME=.*|SPRING_DATASOURCE_USERNAME=${DB_USER:-poetize}|g" docker-compose.yml
+      sed_i "s|SPRING_DATASOURCE_PASSWORD=.*|SPRING_DATASOURCE_PASSWORD=${DB_PWD}|g" docker-compose.yml
+      sed_i "s|SPRING_DATASOURCE_DRIVER_CLASS_NAME=.*|SPRING_DATASOURCE_DRIVER_CLASS_NAME=${db_driver}|g" docker-compose.yml
+
+      success "已配置外部${DB_TYPE:-mariadb}连接"
     fi
-
-    # 更新 Java 服务配置
-    sed_i "s|SPRING_DATASOURCE_URL=.*|SPRING_DATASOURCE_URL=${db_url}|g" docker-compose.yml
-    sed_i "s|SPRING_DATASOURCE_USERNAME=.*|SPRING_DATASOURCE_USERNAME=${DB_USER:-poetize}|g" docker-compose.yml
-    sed_i "s|SPRING_DATASOURCE_PASSWORD=.*|SPRING_DATASOURCE_PASSWORD=${DB_PWD}|g" docker-compose.yml
-    sed_i "s|SPRING_DATASOURCE_DRIVER_CLASS_NAME=.*|SPRING_DATASOURCE_DRIVER_CLASS_NAME=${db_driver}|g" docker-compose.yml
-
-    success "已配置外部${DB_TYPE:-mariadb}连接"
   else
     # 使用本地数据库
     info "配置本地MariaDB连接..."
@@ -3903,10 +4422,23 @@ update_db_connection_config() {
       local root_pwd=$(grep "数据库ROOT密码:" .config/db_credentials.txt | sed 's/数据库ROOT密码: //')
       local user_pwd=$(grep "数据库poetize用户密码:" .config/db_credentials.txt | sed 's/数据库poetize用户密码: //')
 
-      sed_i "s|SPRING_DATASOURCE_URL=.*|SPRING_DATASOURCE_URL=jdbc:mariadb://mysql:3306/poetize?useUnicode=true\\&characterEncoding=utf8\\&serverTimezone=Asia/Shanghai\\&useSSL=false\\&allowPublicKeyRetrieval=true|g" docker-compose.yml
-      sed_i "s|SPRING_DATASOURCE_USERNAME=.*|SPRING_DATASOURCE_USERNAME=poetize|g" docker-compose.yml
-      sed_i "s|SPRING_DATASOURCE_PASSWORD=.*|SPRING_DATASOURCE_PASSWORD=${user_pwd}|g" docker-compose.yml
-      sed_i "s|SPRING_DATASOURCE_DRIVER_CLASS_NAME=.*|SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.mariadb.jdbc.Driver|g" docker-compose.yml
+      if [ -f "lib/config.sh" ]; then
+        source "lib/config.sh"
+        update_env_var "DB_HOST" "mysql"
+        update_env_var "DB_PORT" "3306"
+        update_env_var "DB_NAME" "poetize"
+        update_env_var "DB_USER" "poetize"
+        update_env_var "DB_PASSWORD" "$user_pwd"
+        update_env_var "DB_ROOT_PASSWORD" "$root_pwd"
+        update_env_var "DB_TYPE" "mariadb"
+        update_env_var "DB_DRIVER_CLASS" "org.mariadb.jdbc.Driver"
+        success "已配置本地MariaDB连接 (通过 .env)"
+      else
+        sed_i "s|SPRING_DATASOURCE_URL=.*|SPRING_DATASOURCE_URL=jdbc:mariadb://mysql:3306/poetize?useUnicode=true\\&characterEncoding=utf8\\&serverTimezone=Asia/Shanghai\\&useSSL=false\\&allowPublicKeyRetrieval=true|g" docker-compose.yml
+        sed_i "s|SPRING_DATASOURCE_USERNAME=.*|SPRING_DATASOURCE_USERNAME=poetize|g" docker-compose.yml
+        sed_i "s|SPRING_DATASOURCE_PASSWORD=.*|SPRING_DATASOURCE_PASSWORD=${user_pwd}|g" docker-compose.yml
+        sed_i "s|SPRING_DATASOURCE_DRIVER_CLASS_NAME=.*|SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.mariadb.jdbc.Driver|g" docker-compose.yml
+      fi
     fi
   fi
 }
@@ -3921,19 +4453,32 @@ update_redis_connection_config() {
   local redis_pwd="${REDIS_PWD}"
   local redis_db="${REDIS_DB:-0}"
 
-  # 更新 Java 服务配置
-  sed_i "s|SPRING_REDIS_HOST=.*|SPRING_REDIS_HOST=${redis_host}|g" docker-compose.yml
-  sed_i "s|SPRING_REDIS_PORT=.*|SPRING_REDIS_PORT=${redis_port}|g" docker-compose.yml
-  sed_i "s|SPRING_REDIS_PASSWORD=.*|SPRING_REDIS_PASSWORD=${redis_pwd}|g" docker-compose.yml
-  sed_i "s|SPRING_REDIS_DATABASE=.*|SPRING_REDIS_DATABASE=${redis_db}|g" docker-compose.yml
+  # 使用 .env 文件配置 Redis
+  if [ -f "lib/config.sh" ]; then
+    source "lib/config.sh"
+    update_env_var "REDIS_HOST" "$redis_host"
+    update_env_var "REDIS_PORT" "$redis_port"
+    [ -n "$redis_pwd" ] && update_env_var "REDIS_PASSWORD" "$redis_pwd"
+    update_env_var "REDIS_DB" "$redis_db"
+    success "已配置Redis连接 (通过 .env)"
+  else
+    # 回退方案：直接修改 docker-compose.yml
+    warning "配置库不可用，使用传统方法配置Redis"
+    
+    # 更新 Java 服务配置
+    sed_i "s|SPRING_REDIS_HOST=.*|SPRING_REDIS_HOST=${redis_host}|g" docker-compose.yml
+    sed_i "s|SPRING_REDIS_PORT=.*|SPRING_REDIS_PORT=${redis_port}|g" docker-compose.yml
+    sed_i "s|SPRING_REDIS_PASSWORD=.*|SPRING_REDIS_PASSWORD=${redis_pwd}|g" docker-compose.yml
+    sed_i "s|SPRING_REDIS_DATABASE=.*|SPRING_REDIS_DATABASE=${redis_db}|g" docker-compose.yml
 
-  # 更新 Python 服务配置
-  sed_i "s|REDIS_HOST=.*|REDIS_HOST=${redis_host}|g" docker-compose.yml
-  sed_i "s|REDIS_PORT=.*|REDIS_PORT=${redis_port}|g" docker-compose.yml
-  sed_i "s|REDIS_PASSWORD=.*|REDIS_PASSWORD=${redis_pwd}|g" docker-compose.yml
-  sed_i "s|REDIS_DB=.*|REDIS_DB=${redis_db}|g" docker-compose.yml
+    # 更新 Python 服务配置
+    sed_i "s|REDIS_HOST=.*|REDIS_HOST=${redis_host}|g" docker-compose.yml
+    sed_i "s|REDIS_PORT=.*|REDIS_PORT=${redis_port}|g" docker-compose.yml
+    sed_i "s|REDIS_PASSWORD=.*|REDIS_PASSWORD=${redis_pwd}|g" docker-compose.yml
+    sed_i "s|REDIS_DB=.*|REDIS_DB=${redis_db}|g" docker-compose.yml
 
-  success "已配置Redis连接"
+    success "已配置Redis连接"
+  fi
 }
 
 # 保存Redis配置到文件
@@ -4072,30 +4617,46 @@ init_deploy() {
     sed_i "s/example.com www.example.com/$DOMAIN_CONFIG/g" docker/nginx/default.https.conf
     sed_i "s/example.com www.example.com/$DOMAIN_CONFIG/g" docker/nginx/default.conf
 
-    sed_i "s/SITE_URL=http:\/\/example.com/SITE_URL=http:\/\/$PRIMARY_DOMAIN/g" docker-compose.yml
+    # 使用 .env 文件配置域名相关变量
+    if [ -f "lib/config.sh" ]; then
+      source "lib/config.sh"
+      update_env_var "PRIMARY_DOMAIN" "$PRIMARY_DOMAIN"
+      update_env_var "FRONTEND_HOST" "$PRIMARY_DOMAIN"
+      # 根据 HTTPS 状态设置协议和 SITE_URL
+      local protocol="http"
+      if [ "$ENABLE_HTTPS" = "true" ]; then
+        protocol="https"
+      fi
+      update_env_var "FRONTEND_PROTOCOL" "$protocol"
+      update_env_var "SITE_URL" "${protocol}://${PRIMARY_DOMAIN}"
+      success "已更新域名配置 (通过 .env)"
+    else
+      # 回退方案：直接修改 docker-compose.yml
+      sed_i "s/SITE_URL=http:\/\/example.com/SITE_URL=http:\/\/$PRIMARY_DOMAIN/g" docker-compose.yml
+      
+      # 更新docker-compose.yml中的FRONTEND_HOST环境变量
+      info "更新Python后端FRONTEND_HOST环境变量为: $PRIMARY_DOMAIN"
+      if grep -q "FRONTEND_HOST=" docker-compose.yml; then
+        sed_i "s/- FRONTEND_HOST=example.com/- FRONTEND_HOST=$PRIMARY_DOMAIN/g" docker-compose.yml
+        success "已更新FRONTEND_HOST环境变量"
+      else
+        info "未在docker-compose.yml中找到FRONTEND_HOST环境变量配置，将添加此配置"
+        # 查找python-backend服务的environment部分
+        if grep -q "python-backend:" docker-compose.yml; then
+          # 最后一个python环境变量是JAVA_BACKEND_PORT=8081
+          JAVA_BACKEND_PORT_LINE=$(grep -n "JAVA_BACKEND_PORT=8081" docker-compose.yml | cut -d: -f1)
+          if [ -n "$JAVA_BACKEND_PORT_LINE" ]; then
+            # 在JAVA_BACKEND_PORT行后添加FRONTEND_HOST
+            sed_i "${JAVA_BACKEND_PORT_LINE}a\\      - FRONTEND_HOST=$PRIMARY_DOMAIN" docker-compose.yml
+            success "已添加FRONTEND_HOST环境变量"
+          fi
+        fi
+      fi
+    fi
 
     sed_i "s/valid_referers none blocked server_names ~\.example\.com$ example.com;/valid_referers none blocked server_names $DOMAIN_CONFIG;/g" docker/nginx/default.conf
     sed_i "s/valid_referers none blocked server_names ~\.example\.com$ example.com;/valid_referers none blocked server_names $DOMAIN_CONFIG;/g" docker/nginx/default.http.conf
     sed_i "s/valid_referers none blocked server_names ~\.example\.com$ example.com;/valid_referers none blocked server_names $DOMAIN_CONFIG;/g" docker/nginx/default.https.conf
-    
-    # 更新docker-compose.yml中的FRONTEND_HOST环境变量
-    info "更新Python后端FRONTEND_HOST环境变量为: $PRIMARY_DOMAIN"
-    if grep -q "FRONTEND_HOST=" docker-compose.yml; then
-      sed_i "s/- FRONTEND_HOST=example.com/- FRONTEND_HOST=$PRIMARY_DOMAIN/g" docker-compose.yml
-      success "已更新FRONTEND_HOST环境变量"
-    else
-      info "未在docker-compose.yml中找到FRONTEND_HOST环境变量配置，将添加此配置"
-      # 查找python-backend服务的environment部分
-      if grep -q "python-backend:" docker-compose.yml; then
-        # 最后一个python环境变量是JAVA_BACKEND_PORT=8081
-        JAVA_BACKEND_PORT_LINE=$(grep -n "JAVA_BACKEND_PORT=8081" docker-compose.yml | cut -d: -f1)
-        if [ -n "$JAVA_BACKEND_PORT_LINE" ]; then
-          # 在JAVA_BACKEND_PORT行后添加FRONTEND_HOST
-          sed_i "${JAVA_BACKEND_PORT_LINE}a\\      - FRONTEND_HOST=$PRIMARY_DOMAIN" docker-compose.yml
-          success "已添加FRONTEND_HOST环境变量"
-        fi
-      fi
-    fi
   else
     error "主域名为空，无法更新Nginx配置"
     exit 1
@@ -4120,6 +4681,12 @@ init_deploy() {
     for domain in "${DOMAINS[@]}"; do
       DOMAINS_PARAM="$DOMAINS_PARAM -d $domain"
     done
+    
+    # 从模板恢复 certbot-entrypoint.sh（确保可重复修改）
+    if [ -f "docker/nginx/certbot-entrypoint.sh.template" ]; then
+      cp "docker/nginx/certbot-entrypoint.sh.template" "docker/nginx/certbot-entrypoint.sh"
+      info "已从模板恢复 certbot-entrypoint.sh"
+    fi
     
     # 使用sed替换certbot命令行certbot-entrypoint.sh
     sed_i "s|--email your-email@example.com|--email $EMAIL|g" docker/nginx/certbot-entrypoint.sh
@@ -4318,7 +4885,7 @@ check_and_fix_network_conflict() {
       if [ -n "$addr" ] && [[ "$addr" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
         # 使用ipcalc检查网络重叠
         if ipcalc -c "$addr" "$TARGET_SUBNET" 2>/dev/null | grep -q "overlap"; then
-          warning "❌ 检测到网络冲突: $addr 与 $TARGET_SUBNET 重叠"
+          warning "检测到网络冲突: $addr 与 $TARGET_SUBNET 重叠"
           conflict_detected=true
           break
         fi
@@ -4362,7 +4929,7 @@ check_and_fix_network_conflict() {
     done
     
     if [ $attempts -ge $max_attempts ]; then
-      error "无法找到合适的网段，请手动修改docker-compose.yml中的网络配置"
+      error "无法找到合适的网段，请手动修改 .env 文件中的网络配置"
       return 1
     fi
     
@@ -4372,35 +4939,44 @@ check_and_fix_network_conflict() {
     local base_ip="172.$second_octet.$third_octet"
     local new_gateway="$base_ip.1"
     
-    # 修改docker-compose.yml中的网络配置
-    info "正在更新docker-compose.yml中的网络配置..."
+    # 使用 .env 文件配置网络
+    if [ -f "lib/config.sh" ]; then
+      source "lib/config.sh"
+      info "正在更新 .env 文件中的网络配置..."
+      update_network_config "$new_subnet" "$new_gateway" "$base_ip"
+      success "网络配置已更新到 .env 文件"
+    else
+      # 回退方案：直接修改 docker-compose.yml
+      warning "配置库不可用，使用传统方法修改网络配置"
+      info "正在更新docker-compose.yml中的网络配置..."
+      
+      # 更新网络配置
+      sed_i "s|subnet: 172\.28\.147\.0/28|subnet: $new_subnet|g" docker-compose.yml
+      sed_i "s|gateway: 172\.28\.147\.1|gateway: $new_gateway|g" docker-compose.yml
+      sed_i "s|ip_range: 172\.28\.147\.0/28|ip_range: $new_subnet|g" docker-compose.yml
+      
+      # 更新所有服务的固定IP地址
+      sed_i "s|ipv4_address: 172\.28\.147\.2|ipv4_address: $base_ip.2|g" docker-compose.yml
+      sed_i "s|ipv4_address: 172\.28\.147\.3|ipv4_address: $base_ip.3|g" docker-compose.yml
+      sed_i "s|ipv4_address: 172\.28\.147\.4|ipv4_address: $base_ip.4|g" docker-compose.yml
+      sed_i "s|ipv4_address: 172\.28\.147\.5|ipv4_address: $base_ip.5|g" docker-compose.yml
+      sed_i "s|ipv4_address: 172\.28\.147\.6|ipv4_address: $base_ip.6|g" docker-compose.yml
+      sed_i "s|ipv4_address: 172\.28\.147\.7|ipv4_address: $base_ip.7|g" docker-compose.yml
+      sed_i "s|ipv4_address: 172\.28\.147\.8|ipv4_address: $base_ip.8|g" docker-compose.yml
+      sed_i "s|ipv4_address: 172\.28\.147\.9|ipv4_address: $base_ip.9|g" docker-compose.yml
+      sed_i "s|ipv4_address: 172\.28\.147\.10|ipv4_address: $base_ip.10|g" docker-compose.yml
+      sed_i "s|ipv4_address: 172\.28\.147\.11|ipv4_address: $base_ip.11|g" docker-compose.yml
+      sed_i "s|ipv4_address: 172\.28\.147\.12|ipv4_address: $base_ip.12|g" docker-compose.yml
+      
+      # 更新Python服务的DOCKER_SUBNET环境变量
+      sed_i "s|DOCKER_SUBNET=172\.28\.147\.0/28|DOCKER_SUBNET=$new_subnet|g" docker-compose.yml
+    fi
     
-    # 更新网络配置
-    sed_i "s|subnet: 172\.28\.147\.0/28|subnet: $new_subnet|g" docker-compose.yml
-    sed_i "s|gateway: 172\.28\.147\.1|gateway: $new_gateway|g" docker-compose.yml
-    sed_i "s|ip_range: 172\.28\.147\.0/28|ip_range: $new_subnet|g" docker-compose.yml
-    
-    # 更新所有服务的固定IP地址
-    sed_i "s|ipv4_address: 172\.28\.147\.2|ipv4_address: $base_ip.2|g" docker-compose.yml
-    sed_i "s|ipv4_address: 172\.28\.147\.3|ipv4_address: $base_ip.3|g" docker-compose.yml
-    sed_i "s|ipv4_address: 172\.28\.147\.4|ipv4_address: $base_ip.4|g" docker-compose.yml
-    sed_i "s|ipv4_address: 172\.28\.147\.5|ipv4_address: $base_ip.5|g" docker-compose.yml
-    sed_i "s|ipv4_address: 172\.28\.147\.6|ipv4_address: $base_ip.6|g" docker-compose.yml
-    sed_i "s|ipv4_address: 172\.28\.147\.7|ipv4_address: $base_ip.7|g" docker-compose.yml
-    sed_i "s|ipv4_address: 172\.28\.147\.8|ipv4_address: $base_ip.8|g" docker-compose.yml
-    sed_i "s|ipv4_address: 172\.28\.147\.9|ipv4_address: $base_ip.9|g" docker-compose.yml
-    sed_i "s|ipv4_address: 172\.28\.147\.10|ipv4_address: $base_ip.10|g" docker-compose.yml
-    sed_i "s|ipv4_address: 172\.28\.147\.11|ipv4_address: $base_ip.11|g" docker-compose.yml
-    sed_i "s|ipv4_address: 172\.28\.147\.12|ipv4_address: $base_ip.12|g" docker-compose.yml
-    
-    # 更新Python服务的DOCKER_SUBNET环境变量
-    sed_i "s|DOCKER_SUBNET=172\.28\.147\.0/28|DOCKER_SUBNET=$new_subnet|g" docker-compose.yml
-    
-    success "✅ 网络配置已更新为: $new_subnet"
-    success "✅ 网关地址: $new_gateway"
-    success "✅ 服务IP范围: $base_ip.2 - $base_ip.9"
+    success "网络配置已更新为: $new_subnet"
+    success "网关地址: $new_gateway"
+    success "服务IP范围: $base_ip.2 - $base_ip.12"
   else
-    success "✅ 未检测到网络冲突: $TARGET_SUBNET"
+    success "未检测到网络冲突: $TARGET_SUBNET"
   fi
   
   return 0
@@ -5006,7 +5582,25 @@ prompt_primary_domain_with_timeout() {
 revert_to_http_protocol() {
   info "HTTPS启用失败，正在将FRONTEND_PROTOCOL从https替换为http..."
   
-  if [ -f "docker-compose.yml" ]; then
+  # 使用 .env 文件配置协议
+  if [ -f "lib/config.sh" ]; then
+    source "lib/config.sh"
+    update_env_var "FRONTEND_PROTOCOL" "http"
+    update_env_var "ENABLE_HTTPS" "false"
+    # 更新 SITE_URL
+    local domain=$(read_env_config "PRIMARY_DOMAIN" "localhost")
+    update_env_var "SITE_URL" "http://${domain}"
+    success "已将FRONTEND_PROTOCOL替换为http (通过 .env)"
+    
+    # 重启Python后端以使新配置生效
+    info "重启Python后端以使新配置生效..."
+    if sudo docker compose restart python-backend 2>/dev/null; then
+      success "Python后端重启成功"
+    else
+      warning "Python后端重启失败，可能需要手动重启: docker compose restart python-backend"
+    fi
+  elif [ -f "docker-compose.yml" ]; then
+    # 回退方案：直接修改 docker-compose.yml
     # 检查当前是否为https
     if grep -q "FRONTEND_PROTOCOL=https" docker-compose.yml; then
       # 替换为http
@@ -5075,31 +5669,55 @@ select_primary_domain() {
 
 # 提示用户输入域名
 prompt_for_domains() {
-  echo -n "请输入域名 (多个域名用空格分隔，Ctrl+U可重新输入): "
-  read -a input_domains
-  
-  if [ ${#input_domains[@]} -eq 0 ]; then
-    error "请至少提供一个域名"
-    exit 1
-  fi
-  
-  # 处理输入的域名，提取端口
-  DOMAINS=()
-  for domain_input in "${input_domains[@]}"; do
-    if [[ "$domain_input" =~ ^([^:]+):([0-9]+)$ ]]; then
-      # 提取域名和端口
-      local extracted_domain="${BASH_REMATCH[1]}"
-      local extracted_port="${BASH_REMATCH[2]}"
-      DOMAINS+=("$extracted_domain")
-      HTTP_PORT="$extracted_port"
-      success "检测到域名:端口格式 - 域名: $extracted_domain, 端口: $extracted_port"
+  while true; do
+    echo -n "请输入域名 (多个域名用空格分隔，Ctrl+U可重新输入): "
+    read -a input_domains
+    
+    if [ ${#input_domains[@]} -eq 0 ]; then
+      error "请至少提供一个域名"
+      continue
+    fi
+    
+    # 处理输入的域名，提取端口
+    DOMAINS=()
+    for domain_input in "${input_domains[@]}"; do
+      if [[ "$domain_input" =~ ^([^:]+):([0-9]+)$ ]]; then
+        # 提取域名和端口
+        local extracted_domain="${BASH_REMATCH[1]}"
+        local extracted_port="${BASH_REMATCH[2]}"
+        DOMAINS+=("$extracted_domain")
+        HTTP_PORT="$extracted_port"
+        success "检测到域名:端口格式 - 域名: $extracted_domain, 端口: $extracted_port"
+      else
+        DOMAINS+=("$domain_input")
+      fi
+    done
+    
+    # 选择合适的主域名（优先不带www的域名）
+    select_primary_domain
+    
+    # DNS校验：验证域名是否正确指向当前服务器（不询问，直接返回结果）
+    if validate_dns_for_domains "no_prompt"; then
+      # DNS校验通过，退出循环
+      break
     else
-      DOMAINS+=("$domain_input")
+      # DNS校验失败，询问用户是否重新输入
+      echo ""
+      if auto_confirm "是否重新输入域名? (Y/n) " "y"; then
+        echo ""
+        continue
+      else
+        # 用户选择不重新输入，询问是否继续部署
+        if auto_confirm "是否仍要继续部署? (y/N) " "n"; then
+          warning "用户选择继续部署，DNS校验失败的域名可能无法正常工作"
+          break
+        else
+          error "用户取消部署，请先修复DNS配置"
+          exit 1
+        fi
+      fi
     fi
   done
-  
-  # 选择合适的主域名（优先不带www的域名）
-  select_primary_domain
 }
 
 # # 提示用户输入邮箱
@@ -5620,39 +6238,28 @@ EOF
   # 4. 添加/更新Druid连接池环境变量
   info "更新Druid连接池配置参数..."
   
-  # 查找Java服务
-  if grep -q "java-backend:" docker-compose.yml; then
-    # 检查是否已有Druid配置
-    if grep -q "SPRING_DATASOURCE_DRUID_INITIAL_SIZE" docker-compose.yml; then
-      # 更新已有配置
-      info "更新现有Druid连接池配置..."
-      sed_i "s|SPRING_DATASOURCE_DRUID_INITIAL_SIZE=.*|SPRING_DATASOURCE_DRUID_INITIAL_SIZE=$DRUID_INITIAL_SIZE|g" docker-compose.yml
-      sed_i "s|SPRING_DATASOURCE_DRUID_MIN_IDLE=.*|SPRING_DATASOURCE_DRUID_MIN_IDLE=$DRUID_MIN_IDLE|g" docker-compose.yml
-      sed_i "s|SPRING_DATASOURCE_DRUID_MAX_ACTIVE=.*|SPRING_DATASOURCE_DRUID_MAX_ACTIVE=$DRUID_MAX_ACTIVE|g" docker-compose.yml
-      success "Druid连接池配置更新完成 (初始:$DRUID_INITIAL_SIZE, 最小:$DRUID_MIN_IDLE, 最大:$DRUID_MAX_ACTIVE)"
-    else
-      # 添加新配置到environment部分
-      info "添加Druid连接池配置到docker-compose.yml..."
-      
-      # 在SPRING_DATASOURCE_DRIVER_CLASS_NAME之后添加
-      if grep -q "SPRING_DATASOURCE_DRIVER_CLASS_NAME" docker-compose.yml; then
-        # 逐行添加，确保格式正确
-        sed_i "/SPRING_DATASOURCE_DRIVER_CLASS_NAME=/a\\      - SPRING_DATASOURCE_DRUID_INITIAL_SIZE=$DRUID_INITIAL_SIZE" docker-compose.yml
-        sed_i "/SPRING_DATASOURCE_DRUID_INITIAL_SIZE=/a\\      - SPRING_DATASOURCE_DRUID_MIN_IDLE=$DRUID_MIN_IDLE" docker-compose.yml
-        sed_i "/SPRING_DATASOURCE_DRUID_MIN_IDLE=/a\\      - SPRING_DATASOURCE_DRUID_MAX_ACTIVE=$DRUID_MAX_ACTIVE" docker-compose.yml
-        
-        # 验证添加是否成功
-        if grep -q "SPRING_DATASOURCE_DRUID_MAX_ACTIVE=$DRUID_MAX_ACTIVE" docker-compose.yml; then
-          success "Druid连接池配置添加成功 (初始:$DRUID_INITIAL_SIZE, 最小:$DRUID_MIN_IDLE, 最大:$DRUID_MAX_ACTIVE)"
-        else
-          warning "Druid连接池配置添加可能失败，请检查docker-compose.yml"
-        fi
-      else
-        warning "未找到SPRING_DATASOURCE_DRIVER_CLASS_NAME配置，无法添加Druid配置"
-      fi
-    fi
+  # 使用 .env 文件配置 Druid 连接池
+  if [ -f "lib/config.sh" ]; then
+    source "lib/config.sh"
+    update_env_var "DRUID_INITIAL_SIZE" "$DRUID_INITIAL_SIZE"
+    update_env_var "DRUID_MIN_IDLE" "$DRUID_MIN_IDLE"
+    update_env_var "DRUID_MAX_ACTIVE" "$DRUID_MAX_ACTIVE"
+    success "Druid连接池配置更新完成 (初始:$DRUID_INITIAL_SIZE, 最小:$DRUID_MIN_IDLE, 最大:$DRUID_MAX_ACTIVE)"
   else
-    warning "未找到java-backend服务，跳过Druid配置"
+    # 回退：直接修改 docker-compose.yml（兼容旧版本）
+    if grep -q "java-backend:" docker-compose.yml; then
+      if grep -q "SPRING_DATASOURCE_DRUID_INITIAL_SIZE" docker-compose.yml; then
+        info "更新现有Druid连接池配置..."
+        sed_i "s|SPRING_DATASOURCE_DRUID_INITIAL_SIZE=.*|SPRING_DATASOURCE_DRUID_INITIAL_SIZE=\${DRUID_INITIAL_SIZE:-$DRUID_INITIAL_SIZE}|g" docker-compose.yml
+        sed_i "s|SPRING_DATASOURCE_DRUID_MIN_IDLE=.*|SPRING_DATASOURCE_DRUID_MIN_IDLE=\${DRUID_MIN_IDLE:-$DRUID_MIN_IDLE}|g" docker-compose.yml
+        sed_i "s|SPRING_DATASOURCE_DRUID_MAX_ACTIVE=.*|SPRING_DATASOURCE_DRUID_MAX_ACTIVE=\${DRUID_MAX_ACTIVE:-$DRUID_MAX_ACTIVE}|g" docker-compose.yml
+        success "Druid连接池配置更新完成 (初始:$DRUID_INITIAL_SIZE, 最小:$DRUID_MIN_IDLE, 最大:$DRUID_MAX_ACTIVE)"
+      else
+        warning "未找到Druid配置，跳过"
+      fi
+    else
+      warning "未找到java-backend服务，跳过Druid配置"
+    fi
   fi
   
   success "$MEMORY_MODE 内存模式优化配置完成"
@@ -5932,7 +6539,7 @@ run_docker_compose() {
     elif command -v docker-compose &>/dev/null; then
       compose_cmd+=(docker-compose)
     else
-      error "❌ 未找到 docker compose / docker-compose，可执行文件！请提交issue"
+      error "未找到 docker compose / docker-compose，可执行文件！请提交issue"
       return 1
     fi
 
@@ -5941,13 +6548,22 @@ run_docker_compose() {
       compose_cmd=(sudo "${compose_cmd[@]}")
     fi
 
-    # 只在调试模式下显示详细命令
-    if [ "${DEBUG:-false}" = "true" ]; then
-      info "执行Docker Compose命令: ${compose_cmd[*]} $*"
+    # 根据 ENABLE_HTTPS 配置添加 --profile https
+    # 当 ENABLE_HTTPS=true 时，启动 certbot 服务
+    local profile_args=()
+    if [ -f "lib/config.sh" ]; then
+      source "lib/config.sh"
+      local enable_https=$(read_env_config "ENABLE_HTTPS" "true")
+      if [ "$enable_https" = "true" ]; then
+        profile_args=(--profile https)
+      fi
+    elif [ "$ENABLE_HTTPS" = "true" ] || [ "$ENABLE_HTTPS" = true ]; then
+      # 回退方案：使用全局变量
+      profile_args=(--profile https)
     fi
 
     # shellcheck disable=SC2068
-    "${compose_cmd[@]}" "$@"
+    "${compose_cmd[@]}" "${profile_args[@]}" "$@"
 
     return $?
 }
@@ -6740,10 +7356,15 @@ EOF
     cd "$extract_dir"
     info "已进入项目目录: $(pwd)"
     
+    # 加载配置库（现在在项目目录中了）
+    if [ -f "lib/config.sh" ]; then
+      source "lib/config.sh"
+      info "配置函数库已加载"
+    fi
+    
     # 清理下载文件
     rm -f "../$tar_file"
     rm -rf "poetize-picture"
-    rm -rf "README.md"
     
     success "项目环境准备完成"
   fi
@@ -7863,7 +8484,24 @@ main() {
   printf "${BLUE}╚═════════════════════════════════════════════════════════════════╝${NC}\n"
   
   echo -e "${YELLOW}✨ 正在初始化部署环境...${NC}"
+  
+  # 在用户欣赏横幅的同时，悄悄做一些有用的预检查
+  {
+    # 预热DNS解析缓存（后续DNS校验会用到）
+    dig +short google.com A &>/dev/null &
+    dig +short github.com A &>/dev/null &
+    # 预热IP检测服务（后续获取服务器公网IP会用到）
+    curl -s --connect-timeout 2 ifconfig.me &>/dev/null &
+    curl -s --connect-timeout 2 ipinfo.io/ip &>/dev/null &
+    # 检测网络环境（中国/海外，影响后续镜像源选择）
+    is_china_environment &>/dev/null &
+    # 等待所有后台任务完成
+    wait
+  } &
+  local bg_pid=$!
   sleep 3
+  # 如果后台任务还没完成，继续等待
+  wait $bg_pid 2>/dev/null
 
   # 检查是否需要特权
   require_root_or_sudo
@@ -7877,6 +8515,11 @@ main() {
   else
     # 通过命令行参数指定了域名，横幅显示后再选择主域名
     select_primary_domain
+    
+    # DNS校验：验证命令行参数指定的域名是否正确指向当前服务器
+    if ! validate_dns_for_domains; then
+      exit 1
+    fi
   fi
 
   # 检查是否有数据库配置文件?
@@ -8144,6 +8787,16 @@ main() {
   # 处理环境状态，如果没有源码，则克隆源码到本地并进入目录
   handle_environment_status
   
+  # 初始化 .env 配置文件（必须在 handle_environment_status 之后，确保已进入项目目录）
+  if [ -f "lib/config.sh" ]; then
+    source "lib/config.sh"
+    if init_env_config; then
+      success "配置文件初始化完成"
+    fi
+  else
+    warning "未找到 lib/config.sh，跳过 .env 初始化"
+  fi
+  
   # 如果需要 V1 兼容模式，转换 docker-compose.yml
   if [ "${COMPOSE_V1_FALLBACK:-false}" = true ]; then
     info "检测到 Docker Compose V1 兼容模式，正在转换配置文件..."
@@ -8198,17 +8851,23 @@ main() {
   # 如果没有输入域名，提示用户
   if [ ${#DOMAINS[@]} -eq 0 ]; then
     prompt_for_domains
+  else
+    # 域名已通过命令行参数指定，需要进行DNS校验
+    # 确保PRIMARY_DOMAIN已设置
+    if [ -z "$PRIMARY_DOMAIN" ]; then
+      select_primary_domain
+    fi
+    
+    # DNS校验：验证命令行参数指定的域名是否正确指向当前服务器
+    if ! validate_dns_for_domains; then
+      exit 1
+    fi
   fi
   
   # # 如果没有输入邮箱，提示用户
   # if [ -z "$EMAIL" ]; then
   #   prompt_for_email
   # fi
-  
-  # 确保PRIMARY_DOMAIN已设置
-  if [ -z "$PRIMARY_DOMAIN" ]; then
-    select_primary_domain
-  fi
   
   # 确认输入信息
   confirm_setup
@@ -8227,6 +8886,20 @@ main() {
   # 检查Docker Compose配置
   check_docker_compose
   
+  # 从模板恢复 nginx 配置文件（确保可重复修改）
+  if [ -f "docker/nginx/default.conf.template" ]; then
+    cp "docker/nginx/default.template" "docker/nginx/default.conf"
+    info "已从模板恢复 default.conf"
+  fi
+  if [ -f "docker/nginx/default.http.conf.template" ]; then
+    cp "docker/nginx/default.http.conf.template" "docker/nginx/default.http.conf"
+    info "已从模板恢复 default.http.conf"
+  fi
+  if [ -f "docker/nginx/default.https.conf.template" ]; then
+    cp "docker/nginx/default.https.conf.template" "docker/nginx/default.https.conf"
+    info "已从模板恢复 default.https.conf"
+  fi
+
   # 更新Nginx卷挂载
   update_nginx_volumes
   

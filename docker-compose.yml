@@ -25,12 +25,12 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     ports:
-      - "80:80/tcp"
-      - "443:443/tcp"
-      - "443:443/udp"
+      - "${HTTP_PORT:-80}:80/tcp"
+      - "${HTTPS_PORT:-443}:443/tcp"
+      - "${HTTPS_PORT:-443}:443/udp"
     networks:
       poetize-network:
-        ipv4_address: 172.28.147.2
+        ipv4_address: ${IP_NGINX:-172.28.147.2}
     depends_on:
       poetize-web:
         condition: service_completed_successfully
@@ -61,7 +61,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
     networks:
       poetize-network:
-        ipv4_address: 172.28.147.3
+        ipv4_address: ${IP_WEB:-172.28.147.3}
     restart: "no"
 
   # 后台管理前端（Vue 2）
@@ -81,12 +81,14 @@ services:
       - /etc/timezone:/etc/timezone:ro
     networks:
       poetize-network:
-        ipv4_address: 172.28.147.12
+        ipv4_address: ${IP_ADMIN:-172.28.147.12}
     restart: "no"
 
   certbot:
     image: certbot/certbot
     container_name: poetize-certbot
+    profiles:
+      - https
     environment:
       - TZ=Asia/Shanghai
     volumes:
@@ -99,7 +101,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
     networks:
       poetize-network:
-        ipv4_address: 172.28.147.5
+        ipv4_address: ${IP_CERTBOT:-172.28.147.5}
     depends_on:
       - nginx
     restart: "no"
@@ -124,16 +126,16 @@ services:
       - JAVA_BACKEND_HOST=poetize-java
       - JAVA_BACKEND_PORT=8081
       # 前端域名，用于第三方登录的重定向请求
-      - FRONTEND_HOST=example.com
-      - FRONTEND_PROTOCOL=https
+      - FRONTEND_HOST=${FRONTEND_HOST:-localhost}
+      - FRONTEND_PROTOCOL=${FRONTEND_PROTOCOL:-http}
       - NGINX_URL=http://nginx/flush_seo_cache
       - PRERENDER_URL=http://poetize-prerender:4000
-      - DOCKER_SUBNET=172.28.147.0/28
+      - DOCKER_SUBNET=${DOCKER_SUBNET:-172.28.147.0/28}
       # Redis配置
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=poetize_redis_2025
-      - REDIS_DB=0
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-poetize_redis_2025}
+      - REDIS_DB=${REDIS_DB:-0}
       - REDIS_MAX_CONNECTIONS=20
       # OAuth代理配置
       - OAUTH_PROXY_DOMAIN=${OAUTH_PROXY_DOMAIN:-}
@@ -143,7 +145,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
     networks:
       poetize-network:
-        ipv4_address: 172.28.147.6
+        ipv4_address: ${IP_PYTHON:-172.28.147.6}
     depends_on:
       java-backend:
         condition: service_healthy
@@ -177,7 +179,7 @@ services:
   #     - /etc/timezone:/etc/timezone:ro
   #   networks:
   #     poetize-network:
-  #       ipv4_address: 172.28.147.11
+  #       ipv4_address: ${IP_MODEL: 172.28.147.11}
   #   restart: always
   #   healthcheck:
   #     test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
@@ -203,42 +205,42 @@ services:
     environment:
       - TZ=Asia/Shanghai
       # Java配置
-      - JAVA_OPTS=-Xmx768m -Xms512m -XX:MaxMetaspaceSize=192m -XX:CompressedClassSpaceSize=128m -Xss512k -XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+ExitOnOutOfMemoryError -XX:MaxRAMPercentage=75.0 -XX:+DisableExplicitGC
+      - JAVA_OPTS=${JAVA_OPTS:--Xmx768m -Xms512m -XX:MaxMetaspaceSize=192m -XX:CompressedClassSpaceSize=128m -Xss512k -XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+ExitOnOutOfMemoryError -XX:MaxRAMPercentage=75.0 -XX:+DisableExplicitGC}
       # 数据库配置
-      - SPRING_DATASOURCE_URL=jdbc:mariadb://mysql:3306/poetize?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-      - SPRING_DATASOURCE_USERNAME=poetize
-      - SPRING_DATASOURCE_PASSWORD=poetize123
+      - SPRING_DATASOURCE_URL=jdbc:${DB_TYPE:-mariadb}://${DB_HOST:-mysql}:${DB_PORT:-3306}/${DB_NAME:-poetize}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      - SPRING_DATASOURCE_USERNAME=${DB_USER:-poetize}
+      - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-poetize123}
       # 数据库驱动类名
-      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.mariadb.jdbc.Driver
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=${DB_DRIVER_CLASS:-org.mariadb.jdbc.Driver}
       - SERVER_PORT=8081
       - PYTHON_SERVICE_URL=http://poetize-python:5000
       # AES加密密钥，需与前端一致
       - POETIZE_AES_KEY=${POETIZE_AES_KEY:-sarasarasarasara}
       - PRERENDER_URL=http://poetize-prerender:4000/render
       - PRERENDER_PAGES_URL=http://poetize-prerender:4000/render/pages
-      - SITE_URL=http://example.com
+      - SITE_URL=${SITE_URL:-http://localhost}
       # 容器网络网段，用于判断请求是否为内网服务的请求
-      - DOCKER_SUBNET=172.28.147.0/28
+      - DOCKER_SUBNET=${DOCKER_SUBNET:-172.28.147.0/28}
       # Redis配置
-      - SPRING_REDIS_HOST=redis
-      - SPRING_REDIS_PORT=6379
-      - SPRING_REDIS_PASSWORD=poetize_redis_2025
-      - SPRING_REDIS_DATABASE=0
+      - SPRING_REDIS_HOST=${REDIS_HOST:-redis}
+      - SPRING_REDIS_PORT=${REDIS_PORT:-6379}
+      - SPRING_REDIS_PASSWORD=${REDIS_PASSWORD:-poetize_redis_2025}
+      - SPRING_REDIS_DATABASE=${REDIS_DB:-0}
       - SPRING_REDIS_TIMEOUT=3000
       - SPRING_REDIS_LETTUCE_POOL_MAX_ACTIVE=20
       - SPRING_REDIS_LETTUCE_POOL_MAX_IDLE=10
       - SPRING_REDIS_LETTUCE_POOL_MIN_IDLE=5
       # Token安全配置
-      - TOKEN_SECRET_KEY=your_super_secure_random_key_here_at_least_32_chars
+      - TOKEN_SECRET_KEY=${TOKEN_SECRET_KEY:-your_super_secure_random_key_here_at_least_32_chars}
       # OAuth代理配置
       - OAUTH_PROXY_DOMAIN=${OAUTH_PROXY_DOMAIN:-}
       # Druid连接池配置
-      - SPRING_DATASOURCE_DRUID_INITIAL_SIZE=5
-      - SPRING_DATASOURCE_DRUID_MIN_IDLE=5
-      - SPRING_DATASOURCE_DRUID_MAX_ACTIVE=64
+      - SPRING_DATASOURCE_DRUID_INITIAL_SIZE=${DRUID_INITIAL_SIZE:-5}
+      - SPRING_DATASOURCE_DRUID_MIN_IDLE=${DRUID_MIN_IDLE:-5}
+      - SPRING_DATASOURCE_DRUID_MAX_ACTIVE=${DRUID_MAX_ACTIVE:-64}
     networks:
       poetize-network:
-        ipv4_address: 172.28.147.7
+        ipv4_address: ${IP_JAVA:-172.28.147.7}
     depends_on:
       mysql:
         condition: service_healthy
@@ -272,9 +274,9 @@ services:
       - /etc/timezone:/etc/timezone:ro
     networks:
       poetize-network:
-        ipv4_address: 172.28.147.10
+        ipv4_address: ${IP_REDIS:-172.28.147.10}
     restart: always
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf", "--requirepass", "poetize_redis_2025"]
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD:-poetize_redis_2025}"]
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "poetize_redis_2025", "ping"]
       interval: 10s
@@ -300,13 +302,13 @@ services:
       - /etc/timezone:/etc/timezone:ro
     environment:
       - TZ=Asia/Shanghai
-      - MARIADB_ROOT_PASSWORD=root123
-      - MARIADB_DATABASE=poetize
-      - MARIADB_USER=poetize
-      - MARIADB_PASSWORD=poetize123
+      - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-root123}
+      - MARIADB_DATABASE=${DB_NAME:-poetize}
+      - MARIADB_USER=${DB_USER:-poetize}
+      - MARIADB_PASSWORD=${DB_PASSWORD:-poetize123}
     networks:
       poetize-network:
-        ipv4_address: 172.28.147.8
+        ipv4_address: ${IP_MYSQL:-172.28.147.8}
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "mariadb-admin ping -h localhost -u poetize -ppoetize123 && echo 'SHOW ENGINES' | mariadb -h localhost -u poetize -ppoetize123 | grep -q 'ROCKSDB'"]
@@ -333,7 +335,7 @@ services:
       - PRERENDER_OUTPUT=/app/dist/prerender
       - JAVA_BACKEND_URL=http://poetize-java:8081
       - PYTHON_BACKEND_URL=http://poetize-python:5000
-      - SITE_URL=http://example.com
+      - SITE_URL=${SITE_URL:-http://localhost}
       - NODE_ENV=production
     volumes:
       # 从 volume 读取前端构建产物，写入预渲染结果
@@ -342,7 +344,7 @@ services:
       - /etc/timezone:/etc/timezone:ro
     networks:
       poetize-network:
-        ipv4_address: 172.28.147.9
+        ipv4_address: ${IP_PRERENDER:-172.28.147.9}
     depends_on:
       nginx:
         condition: service_started
@@ -360,9 +362,9 @@ networks:
     ipam:
       driver: default
       config:
-        - subnet: 172.28.147.0/28
-          gateway: 172.28.147.1
-          ip_range: 172.28.147.0/28
+        - subnet: ${DOCKER_SUBNET:-172.28.147.0/28}
+          gateway: ${DOCKER_GATEWAY:-172.28.147.1}
+          ip_range: ${DOCKER_SUBNET:-172.28.147.0/28}
 
 volumes:
   mysql_data:

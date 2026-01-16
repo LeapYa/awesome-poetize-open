@@ -1,6 +1,6 @@
 <p align="center">
   <a href="#">
-    <img src="poetize_picture/logo.png" alt="POETIZE Open Fork Logo" width="180">
+    <img src="poetize_picture/logo.png" alt="POETIZE Open Fork Logo" width="150">
   </a>
 
 <h1 align="center">POETIZE 最美博客（AGPL 分支 · LeapYa 维护）</h1>
@@ -29,13 +29,14 @@
 - [部署文档](#-部署文档)
 - [贡献与许可](#-贡献与许可)
 - [开发指南](#-开发指南)
+- [排障指南](#-排障指南)
 - [技术栈](#️-技术栈)
 - [联系方式](#-联系方式)
 - [版权说明](#-版权说明)
 
 ## 📖 项目简介
 
-本项目**Awesome-poetize-open**是基于开源项目 [POETIZE最美博客](https://gitee.com/littledokey/poetize) 功能扩展和定制化开发，历时半年，这是一个集内容创作、社交互动与技术优化于一体的现代化博客系统，非常适合个人建站和内容创作者使用。
+本项目**Awesome-poetize-open**是基于开源项目 [POETIZE最美博客](https://gitee.com/littledokey/poetize) 功能扩展和定制化开发，历时半年，这是一个集内容创作、社交互动与技术优化于一体的现代化博客系统。
 
 <p align="center">
   <img src="poetize_picture/首页.png" alt="首页" width="100%">
@@ -45,7 +46,7 @@
 
 <p align="center">
   <img src="poetize_picture/首页1.jpg" alt="文章展示" width="49%">
-  <img src="poetize_picture/首页2.jpg" alt="社交功能" width="49%">
+  <img src="poetize_picture/聊天室.png" alt="社交功能" width="49%">
 </p>
 
 <p align="center">左：内容布局展示 | 右：社交功能体验</p>
@@ -156,7 +157,7 @@ git clone https://github.com/LeapYa/Awesome-poetize-open.git && sudo chmod +x de
 
 ### 4.可选配置
 
-#### 更换字体
+#### （1）更换字体
 
 如需更换网站字体，提供两种方法：
 
@@ -180,11 +181,11 @@ git clone https://github.com/LeapYa/Awesome-poetize-open.git && sudo chmod +x de
    - `poetize-web/public/static/assets/`
 4. 重启前端服务
 
-#### OAuth代理
+#### （2）OAuth代理
 
 若需支持国外第三方登录平台（GitHub、Google等），请配置海外代理服务器，详见[OAuth代理配置说明文档](docs/OAuth代理配置说明.md)。
 
-#### Ollama本地翻译模型
+#### （3）Ollama本地翻译模型
 
 如需启用本地AI翻译功能，编辑 `docker-compose.yml` 找到"Ollama翻译模型服务"部分取消注释即可。默认使用 `qwen3:0.6b` 轻量级模型。更多模型选择和配置详见 [Ollama官方模型库](https://ollama.com/library)。
 
@@ -219,10 +220,10 @@ poetize -qy
 项目在部署时可能因任何原因（网络波动、资源不足等）导致部署失败，在1核1G服务器较常见，如果部署失败，可执行以下命令清理并重新部署：
 
 ```bash
-docker system prune -af && rm -rf Awesome-poetize-open && bash <(curl -sL install.leapya.com)
+sudo docker system prune -af && rm -rf Awesome-poetize-open && bash <(curl -sL install.leapya.com)
 ```
 
-更多详见[开发排障指南](#开发排障指南)
+更多详见[排障指南](#-排障指南)
 
 ### 7.高级功能
 
@@ -242,7 +243,22 @@ docker system prune -af && rm -rf Awesome-poetize-open && bash <(curl -sL instal
 
 感谢所有为本项目做出贡献的人！
 
-<a href="https://github.com/mikutea"><img src="https://github.com/mikutea.png" width="50" height="50" style="border-radius:50%"></a>
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/mikutea">
+        <img src="https://github.com/mikutea.png" width="100px;" alt="mikutea"/>
+        <br />
+        <sub><b>mikutea</b></sub>
+      </a>
+      <br />
+      <a href="https://github.com/LeapYa/Awesome-poetize-open/issues?q=author%3Amikutea+label%3Aenhancement" title="Ideas & suggestions">🤔</a>
+      <a href="https://github.com/LeapYa/Awesome-poetize-open/issues?q=author%3Amikutea+label%3Abug" title="Bug reports">🐛</a>
+    </td>
+  </tr>
+</table>
+<!-- ALL-CONTRIBUTORS-LIST:END -->
 
 ## 💻 开发指南
 

@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-01-15
+## 修改时间: 2026-01-17
 ## 描述: 部署 POETIZE 博客系统安装脚本
-## 版本: 1.14.0
+## 版本: 1.15.0
 
 # 定义颜色
 RED='\033[0;31m'
@@ -4174,198 +4174,261 @@ interactive_configure_external_services() {
 }
 
 # 禁用 mysql 容器（使用外部数据库）
+# 新版本（有 lib/config.sh）：通过 .env 文件的 ENABLE_MYSQL=false 和 Docker Compose profiles 实现
+# 旧版本（无 lib/config.sh）：通过 awk 注释 docker-compose.yml 实现
 disable_mysql_service() {
   info "禁用mysql容器（使用外部数据库）..."
 
-  # 恢复 docker-compose.yml（确保没有被注释）
-  restore_mysql_service
+  if [ -f "lib/config.sh" ]; then
+    # 新版本：使用 .env 文件配置
+    update_env_var "ENABLE_MYSQL" "false"
+    success "已禁用mysql容器（通过 .env 配置）"
+  else
+    # 旧版本：使用 awk 注释 docker-compose.yml
+    warning "未检测到 lib/config.sh，使用传统方法禁用 mysql..."
 
-  # 禁用mysql服务
-  awk '
-  /^  mysql:/ {
-    in_mysql = 1
-    print "  # " $0 " # 已禁用（使用外部数据库）"
-    next
-  }
-  in_mysql {
-    # 检查是否到了下一个服务定义（以两个空格开头后跟非空格字符）
-    if (/^  [^ ]/) {
-      in_mysql = 0
-      print
-    } else if (/^$/) {
-      # 空行保持原样
-      print
-    } else {
-      # 注释掉mysql服务内的所有行
-      print "  #" $0
+    # 恢复 docker-compose.yml（确保没有被注释）
+    restore_mysql_service
+
+    # 禁用mysql服务
+    awk '
+    /^  mysql:/ {
+      in_mysql = 1
+      print "  # " $0 " # 已禁用（使用外部数据库）"
+      next
     }
-    next
-  }
-  {
-    print
-  }
-  ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+    in_mysql {
+    # 检查是否到了下一个服务定义（以两个空格开头后跟非空格字符）
+      if (/^  [^ ]/) {
+        in_mysql = 0
+        print
+      } else if (/^$/) {
+      # 空行保持原样
+        print
+      } else {
+      # 注释掉mysql服务内的所有行
+        print "  #" $0
+      }
+      next
+    }
+    {
+      print
+    }
+    ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
 
-  # 注释掉 java-backend 服务对 mysql 的 depends_on 依赖
-  info "注释java-backend对mysql的依赖..."
-  awk '
-  /java-backend:/ {
-    in_java_backend = 1
-  }
-  in_java_backend && /depends_on:/ {
-    in_depends = 1
-  }
-  in_java_backend && in_depends && /mysql:/ {
-    in_mysql_dep = 1
-    sub(/^      /, "      # ")
-    print $0 " # 已禁用（使用外部数据库）"
-    next
-  }
-  in_java_backend && in_depends && in_mysql_dep && /condition:/ {
-    in_mysql_dep = 0
-    sub(/^        /, "      #   ")
-    print
-    next
-  }
-  in_java_backend && in_depends && /^      [a-zA-Z]/ && !/mysql:/ {
-    in_mysql_dep = 0
-  }
-  in_java_backend && /^  [a-zA-Z]/ && !/java-backend:/ {
-    in_java_backend = 0
-    in_depends = 0
-  }
-  in_java_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
-    in_depends = 0
-  }
-  {
-    print
-  }
-  ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+    # 注释掉 java-backend 服务对 mysql 的 depends_on 依赖
+    info "注释java-backend对mysql的依赖..."
+    awk '
+    /java-backend:/ {
+      in_java_backend = 1
+    }
+    in_java_backend && /depends_on:/ {
+      in_depends = 1
+    }
+    in_java_backend && in_depends && /mysql:/ {
+      in_mysql_dep = 1
+      sub(/^      /, "      # ")
+      print $0 " # 已禁用（使用外部数据库）"
+      next
+    }
+    in_java_backend && in_depends && in_mysql_dep && /condition:/ {
+      in_mysql_dep = 0
+      sub(/^        /, "      #   ")
+      print
+      next
+    }
+    in_java_backend && in_depends && /^      [a-zA-Z]/ && !/mysql:/ {
+      in_mysql_dep = 0
+    }
+    in_java_backend && /^  [a-zA-Z]/ && !/java-backend:/ {
+      in_java_backend = 0
+      in_depends = 0
+    }
+    in_java_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
+      in_depends = 0
+    }
+    {
+      print
+    }
+    ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
 
-  success "已禁用mysql容器"
+    success "已禁用mysql容器（通过修改 docker-compose.yml）"
+  fi
 }
 
 # 禁用 redis 容器（使用外部Redis）
+# 新版本（有 lib/config.sh）：通过 .env 文件的 ENABLE_REDIS=false 和 Docker Compose profiles 实现
+# 旧版本（无 lib/config.sh）：通过 awk 注释 docker-compose.yml 实现
 disable_redis_service() {
   info "禁用redis容器（使用外部Redis）..."
 
-  # 恢复 docker-compose.yml（确保没有被注释）
-  restore_redis_service
+  if [ -f "lib/config.sh" ]; then
+    # 新版本：使用 .env 文件配置
+    update_env_var "ENABLE_REDIS" "false"
+    success "已禁用redis容器（通过 .env 配置）"
+  else
+    # 旧版本：使用 awk 注释 docker-compose.yml
+    warning "未检测到 lib/config.sh，使用传统方法禁用 redis..."
 
-  # 禁用redis服务
-  awk '
-  /^  redis:/ {
-    in_redis = 1
-    print "  # " $0 " # 已禁用（使用外部Redis）"
-    next
-  }
-  in_redis {
-    # 检查是否到了下一个服务定义
-    if (/^  [^ ]/) {
-      in_redis = 0
-      print
-    } else if (/^$/) {
-      print
-    } else {
-      print "  #" $0
+    # 恢复 docker-compose.yml（确保没有被注释）
+    restore_redis_service
+
+    # 禁用redis服务
+    awk '
+    /^  redis:/ {
+      in_redis = 1
+      print "  # " $0 " # 已禁用（使用外部Redis）"
+      next
     }
-    next
-  }
-  {
-    print
-  }
-  ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+    in_redis {
+    # 检查是否到了下一个服务定义
+      if (/^  [^ ]/) {
+        in_redis = 0
+        print
+      } else if (/^$/) {
+        print
+      } else {
+        print "  #" $0
+      }
+      next
+    }
+    {
+      print
+    }
+    ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
 
-  # 注释掉 java-backend 服务对 redis 的 depends_on 依赖
-  info "注释java-backend对redis的依赖..."
-  awk '
-  /java-backend:/ {
-    in_java_backend = 1
-  }
-  in_java_backend && /depends_on:/ {
-    in_depends = 1
-  }
-  in_java_backend && in_depends && /redis:/ {
-    in_redis_dep = 1
-    sub(/^      /, "      # ")
-    print $0 " # 已禁用（使用外部Redis）"
-    next
-  }
-  in_java_backend && in_depends && in_redis_dep && /condition:/ {
-    in_redis_dep = 0
-    sub(/^        /, "      #   ")
-    print
-    next
-  }
-  in_java_backend && in_depends && /^      [a-zA-Z]/ && !/redis:/ {
-    in_redis_dep = 0
-  }
-  in_java_backend && /^  [a-zA-Z]/ && !/java-backend:/ {
-    in_java_backend = 0
-    in_depends = 0
-  }
-  in_java_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
-    in_depends = 0
-  }
-  {
-    print
-  }
-  ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+    # 注释掉 java-backend 服务对 redis 的 depends_on 依赖
+    info "注释java-backend对redis的依赖..."
+    awk '
+    /java-backend:/ {
+      in_java_backend = 1
+    }
+    in_java_backend && /depends_on:/ {
+      in_depends = 1
+    }
+    in_java_backend && in_depends && /redis:/ {
+      in_redis_dep = 1
+      sub(/^      /, "      # ")
+      print $0 " # 已禁用（使用外部Redis）"
+      next
+    }
+    in_java_backend && in_depends && in_redis_dep && /condition:/ {
+      in_redis_dep = 0
+      sub(/^        /, "      #   ")
+      print
+      next
+    }
+    in_java_backend && in_depends && /^      [a-zA-Z]/ && !/redis:/ {
+      in_redis_dep = 0
+    }
+    in_java_backend && /^  [a-zA-Z]/ && !/java-backend:/ {
+      in_java_backend = 0
+      in_depends = 0
+    }
+    in_java_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
+      in_depends = 0
+    }
+    {
+      print
+    }
+    ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
 
-  # 注释掉 python-backend 服务对 redis 的 depends_on 依赖
-  info "注释python-backend对redis的依赖..."
-  awk '
-  /python-backend:/ {
-    in_python_backend = 1
-  }
-  in_python_backend && /depends_on:/ {
-    in_depends = 1
-  }
-  in_python_backend && in_depends && /redis:/ {
-    in_redis_dep = 1
-    sub(/^      /, "      # ")
-    print $0 " # 已禁用（使用外部Redis）"
-    next
-  }
-  in_python_backend && in_depends && in_redis_dep && /condition:/ {
-    in_redis_dep = 0
-    sub(/^        /, "      #   ")
-    print
-    next
-  }
-  in_python_backend && in_depends && /^      [a-zA-Z]/ && !/redis:/ {
-    in_redis_dep = 0
-  }
-  in_python_backend && /^  [a-zA-Z]/ && !/python-backend:/ {
-    in_python_backend = 0
-    in_depends = 0
-  }
-  in_python_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
-    in_depends = 0
-  }
-  {
-    print
-  }
-  ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+    # 注释掉 python-backend 服务对 redis 的 depends_on 依赖
+    info "注释python-backend对redis的依赖..."
+    awk '
+    /python-backend:/ {
+      in_python_backend = 1
+    }
+    in_python_backend && /depends_on:/ {
+      in_depends = 1
+    }
+    in_python_backend && in_depends && /redis:/ {
+      in_redis_dep = 1
+      sub(/^      /, "      # ")
+      print $0 " # 已禁用（使用外部Redis）"
+      next
+    }
+    in_python_backend && in_depends && in_redis_dep && /condition:/ {
+      in_redis_dep = 0
+      sub(/^        /, "      #   ")
+      print
+      next
+    }
+    in_python_backend && in_depends && /^      [a-zA-Z]/ && !/redis:/ {
+      in_redis_dep = 0
+    }
+    in_python_backend && /^  [a-zA-Z]/ && !/python-backend:/ {
+      in_python_backend = 0
+      in_depends = 0
+    }
+    in_python_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
+      in_depends = 0
+    }
+    {
+      print
+    }
+    ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
 
-  success "已禁用redis容器"
+    success "已禁用redis容器（通过修改 docker-compose.yml）"
+  fi
 }
 
-# 恢复 mysql 容器
+# 启用 mysql 容器（使用内置数据库）
+enable_mysql_service() {
+  info "启用mysql容器..."
+  if [ -f "lib/config.sh" ]; then
+    update_env_var "ENABLE_MYSQL" "true"
+    success "已启用mysql容器"
+  else
+    # 旧版本：恢复被注释的服务
+    restore_mysql_service
+  fi
+}
+
+# 启用 redis 容器（使用内置Redis）
+enable_redis_service() {
+  info "启用redis容器..."
+  if [ -f "lib/config.sh" ]; then
+    update_env_var "ENABLE_REDIS" "true"
+    success "已启用redis容器"
+  else
+    # 旧版本：恢复被注释的服务
+    restore_redis_service
+  fi
+}
+
+# 恢复 mysql 容器（清理 docker-compose.yml 中的注释）
+# 此函数用于旧版本或从旧版本升级时，清理可能存在的注释
 restore_mysql_service() {
-  # 恢复被注释的mysql服务
-  sed -i 's/^#   mysql:/  mysql:/g' docker-compose.yml
-  sed -i 's/^#     # 已禁用（使用外部数据库）//g' docker-compose.yml
-  sed -i 's/^#     /    /g' docker-compose.yml
+  # 检查是否存在旧格式的注释
+  if grep -q "^  # .*mysql:.*# 已禁用" docker-compose.yml 2>/dev/null || \
+     grep -q "^#   mysql:" docker-compose.yml 2>/dev/null; then
+    info "恢复 docker-compose.yml 中被注释的 mysql 服务..."
+    sed_i 's/^#   mysql:/  mysql:/g' docker-compose.yml
+    sed_i 's/^  # .*mysql:.*# 已禁用.*/  mysql:/g' docker-compose.yml
+    sed_i 's/^#     # 已禁用（使用外部数据库）//g' docker-compose.yml
+    sed_i 's/^  #    /    /g' docker-compose.yml
+    sed_i 's/^#     /    /g' docker-compose.yml
+    success "已恢复 mysql 服务配置"
+  fi
 }
 
-# 恢复 redis 容器
+# 恢复 redis 容器（清理 docker-compose.yml 中的注释）
+# 此函数用于旧版本或从旧版本升级时，清理可能存在的注释
 restore_redis_service() {
-  # 恢复被注释的redis服务
-  sed -i 's/^#   redis:/  redis:/g' docker-compose.yml
-  sed -i 's/^#     # 已禁用（使用外部Redis）//g' docker-compose.yml
-  sed -i 's/^#     /    /g' docker-compose.yml
+  # 检查是否存在旧格式的注释
+  if grep -q "^  # .*redis:.*# 已禁用" docker-compose.yml 2>/dev/null || \
+     grep -q "^#   redis:" docker-compose.yml 2>/dev/null; then
+    info "恢复 docker-compose.yml 中被注释的 redis 服务..."
+    sed_i 's/^#   redis:/  redis:/g' docker-compose.yml
+    sed_i 's/^  # .*redis:.*# 已禁用.*/  redis:/g' docker-compose.yml
+    sed_i 's/^#     # 已禁用（使用外部Redis）//g' docker-compose.yml
+    sed_i 's/^  #    /    /g' docker-compose.yml
+    sed_i 's/^#     /    /g' docker-compose.yml
+    success "已恢复 redis 服务配置"
+  fi
 }
+
 
 # 更新应用服务的数据库连接配置
 update_db_connection_config() {
@@ -5670,8 +5733,24 @@ select_primary_domain() {
 # 提示用户输入域名
 prompt_for_domains() {
   while true; do
-    echo -n "请输入域名 (多个域名用空格分隔，Ctrl+U可重新输入): "
-    read -a input_domains
+    local domain_input_str=""
+    
+    # 尝试使用 whiptail 图形界面（Debian/Ubuntu 默认安装）
+    if command -v whiptail &>/dev/null; then
+      domain_input_str=$(whiptail --inputbox "请输入域名 (多个域名用空格分隔)" 10 60 "" 3>&1 1>&2 2>&3)
+      # 用户按取消
+      if [ $? -ne 0 ]; then
+        error "用户取消输入"
+        exit 1
+      fi
+    else
+      # 回退到普通 read 方式
+      echo -n "请输入域名 (多个域名用空格分隔): "
+      read domain_input_str
+    fi
+    
+    # 将输入字符串转换为数组
+    read -a input_domains <<< "$domain_input_str"
     
     if [ ${#input_domains[@]} -eq 0 ]; then
       error "请至少提供一个域名"
@@ -5719,6 +5798,7 @@ prompt_for_domains() {
     fi
   done
 }
+
 
 # # 提示用户输入邮箱
 # prompt_for_email() {
@@ -5776,9 +5856,12 @@ check_system_resources() {
   
   # 检查内存
   local MEMORY=$(free -g | awk '/^Mem:/{print $7}')
+  MEMORY="${MEMORY:-0}"  # 防止空值
   # 检查内存总量（以MB为单位）
   local TOTAL_MEM=$(free -m | awk '/^Mem:/{print $2}')
-  local TOTAL_MEM_GB=$(awk "BEGIN {printf \"%.1f\", ${TOTAL_MEM}/1024}")
+  TOTAL_MEM="${TOTAL_MEM:-0}"  # 防止空值
+  # 使用 -v 参数安全传递变量给 awk，避免空值被误识为正则表达式
+  local TOTAL_MEM_GB=$(awk -v mem="$TOTAL_MEM" 'BEGIN {printf "%.1f", mem/1024}')
   
   
   # 根据内存大小自动调整SWAP_SIZE
@@ -7400,12 +7483,19 @@ find_directory_num() {
   echo "$last_number"
 }
 
-# 环境检测后的处理逻辑，根据环境状态执行不同的操作，逻辑：
-# 检测是否是项目环境目录下，如果是->检测已运行的POETIZE容器，如果有->二次安装/重新安装/取消安装
-#                                                    如果没有->结束，继续部署流程
-#                       如果不是，检测已运行的POETIZE容器，如果有->二次安装/重新安装/取消安装
-#                                                      如果没有->检测是否有项目环境目录，如果有->进入目录，不再下载项目
-#                                                                                   如果没有->下载项目
+# ==================== 环境检测后的处理逻辑 ====================
+# 根据环境状态执行不同的操作：
+#
+# 一、在项目环境目录下执行脚本：
+#     1. 检测到已运行的POETIZE容器 -> 提供选项：二次安装/重新安装/取消安装/继续安装
+#     2. 未检测到容器 -> 直接继续部署流程
+#
+# 二、不在项目环境目录下执行脚本：
+#     1. 检测到已运行的POETIZE容器 -> 提供选项：二次安装/重新安装/取消安装/继续安装
+#     2. 未检测到容器：
+#        a. 找到已存在的项目目录 -> 进入该目录，不再下载项目
+#        b. 未找到项目目录 -> 下载项目
+# ================================================================
 handle_environment_status() {
 
   check_project_environment
@@ -7423,9 +7513,10 @@ handle_environment_status() {
       echo "1) 二次安装 (创建新的博客实例)"
       echo "2) 下线已运行的容器后重新安装"
       echo "3) 取消安装"
+      echo "4) 继续安装 (忽略容器检测,可能是误判)"
       echo ""
 
-      auto_confirm "请输入选择 (1/2/3): " "1" "-n 1 -r"
+      auto_confirm "请输入选择 (1/2/3/4): " "1" "-n 1 -r"
       # 如今pwd所在目录在例如/root/Awesome-poetize-open，那么我们就要回到/root目录
       local DIR=$(dirname "$(pwd)")
 
@@ -7448,10 +7539,13 @@ handle_environment_status() {
           info "用户取消安装"
           exit 0
           ;;
+        4)
+          info "用户选择继续安装,忽略容器检测..."
+          ;;
         *)
           local last_number=$(find_directory_num)
           warning "无效选择，默认选择二次安装"
-          handle_multi_instance_deployment "$DIR" "$blog_numbers"
+          handle_multi_instance_deployment "$DIR" "$last_number"
           ;;
       esac
     else
@@ -7469,9 +7563,10 @@ handle_environment_status() {
       echo "1) 二次安装 (创建新的博客实例)"
       echo "2) 下线已运行的容器后重新安装"
       echo "3) 取消安装"
+      echo "4) 继续安装 (忽略容器检测,可能是误判)"
       echo ""
       
-      auto_confirm "请输入选择 (1/2/3): " "1" "-n 1 -r"
+      auto_confirm "请输入选择 (1/2/3/4): " "1" "-n 1 -r"
       # 找到项目目录及其完整路径，如/root/Awesome-poetize-open
       local DIR=$(find_directory "Awesome-poetize-open" | head -n 1)
 
@@ -7501,6 +7596,26 @@ handle_environment_status() {
         3)
           info "用户取消安装"
           exit 0
+          ;;
+        4)
+          info "用户选择继续安装,忽略容器检测..."
+          # 继续正常的安装流程：检测是否需要下载项目
+          if sudo find / -type d -name "Awesome-poetize-open-blog*" -o -name "Awesome-poetize-open" 2>/dev/null | grep -q . > /dev/null; then
+            info "检测到已存在的博客项目目录，将进入博客目录以继续安装..."
+            local PROJ_DIR=$(find_directory "Awesome-poetize-open" | head -n 1)
+            if [ -n "$PROJ_DIR" ]; then
+              cd "$PROJ_DIR"
+              info "当前目录: $(pwd)"
+            fi
+          else
+            if download_and_extract_project "Awesome-poetize-open"; then
+              success "✅ 源码下载和解压完成，继续部署安装..."
+              echo ""
+            else
+              error "❌ 源码下载失败，部署终止"
+              exit 1
+            fi
+          fi
           ;;
         *)
           local last_number=$(find_directory_num)

@@ -151,6 +151,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+        required: false
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
@@ -244,8 +245,10 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
+        required: false
       poetize-web:
         condition: service_completed_successfully
     restart: always
@@ -258,6 +261,8 @@ services:
 
   # Redis缓存服务
   redis:
+    profiles:
+      - redis
     image: redis:7-alpine
     container_name: poetize-redis
     logging:
@@ -286,6 +291,8 @@ services:
 
   # MariaDB服务
   mysql:
+    profiles:
+      - mysql
     build:
       context: .
       dockerfile: docker/mysql/Dockerfile

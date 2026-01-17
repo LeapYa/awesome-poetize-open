@@ -244,6 +244,16 @@ get_enable_https() {
     read_env_config "ENABLE_HTTPS" "true"
 }
 
+# 读取是否启用内置 MySQL
+get_enable_mysql() {
+    read_env_config "ENABLE_MYSQL" "true"
+}
+
+# 读取是否启用内置 Redis
+get_enable_redis() {
+    read_env_config "ENABLE_REDIS" "true"
+}
+
 # 读取站点 URL
 get_site_url() {
     read_env_config "SITE_URL" "http://localhost"
@@ -253,18 +263,21 @@ get_site_url() {
 # Docker Compose 命令辅助函数
 # ============================================
 
-# 获取 Docker Compose 命令（根据 ENABLE_HTTPS 添加 profile）
+# 获取 Docker Compose 命令（根据 ENABLE_HTTPS/MYSQL/REDIS 添加 profiles）
 # 参数: $1 - 基础 docker-compose 命令 (可选，默认 "docker compose")
 # 返回: 完整的 docker-compose 命令 (stdout)
 get_compose_command() {
     local base_cmd="${1:-docker compose}"
     local enable_https=$(read_env_config "ENABLE_HTTPS" "true")
+    local enable_mysql=$(read_env_config "ENABLE_MYSQL" "true")
+    local enable_redis=$(read_env_config "ENABLE_REDIS" "true")
     
-    if [ "$enable_https" = "true" ]; then
-        echo "$base_cmd --profile https"
-    else
-        echo "$base_cmd"
-    fi
+    local profiles=""
+    [ "$enable_https" = "true" ] && profiles="$profiles --profile https"
+    [ "$enable_mysql" = "true" ] && profiles="$profiles --profile mysql"
+    [ "$enable_redis" = "true" ] && profiles="$profiles --profile redis"
+    
+    echo "$base_cmd$profiles"
 }
 
 # ============================================

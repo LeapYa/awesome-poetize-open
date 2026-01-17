@@ -6636,18 +6636,22 @@ run_docker_compose() {
       compose_cmd=(sudo "${compose_cmd[@]}")
     fi
 
-    # 根据 ENABLE_HTTPS 配置添加 --profile https
-    # 当 ENABLE_HTTPS=true 时，启动 certbot 服务
+    # 根据 ENABLE_HTTPS/MYSQL/REDIS 配置添加对应的 --profile
     local profile_args=()
     if [ -f "lib/config.sh" ]; then
       source "lib/config.sh"
       local enable_https=$(read_env_config "ENABLE_HTTPS" "true")
-      if [ "$enable_https" = "true" ]; then
-        profile_args=(--profile https)
-      fi
-    elif [ "$ENABLE_HTTPS" = "true" ] || [ "$ENABLE_HTTPS" = true ]; then
+      local enable_mysql=$(read_env_config "ENABLE_MYSQL" "true")
+      local enable_redis=$(read_env_config "ENABLE_REDIS" "true")
+      
+      [ "$enable_https" = "true" ] && profile_args+=(--profile https)
+      [ "$enable_mysql" = "true" ] && profile_args+=(--profile mysql)
+      [ "$enable_redis" = "true" ] && profile_args+=(--profile redis)
+    else
       # 回退方案：使用全局变量
-      profile_args=(--profile https)
+      [ "$ENABLE_HTTPS" = "true" ] || [ "$ENABLE_HTTPS" = true ] && profile_args+=(--profile https)
+      [ "$ENABLE_MYSQL" = "true" ] || [ "$ENABLE_MYSQL" = true ] && profile_args+=(--profile mysql)
+      [ "$ENABLE_REDIS" = "true" ] || [ "$ENABLE_REDIS" = true ] && profile_args+=(--profile redis)
     fi
 
     # shellcheck disable=SC2068

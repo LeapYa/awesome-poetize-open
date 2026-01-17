@@ -6717,28 +6717,36 @@ replace_db_passwords() {
     save_db_file
   fi
   
-  # 替换docker-compose.yml中的默认密码
-  sed_i "s/MARIADB_ROOT_PASSWORD=root123/MARIADB_ROOT_PASSWORD=${ROOT_PASSWORD}/g" docker-compose.yml
-  sed_i "s/MARIADB_PASSWORD=poetize123/MARIADB_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
-  
-  # 同时更新Java服务的数据库连接密码
-  sed_i "s/SPRING_DATASOURCE_PASSWORD=poetize123/SPRING_DATASOURCE_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
-  
-  # 更新Python服务的数据库连接密码
-  sed_i "s/DB_PASSWORD=poetize123/DB_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
-  sed_i "s/MYSQL_PASSWORD=poetize123/MYSQL_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
-  sed_i "s/DATABASE_PASSWORD=poetize123/DATABASE_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
-  sed_i "s/MARIADB_USER_PASSWORD=poetize123/MARIADB_USER_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
-  
-  # 替换healthcheck部分中的默认密码
-  sed_i "s|mariadb-admin ping -h localhost -u poetize -ppoetize123|mariadb-admin ping -h localhost -u poetize -p${USER_PASSWORD}|g" docker-compose.yml
-  sed_i "s|mariadb -h localhost -u poetize -ppoetize123|mariadb -h localhost -u poetize -p${USER_PASSWORD}|g" docker-compose.yml
+  # 新版本：只更新 .env 文件（docker-compose.yml 使用 ${DB_PASSWORD} 变量）
+  if [ -f "lib/config.sh" ]; then
+    update_env_var "DB_PASSWORD" "$USER_PASSWORD"
+    update_env_var "DB_ROOT_PASSWORD" "$ROOT_PASSWORD"
+  else
+    # 旧版本：使用 sed 替换 docker-compose.yml 中的默认密码
+    sed_i "s/MARIADB_ROOT_PASSWORD=root123/MARIADB_ROOT_PASSWORD=${ROOT_PASSWORD}/g" docker-compose.yml
+    sed_i "s/MARIADB_PASSWORD=poetize123/MARIADB_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
+    
+    # 同时更新Java服务的数据库连接密码
+    sed_i "s/SPRING_DATASOURCE_PASSWORD=poetize123/SPRING_DATASOURCE_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
+    
+    # 更新Python服务的数据库连接密码
+    sed_i "s/DB_PASSWORD=poetize123/DB_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
+    sed_i "s/MYSQL_PASSWORD=poetize123/MYSQL_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
+    sed_i "s/DATABASE_PASSWORD=poetize123/DATABASE_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
+    sed_i "s/MARIADB_USER_PASSWORD=poetize123/MARIADB_USER_PASSWORD=${USER_PASSWORD}/g" docker-compose.yml
+    
+    # 替换healthcheck部分中的默认密码
+    sed_i "s|mariadb-admin ping -h localhost -u poetize -ppoetize123|mariadb-admin ping -h localhost -u poetize -p${USER_PASSWORD}|g" docker-compose.yml
+    sed_i "s|mariadb -h localhost -u poetize -ppoetize123|mariadb -h localhost -u poetize -p${USER_PASSWORD}|g" docker-compose.yml
+  fi
   
   # 设置安全权限
   chmod 600 .config/db_credentials.txt
 
   success "数据库密码已成功更新为随机强密码"
 }
+
+
 
 # 替换默认Redis密码为随机强密码
 replace_redis_password() {
@@ -6747,33 +6755,51 @@ replace_redis_password() {
   # 生成随机密码
   REDIS_PASSWORD=$(generate_secure_password 16 'a-zA-Z0-9!@#%^_+')
   
-  # 替换docker-compose.yml中的默认密码
-  sed_i "s/poetize_redis_2025/${REDIS_PASSWORD}/g" docker-compose.yml
+  # 新版本：只更新 .env 文件
+  if [ -f "lib/config.sh" ]; then
+    update_env_var "REDIS_PASSWORD" "$REDIS_PASSWORD"
+  else
+    # 旧版本：使用 sed 替换 docker-compose.yml 中的默认密码
+    sed_i "s/poetize_redis_2025/${REDIS_PASSWORD}/g" docker-compose.yml
+  fi
   
   success "Redis密码已成功更新为随机强密码"
-
 }
 
 # 生成随机安全的Token密钥
 generate_token_secret_key() {
   local TOKEN_SECRET_KEY=$(generate_secure_password 32 'a-zA-Z0-9!@#%^_+')
   info "生成的Token密钥: $TOKEN_SECRET_KEY"
-  sed_i "s/TOKEN_SECRET_KEY=.*/TOKEN_SECRET_KEY=${TOKEN_SECRET_KEY}/g" docker-compose.yml
+  
+  # 新版本：只更新 .env 文件
+  if [ -f "lib/config.sh" ]; then
+    update_env_var "TOKEN_SECRET_KEY" "$TOKEN_SECRET_KEY"
+  else
+    # 旧版本：使用 sed 替换 docker-compose.yml
+    sed_i "s/TOKEN_SECRET_KEY=.*/TOKEN_SECRET_KEY=${TOKEN_SECRET_KEY}/g" docker-compose.yml
+  fi
+  
   success "Token密钥已成功更新为随机强密码"
 }
 
-# 替换docker-compose.yml中的AES密钥函数
+# 替换AES密钥函数
 replace_docker_compose_aes_key() {
   # 生成随机AES密钥
   local AES_KEY=$(generate_secure_password 16 'a-zA-Z0-9!@#%^_+')
   info "生成的AES密钥: $AES_KEY"
 
-  # 替换docker-compose.yml中的AES密钥
-  sed_i "s|VUE_APP_POETIZE_AES_KEY=.*|VUE_APP_POETIZE_AES_KEY=$AES_KEY|g" docker-compose.yml
-  sed_i "s|POETIZE_AES_KEY=.*|POETIZE_AES_KEY=$AES_KEY|g" docker-compose.yml
+  # 新版本：只更新 .env 文件
+  if [ -f "lib/config.sh" ]; then
+    update_env_var "POETIZE_AES_KEY" "$AES_KEY"
+  else
+    # 旧版本：使用 sed 替换 docker-compose.yml
+    sed_i "s|VUE_APP_POETIZE_AES_KEY=.*|VUE_APP_POETIZE_AES_KEY=$AES_KEY|g" docker-compose.yml
+    sed_i "s|POETIZE_AES_KEY=.*|POETIZE_AES_KEY=$AES_KEY|g" docker-compose.yml
+  fi
 
-  success "docker-compose.yml中的AES密钥已成功替换"
+  success "AES密钥已成功替换"
 }
+
 
 # 检查和修复MySQL配置文件权限
 fix_mysql_config_permissions() {

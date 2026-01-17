@@ -125,11 +125,6 @@ services:
       # Java服务主机名和端口
       - JAVA_BACKEND_HOST=poetize-java
       - JAVA_BACKEND_PORT=8081
-      # 前端域名，用于第三方登录的重定向请求
-      - FRONTEND_HOST=${FRONTEND_HOST:-localhost}
-      - FRONTEND_PROTOCOL=${FRONTEND_PROTOCOL:-http}
-      - NGINX_URL=http://nginx/flush_seo_cache
-      - PRERENDER_URL=http://poetize-prerender:4000
       - DOCKER_SUBNET=${DOCKER_SUBNET:-172.28.147.0/28}
       # Redis配置
       - REDIS_HOST=${REDIS_HOST:-redis}
@@ -206,7 +201,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
       # Java配置
-      - JAVA_OPTS=${JAVA_OPTS:--Xmx768m -Xms512m -XX:MaxMetaspaceSize=192m -XX:CompressedClassSpaceSize=128m -Xss512k -XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+ExitOnOutOfMemoryError -XX:MaxRAMPercentage=75.0 -XX:+DisableExplicitGC}
+      - JAVA_OPTS="${JAVA_OPTS:--Xmx768m -Xms512m -XX:MaxMetaspaceSize=192m -XX:CompressedClassSpaceSize=128m -Xss512k -XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+ExitOnOutOfMemoryError -XX:MaxRAMPercentage=75.0 -XX:+DisableExplicitGC}"
       # 数据库配置
       - SPRING_DATASOURCE_URL=jdbc:${DB_TYPE:-mariadb}://${DB_HOST:-mysql}:${DB_PORT:-3306}/${DB_NAME:-poetize}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       - SPRING_DATASOURCE_USERNAME=${DB_USER:-poetize}
@@ -318,7 +313,7 @@ services:
         ipv4_address: ${IP_MYSQL:-172.28.147.8}
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "mariadb-admin ping -h localhost -u poetize -ppoetize123 && echo 'SHOW ENGINES' | mariadb -h localhost -u poetize -ppoetize123 | grep -q 'ROCKSDB'"]
+      test: ["CMD-SHELL", "mariadb-admin ping -h localhost -u poetize -p${DB_PASSWORD:-poetize123} && echo 'SHOW ENGINES' | mariadb -h localhost -u poetize -p${DB_PASSWORD:-poetize123} | grep -q 'ROCKSDB'"]
       interval: 10s
       timeout: 5s
       retries: 10

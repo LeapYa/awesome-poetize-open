@@ -110,7 +110,7 @@ get_env_var() {
     local var_name="$1"
     
     if [ -f "$ENV_FILE" ]; then
-        grep "^${var_name}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-
+        grep "^${var_name}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '\r'
     fi
 }
 
@@ -122,7 +122,7 @@ read_env_config() {
     local default_value="$2"
     
     if [ -f "$ENV_FILE" ]; then
-        local value=$(grep "^${var_name}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
+        local value=$(grep "^${var_name}=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '\r')
         if [ -n "$value" ]; then
             echo "$value"
             return 0
@@ -301,14 +301,12 @@ apply_cli_args_to_env() {
     # 域名配置
     if [ -n "$PRIMARY_DOMAIN" ]; then
         update_env_var "PRIMARY_DOMAIN" "$PRIMARY_DOMAIN"
-        update_env_var "FRONTEND_HOST" "$PRIMARY_DOMAIN"
         
         # 自动生成 SITE_URL
         local protocol="http"
         local enable_https=$(read_env_config "ENABLE_HTTPS" "true")
         [ "$enable_https" = "true" ] && protocol="https"
         update_env_var "SITE_URL" "${protocol}://${PRIMARY_DOMAIN}"
-        update_env_var "FRONTEND_PROTOCOL" "$protocol"
     fi
     
     # 数据库配置

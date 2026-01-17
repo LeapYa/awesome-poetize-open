@@ -4684,13 +4684,11 @@ init_deploy() {
     if [ -f "lib/config.sh" ]; then
       source "lib/config.sh"
       update_env_var "PRIMARY_DOMAIN" "$PRIMARY_DOMAIN"
-      update_env_var "FRONTEND_HOST" "$PRIMARY_DOMAIN"
       # 根据 HTTPS 状态设置协议和 SITE_URL
       local protocol="http"
       if [ "$ENABLE_HTTPS" = "true" ]; then
         protocol="https"
       fi
-      update_env_var "FRONTEND_PROTOCOL" "$protocol"
       update_env_var "SITE_URL" "${protocol}://${PRIMARY_DOMAIN}"
       success "已更新域名配置 (通过 .env)"
     else
@@ -6309,13 +6307,20 @@ EOF
   # 添加容器化优化参数，提高在Docker环境中的性能和稳定性
   local JAVA_OPTS="-Xmx$JAVA_XMX -Xms$JAVA_XMS -XX:MaxMetaspaceSize=$JAVA_METASPACE -XX:CompressedClassSpaceSize=$JAVA_CLASS_SPACE -Xss$JAVA_XSS -XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+ExitOnOutOfMemoryError -XX:MaxRAMPercentage=75.0 -XX:+DisableExplicitGC"
   
-  # 直接替换已存在的JAVA_OPTS行
-  if grep -q "JAVA_OPTS=" docker-compose.yml; then
-    info "找到现有的JAVA_OPTS配置，进行替换..."
-    sed_i "s|JAVA_OPTS=.*|JAVA_OPTS=$JAVA_OPTS|g" docker-compose.yml
-    success "更新Java服务JVM内存参数完成"
+  if [ -f "lib/config.sh" ]; then
+    # 新版本：更新 .env 文件
+    source "lib/config.sh"
+    update_env_var "JAVA_OPTS" "$JAVA_OPTS"
+    success "更新Java服务JVM内存参数完成 (通过 .env)"
   else
-    warning "未找到现有的JAVA_OPTS配置，跳过JVM参数优化"
+    # 旧版本：直接修改 docker-compose.yml
+    if grep -q "JAVA_OPTS=" docker-compose.yml; then
+      info "找到现有的JAVA_OPTS配置，进行替换..."
+      sed_i "s|JAVA_OPTS=.*|JAVA_OPTS=$JAVA_OPTS|g" docker-compose.yml
+      success "更新Java服务JVM内存参数完成"
+    else
+      warning "未找到现有的JAVA_OPTS配置，跳过JVM参数优化"
+    fi
   fi
   
   # 4. 添加/更新Druid连接池环境变量
@@ -9029,7 +9034,7 @@ main() {
   
   # 从模板恢复 nginx 配置文件（确保可重复修改）
   if [ -f "docker/nginx/default.conf.template" ]; then
-    cp "docker/nginx/default.template" "docker/nginx/default.conf"
+    cp "docker/nginx/default.conf.template" "docker/nginx/default.conf"
     info "已从模板恢复 default.conf"
   fi
   if [ -f "docker/nginx/default.http.conf.template" ]; then

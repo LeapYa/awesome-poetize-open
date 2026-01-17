@@ -201,7 +201,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
       # Java配置
-      - JAVA_OPTS="${JAVA_OPTS:--Xmx768m -Xms512m -XX:MaxMetaspaceSize=192m -XX:CompressedClassSpaceSize=128m -Xss512k -XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+ExitOnOutOfMemoryError -XX:MaxRAMPercentage=75.0 -XX:+DisableExplicitGC}"
+      - JAVA_OPTS=${JAVA_OPTS}
       # 数据库配置
       - SPRING_DATASOURCE_URL=jdbc:${DB_TYPE:-mariadb}://${DB_HOST:-mysql}:${DB_PORT:-3306}/${DB_NAME:-poetize}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       - SPRING_DATASOURCE_USERNAME=${DB_USER:-poetize}

@@ -24,8 +24,8 @@
     </div>
     <!-- 聊天记录 -->
     <div class="msg-container">
-        <template v-if="!$common.isEmpty(currentChatFriendId)">
-          <template v-for="(item, index) in imMessages[currentChatFriendId]" :key="index">
+        <template v-if="!$common.isEmpty(currentChatFriendId) && imMessages && imMessages[currentChatFriendId]">
+          <template v-for="(item, index) in imMessages[currentChatFriendId]" :key="item.id || `msg-${index}`">
             <!-- 系统消息 -->
             <div v-if="item.fromId === -1" class="system-msg-wrap">
               <span class="system-msg">{{item.content}}</span>
@@ -51,8 +51,8 @@
             </div>
           </template>
         </template>
-        <template v-else-if="!$common.isEmpty(currentChatGroupId)">
-          <template v-for="(item, index) in groupMessages[currentChatGroupId]" :key="index">
+        <template v-else-if="!$common.isEmpty(currentChatGroupId) && groupMessages && groupMessages[currentChatGroupId]">
+          <template v-for="(item, index) in groupMessages[currentChatGroupId]" :key="item.id || `msg-${index}`">
             <!-- 系统消息 -->
             <div v-if="item.fromId === -1" class="system-msg-wrap">
               <span class="system-msg">{{item.content}}</span>

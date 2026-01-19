@@ -662,15 +662,10 @@ server {
         try_files $uri =404;
     }
     
-    # 聊天室页面 - 现在由主站SPA处理
-    location = /im {
-        # 内部重写到主站index.html，由Vue Router处理
+    # 聊天室页面 - SPA路由处理（使用^~优先匹配，跳过Lua SEO处理）
+    location ^~ /im {
         root /usr/share/nginx/html/poetize;
-        try_files /index.html =404;
-    }
-    
-    location /im/ {
-        root /usr/share/nginx/html/poetize;
+        index index.html;
         try_files $uri $uri/ /index.html;
     }
 

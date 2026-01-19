@@ -108,7 +108,8 @@
       </div>
     </div>
     <!-- 群设置 -->
-    <teleport to=".friend-box">
+    <!-- 使用v-if确保.friend-box存在时才渲染teleport，避免insertBefore错误 -->
+    <teleport to=".friend-box" v-if="groups && groups[currentGroupId]">
       <el-drawer class="group-card"
                 v-model="activeGroupSet"
                 size="300px"

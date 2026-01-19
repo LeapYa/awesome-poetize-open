@@ -151,7 +151,7 @@
                 <div>系统消息</div>
               </div>
             </div>
-            <div style="overflow-y: scroll;height: calc(100% - 70px)">
+            <div style="overflow-y: auto;height: calc(100% - 70px)">
               <!-- 群聊天 -->
               <div class="im-user im-group-current"
                    v-for="(item, index) in groupChats"
@@ -245,7 +245,7 @@
               </el-divider>
             </div>
             <!-- 好友列表 -->
-            <div style="overflow-y: scroll;height: calc(100% - 140px)">
+            <div style="overflow-y: auto;height: calc(100% - 140px)">
               <div class="im-user"
                    v-for="(item, index) in Object.values(friends).reverse()"
                    :key="index"
@@ -309,7 +309,7 @@
             </div>
             <span style="line-height: 60px;margin-left: 20px;font-size: 18px">系统消息</span>
           </div>
-          <div style="background: var(--midWhite);overflow-y: scroll;height: calc(100% - 60px);">
+          <div style="background: var(--midWhite);overflow-y: auto;height: calc(100% - 60px);">
             <template v-if="!$common.isEmpty(systemMessages)">
               <div class="msg-one"
                    v-for="(item, index) in systemMessages"
@@ -2116,7 +2116,7 @@
   }
   .friend-request {
     background: var(--midWhite);
-    overflow-y: scroll;
+    overflow-y: auto;
     height: calc(100% - 60px);
   }
   .request-status {
@@ -2185,7 +2185,7 @@
   .treeHole-wrap {
     width: 800px;
     height: calc(100vh - 100px);
-    overflow-y: scroll;
+    overflow-y: auto;
   }
   .treeHole-wrap::-webkit-scrollbar-thumb {
     background-color: var(--lowGray);

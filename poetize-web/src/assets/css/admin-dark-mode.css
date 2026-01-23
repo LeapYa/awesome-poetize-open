@@ -1014,7 +1014,7 @@ body.dark-mode .el-loading-spinner .el-loading-text {
 /* ========== 友人帐页面暗色模式 ========== */
 /* 友人帐主容器 */
 body.dark-mode .friend-main {
-  background: rgba(45, 45, 45, 0.85) !important;
+  background-color: #2d2d2dd9 !important;
   color: #e0e0e0 !important;
 }
 

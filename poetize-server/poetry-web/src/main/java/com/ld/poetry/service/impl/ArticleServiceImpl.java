@@ -491,10 +491,13 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         
         log.info("使用订阅邮件模板: {}", subscribeTemplate); // 添加日志记录使用的模板
         
+        User adminUser = PoetryUtil.getAdminUser();
+        String adminUsername = adminUser != null ? adminUser.getUsername() : "站长";
+        
         return String.format(mailUtil.getMailText(),
                 webName,
-                String.format(MailUtil.notificationMail, PoetryUtil.getAdminUser().getUsername()),
-                PoetryUtil.getAdminUser().getUsername(),
+                String.format(MailUtil.notificationMail, adminUsername),
+                adminUsername,
                 String.format(subscribeTemplate, labelName, articleTitle),
                 "",
                 webName);

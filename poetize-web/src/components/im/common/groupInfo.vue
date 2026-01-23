@@ -396,6 +396,10 @@
     padding: 0px;
     position: relative; /* Ensure pseudo-element positioning context */
   }
+
+  .group-card .el-tabs__item {
+    color: var(--white) !important;
+  }
   
   /* 隐藏原生的 active-bar */
   .group-card .el-tabs__active-bar {

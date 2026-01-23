@@ -20,6 +20,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.annotation.PostConstruct;
 import java.util.List;
 
+import com.ld.poetry.dao.UserMapper;
+import com.ld.poetry.enums.PoetryEnum;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+
 @Component
 @Slf4j
 public class PoetryUtil {
@@ -30,13 +34,18 @@ public class PoetryUtil {
     @Autowired
     private CacheService cacheService;
 
+    @Autowired
+    private UserMapper userMapper;
+
     private static UserCacheManager staticUserCacheManager;
     private static CacheService staticCacheService;
+    private static UserMapper staticUserMapper;
 
     @PostConstruct
     public void init() {
         staticUserCacheManager = userCacheManager;
         staticCacheService = cacheService;
+        staticUserMapper = userMapper;
     }
 
     public static HttpServletRequest getRequest() {
@@ -205,7 +214,26 @@ public class PoetryUtil {
             }
         }
 
-        // 如果Redis缓存也没有，返回null
+        // 如果Redis缓存没有，从数据库回退查询
+        if (staticUserMapper != null) {
+            try {
+                LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<>();
+                queryWrapper.eq(User::getUserType, PoetryEnum.USER_TYPE_ADMIN.getCode());
+                User admin = staticUserMapper.selectOne(queryWrapper);
+                if (admin != null) {
+                    // 重新缓存到Redis
+                    if (staticCacheService != null) {
+                        staticCacheService.cacheAdminUser(admin);
+                        log.info("管理员用户从数据库重新加载并缓存: {}", admin.getId());
+                    }
+                    return admin;
+                }
+            } catch (Exception e) {
+                log.error("从数据库查询管理员用户失败", e);
+            }
+        }
+
+        log.warn("无法获取管理员用户信息，Redis缓存和数据库查询均失败");
         return null;
     }
 

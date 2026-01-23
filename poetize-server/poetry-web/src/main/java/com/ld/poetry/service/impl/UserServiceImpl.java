@@ -591,18 +591,29 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         imChatGroupUser.setUserStatus(ImConfigConst.GROUP_USER_STATUS_PASS);
         imChatGroupUserMapper.insert(imChatGroupUser);
 
-        ImChatUserFriend imChatUser = new ImChatUserFriend();
-        imChatUser.setUserId(one.getId());
-        imChatUser.setFriendId(PoetryUtil.getAdminUser().getId());
-        imChatUser.setRemark("站长");
-        imChatUser.setFriendStatus(ImConfigConst.FRIEND_STATUS_PASS);
-        imChatUserFriendMapper.insert(imChatUser);
+        // 添加与站长的好友关系（双向）
+        User adminUser = PoetryUtil.getAdminUser();
+        if (adminUser != null && adminUser.getId() != null) {
+            // 新用户添加站长为好友
+            ImChatUserFriend imChatUser = new ImChatUserFriend();
+            imChatUser.setUserId(one.getId());
+            imChatUser.setFriendId(adminUser.getId());
+            imChatUser.setRemark("站长");
+            imChatUser.setFriendStatus(ImConfigConst.FRIEND_STATUS_PASS);
+            imChatUserFriendMapper.insert(imChatUser);
 
-        ImChatUserFriend imChatFriend = new ImChatUserFriend();
-        imChatFriend.setUserId(PoetryUtil.getAdminUser().getId());
-        imChatFriend.setFriendId(one.getId());
-        imChatFriend.setFriendStatus(ImConfigConst.FRIEND_STATUS_PASS);
-        imChatUserFriendMapper.insert(imChatFriend);
+            // 站长添加新用户为好友
+            ImChatUserFriend imChatFriend = new ImChatUserFriend();
+            imChatFriend.setUserId(adminUser.getId());
+            imChatFriend.setFriendId(one.getId());
+            imChatFriend.setRemark(one.getUsername()); // 使用新用户的用户名作为备注
+            imChatFriend.setFriendStatus(ImConfigConst.FRIEND_STATUS_PASS);
+            imChatUserFriendMapper.insert(imChatFriend);
+            
+            log.info("新用户 {} 与站长 {} 互相添加好友成功", one.getId(), adminUser.getId());
+        } else {
+            log.warn("无法获取站长用户信息，新用户 {} 未能自动添加站长为好友", one.getId());
+        }
 
         return PoetryResult.success(userVO);
     }
@@ -1256,12 +1267,45 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
             save(newUser);
 
+            // 添加默认群聊成员
             ImChatGroupUser imChatGroupUser = new ImChatGroupUser();
             imChatGroupUser.setGroupId(ImConfigConst.DEFAULT_GROUP_ID);
             imChatGroupUser.setUserId(newUser.getId());
             imChatGroupUser.setAdminFlag(false);
             imChatGroupUser.setUserStatus(ImConfigConst.GROUP_USER_STATUS_PASS);
             imChatGroupUserMapper.insert(imChatGroupUser);
+
+            // 添加与站长的好友关系（双向）
+            User adminUser = PoetryUtil.getAdminUser();
+            if (adminUser != null && adminUser.getId() != null) {
+                // 新用户添加站长为好友
+                ImChatUserFriend imChatUser = new ImChatUserFriend();
+                imChatUser.setUserId(newUser.getId());
+                imChatUser.setFriendId(adminUser.getId());
+                imChatUser.setRemark("站长");
+                imChatUser.setFriendStatus(ImConfigConst.FRIEND_STATUS_PASS);
+                imChatUserFriendMapper.insert(imChatUser);
+
+                // 站长添加新用户为好友
+                ImChatUserFriend imChatFriend = new ImChatUserFriend();
+                imChatFriend.setUserId(adminUser.getId());
+                imChatFriend.setFriendId(newUser.getId());
+                imChatFriend.setRemark(newUser.getUsername()); // 使用新用户的用户名作为备注
+                imChatFriend.setFriendStatus(ImConfigConst.FRIEND_STATUS_PASS);
+                imChatUserFriendMapper.insert(imChatFriend);
+                
+                log.info("第三方登录新用户 {} 与站长 {} 互相添加好友成功", newUser.getId(), adminUser.getId());
+            } else {
+                log.warn("无法获取站长用户信息，第三方登录新用户 {} 未能自动添加站长为好友", newUser.getId());
+            }
+
+            // 添加默认随笔"到此一游"
+            WeiYan weiYan = new WeiYan();
+            weiYan.setUserId(newUser.getId());
+            weiYan.setContent("到此一游");
+            weiYan.setType(CommonConst.WEIYAN_TYPE_FRIEND);
+            weiYan.setIsPublic(Boolean.TRUE);
+            weiYanService.save(weiYan);
 
             existUser = newUser;
             log.info("第三方账号注册成功 - 平台: {}, 用户ID: {}", provider, newUser.getId());

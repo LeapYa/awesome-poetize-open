@@ -18,7 +18,7 @@ import java.util.concurrent.Executor;
  * Java 21 虚拟线程配置
  * 
  * @author LeapYa
- * @since 3.0-LeapYa
+ * @since 2026-01-17
  */
 @Configuration
 @EnableAsync

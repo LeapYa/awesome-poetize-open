@@ -35,6 +35,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.beans.factory.annotation.Qualifier;
+import java.util.concurrent.Executor;
+
 /**
  * <p>
  * 外部API接口控制器
@@ -64,6 +67,8 @@ public class ApiController {
 
     private final WebInfoService webInfoService;
 
+    private final Executor asyncExecutor;
+
     public ApiController(ArticleService articleService,
                         LabelMapper labelMapper,
                         SortMapper sortMapper,
@@ -72,7 +77,8 @@ public class ApiController {
                         SeoService seoService,
                         TranslationService translationService,
                         CacheService cacheService,
-                        WebInfoService webInfoService) {
+                        WebInfoService webInfoService,
+                        @Qualifier("asyncExecutor") Executor asyncExecutor) {
         this.articleService = articleService;
         this.labelMapper = labelMapper;
         this.sortMapper = sortMapper;
@@ -82,6 +88,7 @@ public class ApiController {
         this.translationService = translationService;
         this.cacheService = cacheService;
         this.webInfoService = webInfoService;
+        this.asyncExecutor = asyncExecutor;
     }
 
     /**
@@ -264,16 +271,16 @@ public class ApiController {
                     articleId = null;
                 }
                 
-                // 异步执行翻译，避免阻塞API响应
+                // 异步执行翻译，避免阻塞API响应（使用虚拟线程池）
                 if (articleId != null) {
-                    new Thread(() -> {
+                    asyncExecutor.execute(() -> {
                         try {
                             log.info("API创建文章成功，开始生成翻译，文章ID: {}", articleId);
                             translationService.translateAndSaveArticle(articleId);
                         } catch (Exception e) {
                             log.error("API创建文章后自动翻译失败", e);
                         }
-                    }).start();
+                    });
                 }
             }
             

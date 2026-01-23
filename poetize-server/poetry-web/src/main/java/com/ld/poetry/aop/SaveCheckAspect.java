@@ -32,7 +32,8 @@ public class SaveCheckAspect {
             User user = PoetryUtil.getCurrentUser();
             if (user != null) {
                 // 管理员用户不受保存频率限制
-                if (user.getId().intValue() == PoetryUtil.getAdminUser().getId().intValue()) {
+                User adminUser = PoetryUtil.getAdminUser();
+                if (adminUser != null && user.getId().intValue() == adminUser.getId().intValue()) {
                     return joinPoint.proceed();
                 }
 

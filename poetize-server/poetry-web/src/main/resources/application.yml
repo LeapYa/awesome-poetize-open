@@ -49,6 +49,14 @@ spring:
       pool:
         virtual-threads: true
   
+  freemarker:
+    template-loader-path: classpath:/templates/
+    suffix: .ftl
+    charset: UTF-8
+    cache: false
+    settings:
+      template_update_delay: 0
+
   servlet:
     multipart:
       max-file-size: 100MB

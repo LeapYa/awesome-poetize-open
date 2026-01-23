@@ -28,13 +28,15 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import com.ld.poetry.service.impl.ArticleServiceImpl;
 import com.ld.poetry.utils.PrerenderClient;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.web.client.RestTemplate;
 import com.ld.poetry.event.ArticleSavedEvent;
 import org.springframework.context.ApplicationEventPublisher;
+import com.ld.poetry.service.MailTemplateService;
 import com.ld.poetry.service.QRCodeService;
+import org.springframework.beans.factory.annotation.Qualifier;
+import java.util.concurrent.Executor;
+import java.util.concurrent.CompletableFuture;
+
 /**
  * <p>
  * 文章表 前端控制器
@@ -42,6 +44,7 @@ import com.ld.poetry.service.QRCodeService;
  *
  * @author sara
  * @since 2021-08-13
+ * @version 2026-01-17 优化线程模型，适配Java 25虚拟线程
  */
 @RestController
 @RequestMapping("/article")
@@ -77,6 +80,17 @@ public class ArticleController {
     
     @Autowired
     private QRCodeService qrCodeService;
+
+    @Autowired
+    private MailTemplateService mailTemplateService;
+
+    @Autowired
+    @Qualifier("cpuIntensiveExecutor")
+    private Executor cpuIntensiveExecutor;
+
+    @Autowired
+    @Qualifier("asyncExecutor")
+    private Executor asyncExecutor;
 
     /**
      * 保存文章（同步版本）
@@ -340,7 +354,7 @@ public class ArticleController {
             final Integer articleId = articleVO.getId();
             
             // 清除旧的二维码缓存并异步预生成新的二维码
-            new Thread(() -> {
+            cpuIntensiveExecutor.execute(() -> {
                 try {
                     // 先清除旧缓存
                     qrCodeService.evictArticleQRCode(articleId);
@@ -349,12 +363,12 @@ public class ArticleController {
                 } catch (Exception e) {
                     log.warn("二维码更新失败（不影响更新），文章ID: {}: {}", articleId, e.getMessage());
                 }
-            }).start();
+            });
             
             // 如果需要推送至搜索引擎且文章可见，异步处理
             if (Boolean.TRUE.equals(articleVO.getSubmitToSearchEngine()) && Boolean.TRUE.equals(articleVO.getViewStatus())) {
                 // 异步执行SEO推送，避免阻塞用户操作
-                new Thread(() -> {
+                asyncExecutor.execute(() -> {
                     try {
                         Map<String, Object> seoResult = seoService.submitToSearchEngines(articleId);
                         String status = (String) seoResult.get("status");
@@ -363,7 +377,7 @@ public class ArticleController {
                     } catch (Exception e) {
                         log.error("搜索引擎推送失败，但不影响文章更新，文章ID: " + articleId, e);
                     }
-                }).start();
+                });
             }
         }
         
@@ -579,74 +593,12 @@ public class ArticleController {
                 return PoetryResult.success("已接收SEO推送结果，但无法发送通知");
             }
             
-            // 4. 构建HTML邮件内容
-            StringBuilder emailContent = new StringBuilder();
-            emailContent.append("<html><head><style>");
-            emailContent.append("body{font-family:Arial,sans-serif;line-height:1.6;color:#333;}");
-            emailContent.append("h2{color:#006699;}");
-            emailContent.append("table{border-collapse:collapse;width:100%;margin:20px 0;}");
-            emailContent.append("th,td{border:1px solid #ddd;padding:8px;text-align:left;}");
-            emailContent.append("th{background-color:#f2f2f2;}");
-            emailContent.append(".success{color:green;font-weight:bold;}");
-            emailContent.append(".failure{color:red;}");
-            emailContent.append("</style></head><body>");
-            
-            emailContent.append("<h2>搜索引擎推送结果通知</h2>");
-            emailContent.append("<p>您的文章 <strong>\"").append(title).append("\"</strong> 已提交到搜索引擎。</p>");
-            emailContent.append("<p>文章链接: <a href=\"").append(url).append("\">").append(url).append("</a></p>");
-            emailContent.append("<p>推送时间: ").append(timestamp).append("</p>");
-            
-            emailContent.append("<h3>推送结果详情:</h3>");
-            emailContent.append("<table><tr><th>搜索引擎</th><th>状态</th><th>详情</th></tr>");
-            
-            // 添加各搜索引擎结果
-            if (results.isEmpty()) {
-                emailContent.append("<tr><td colspan=\"3\">无推送结果数据</td></tr>");
-            } else {
-                for (Map.Entry<String, Object> entry : results.entrySet()) {
-                    String engine = entry.getKey();
-                    String engineName = getSearchEngineName(engine);
-                    
-                    if (entry.getValue() instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> resultDetails = (Map<String, Object>) entry.getValue();
-                        boolean engineSuccess = resultDetails.containsKey("success") && 
-                            Boolean.parseBoolean(resultDetails.get("success").toString());
-                        
-                        String statusClass = engineSuccess ? "success" : "failure";
-                        String status = engineSuccess ? "成功" : "失败";
-                        
-                        String detail = "";
-                        if (resultDetails.containsKey("result")) {
-                            detail = resultDetails.get("result").toString();
-                        } else if (resultDetails.containsKey("message")) {
-                            detail = resultDetails.get("message").toString();
-                        }
-                        
-                        emailContent.append("<tr>");
-                        emailContent.append("<td>").append(engineName).append("</td>");
-                        emailContent.append("<td class=\"").append(statusClass).append("\">").append(status).append("</td>");
-                        emailContent.append("<td>").append(detail).append("</td>");
-                        emailContent.append("</tr>");
-                    }
-                }
-            }
-            
-            emailContent.append("</table>");
-            
-            // 添加推送总结
-            if (success) {
-                emailContent.append("<p class=\"success\">推送总结: 至少有一个搜索引擎推送成功。</p>");
-            } else {
-                emailContent.append("<p class=\"failure\">推送总结: 所有搜索引擎推送均失败。</p>");
-            }
-            
-            emailContent.append("<p>此邮件由系统自动发送，请勿回复。</p>");
-            emailContent.append("</body></html>");
+            // 4. 使用模板服务生成邮件内容
+            String emailContent = mailTemplateService.generateSeoNotificationEmail(title, url, success, timestamp, results);
             
             // 5. 发送邮件通知
             String subject = (success ? "SEO推送成功: " : "SEO推送失败: ") + title;
-            boolean mailSent = mailService.sendMail(recipients, subject, emailContent.toString(), true, null);
+            boolean mailSent = mailService.sendMail(recipients, subject, emailContent, true, null);
             
             if (mailSent) {
                 log.info("SEO推送结果通知邮件发送成功，收件人: {}", recipients);
@@ -661,32 +613,6 @@ public class ArticleController {
         }
     }
     
-    /**
-     * 根据搜索引擎代码获取显示名称
-     */
-    private String getSearchEngineName(String engine) {
-        String engineLower = engine.toLowerCase();
-        if ("baidu".equals(engineLower)) {
-            return "百度搜索";
-        } else if ("google".equals(engineLower)) {
-            return "谷歌搜索";
-        } else if ("bing".equals(engineLower)) {
-            return "必应搜索";
-        } else if ("yandex".equals(engineLower)) {
-            return "Yandex搜索";
-        } else if ("sogou".equals(engineLower)) {
-            return "搜狗搜索";
-        } else if ("so".equals(engineLower)) {
-            return "360搜索";
-        } else if ("shenma".equals(engineLower)) {
-            return "神马搜索";
-        } else if ("yahoo".equals(engineLower)) {
-            return "雅虎搜索";
-        } else {
-            return engine;
-        }
-    }
-
     /**
      * 手动保存文章翻译
      */

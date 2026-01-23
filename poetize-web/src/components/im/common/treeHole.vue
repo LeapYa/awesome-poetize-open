@@ -81,6 +81,9 @@
         </div>
       </li>
     </ol>
+    <div class="tree-hole-go" v-if="showLaunchButton">
+      <i class="fa fa-paper-plane" @click="launch()"></i>
+    </div>
   </div>
 </template>
 
@@ -95,6 +98,10 @@ export default {
     },
     avatar: {
       type: String,
+    },
+    showLaunchButton: {
+      type: Boolean,
+      default: true, // 默认显示，主站weiYan页面使用
     },
   },
   data() {
@@ -257,6 +264,19 @@ export default {
 .tree-hole-delete {
   font-size: 14px;
   cursor: pointer;
+}
+.tree-hole-go {
+  color: var(--blue);
+  font-weight: 700;
+  font-size: 25px;
+  margin: 20px auto;
+  text-align: center;
+}
+.tree-hole-go i {
+  cursor: pointer;
+}
+.tree-hole-go i:hover {
+  animation: scale 1s linear infinite;
 }
 @media screen and (max-width: 1000px) {
   .tree-hole-box {

@@ -161,7 +161,7 @@
           </svg>
         </div>
         <!-- 表情包 -->
-        <el-popover v-model:visible="showPopoverImage" placement="top-start" trigger="click" :width="420">
+        <el-popover v-model:visible="showPopoverImage" placement="top-start" trigger="click" :width="420" popper-class="im-emoji-popover">
           <template #reference>
             <div class="myEmoji">
               <svg viewBox="0 0 1024 1024" width="25" height="25">
@@ -181,15 +181,18 @@
             </div>
           </template>
           <div id="image-scroll-container" class="image-list">
-            <el-image
-              v-for="(item, index) in imageList"
-              :src="item"
-              @click="sendImage(item)"
-              :key="index"
-              style="width: 70px; height: 70px;"
-              fit="cover"
-              lazy>
-            </el-image>
+            <template v-if="imageList && imageList.length > 0">
+              <el-image
+                v-for="(item, index) in imageList"
+                :src="item"
+                @click="sendImage(item)"
+                :key="index"
+                style="width: 70px; height: 70px;"
+                fit="cover"
+                lazy>
+              </el-image>
+            </template>
+            <div v-else class="empty-emoji">暂无自定义表情包</div>
           </div>
         </el-popover>
         <!-- 舔狗日记（已隐藏） -->
@@ -789,6 +792,14 @@
     display: flex;
     flex-flow: wrap;
     gap: 10px;
+    min-height: 50px;
+    justify-content: center;
+    align-items: center;
+  }
+  .empty-emoji {
+    color: var(--greyFont);
+    font-size: 14px;
+    padding: 20px;
   }
   @media screen and (max-width: 400px) {
     .msg-one {
@@ -804,6 +815,14 @@
   .message-content {
     background-color: var(--background) !important;
     color: var(--fontColor) !important;
+  }
+  /* 修复表情包弹出框被主站样式影响导致过长的问题 */
+  .im-emoji-popover.el-popover {
+    padding: 12px !important;
+    min-width: 150px !important;
+    max-width: 450px !important;
+    height: auto !important;
+    min-height: 80px !important;
   }
 </style>
 

@@ -546,11 +546,17 @@
           <el-dialog class="friend-model friend-circle-dialog" v-model="showFriendCircle" :close-on-click-modal="false" width="70%" top="5vh" :show-close="false" :append-to-body="true">
             <div style="background-color: var(--background);border-radius: 10px">
               <div class="treeHole-wrap">
-                <treeHole :avatar="weiYanAvatar"
-                          :treeHoleList="treeHoleList"
-                          :viewUserId="pagination.userId"
-                          @launch="launch"
-                          @deleteTreeHole="deleteTreeHole"></treeHole>
+                <template v-if="treeHoleList && treeHoleList.length > 0">
+                  <treeHole :avatar="weiYanAvatar"
+                            :treeHoleList="treeHoleList"
+                            :viewUserId="pagination.userId"
+                            :showLaunchButton="false"
+                            @launch="launch"
+                            @deleteTreeHole="deleteTreeHole"></treeHole>
+                </template>
+                <div v-else class="myCenter" style="height: 100%; color: var(--greyFont)">
+                  暂无任何内容
+                </div>
               </div>
               <div class="pagination-wrap" style="display: flex; justify-content: center; padding-bottom: 20px;">
                 <proButton :info="'关闭'"
@@ -1115,8 +1121,8 @@
           if (subType === 2 && !$common.isEmpty(current) && !$common.isEmpty(imType)) {
             console.log(`[${isMobile() ? '移动端' : 'PC端'}] 进入聊天界面 - imType: ${imType}, current: ${current}`);
             if (imType === 1) {
-              imUtilData.currentChatFriendId = null;
-              imUtilData.currentChatGroupId = current;
+              data.currentChatFriendId = null;
+              data.currentChatGroupId = current;
               // 清零群聊未读消息数
               store.commit('updateGroupMessageBadge', {groupId: current, count: 0});
               // 调用后端接口标记群消息为已读
@@ -1136,8 +1142,8 @@
                 addGroupTopic();
               }
             } else if (imType === 2) {
-              imUtilData.currentChatGroupId = null;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
-              imUtilData.currentChatFriendId = current;
+              data.currentChatGroupId = null;
+              data.currentChatFriendId = current;
               // 清零私聊未读消息数
               store.commit('updateImMessageBadge', {friendId: current, count: 0});
               // 调用后端接口标记好友消息为已读
@@ -1330,7 +1336,7 @@
             });
         }
         // 获取群组在线用户数 - 只有当前群组ID与要获取的群组ID一致时才调用
-        if (imUtilData.currentChatGroupId === groupId) {
+        if (data.currentChatGroupId === groupId) {
           getGroupOnlineCountWithDebounce(groupId);
         }
       }
@@ -1907,8 +1913,8 @@
       padding-top: max(10px, env(safe-area-inset-top));
     }
   }
-  .im-user:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+  .im-user:hover, .im-user-group:hover {
+    background-color: var(--maxLightGray);
   }
   .im-user {
     display: flex;
@@ -1919,6 +1925,7 @@
     box-sizing: border-box;
     position: relative;
     transition: background-color 0.2s ease;
+    color: var(--fontColor);
   }
   /* 删除按钮样式 */
   .chat-item-delete {
@@ -2008,7 +2015,7 @@
   .friend-active .im-message-time,
   .friend-active .im-down,
   .im-group .im-user-name {
-    color: #ffffff !important;
+    color: var(--fontColor) !important;
   }
   .im-user-right {
     flex: 1;
@@ -2184,8 +2191,18 @@
   }
   .treeHole-wrap {
     width: 800px;
-    height: calc(100vh - 100px);
+    height: 600px;
     overflow-y: auto;
+    padding: 0; /* 确保内容区无额外间距 */
+  }
+  .empty-content {
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: var(--greyFont);
+    padding: 0;
+    margin: 0;
   }
   .treeHole-wrap::-webkit-scrollbar-thumb {
     background-color: var(--lowGray);
@@ -2433,9 +2450,9 @@
     margin-top: 5vh !important; /* 强制覆盖默认margin */
   }
   
-  /* 默认隐藏所有dialog header（因为设置了show-close=false） */
-  .friend-wrap .el-dialog__header {
-    display: none;
+  /* 彻底隐藏被挂载到 body 的所有 friend-model 对话框的 header */
+  .friend-model .el-dialog__header {
+    display: none !important;
   }
   
   /* 随笔对话框header样式 - 移除下边框 */

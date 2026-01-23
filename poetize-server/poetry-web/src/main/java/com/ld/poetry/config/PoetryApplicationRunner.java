@@ -29,6 +29,8 @@ import java.time.LocalTime;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Qualifier;
+import java.util.concurrent.Executor;
 
 @Component
 @Slf4j
@@ -72,6 +74,10 @@ public class PoetryApplicationRunner implements ApplicationRunner {
 
     @Autowired
     private com.ld.poetry.service.SysAiConfigService sysAiConfigService;
+
+    @Autowired
+    @Qualifier("asyncExecutor")
+    private Executor asyncExecutor;
 
     @Value("${prerender.startup.enabled:true}")
     private boolean prerenderStartupEnabled;
@@ -159,8 +165,8 @@ public class PoetryApplicationRunner implements ApplicationRunner {
         // 启动时预热sitemap缓存
         try {
             if (sitemapService != null) {
-                // 异步预热sitemap，避免阻塞应用启动
-                new Thread(() -> {
+                // 异步预热sitemap，避免阻塞应用启动（使用虚拟线程池）
+                asyncExecutor.execute(() -> {
                     try {
                         Thread.sleep(5000); // 延迟5秒，确保应用完全启动
                         String sitemap = sitemapService.generateSitemap();
@@ -173,7 +179,7 @@ public class PoetryApplicationRunner implements ApplicationRunner {
                     } catch (Exception e) {
                         log.warn("应用启动时sitemap预热失败，不影响应用启动", e);
                     }
-                }, "sitemap-warmup-thread").start();
+                });
             }
         } catch (Exception e) {
             log.warn("启动sitemap预热任务失败，不影响应用启动", e);

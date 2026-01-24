@@ -9,6 +9,7 @@ import com.ld.poetry.service.CaptchaService;
 import com.ld.poetry.service.MailService;
 import com.ld.poetry.service.UserService;
 import com.ld.poetry.config.PoetryResult;
+import com.ld.poetry.enums.CodeMsg;
 import com.ld.poetry.utils.JsonUtils;
 import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.utils.CryptoUtil;
@@ -20,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -61,16 +63,13 @@ public class UserController {
             // 验证码开启时，必须提供有效token
             if (verificationToken == null || verificationToken.isEmpty()) {
                 log.warn("注册需要验证码但未提供token，拒绝请求");
-                return PoetryResult.fail("请先完成验证码验证");
+                return PoetryResult.fail(CodeMsg.CAPTCHA_REQUIRED.getCode(), "请先完成验证码验证");
             }
             
-            log.info("注册请求验证码token校验: {}...", 
-                    verificationToken.substring(0, Math.min(verificationToken.length(), 10)));
-            
-            boolean isTokenValid = captchaService.verifyToken(verificationToken);
+            boolean isTokenValid = captchaService.verifyToken("register", verificationToken, null, null);
             if (!isTokenValid) {
                 log.warn("注册验证码token验证失败，拒绝注册请求");
-                return PoetryResult.fail("验证码验证失败，请重新验证后再试");
+                return PoetryResult.fail(CodeMsg.CAPTCHA_INVALID.getCode(), "验证码验证失败，请重新验证后再试");
             }
             log.info("注册验证码token验证通过");
         }
@@ -124,16 +123,13 @@ public class UserController {
             // 验证码开启时，必须提供有效token
             if (verificationToken == null || verificationToken.isEmpty()) {
                 log.warn("登录需要验证码但未提供token，拒绝请求");
-                return PoetryResult.fail("请先完成验证码验证");
+                return PoetryResult.fail(CodeMsg.CAPTCHA_REQUIRED.getCode(), "请先完成验证码验证");
             }
             
-            log.info("登录请求验证码token校验: {}...", 
-                    verificationToken.substring(0, Math.min(verificationToken.length(), 10)));
-            
-            boolean isTokenValid = captchaService.verifyToken(verificationToken);
+            boolean isTokenValid = captchaService.verifyToken("login", verificationToken, null, null);
             if (!isTokenValid) {
                 log.warn("登录验证码token验证失败，拒绝登录请求");
-                return PoetryResult.fail("验证码验证失败，请重新验证后再试");
+                return PoetryResult.fail(CodeMsg.CAPTCHA_INVALID.getCode(), "验证码验证失败，请重新验证后再试");
             }
             log.info("登录验证码token验证通过");
         }
@@ -377,16 +373,13 @@ public class UserController {
             // 验证码开启时，必须提供有效token
             if (verificationToken == null || verificationToken.isEmpty()) {
                 log.warn("第三方登录需要验证码但未提供token，拒绝请求");
-                return PoetryResult.fail("请先完成验证码验证");
+                return PoetryResult.fail(CodeMsg.CAPTCHA_REQUIRED.getCode(), "请先完成验证码验证");
             }
             
-            log.info("第三方登录请求验证码token校验: {}...", 
-                    verificationToken.substring(0, Math.min(verificationToken.length(), 10)));
-            
-            boolean isTokenValid = captchaService.verifyToken(verificationToken);
+            boolean isTokenValid = captchaService.verifyToken("login", verificationToken, null, null);
             if (!isTokenValid) {
                 log.warn("第三方登录验证码token验证失败，拒绝登录请求");
-                return PoetryResult.fail("验证码验证失败，请重新验证后再试");
+                return PoetryResult.fail(CodeMsg.CAPTCHA_INVALID.getCode(), "验证码验证失败，请重新验证后再试");
             }
             log.info("第三方登录验证码token验证通过");
         }
@@ -400,4 +393,3 @@ public class UserController {
         );
     }
 }
-

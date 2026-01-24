@@ -78,6 +78,10 @@ import cryptoUtil from '@/utils/crypto';
 export default {
   name: 'SlideCaptcha',
   props: {
+    action: {
+      type: String,
+      default: 'login'
+    },
     // 精确度
     accuracy: {
       type: Number,
@@ -262,10 +266,42 @@ export default {
       }
     },
     
+    // 计算滑动轨迹的平均速度
+    calculateAverageSpeed() {
+      if (this.slideTrack.length < 2) return 0;
+      const track = this.slideTrack;
+      let totalDistance = 0;
+      let totalTime = 0;
+      for (let i = 1; i < track.length; i++) {
+        const dx = track[i].x - track[i - 1].x;
+        const dt = track[i].timestamp - track[i - 1].timestamp;
+        totalDistance += Math.abs(dx);
+        totalTime += dt;
+      }
+      return totalTime > 0 ? totalDistance / totalTime : 0;
+    },
+
+    // 计算回退次数
+    calculateBacktrackCount() {
+      if (this.slideTrack.length < 2) return 0;
+      let count = 0;
+      for (let i = 1; i < this.slideTrack.length; i++) {
+        if (this.slideTrack[i].x < this.slideTrack[i - 1].x) {
+          count++;
+        }
+      }
+      return count;
+    },
+
     // 后端验证
     async verifyWithServer() {
       this.isVerifying = true;  // 开始验证，保持填充条宽度
       const totalTime = Date.now() - this.slideStartTime;
+
+      // 前端统计数据，用于验证一致性
+      const avgSpeed = this.calculateAverageSpeed();
+      const backtrackCount = this.calculateBacktrackCount();
+      const trackPointCount = this.slideTrack.length;
 
       // 准备验证数据
       const verifyData = {
@@ -273,7 +309,11 @@ export default {
         totalTime: totalTime,
         maxDistance: this.maxSlideDistance,
         finalPosition: this.slidePosition,
-        browserFingerprint: this.browserFingerprint
+        browserFingerprint: this.browserFingerprint,
+        action: this.action,
+        avgSpeed: avgSpeed,
+        backtrackCount: backtrackCount,
+        trackPointCount: trackPointCount
       };
 
       // 加密请求数据 - 使用GCM模式

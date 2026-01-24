@@ -212,16 +212,20 @@ export default {
               type: 'success',
             })
           }
+
+          this.messageContent = ''
+          this.show = false
         })
         .catch((error) => {
+          if (error && (error.code === 460 || error.code === 461)) {
+            this.showCaptchaWrapper = true
+            return
+          }
           this.$message({
             message: error.message,
             type: 'error',
           })
         })
-
-      this.messageContent = ''
-      this.show = false
     },
     
     // 处理弹幕点击事件 - 复制弹幕内容

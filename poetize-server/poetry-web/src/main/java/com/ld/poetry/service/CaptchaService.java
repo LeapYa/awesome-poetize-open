@@ -23,7 +23,9 @@ public interface CaptchaService {
      * @param retryCount 重试次数
      * @param frontendSensitivity 前端传递的敏感度
      * @param frontendMinPoints 前端传递的最小点数
-     * @param clickDelay 点击延迟（毫秒）
+     * @param clickDelay 点击延迟（毫秒）- 从开始移动鼠标到点击
+     * @param thinkingTime 用户思考时间（毫秒）- 从组件显示到点击
+     * @param isTouchDevice 是否为触屏设备
      * @param browserFingerprint 浏览器指纹
      * @param clientIp 客户端IP
      * @return 验证结果Map（包含success和token）
@@ -36,8 +38,11 @@ public interface CaptchaService {
         Double frontendSensitivity,
         Integer frontendMinPoints,
         Long clickDelay,
+        Long thinkingTime,
+        Boolean isTouchDevice,
         String browserFingerprint,
-        String clientIp
+        String clientIp,
+        String action
     );
     
     /**
@@ -46,6 +51,16 @@ public interface CaptchaService {
      * @return 是否有效
      */
     boolean verifyToken(String token);
+
+    /**
+     * 验证令牌有效性（带上下文）
+     * @param action 操作类型
+     * @param token 验证令牌
+     * @param clientIp 客户端IP
+     * @param browserFingerprint 浏览器指纹
+     * @return 是否有效
+     */
+    boolean verifyToken(String action, String token, String clientIp, String browserFingerprint);
     
     /**
      * 验证滑动验证码
@@ -55,6 +70,9 @@ public interface CaptchaService {
      * @param finalPosition 最终位置
      * @param browserFingerprint 浏览器指纹
      * @param clientIp 客户端IP
+     * @param avgSpeed 前端计算的平均速度（蜜罐字段）
+     * @param backtrackCount 前端计算的回退次数（蜜罐字段）
+     * @param trackPointCount 前端计算的轨迹点数量（蜜罐字段）
      * @return 验证结果Map
      */
     Map<String, Object> verifySlideCaptcha(
@@ -63,7 +81,11 @@ public interface CaptchaService {
         Double maxDistance,
         Double finalPosition,
         String browserFingerprint,
-        String clientIp
+        String clientIp,
+        Double avgSpeed,
+        Integer backtrackCount,
+        Integer trackPointCount,
+        String action
     );
     
     /**
@@ -91,4 +113,3 @@ public interface CaptchaService {
      */
     List<Map<String, Object>> getBlockedIpList();
 }
-

@@ -87,12 +87,7 @@ public class CryptoUtil {
             byte[] decrypted = cipher.doFinal(encrypted);
             return new String(decrypted, StandardCharsets.UTF_8);
         } catch (Exception e) {
-            // 记录详细错误信息，帮助诊断跨环境解密问题
-            log.error("AES解密失败 - 密钥长度: {}, 密钥前缀: {}..., 异常类型: {}", 
-                KEY.length(), 
-                KEY.substring(0, Math.min(4, KEY.length())), 
-                e.getClass().getSimpleName(), 
-                e);
+            log.error("AES解密失败: {}", e.getClass().getSimpleName(), e);
             return null;
         }
     }

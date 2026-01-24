@@ -224,7 +224,11 @@ axios.interceptors.response.use(
           showMessage: true,
         })
       }
-      return Promise.reject(new Error(response.data.message || '请求失败'))
+      const error = new Error(response.data.message || '请求失败')
+      error.code = response.data.code
+      error.data = response.data.data
+      error.responseData = response.data
+      return Promise.reject(error)
     }
 
     // 处理验证码配置响应的解密

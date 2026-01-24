@@ -40,6 +40,8 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.3",
+    "javascript-obfuscator": "^5.1.0",
+    "rollup-plugin-javascript-obfuscator": "^1.0.4",
     "sass": "^1.83.0",
     "terser": "^5.44.1",
     "unplugin-auto-import": "^20.3.0",

@@ -397,7 +397,7 @@
     <!-- 添加滑动验证组件 -->
     <CaptchaWrapper
       :visible="showCaptchaWrapper"
-      :action="verifyAction"
+      :action="captchaAction"
       :force-slide="false"
       @success="onVerifySuccess"
       @fail="closeVerify"
@@ -438,6 +438,7 @@ export default {
       intervalCode: null,
       showCaptchaWrapper: false,
       verifyAction: null,
+      captchaAction: 'login',
       verifyParams: null,
       thirdPartyLoginConfig: {
         enable: false,
@@ -584,6 +585,7 @@ export default {
         .then((required) => {
           if (required) {
             this.verifyAction = 'login'
+            this.captchaAction = 'login'
             this.showCaptchaWrapper = true
           } else {
             // 不需要验证码，直接登录
@@ -640,6 +642,7 @@ export default {
       checkCaptchaWithCache('register').then((required) => {
         if (required) {
           this.verifyAction = 'regist'
+          this.captchaAction = 'register'
           this.showCaptchaWrapper = true
         } else {
           // 不需要验证码，直接注册
@@ -653,6 +656,7 @@ export default {
       checkCaptchaWithCache('login').then((required) => {
         if (required) {
           this.verifyAction = 'thirdPartyLogin'
+          this.captchaAction = 'login'
           this.verifyParams = provider
           this.showCaptchaWrapper = true
         } else {
@@ -672,26 +676,15 @@ export default {
         this.regist(token)
       } else if (this.verifyAction === 'thirdPartyLogin') {
         this.thirdPartyLogin(this.verifyParams, token)
-      } else if (
-        this.verifyAction === 'reset_password' ||
-        this.verifyAction === 'register'
-      ) {
-        // 滑动验证成功后发送验证码
-        this.sendVerificationCode({
-          ...this.verifyParams,
-          verificationToken: token,
-        })
+      } else if (this.verifyAction === 'sendVerificationCode') {
+        this.sendVerificationCode({ ...this.verifyParams, verificationToken: token })
       }
     },
 
     closeVerify() {
       this.showCaptchaWrapper = false
 
-      // 如果是发送验证码操作，需要重新打开对话框
-      if (
-        this.verifyAction === 'reset_password' ||
-        this.verifyAction === 'register'
-      ) {
+      if (this.verifyAction === 'sendVerificationCode') {
         // 重新打开之前的对话框
         this.dialogTitle = this.verifyParams.dialogTitle
         this.$nextTick(() => {
@@ -701,6 +694,7 @@ export default {
 
       // 重置验证相关状态
       this.verifyAction = null
+      this.captchaAction = 'login'
       this.verifyParams = null
     },
     /**
@@ -796,6 +790,12 @@ export default {
             }
           })
           .catch((error) => {
+            if (error && (error.code === 460 || error.code === 461)) {
+              this.verifyAction = 'login'
+              this.captchaAction = 'login'
+              this.showCaptchaWrapper = true
+              return
+            }
             this.$message({
               message: error.message,
               type: 'error',
@@ -904,6 +904,12 @@ export default {
             }
           })
           .catch((error) => {
+            if (error && (error.code === 460 || error.code === 461)) {
+              this.verifyAction = 'regist'
+              this.captchaAction = 'register'
+              this.showCaptchaWrapper = true
+              return
+            }
             this.$message({
               message: error.message,
               type: 'error',
@@ -1213,7 +1219,8 @@ export default {
             this.showDialog = false
 
             // 设置验证操作为发送验证码，同时保存当前对话框信息
-            this.verifyAction = action
+            this.verifyAction = 'sendVerificationCode'
+            this.captchaAction = action
             this.verifyParams = {
               ...params,
               dialogTitle: currentDialogTitle,
@@ -1705,11 +1712,18 @@ export default {
   display: flex;
   align-items: center;
 }
-.user-content :deep(.el-input__inner),
+.user-content :deep(.el-input__wrapper),
 .user-content :deep(.el-textarea__inner){
   border: none;
-  background: var(--whiteMask);
+  background: #2d2d2d !important;
   color: var(--fontColor);
+  box-shadow: none !important;
+}
+
+.user-content :deep(.el-input__inner) {
+  background: transparent !important;
+  color: var(--fontColor);
+  border: none;
 }
 .user-content :deep(.el-input__count){
   background: var(--transparent);

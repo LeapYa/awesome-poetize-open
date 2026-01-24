@@ -555,7 +555,7 @@ export default {
   left: 0;
   top: 0;
   height: 35px;
-  padding: 5px 10px;
+  padding: 5px 15px 5px 5px;
   border-radius: 25px;
   margin: 5px;
   border: 1px solid #fff;

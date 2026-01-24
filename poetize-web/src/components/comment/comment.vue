@@ -956,6 +956,16 @@ export default {
           this.getTotal()
         })
         .catch((error) => {
+          if (error && (error.code === 460 || error.code === 461)) {
+            this.mainStore.setVerifyParams({
+              action: 'comment',
+              isReplyComment: false,
+              onSuccess: (token) => this.saveCommentToServer(comment, token),
+              onCancel: () => this.restorePendingComment(),
+            })
+            this.mainStore.showCaptcha(true)
+            return
+          }
           this.$message({
             message: error.message,
             type: 'error',
@@ -1049,6 +1059,17 @@ export default {
           this.getTotal()
         })
         .catch((error) => {
+          if (error && (error.code === 460 || error.code === 461)) {
+            this.mainStore.setVerifyParams({
+              action: 'comment',
+              isReplyComment: true,
+              onSuccess: (token) =>
+                this.saveReplyToServer(comment, floorComment, token),
+              onCancel: () => this.restorePendingReply(),
+            })
+            this.mainStore.showCaptcha(true)
+            return
+          }
           this.$message({
             message: error.message,
             type: 'error',
@@ -1459,6 +1480,7 @@ export default {
 }
 .dark-mode .commentInfo-content {
   background: #d4d4d4 !important;
+  color: black !important;
 }
 .pagination-wrap {
   display: flex;

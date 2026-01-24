@@ -86,20 +86,24 @@ public class CaptchaController {
             Double frontendSensitivity = getDoubleValue(data, "trackSensitivity", null);
             Integer frontendMinPoints = getIntValue(data, "minTrackPoints", null);
             Long clickDelay = getLongValue(data, "clickDelay", null);
+            Long thinkingTime = getLongValue(data, "thinkingTime", null); // 用户思考时间（从组件显示到点击）
+            Boolean isTouchDevice = getBooleanValue(data, "isTouchDevice", false); // 是否触屏设备
             String browserFingerprint = (String) data.get("browserFingerprint");
+            String action = data.get("action") != null ? data.get("action").toString() : null;
             
             // 获取客户端IP
             String clientIp = IpUtil.getClientRealIp(request);
             
-            // log.info("验证请求 - IP: {}, 指纹: {}, 回复评论: {}, 重试: {}, 轨迹点: {}, 点击延迟: {}ms", 
+            // log.info("验证请求 - IP: {}, 指纹: {}, 回复评论: {}, 重试: {}, 轨迹点: {}, 点击延迟: {}ms, 思考时间: {}ms, 触屏: {}", 
             //         clientIp, browserFingerprint != null ? browserFingerprint.substring(0, Math.min(8, browserFingerprint.length())) + "..." : "null",
             //         isReplyComment, retryCount, 
-            //         mouseTrack != null ? mouseTrack.size() : 0, clickDelay);
+            //         mouseTrack != null ? mouseTrack.size() : 0, clickDelay, thinkingTime, isTouchDevice);
             
             // 执行验证
             Map<String, Object> result = captchaService.verifyCheckboxCaptcha(
                 mouseTrack, straightRatio, isReplyComment, retryCount, 
-                frontendSensitivity, frontendMinPoints, clickDelay, browserFingerprint, clientIp
+                frontendSensitivity, frontendMinPoints, clickDelay, thinkingTime, isTouchDevice,
+                browserFingerprint, clientIp, action
             );
             
             // 检查请求是否加密，如果是，则加密响应
@@ -176,6 +180,12 @@ public class CaptchaController {
             Double maxDistance = getDoubleValue(data, "maxDistance", null);
             Double finalPosition = getDoubleValue(data, "finalPosition", null);
             String browserFingerprint = (String) data.get("browserFingerprint");
+            String action = data.get("action") != null ? data.get("action").toString() : null;
+            
+            // 获取蜜罐字段（前端计算值，后端独立验证）
+            Double avgSpeed = getDoubleValue(data, "avgSpeed", null);
+            Integer backtrackCount = getIntValue(data, "backtrackCount", null);
+            Integer trackPointCount = getIntValue(data, "trackPointCount", null);
             
             // 获取客户端IP
             String clientIp = IpUtil.getClientRealIp(request);
@@ -188,7 +198,8 @@ public class CaptchaController {
             
             // 执行验证
             Map<String, Object> result = captchaService.verifySlideCaptcha(
-                slideTrack, totalTime, maxDistance, finalPosition, browserFingerprint, clientIp
+                slideTrack, totalTime, maxDistance, finalPosition, browserFingerprint, clientIp,
+                avgSpeed, backtrackCount, trackPointCount, action
             );
             
             // 检查请求是否加密，如果是，则加密响应
@@ -316,4 +327,3 @@ public class CaptchaController {
         return defaultValue;
     }
 }
-

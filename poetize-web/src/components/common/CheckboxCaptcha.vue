@@ -4,6 +4,8 @@
       class="checkbox-captcha"
       :class="{ verified: verified, error: showError }"
       @mousemove="trackMouseMovement"
+      @touchstart="handleTouchStart"
+      @touchmove="handleTouchMove"
     >
       <div class="captcha-header">
         <div class="captcha-icon">
@@ -78,7 +80,8 @@ export default {
   },
   name: 'CheckboxCaptcha',
   props: {
-    // 是否使用后端验证
+    // 是否使用后端验证（强制为true，前端验证不安全）
+    // 保留此属性是为了向后兼容，但实际上总是使用后端验证
     useServerVerify: {
       type: Boolean,
       default: true,
@@ -118,9 +121,18 @@ export default {
       isTrackingMouse: false, // 添加鼠标轨迹跟踪状态
       retryCount: 0, // 添加重试计数
       browserFingerprint: null, // 浏览器指纹
+      isTouchDevice: false, // 是否为触屏设备
+      touchTrack: [], // 触屏轨迹
+      componentMountTime: 0, // 组件挂载时间
     }
   },
   async mounted() {
+    // 记录组件挂载时间（用于计算用户思考时间）
+    this.componentMountTime = Date.now()
+    
+    // 检测是否为触屏设备
+    this.isTouchDevice = this.detectTouchDevice()
+    
     // 组件加载时获取浏览器指纹
     try {
       const { getBrowserFingerprint } = await import('@/utils/fingerprintUtil')
@@ -128,6 +140,56 @@ export default {
     } catch (error) {}
   },
   methods: {
+    /**
+     * 检测是否为触屏设备
+     */
+    detectTouchDevice() {
+      return (
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0 ||
+        navigator.msMaxTouchPoints > 0 ||
+        /iPad|iPhone|iPod|Android/i.test(navigator.userAgent)
+      )
+    },
+
+    /**
+     * 处理触屏开始事件
+     */
+    handleTouchStart(e) {
+      if (this.verified || this.verifying) return
+      
+      this.isTouchDevice = true
+      if (!this.isTrackingMouse) {
+        this.isTrackingMouse = true
+        this.startTime = Date.now()
+      }
+      
+      if (e.touches && e.touches.length > 0) {
+        const touch = e.touches[0]
+        this.touchTrack.push({
+          x: touch.clientX,
+          y: touch.clientY,
+          timestamp: Date.now(),
+        })
+      }
+    },
+
+    /**
+     * 处理触屏移动事件
+     */
+    handleTouchMove(e) {
+      if (this.verified || this.verifying) return
+      
+      if (e.touches && e.touches.length > 0 && this.touchTrack.length < 30) {
+        const touch = e.touches[0]
+        this.touchTrack.push({
+          x: touch.clientX,
+          y: touch.clientY,
+          timestamp: Date.now(),
+        })
+      }
+    },
+
     /**
      * 关闭验证
      */
@@ -163,20 +225,8 @@ export default {
      */
     onCheckChange() {
       if (!this.checked || this.verifying) return
-
       this.checkTime = Date.now()
-
-      if (this.useServerVerify) {
-        // 使用后端验证
-        this.verifyWithServer()
-      } else {
-        // 使用前端验证
-        if (this.isHumanLike()) {
-          this.verifySuccess()
-        } else {
-          this.verifyFail()
-        }
-      }
+      this.verifyWithServer()
     },
 
     /**
@@ -186,28 +236,27 @@ export default {
       if (this.verifying) return
       this.verifying = true
 
-      // 计算直线率
+      // 合并鼠标和触屏轨迹
+      const allTrack = [...this.mouseTrack, ...this.touchTrack]
+      
+      // 前端统计数据
       const straightRatio = this.calculateStraightRatio()
-
-      // 计算点击延迟（从组件加载到点击的时间）
       const clickDelay = this.checkTime - this.startTime
+      const thinkingTime = this.checkTime - this.componentMountTime
 
-      // 准备发送到服务器的数据
       const verifyData = {
-        mouseTrack: this.mouseTrack,
-        straightRatio: straightRatio,
-        clickDelay: clickDelay, // 点击延迟（毫秒）
-        browserFingerprint: this.browserFingerprint, // 浏览器指纹
+        mouseTrack: allTrack,
+        browserFingerprint: this.browserFingerprint,
         timestamp: Date.now(),
-        action: this.action, // 添加操作类型
-        isReplyComment: this.isReplyComment, // 是否为回复评论场景
-        retryCount: this.retryCount, // 重试次数
-        trackSensitivity: this.getTrackSensitivity(), // 动态敏感度
-        minTrackPoints: this.getMinTrackPoints(), // 动态最少轨迹点数
+        action: this.action,
+        isReplyComment: this.isReplyComment,
+        retryCount: this.retryCount,
+        straightRatio: straightRatio,
+        clickDelay: clickDelay,
+        thinkingTime: thinkingTime,
+        isTouchDevice: this.isTouchDevice,
       }
 
-      // 直接发送原始数据，让request.js拦截器统一处理加密
-      // 调用验证接口
       axios
         .post(this.$constant.baseURL + '/captcha/verify-checkbox', verifyData)
         .then((res) => {
@@ -316,40 +365,116 @@ export default {
     },
 
     /**
-     * 判断是否符合人类行为模式（前端验证）
+     * 判断是否符合人类行为模式
+     * 注意：此方法仅用于前端预检和数据收集，不作为最终验证依据
+     * 真正的安全验证在后端进行，后端会：
+     * 1. 验证轨迹数据的合理性
+     * 2. 检查请求频率和IP限制
+     * 3. 结合浏览器指纹进行风控
+     * 4. 生成一次性token防止重放攻击
      */
     isHumanLike() {
-      // 1. 轨迹点数量检查 - 根据场景调整要求
-      const minPoints = this.getMinTrackPoints()
-      if (this.mouseTrack.length < minPoints) {
-        return false
+      // 合并鼠标和触屏轨迹
+      const allTrack = [...this.mouseTrack, ...this.touchTrack]
+      
+      // 计算用户思考时间（从组件挂载到点击）
+      const thinkingTime = this.checkTime - this.componentMountTime
+      
+      // 计算操作时间（从开始移动/触摸到点击）
+      const operationTime = this.checkTime - this.startTime
+
+      // 触屏设备特殊处理
+      if (this.isTouchDevice) {
+        // 触屏设备：只要有思考时间就认为是人类
+        // 因为触屏用户可能直接点击，没有移动轨迹
+        if (thinkingTime >= 300) {
+          return true
+        }
+        // 如果有触屏轨迹，降低要求
+        if (this.touchTrack.length >= 1) {
+          return true
+        }
       }
 
-      // 2. 检查直线率 - 根据场景调整敏感度
-      const straightRatio = this.calculateStraightRatio()
-      const sensitivity = this.getTrackSensitivity()
-      if (straightRatio > sensitivity) {
-        return false
+      // 1. 智能时间检查
+      // 场景1：用户有足够的思考时间（组件显示后等待了一会儿）
+      if (thinkingTime >= 800) {
+        // 用户看了组件0.8秒以上，即使操作很快也可能是人类
+        // 只需要基本的轨迹检查
+        if (allTrack.length >= 1 || this.isReplyComment) {
+          return true
+        }
       }
 
-      // 3. 检查动作速度 - 回复评论场景放宽时间要求
-      const timeSpent = this.checkTime - this.startTime
-      const minTime = this.isReplyComment ? 200 : 500 // 回复评论场景降低到200ms
-      if (timeSpent < minTime) {
-        return false
+      // 场景2：操作时间在合理范围内
+      const minOperationTime = this.getMinOperationTime()
+      if (operationTime >= minOperationTime) {
+        // 2. 轨迹点数量检查 - 根据场景调整要求
+        const minPoints = this.getMinTrackPoints()
+        if (allTrack.length >= minPoints) {
+          // 3. 检查直线率 - 根据场景调整敏感度
+          const straightRatio = this.calculateStraightRatio()
+          const sensitivity = this.getTrackSensitivity()
+          if (straightRatio <= sensitivity || allTrack.length < 3) {
+            return true
+          }
+        }
       }
 
-      return true
+      // 场景3：快速但有合理轨迹的用户
+      // 有些用户鼠标本来就在附近，移动很快但轨迹是自然的
+      if (operationTime >= 150 && allTrack.length >= 3) {
+        const straightRatio = this.calculateStraightRatio()
+        // 轨迹不是完全直线就通过
+        if (straightRatio < 0.95) {
+          return true
+        }
+      }
+
+      // 场景4：回复评论等宽松场景
+      if (this.isReplyComment && thinkingTime >= 200) {
+        return true
+      }
+
+      return false
+    },
+
+    /**
+     * 获取最小操作时间（根据场景调整）
+     */
+    getMinOperationTime() {
+      // 触屏设备几乎不需要操作时间
+      if (this.isTouchDevice) {
+        return 50
+      }
+      
+      // 回复评论场景放宽要求
+      if (this.isReplyComment) {
+        return 150
+      }
+      
+      // 重试时逐渐降低要求
+      const baseTime = 300
+      const reduction = this.retryCount * 50
+      return Math.max(100, baseTime - reduction)
     },
 
     /**
      * 获取最少轨迹点数（根据场景调整）
      */
     getMinTrackPoints() {
-      if (this.isReplyComment) {
-        return 1 // 回复评论场景只需要1个轨迹点
+      // 触屏设备可能没有轨迹
+      if (this.isTouchDevice) {
+        return 0
       }
-      return Math.max(1, this.minTrackPoints) // 确保至少为1
+      
+      if (this.isReplyComment) {
+        return 0 // 回复评论场景不强制要求轨迹
+      }
+      
+      // 重试时降低要求
+      const basePoints = Math.max(1, this.minTrackPoints)
+      return Math.max(0, basePoints - this.retryCount)
     },
 
     /**
@@ -409,6 +534,7 @@ export default {
      */
     resetTrackingState() {
       this.mouseTrack = []
+      this.touchTrack = []
       this.startTime = 0
       this.checkTime = 0
       this.isTrackingMouse = false
@@ -423,12 +549,14 @@ export default {
       this.showError = false
       this.errorMessage = ''
       this.mouseTrack = []
+      this.touchTrack = []
       this.startTime = 0
       this.checkTime = 0
       this.verificationToken = ''
       this.verifying = false
       this.isTrackingMouse = false
       this.retryCount = 0 // 重置重试计数
+      this.componentMountTime = Date.now() // 重置挂载时间
 
       $emit(this, 'refresh')
     },

@@ -38,8 +38,8 @@ export function checkCaptchaRequired(action) {
 const captchaStatusCache = {
   data: {},
   timestamp: 0,
-  // 缓存有效期5分钟
-  TTL: 5 * 60 * 1000
+  // 缓存有效期30秒
+  TTL: 30 * 1000
 }
 
 /**

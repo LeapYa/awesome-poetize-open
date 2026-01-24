@@ -6,6 +6,7 @@ import com.ld.poetry.aop.LoginCheck;
 import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.aop.SaveCheck;
 import com.ld.poetry.constants.CacheConstants;
+import com.ld.poetry.enums.CodeMsg;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.CaptchaService;
 import com.ld.poetry.service.CommentService;
@@ -77,16 +78,17 @@ public class CommentController {
             // 验证码开启时，必须提供有效token
             if (!StringUtils.hasText(verificationToken)) {
                 log.warn("评论需要验证码但未提供token，拒绝请求");
-                return PoetryResult.fail("请先完成验证码验证");
+                Map<String, Object> data = new HashMap<>();
+                data.put("action", "comment");
+                return PoetryResult.fail(CodeMsg.CAPTCHA_REQUIRED.getCode(), "请先完成验证码验证", data);
             }
             
-            log.info("评论请求验证码token校验: {}...", 
-                    verificationToken.substring(0, Math.min(verificationToken.length(), 10)));
-
-            boolean isTokenValid = captchaService.verifyToken(verificationToken);
+            boolean isTokenValid = captchaService.verifyToken("comment", verificationToken, null, null);
             if (!isTokenValid) {
                 log.warn("评论验证码token验证失败，拒绝评论提交");
-                return PoetryResult.fail("验证码验证失败，请重新验证后再试");
+                Map<String, Object> data = new HashMap<>();
+                data.put("action", "comment");
+                return PoetryResult.fail(CodeMsg.CAPTCHA_INVALID.getCode(), "验证码验证失败，请重新验证后再试", data);
             }
 
             log.info("评论验证码token验证通过，允许评论提交");
@@ -168,4 +170,3 @@ public class CommentController {
         return PoetryResult.success("IP地理位置缓存已清理");
     }
 }
-

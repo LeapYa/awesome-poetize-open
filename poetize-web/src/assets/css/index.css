@@ -896,10 +896,10 @@ body.dark-mode .friend-main {
 
 /* 友人帐信封表单暗色模式适配 */
 body.dark-mode .form-main {
-    background: linear-gradient(135deg, #434343 0%, #2d2d2d 50%, #1a1a1a 100%) !important;
+    background: #434343 !important;
     color: #ecf0f1 !important;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(82, 196, 26, 0.3) !important;
-    border: 1px solid rgba(82, 196, 26, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 body.dark-mode .form-friend {
@@ -913,10 +913,38 @@ body.dark-mode .friend-main .user-title {
 
 body.dark-mode .friend-main .el-input__inner {
     background: rgba(255, 255, 255, 0.08) !important;
-    border: 1px solid rgba(255, 255, 255, 0.15) !important;
     color: #ecf0f1 !important;
 }
 
 body.dark-mode .form-main h3 {
     color: #ecf0f1 !important;
+}
+
+/* ========== 修复 Element Plus 暗色模式单选框/复选框颜色 ========== */
+/* 覆盖 CSS 变量以解决 color: var(--el-radio-text-color) 导致的颜色问题 */
+body.dark-mode .el-radio {
+    --el-radio-text-color: #ffffff !important;
+    color: #ffffff !important;
+}
+
+body.dark-mode .el-checkbox {
+    --el-checkbox-text-color: #ffffff !important;
+    color: #ffffff !important;
+}
+
+/* 选中状态恢复主题色 */
+body.dark-mode .el-radio.is-checked {
+    --el-radio-text-color: #409eff !important;
+    color: #409eff !important;
+}
+
+body.dark-mode .el-checkbox.is-checked {
+    --el-checkbox-text-color: #409eff !important;
+    color: #409eff !important;
+}
+
+/* 确保 label 继承父元素颜色 */
+body.dark-mode .el-radio__label,
+body.dark-mode .el-checkbox__label {
+    color: inherit !important;
 }

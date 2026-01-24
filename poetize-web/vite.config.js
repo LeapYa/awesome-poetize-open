@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import viteCompression from 'vite-plugin-compression'
+import JavaScriptObfuscator from 'javascript-obfuscator'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import AutoImport from 'unplugin-auto-import/vite'
@@ -8,6 +9,36 @@ import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+function captchaObfuscator() {
+  return {
+    name: 'captcha-obfuscator',
+    apply: 'build',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      for (const fileName of Object.keys(bundle)) {
+        const chunk = bundle[fileName]
+        if (chunk.type !== 'chunk') continue
+        if (!/^(static\/)?captcha-core-[\w-]+\.js$/.test(fileName)) continue
+
+        const result = JavaScriptObfuscator.obfuscate(chunk.code, {
+          compact: true,
+          disableConsoleOutput: true,
+          identifierNamesGenerator: 'hexadecimal',
+          log: false,
+          renameGlobals: false,
+          rotateStringArray: true,
+          stringArray: true,
+          stringArrayEncoding: ['base64'],
+          stringArrayThreshold: 0.35,
+          unicodeEscapeSequence: false,
+        })
+
+        chunk.code = result.getObfuscatedCode()
+      }
+    },
+  }
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -37,7 +68,8 @@ export default defineConfig({
       ext: '.gz',
       threshold: 8192,
       deleteOriginFile: false
-    })
+    }),
+    captchaObfuscator(),
   ],
   resolve: {
     alias: {
@@ -78,6 +110,13 @@ export default defineConfig({
         // 确保动态导入的模块不会被意外合并
         inlineDynamicImports: false,
         manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, '/')
+          if (
+            normalizedId.includes('/src/utils/captchaUtil.js') ||
+            normalizedId.includes('/src/utils/fingerprintUtil.js')
+          ) {
+            return 'captcha-core'
+          }
           if (id.includes('node_modules')) {
             // 核心框架库 (仅 Vue 相关)
             if (id.match(/[\\/]node_modules[\\/](vue|@vue|pinia|vue-router)/)) {

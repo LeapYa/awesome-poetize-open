@@ -180,7 +180,13 @@ body.dark-mode .el-checkbox-group {
 
 body.dark-mode .el-radio__label,
 body.dark-mode .el-checkbox__label {
-  color: #e0e0e0 !important;
+  color: #ffffff !important;
+}
+
+/* 选中状态保持主题色高亮，避免全白无法区分 */
+body.dark-mode .el-radio.is-checked .el-radio__label,
+body.dark-mode .el-checkbox.is-checked .el-checkbox__label {
+  color: #409eff !important;
 }
 
 body.dark-mode .el-radio__inner {

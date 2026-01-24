@@ -253,3 +253,24 @@
     font-size: 11px;
   }
 }
+
+/* ========== 暗色模式对话框输入框适配 ========== */
+body.dark-mode .centered-dialog .el-input__wrapper,
+body.dark-mode .centered-dialog .el-textarea__inner {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    box-shadow: none !important;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+body.dark-mode .centered-dialog .el-input__inner {
+    background-color: transparent !important;
+    color: #e0e0e0 !important;
+    border: none !important;
+}
+
+body.dark-mode .centered-dialog .el-input__wrapper.is-focus,
+body.dark-mode .centered-dialog .el-textarea__inner:focus {
+    box-shadow: 0 0 0 1px #409eff !important;
+    border-color: #409eff;
+    background-color: rgba(255, 255, 255, 0.12) !important;
+}

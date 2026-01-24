@@ -41,12 +41,12 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.tio.core.Tio;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -62,6 +62,7 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     @Autowired
     private WeiYanService weiYanService;
@@ -676,12 +677,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     public PoetryResult getCode(Integer flag) {
         User user = PoetryUtil.getCurrentUser();
-        int i = new Random().nextInt(900000) + 100000;
+        int i = generateVerificationCode();
         if (flag == 1) {
             if (!StringUtils.hasText(user.getPhoneNumber())) {
                 return PoetryResult.fail("请先绑定手机号！");
             }
-
+            return PoetryResult.fail("暂不支持手机号验证码，请使用邮箱验证码");
         } else if (flag == 2) {
             if (!StringUtils.hasText(user.getEmail())) {
                 return PoetryResult.fail("请先绑定邮箱！");
@@ -708,11 +709,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             } else {
                 return PoetryResult.fail("验证码发送次数过多，请明天再试！");
             }
-        }
 
-        String userCodeKey = CacheConstants.buildUserCodeKey(PoetryUtil.getUserId(), String.valueOf(flag), String.valueOf(flag));
-        cacheService.set(userCodeKey, i, 300);
-        return PoetryResult.success();
+            String userCodeKey = CacheConstants.buildUserCodeKey(PoetryUtil.getUserId(), String.valueOf(flag), String.valueOf(flag));
+            cacheService.set(userCodeKey, i, 300);
+            return PoetryResult.success();
+        }
+        return PoetryResult.fail("参数异常！");
     }
 
     @Override
@@ -738,8 +740,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             }
         }
         
-        int i = new Random().nextInt(900000) + 100000;
+        int i = generateVerificationCode();
         if (flag == 1) {
+            return PoetryResult.fail("暂不支持手机号验证码，请使用邮箱验证码");
         } else if (flag == 2) {
             List<String> mail = new ArrayList<>();
             mail.add(filteredPlace);
@@ -761,11 +764,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             } else {
                 return PoetryResult.fail("验证码发送次数过多，请明天再试！");
             }
-        }
 
-        String userCodeKey = CacheConstants.buildUserCodeKey(PoetryUtil.getUserId(), filteredPlace, String.valueOf(flag));
-        cacheService.set(userCodeKey, i, 300);
-        return PoetryResult.success();
+            String userCodeKey = CacheConstants.buildUserCodeKey(PoetryUtil.getUserId(), filteredPlace, String.valueOf(flag));
+            cacheService.set(userCodeKey, i, 300);
+            return PoetryResult.success();
+        }
+        return PoetryResult.fail("参数异常！");
     }
 
     @Override
@@ -907,8 +911,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             }
         }
         
-        int i = new Random().nextInt(900000) + 100000;
+        int i = generateVerificationCode();
         if (flag == 1) {
+            return PoetryResult.fail("暂不支持手机号验证码，请使用邮箱验证码");
         } else if (flag == 2) {
 
             List<String> mail = new ArrayList<>();
@@ -931,11 +936,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             } else {
                 return PoetryResult.fail("验证码发送次数过多，请明天再试！");
             }
-        }
 
-        String forgetPasswordKey = CacheConstants.buildForgetPasswordKey(filteredPlace, String.valueOf(flag));
-        cacheService.set(forgetPasswordKey, i, 300);
-        return PoetryResult.success();
+            String forgetPasswordKey = CacheConstants.buildForgetPasswordKey(filteredPlace, String.valueOf(flag));
+            cacheService.set(forgetPasswordKey, i, 300);
+            return PoetryResult.success();
+        }
+        return PoetryResult.fail("参数异常！");
+    }
+
+    private int generateVerificationCode() {
+        return SECURE_RANDOM.nextInt(900000) + 100000;
     }
 
     @Override

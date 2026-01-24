@@ -294,11 +294,21 @@ export default {
           formWrapElements.forEach((element) => {
             element.style.height = '447px'
             element.style.top = '0'
+            const envelope = element.querySelector('.envelope')
+            if (envelope) {
+              envelope.style.transform = 'translateY(0)'
+            }
           })
           this.$message({
             type: 'success',
             message: '提交成功，待管理员审核！',
           })
+          this.friend = {
+            title: '',
+            introduction: '',
+            cover: '',
+            url: '',
+          }
         })
         .catch((error) => {
           this.$message({
@@ -443,10 +453,17 @@ hr:hover:before {
   display: flex;
   align-items: center;
 }
-.user-content :deep(.el-input__inner){
+.user-content :deep(.el-input__wrapper) {
+  border: none;
+  background: var(--whiteMask) !important;
+  box-shadow: none !important;
+  background-clip: border-box;
+}
+.friend-main .user-content :deep(.el-input__inner){
   border: none;
   height: 35px;
-  background: var(--whiteMask);
+  background: transparent !important;
+  color: var(--fontColor);
 }
 .form-friend {
   margin-top: 12px;

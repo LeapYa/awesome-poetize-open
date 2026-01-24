@@ -1322,16 +1322,24 @@ export default {
   display: flex;
   align-items: center;
 }
+.user-content :deep(.el-input__wrapper) {
+  border: none;
+  background: var(--whiteMask) !important;
+  box-shadow: none !important;
+}
 .user-content :deep(.el-input__inner){
   border: none;
   height: 40px;
   width: 250px;
-  background: var(--whiteMask);
+  background: transparent !important;
+  color: var(--fontColor);
 }
 .user-content :deep(.el-textarea__inner){
   border: none;
   width: 250px;
-  background: var(--whiteMask);
+  background: var(--whiteMask) !important;
+  box-shadow: none !important;
+  color: var(--fontColor);
 }
 .user-content :deep(.el-input__count){
   background: var(--transparent);

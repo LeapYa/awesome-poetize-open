@@ -6,6 +6,9 @@ public enum CodeMsg {
     NOT_LOGIN(300, "未登陆，请登陆后再进行操作！"),
     LOGIN_EXPIRED(300, "登录已过期，请重新登陆！"),
     SYSTEM_REPAIR(301, "系统维护中，敬请期待！"),
+    CAPTCHA_REQUIRED(460, "需要完成验证码验证"),
+    CAPTCHA_INVALID(461, "验证码验证失败"),
+    CAPTCHA_BLOCKED(462, "验证码验证过于频繁，已被限制"),
     FAIL(500, "服务异常！");
 
 

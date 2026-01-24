@@ -3,6 +3,10 @@ import vue from '@vitejs/plugin-vue2';
 import path from 'path';
 import viteCompression from 'vite-plugin-compression';
 import envCompatible from 'vite-plugin-env-compatible';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export default defineConfig({
     base: '/admin/',

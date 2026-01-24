@@ -1,6 +1,6 @@
 <p align="center">
   <a href="#">
-    <img src="poetize_picture/logo.png" alt="POETIZE Open Fork Logo" width="150">
+    <img src="poetize_picture/logo.png" alt="POETIZE Open Fork Logo" width="200px">
   </a>
 
 <h1 align="center">POETIZE 最美博客（AGPL 分支 · LeapYa 维护）</h1>

@@ -1669,6 +1669,7 @@ disable_certbot_service() {
   if [ -f "lib/config.sh" ]; then
     source "lib/config.sh"
     update_env_var "ENABLE_HTTPS" "false"
+    sync_compose_profiles  # 同步 COMPOSE_PROFILES
     success "已通过 .env 禁用 HTTPS (certbot 将不会启动)"
   else
     # 回退方案：如果 config.sh 不可用，使用旧的 awk 方法
@@ -1722,6 +1723,7 @@ configure_http_port() {
     source "lib/config.sh"
     update_env_var "HTTP_PORT" "$HTTP_PORT"
     update_env_var "ENABLE_HTTPS" "false"
+    sync_compose_profiles  # 同步 COMPOSE_PROFILES
     success "已将HTTP端口配置为 $HTTP_PORT (通过 .env)"
   else
     # 回退方案：直接修改 docker-compose.yml
@@ -4182,6 +4184,7 @@ disable_mysql_service() {
   if [ -f "lib/config.sh" ]; then
     # 新版本：使用 .env 文件配置
     update_env_var "ENABLE_MYSQL" "false"
+    sync_compose_profiles  # 同步 COMPOSE_PROFILES
     success "已禁用mysql容器（通过 .env 配置）"
   else
     # 旧版本：使用 awk 注释 docker-compose.yml
@@ -4265,6 +4268,7 @@ disable_redis_service() {
   if [ -f "lib/config.sh" ]; then
     # 新版本：使用 .env 文件配置
     update_env_var "ENABLE_REDIS" "false"
+    sync_compose_profiles  # 同步 COMPOSE_PROFILES
     success "已禁用redis容器（通过 .env 配置）"
   else
     # 旧版本：使用 awk 注释 docker-compose.yml
@@ -4378,6 +4382,7 @@ enable_mysql_service() {
   info "启用mysql容器..."
   if [ -f "lib/config.sh" ]; then
     update_env_var "ENABLE_MYSQL" "true"
+    sync_compose_profiles  # 同步 COMPOSE_PROFILES
     success "已启用mysql容器"
   else
     # 旧版本：恢复被注释的服务
@@ -4390,6 +4395,7 @@ enable_redis_service() {
   info "启用redis容器..."
   if [ -f "lib/config.sh" ]; then
     update_env_var "ENABLE_REDIS" "true"
+    sync_compose_profiles  # 同步 COMPOSE_PROFILES
     success "已启用redis容器"
   else
     # 旧版本：恢复被注释的服务
@@ -5648,6 +5654,7 @@ revert_to_http_protocol() {
     source "lib/config.sh"
     update_env_var "FRONTEND_PROTOCOL" "http"
     update_env_var "ENABLE_HTTPS" "false"
+    sync_compose_profiles  # 同步 COMPOSE_PROFILES
     # 更新 SITE_URL
     local domain=$(read_env_config "PRIMARY_DOMAIN" "localhost")
     update_env_var "SITE_URL" "http://${domain}"

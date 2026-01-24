@@ -263,6 +263,28 @@ get_site_url() {
 # Docker Compose 命令辅助函数
 # ============================================
 
+# 同步 COMPOSE_PROFILES 环境变量
+# 根据 ENABLE_HTTPS/MYSQL/REDIS 自动生成 COMPOSE_PROFILES
+# 这样用户直接执行 docker compose down 也能正确停止所有容器
+sync_compose_profiles() {
+    local enable_https=$(read_env_config "ENABLE_HTTPS" "true")
+    local enable_mysql=$(read_env_config "ENABLE_MYSQL" "true")
+    local enable_redis=$(read_env_config "ENABLE_REDIS" "true")
+    
+    local profiles=()
+    [ "$enable_https" = "true" ] && profiles+=("https")
+    [ "$enable_mysql" = "true" ] && profiles+=("mysql")
+    [ "$enable_redis" = "true" ] && profiles+=("redis")
+    
+    # 用逗号连接 profiles
+    local profiles_str=""
+    if [ ${#profiles[@]} -gt 0 ]; then
+        profiles_str=$(IFS=,; echo "${profiles[*]}")
+    fi
+    
+    update_env_var "COMPOSE_PROFILES" "$profiles_str"
+}
+
 # 获取 Docker Compose 命令（根据 ENABLE_HTTPS/MYSQL/REDIS 添加 profiles）
 # 参数: $1 - 基础 docker-compose 命令 (可选，默认 "docker compose")
 # 返回: 完整的 docker-compose 命令 (stdout)
@@ -331,6 +353,9 @@ apply_cli_args_to_env() {
     [ -n "$DRUID_INITIAL_SIZE" ] && update_env_var "DRUID_INITIAL_SIZE" "$DRUID_INITIAL_SIZE"
     [ -n "$DRUID_MIN_IDLE" ] && update_env_var "DRUID_MIN_IDLE" "$DRUID_MIN_IDLE"
     [ -n "$DRUID_MAX_ACTIVE" ] && update_env_var "DRUID_MAX_ACTIVE" "$DRUID_MAX_ACTIVE"
+    
+    # 同步 COMPOSE_PROFILES，确保 docker compose down 能正确停止所有容器
+    sync_compose_profiles
     
     return 0
 }

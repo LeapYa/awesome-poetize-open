@@ -87,6 +87,7 @@ services:
   certbot:
     image: certbot/certbot
     container_name: poetize-certbot
+    init: true  # 改善信号处理，确保优雅关闭
     profiles:
       - https
     environment:
@@ -260,6 +261,7 @@ services:
       - redis
     image: redis:7-alpine
     container_name: poetize-redis
+    init: true  # 改善信号处理，确保优雅关闭
     logging:
       driver: json-file
       options:
@@ -292,6 +294,7 @@ services:
       context: .
       dockerfile: docker/mysql/Dockerfile
     container_name: poetize-mariadb
+    init: true  # 改善信号处理，确保优雅关闭
     logging:
       driver: json-file
       options:

@@ -53,9 +53,21 @@
           :list="barrageList"
           :loop="true"
           :pauseOnHover="true"
+          @danmaku-click="handleDanmakuClick"
         ></danmaku>
       </div>
     </div>
+    
+    <!-- 验证码弹窗 -->
+    <CaptchaWrapper
+      :visible="showCaptchaWrapper"
+      action="comment"
+      :force-slide="false"
+      @success="onCaptchaSuccess"
+      @fail="closeCaptcha"
+      @close="closeCaptcha"
+    ></CaptchaWrapper>
+    
     <div class="comment-wrap">
       <div class="comment-content">
         <comment
@@ -73,6 +85,7 @@
 import { defineAsyncComponent } from 'vue'
 import { ArrowDown as ElIconArrowDown } from '@element-plus/icons-vue'
 import { useMainStore } from '@/stores/main'
+import { checkCaptchaWithCache } from '@/utils/captchaUtil'
 
 
 export default {
@@ -80,6 +93,7 @@ export default {
     comment: defineAsyncComponent(() => import('./comment/comment')),
     myFooter: defineAsyncComponent(() => import('./common/myFooter')),
     danmaku: defineAsyncComponent(() => import('./common/Danmaku')),
+    CaptchaWrapper: defineAsyncComponent(() => import('./common/CaptchaWrapper')),
     ElIconArrowDown,
   },
   computed: {
@@ -93,6 +107,8 @@ export default {
       messageContent: '',
       // background: {"background": "url(" + this.mainStore.webInfo.backgroundImage + ") center center / cover no-repeat"},
       barrageList: [],
+      showCaptchaWrapper: false,
+      pendingVerificationToken: '',
     }
   },
   created() {
@@ -137,8 +153,39 @@ export default {
         return
       }
 
+      // 检查是否需要验证码
+      checkCaptchaWithCache('comment').then((required) => {
+        if (required) {
+          // 需要验证码，显示验证码弹窗
+          this.showCaptchaWrapper = true
+        } else {
+          // 不需要验证码，直接提交
+          this.doSubmitMessage('')
+        }
+      }).catch(() => {
+        // 检查失败，尝试直接提交
+        this.doSubmitMessage('')
+      })
+    },
+    
+    onCaptchaSuccess(token) {
+      this.showCaptchaWrapper = false
+      this.pendingVerificationToken = token
+      this.doSubmitMessage(token)
+    },
+    
+    closeCaptcha() {
+      this.showCaptchaWrapper = false
+    },
+    
+    doSubmitMessage(verificationToken) {
       let treeHole = {
         message: this.messageContent.trim(),
+      }
+
+      // 如果有验证码token，添加到请求中
+      if (verificationToken) {
+        treeHole.verificationToken = verificationToken
       }
 
       // 如果用户已登录且有头像，使用用户头像
@@ -160,6 +207,10 @@ export default {
               msg: res.data.message,
               time: Math.floor(Math.random() * 5 + 10),
             })
+            this.$message({
+              message: '发射成功！',
+              type: 'success',
+            })
           }
         })
         .catch((error) => {
@@ -171,6 +222,48 @@ export default {
 
       this.messageContent = ''
       this.show = false
+    },
+    
+    // 处理弹幕点击事件 - 复制弹幕内容
+    handleDanmakuClick(item) {
+      if (item && item.msg) {
+        // 复制到剪贴板
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(item.msg).then(() => {
+            this.$message({
+              message: '复制成功',
+              type: 'success',
+            })
+          }).catch(() => {
+            this.fallbackCopy(item.msg)
+          })
+        } else {
+          this.fallbackCopy(item.msg)
+        }
+      }
+    },
+    
+    // 降级复制方法
+    fallbackCopy(text) {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.style.position = 'fixed'
+      textarea.style.left = '-9999px'
+      document.body.appendChild(textarea)
+      textarea.select()
+      try {
+        document.execCommand('copy')
+        this.$message({
+          message: '复制成功',
+          type: 'success',
+        })
+      } catch (err) {
+        this.$message({
+          message: '复制失败',
+          type: 'error',
+        })
+      }
+      document.body.removeChild(textarea)
     },
   },
 }

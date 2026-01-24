@@ -5,6 +5,7 @@ import com.ld.poetry.aop.SaveCheck;
 import com.ld.poetry.constants.CommonConst;
 import com.ld.poetry.entity.User;
 import com.ld.poetry.service.CacheService;
+import com.ld.poetry.service.CaptchaService;
 import com.ld.poetry.service.MailService;
 import com.ld.poetry.service.UserService;
 import com.ld.poetry.config.PoetryResult;
@@ -44,11 +45,36 @@ public class UserController {
     @Autowired
     private CacheService cacheService;
 
+    @Autowired
+    private CaptchaService captchaService;
+
     /**
      * 用户名/密码注册
      */
     @PostMapping("/regist")
     public PoetryResult<UserVO> regist(@Validated @RequestBody UserVO user) {
+        // 检查是否需要验证码（使用register配置项）
+        boolean captchaRequired = captchaService.isCaptchaRequired("register");
+        String verificationToken = user.getVerificationToken();
+        
+        if (captchaRequired) {
+            // 验证码开启时，必须提供有效token
+            if (verificationToken == null || verificationToken.isEmpty()) {
+                log.warn("注册需要验证码但未提供token，拒绝请求");
+                return PoetryResult.fail("请先完成验证码验证");
+            }
+            
+            log.info("注册请求验证码token校验: {}...", 
+                    verificationToken.substring(0, Math.min(verificationToken.length(), 10)));
+            
+            boolean isTokenValid = captchaService.verifyToken(verificationToken);
+            if (!isTokenValid) {
+                log.warn("注册验证码token验证失败，拒绝注册请求");
+                return PoetryResult.fail("验证码验证失败，请重新验证后再试");
+            }
+            log.info("注册验证码token验证通过");
+        }
+        
         return userService.regist(user);
     }
 
@@ -61,6 +87,8 @@ public class UserController {
                                       @RequestParam(value = "password", required = false) String password,
                                       @RequestParam(value = "isAdmin", defaultValue = "false") Boolean isAdmin,
                                       @RequestBody(required = false) EncryptedRequestVO encryptedRequest) {
+        String verificationToken = null;
+        
         // 如果有加密请求体，则解密并提取参数
         if (encryptedRequest != null && encryptedRequest.getData() != null) {
             try {
@@ -77,6 +105,7 @@ public class UserController {
                 account = (String) params.get("account");
                 password = (String) params.get("password");
                 isAdmin = params.get("isAdmin") != null ? (Boolean) params.get("isAdmin") : false;
+                verificationToken = (String) params.get("verificationToken");
             } catch (Exception e) {
                 log.error("解密登录请求失败", e);
                 return PoetryResult.fail("请求解密失败");
@@ -86,6 +115,27 @@ public class UserController {
         // 验证必要参数
         if (account == null || password == null) {
             return PoetryResult.fail("账号和密码不能为空");
+        }
+        
+        // 检查是否需要验证码
+        boolean captchaRequired = captchaService.isCaptchaRequired("login");
+        
+        if (captchaRequired) {
+            // 验证码开启时，必须提供有效token
+            if (verificationToken == null || verificationToken.isEmpty()) {
+                log.warn("登录需要验证码但未提供token，拒绝请求");
+                return PoetryResult.fail("请先完成验证码验证");
+            }
+            
+            log.info("登录请求验证码token校验: {}...", 
+                    verificationToken.substring(0, Math.min(verificationToken.length(), 10)));
+            
+            boolean isTokenValid = captchaService.verifyToken(verificationToken);
+            if (!isTokenValid) {
+                log.warn("登录验证码token验证失败，拒绝登录请求");
+                return PoetryResult.fail("验证码验证失败，请重新验证后再试");
+            }
+            log.info("登录验证码token验证通过");
         }
         
         // 调用登录服务
@@ -319,6 +369,28 @@ public class UserController {
      */
     @PostMapping("/thirdLogin")
     public PoetryResult<UserVO> thirdLogin(@RequestBody UserVO thirdUserInfo) {
+        // 检查是否需要验证码
+        boolean captchaRequired = captchaService.isCaptchaRequired("login");
+        String verificationToken = thirdUserInfo.getVerificationToken();
+        
+        if (captchaRequired) {
+            // 验证码开启时，必须提供有效token
+            if (verificationToken == null || verificationToken.isEmpty()) {
+                log.warn("第三方登录需要验证码但未提供token，拒绝请求");
+                return PoetryResult.fail("请先完成验证码验证");
+            }
+            
+            log.info("第三方登录请求验证码token校验: {}...", 
+                    verificationToken.substring(0, Math.min(verificationToken.length(), 10)));
+            
+            boolean isTokenValid = captchaService.verifyToken(verificationToken);
+            if (!isTokenValid) {
+                log.warn("第三方登录验证码token验证失败，拒绝登录请求");
+                return PoetryResult.fail("验证码验证失败，请重新验证后再试");
+            }
+            log.info("第三方登录验证码token验证通过");
+        }
+        
         return userService.thirdLogin(
             thirdUserInfo.getPlatformType(),
             thirdUserInfo.getUid(),

@@ -7,8 +7,10 @@ import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.constants.CommonConst;
 import com.ld.poetry.dao.TreeHoleMapper;
 import com.ld.poetry.entity.TreeHole;
+import com.ld.poetry.service.CaptchaService;
 import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.utils.XssFilterUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -26,10 +28,14 @@ import java.util.Random;
  */
 @RestController
 @RequestMapping("/webInfo")
+@Slf4j
 public class TreeHoleController {
 
     @Autowired
     private TreeHoleMapper treeHoleMapper;
+
+    @Autowired
+    private CaptchaService captchaService;
 
     /**
      * 保存
@@ -39,6 +45,29 @@ public class TreeHoleController {
     public PoetryResult<TreeHole> saveTreeHole(@RequestBody TreeHole treeHole) {
         if (!StringUtils.hasText(treeHole.getMessage())) {
             return PoetryResult.fail("留言不能为空！");
+        }
+        
+        // 检查是否需要验证码（树洞使用comment配置）
+        boolean captchaRequired = captchaService.isCaptchaRequired("comment");
+        String verificationToken = treeHole.getVerificationToken();
+        
+        if (captchaRequired) {
+            // 验证码开启时，必须提供有效token
+            if (!StringUtils.hasText(verificationToken)) {
+                log.warn("树洞留言需要验证码但未提供token，拒绝请求");
+                return PoetryResult.fail("请先完成验证码验证");
+            }
+            
+            log.info("树洞留言验证码token校验: {}...", 
+                    verificationToken.substring(0, Math.min(verificationToken.length(), 10)));
+
+            boolean isTokenValid = captchaService.verifyToken(verificationToken);
+            if (!isTokenValid) {
+                log.warn("树洞留言验证码token验证失败，拒绝提交");
+                return PoetryResult.fail("验证码验证失败，请重新验证后再试");
+            }
+
+            log.info("树洞留言验证码token验证通过");
         }
         
         // XSS过滤处理

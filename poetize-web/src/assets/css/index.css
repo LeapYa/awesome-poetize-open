@@ -881,11 +881,11 @@ html.dark-mode .el-message-box__btns .el-button--default:hover {
     border-color: #606060 !important;
 }
 
-/* 暗色模式抽屉背景色适配 */
-body.dark-mode .el-drawer,
-html.dark-mode .el-drawer,
-body.dark-mode .el-drawer__body,
-html.dark-mode .el-drawer__body {
+/* 暗色模式抽屉背景色适配 - 排除首页工具栏抽屉 */
+body.dark-mode .el-drawer:not(.toolbarDrawer),
+html.dark-mode .el-drawer:not(.toolbarDrawer),
+body.dark-mode .el-drawer:not(.toolbarDrawer) .el-drawer__body,
+html.dark-mode .el-drawer:not(.toolbarDrawer) .el-drawer__body {
     background-color: var(--background, #1a1a1a) !important;
 }
 

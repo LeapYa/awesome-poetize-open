@@ -69,19 +69,27 @@ public class CommentController {
         }
         commentVO.setCommentContent(content);
 
-        // 验证码token校验
-        if (StringUtils.hasText(commentVO.getVerificationToken())) {
-            log.info("检测到验证码token，开始验证: {}",
-                    commentVO.getVerificationToken().substring(0, Math.min(commentVO.getVerificationToken().length(), 10)) + "...");
+        // 检查是否需要验证码
+        boolean captchaRequired = captchaService.isCaptchaRequired("comment");
+        String verificationToken = commentVO.getVerificationToken();
+        
+        if (captchaRequired) {
+            // 验证码开启时，必须提供有效token
+            if (!StringUtils.hasText(verificationToken)) {
+                log.warn("评论需要验证码但未提供token，拒绝请求");
+                return PoetryResult.fail("请先完成验证码验证");
+            }
+            
+            log.info("评论请求验证码token校验: {}...", 
+                    verificationToken.substring(0, Math.min(verificationToken.length(), 10)));
 
-            boolean isTokenValid = captchaService.verifyToken(commentVO.getVerificationToken());
+            boolean isTokenValid = captchaService.verifyToken(verificationToken);
             if (!isTokenValid) {
-                log.warn("验证码token验证失败，拒绝评论提交");
+                log.warn("评论验证码token验证失败，拒绝评论提交");
                 return PoetryResult.fail("验证码验证失败，请重新验证后再试");
             }
 
-            log.info("验证码token验证通过，允许评论提交");
-        } else {
+            log.info("评论验证码token验证通过，允许评论提交");
         }
 
         // 清除评论计数缓存

@@ -157,6 +157,7 @@ export default {
       slideTrack: [], // 滑动轨迹记录
       slideStartTime: 0, // 滑动开始时间
       browserFingerprint: null, // 浏览器指纹
+      verificationToken: '', // 验证成功后的token
     }
   },
   async mounted() {
@@ -223,6 +224,7 @@ export default {
       this.errorMsg = ''
       this.verified = false
       this.isDragging = false
+      this.verificationToken = '' // 重置token
       this.updateMaxSlideDistance()
     },
 
@@ -392,6 +394,8 @@ export default {
 
           // 检查验证是否成功
           if (responseData && responseData.success) {
+            // 保存后端返回的验证token
+            this.verificationToken = responseData.token || ''
             this.verifySuccess()
           } else {
             const failMessage = responseData?.message || '验证失败，请重试'
@@ -434,9 +438,9 @@ export default {
       // 播放成功音效
       this.playSound('success')
 
-      // 延时发送成功事件
+      // 延时发送成功事件，传递真正的验证token
       setTimeout(() => {
-        $emit(this, 'success', 1)
+        $emit(this, 'success', this.verificationToken)
       }, 600)
     },
 

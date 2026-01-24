@@ -46,4 +46,10 @@ public class TreeHole implements Serializable {
     @TableField("create_time")
     private LocalDateTime createTime;
 
+    /**
+     * 验证码token（不存入数据库，仅用于验证）
+     */
+    @TableField(exist = false)
+    private String verificationToken;
+
 }

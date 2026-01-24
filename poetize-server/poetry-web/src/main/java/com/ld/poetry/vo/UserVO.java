@@ -96,4 +96,9 @@ public class UserVO {
     private String code;
 
     private Integer userType;
+
+    /**
+     * 验证码token（用于登录/注册时的验证码校验）
+     */
+    private String verificationToken;
 }

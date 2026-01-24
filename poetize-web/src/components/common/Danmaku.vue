@@ -5,6 +5,7 @@
       :key="item.uniqueId"
       class="danmaku-item"
       :style="getDanmakuStyle(item)"
+      :title="'点击复制：' + item.msg"
       @click="handleDanmakuClick(item)"
       @mouseenter="handleDanmakuMouseEnter(item)"
       @mouseleave="handleDanmakuMouseLeave(item)"
@@ -345,6 +346,11 @@ export default {
       const now = Date.now()
 
       this.renderList = this.renderList.filter((item) => {
+        // 如果弹幕被暂停（悬停中），不清理
+        if (item.isPaused) {
+          return true
+        }
+        
         const elapsed = now - item.startTime
         const isFinished = elapsed >= item.duration
 

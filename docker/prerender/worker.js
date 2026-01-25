@@ -20,10 +20,6 @@ class Logger {
     this.logDir = '/app/dist/logs';
     this.ensureLogDirectory();
     
-    // 内存日志缓存（用于实时查看）
-    this.memoryLogs = [];
-    this.maxMemoryLogs = 500;
-    
     // 日志清理配置
     this.logRetentionDays = parseInt(process.env.LOG_RETENTION_DAYS) || 30; // 默认保留30天
     this.cleanupInterval = 24 * 60 * 60 * 1000; // 每天清理一次
@@ -66,13 +62,6 @@ class Logger {
     }
   }
 
-  addToMemory(logEntry) {
-    this.memoryLogs.unshift(logEntry);
-    if (this.memoryLogs.length > this.maxMemoryLogs) {
-      this.memoryLogs = this.memoryLogs.slice(0, this.maxMemoryLogs);
-    }
-  }
-
   shouldLog(level) {
     return this.levels[level] <= this.levels[this.logLevel];
   }
@@ -84,9 +73,6 @@ class Logger {
     
     // 写入文件
     this.writeToFile(logEntry);
-    
-    // 添加到内存
-    this.addToMemory(logEntry);
     
     // 控制台输出
     const logString = JSON.stringify(logEntry);
@@ -120,66 +106,6 @@ class Logger {
 
   debug(message, meta = {}) {
     this.log('debug', message, meta);
-  }
-
-  // 获取内存中的日志
-  getMemoryLogs(limit = 100) {
-    return this.memoryLogs.slice(0, limit);
-  }
-
-  // 获取日志文件列表
-  getLogFiles() {
-    try {
-      const files = fs.readdirSync(this.logDir)
-        .filter(file => file.startsWith('prerender-') && file.endsWith('.log'))
-        .map(file => {
-          const filePath = path.join(this.logDir, file);
-          const stats = fs.statSync(filePath);
-          return {
-            name: file,
-            path: filePath,
-            size: stats.size,
-            modified: stats.mtime
-          };
-        })
-        .sort((a, b) => b.modified - a.modified);
-      return files;
-    } catch (error) {
-      console.error('获取日志文件失败:', error);
-      return [];
-    }
-  }
-
-  // 读取日志文件
-  readLogFile(filename, lines = 1000) {
-    try {
-      const filePath = path.join(this.logDir, filename);
-      if (!fs.existsSync(filePath)) {
-        return [];
-      }
-      
-      const content = fs.readFileSync(filePath, 'utf8');
-      const logLines = content.trim().split('\n').filter(line => line.trim());
-      
-      // 解析日志行
-      const logs = logLines.slice(-lines).map(line => {
-        try {
-          return JSON.parse(line);
-        } catch (e) {
-          return {
-            timestamp: new Date().toISOString(),
-            level: 'error',
-            message: `Failed to parse log line: ${line}`,
-            service: 'prerender-worker'
-          };
-        }
-      }).reverse(); // 最新的在前面
-      
-      return logs;
-    } catch (error) {
-      console.error('读取日志文件失败:', error);
-      return [];
-    }
   }
 
   // 启动定时日志清理
@@ -237,81 +163,6 @@ class Logger {
     } catch (error) {
       console.error('清理日志文件时发生错误:', error);
       this.log('error', '日志清理失败', { error: error.message });
-    }
-  }
-
-  // 手动清理日志文件（用于API调用）
-  manualCleanup(retentionDays = null) {
-    const originalRetention = this.logRetentionDays;
-    if (retentionDays && retentionDays > 0) {
-      this.logRetentionDays = retentionDays;
-    }
-    
-    try {
-      this.cleanupOldLogs();
-      return {
-        success: true,
-        message: `手动清理完成，保留${this.logRetentionDays}天的日志`
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: `手动清理失败: ${error.message}`
-      };
-    } finally {
-      // 恢复原始设置
-      this.logRetentionDays = originalRetention;
-    }
-  }
-
-  // 获取日志磁盘使用情况
-  getLogDiskUsage() {
-    try {
-      const files = fs.readdirSync(this.logDir)
-        .filter(file => file.startsWith('prerender-') && file.endsWith('.log'));
-
-      let totalSize = 0;
-      let fileCount = 0;
-      const oldestFile = { name: '', date: new Date() };
-      const newestFile = { name: '', date: new Date(0) };
-
-      files.forEach(file => {
-        const filePath = path.join(this.logDir, file);
-        const stats = fs.statSync(filePath);
-        
-        totalSize += stats.size;
-        fileCount++;
-        
-        if (stats.mtime < oldestFile.date) {
-          oldestFile.name = file;
-          oldestFile.date = stats.mtime;
-        }
-        
-        if (stats.mtime > newestFile.date) {
-          newestFile.name = file;
-          newestFile.date = stats.mtime;
-        }
-      });
-
-      return {
-        totalSize,
-        totalSizeMB: (totalSize / 1024 / 1024).toFixed(1),
-        fileCount,
-        oldestFile: oldestFile.name || 'N/A',
-        newestFile: newestFile.name || 'N/A',
-        retentionDays: this.logRetentionDays
-      };
-    } catch (error) {
-      console.error('获取日志磁盘使用情况失败:', error);
-      return {
-        totalSize: 0,
-        totalSizeMB: '0',
-        fileCount: 0,
-        oldestFile: 'N/A',
-        newestFile: 'N/A',
-        retentionDays: this.logRetentionDays,
-        error: error.message
-      };
     }
   }
 }
@@ -378,14 +229,6 @@ class ServiceMonitor {
       currentTaskCount: this.stats.currentTasks.size,
       totalRequests: this.stats.totalRequests 
     });
-    
-    // 调试：打印当前所有任务
-    console.log('=== 任务开始 ===');
-    console.log(`任务ID: ${taskId}`);
-    console.log(`类型: ${type}`);
-    console.log(`参数:`, params);
-    console.log(`当前运行中任务数: ${this.stats.currentTasks.size}`);
-    console.log('==================');
   }
 
   recordRenderSuccess(taskId, details = {}) {
@@ -478,69 +321,9 @@ class ServiceMonitor {
         this.stats.errors = this.stats.errors.slice(-50);
       }
       
-      // 添加到任务历史
-      const failedTask = {
-        taskId: task.id,
-        type: task.type,
-        status: 'failed',
-        startTime: task.startTime.toISOString(),
-        endTime: new Date().toISOString(),
-        duration: `${duration}ms`,
-        params: task.params,
-        error: error.message || error.toString()
-      };
-      
-      // 确保recentTasks数组存在
-      if (!this.stats.recentTasks) {
-        this.stats.recentTasks = [];
-      }
-      this.stats.recentTasks.push(failedTask);
-      
-      // 只保留最近20个完成的任务
-      if (this.stats.recentTasks.length > 20) {
-        this.stats.recentTasks = this.stats.recentTasks.slice(-20);
-      }
-      
       this.stats.currentTasks.delete(taskId);
       logger.error('渲染任务失败', errorRecord);
     }
-  }
-
-  getStats() {
-    const runningTasks = Array.from(this.stats.currentTasks.values()).map(task => ({
-      taskId: task.id,  // 前端期望 taskId 字段
-      type: task.type,
-      status: 'running',  // 前端期望 status 字段
-      startTime: task.startTime.toISOString(),  // 前端期望 startTime 字段
-      params: task.params,
-      duration: `${new Date() - task.startTime}ms`
-    }));
-
-    // 确保关键数组存在
-    if (!this.stats.recentTasks) {
-      this.stats.recentTasks = [];
-    }
-    if (!this.stats.errors) {
-      this.stats.errors = [];
-    }
-
-    return {
-      ...this.stats,
-      currentTasks: runningTasks,
-      recentTasks: this.stats.recentTasks, // 包含任务历史
-      uptime: `${Math.floor(process.uptime())}s`,
-      successRate: this.stats.totalRequests > 0 
-        ? Math.round((this.stats.successfulRenders / this.stats.totalRequests) * 100) 
-        : 0
-    };
-  }
-
-  getRecentErrors(limit = 10) {
-    // 确保errors数组存在
-    if (!this.stats.errors) {
-      this.stats.errors = [];
-    }
-    return this.stats.errors.slice(-limit);
   }
 
   clearStats() {
@@ -555,7 +338,6 @@ class ServiceMonitor {
       lastRenderTime: null,
       errors: [],
       currentTasks: new Map(),
-      recentTasks: [], // 添加最近完成的任务历史
       systemHealth: {
         memoryUsage: {},
         uptime: 0,
@@ -1109,16 +891,10 @@ function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' })
   removeElements('head meta[property^="og:"]');
   removeElements('head meta[property^="twitter:"]');
   removeElements('head meta[property^="article:"]');
+  removeElements('head meta[property="structured_data"]');
+  removeElements('head script[type="application/ld+json"][data-prerender-structured-data="true"]');
   removeElements('head link[rel="canonical"]');
   removeElements('head link[rel="alternate"]');
-
-  // 调试：检查meta对象
-  console.log('buildHtmlTemplate 元数据调试:', {
-    metaType: typeof meta,
-    metaIsObject: typeof meta === 'object' && meta !== null,
-    metaKeys: meta ? Object.keys(meta) : 'null',
-    metaStringified: JSON.stringify(meta)
-  });
 
   // 处理图标字段
   const iconMapping = {
@@ -1172,6 +948,10 @@ function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' })
   if (typeof meta === 'object' && meta !== null) {
     for (const key in meta) {
       if (!meta.hasOwnProperty(key)) continue;
+
+      if (key === 'structured_data') {
+        continue;
+      }
 
       const value = (meta[key] || '').toString().replace(/"/g, '&quot;');
       
@@ -1240,6 +1020,26 @@ function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' })
             logger.warn(`添加property meta标签${key}失败`, { error: error.message, value });
           }
         }
+      }
+    }
+
+    if (meta.structured_data && meta.structured_data.toString().trim() !== '') {
+      try {
+        const structuredDataScript = document.createElement('script');
+        structuredDataScript.setAttribute('type', 'application/ld+json');
+        structuredDataScript.setAttribute('data-prerender-structured-data', 'true');
+        structuredDataScript.textContent =
+          typeof meta.structured_data === 'string'
+            ? meta.structured_data
+            : JSON.stringify(meta.structured_data);
+
+        if (document.head && document.head.nodeType === Node.ELEMENT_NODE && titleElement) {
+          document.head.insertBefore(structuredDataScript, titleElement);
+        } else if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
+          document.head.appendChild(structuredDataScript);
+        }
+      } catch (e) {
+        logger.warn('注入JSON-LD结构化数据失败', { error: e.message });
       }
     }
     
@@ -1713,15 +1513,6 @@ function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' })
 
 // ===== 文章页面渲染函数 =====
 function buildHtml({ title, articleTitle, meta, content, lang }) {
-  // 调试：确保参数格式正确
-  console.log('buildHtml 参数:', {
-    title: typeof title,
-    articleTitle: typeof articleTitle,
-    meta: typeof meta,
-    content: typeof content,
-    lang: typeof lang,
-    metaKeys: meta ? Object.keys(meta) : 'null'
-  });
 
   // 确保meta是一个有效的对象
   const safeMeta = (typeof meta === 'object' && meta !== null) ? meta : {};
@@ -2376,6 +2167,119 @@ async function renderSortPage(sortId, labelId = null, lang = 'zh') {
 }
 
 // ===== 文章渲染函数 =====
+function resolveOutputRoot(outputRoot) {
+  return outputRoot || process.env.PRERENDER_OUTPUT || path.resolve(__dirname, './dist/prerender');
+}
+
+function resolveIndexFilename(lang) {
+  return lang === 'zh' ? 'index.html' : `index-${lang}.html`;
+}
+
+function writeRenderedHtml(outputPath, lang, html) {
+  fs.mkdirSync(outputPath, { recursive: true });
+  const filename = resolveIndexFilename(lang);
+  const filePath = path.join(outputPath, filename);
+  fs.writeFileSync(filePath, html, 'utf8');
+  return { filename, filePath };
+}
+
+function normalizeLanguagesInput(languages, defaultLanguages = ['zh']) {
+  return Array.isArray(languages) && languages.length > 0 ? languages : defaultLanguages;
+}
+
+function filterSupportedLanguages(languages, supportedLanguages) {
+  const supported = new Set(supportedLanguages);
+  return languages.filter(lang => supported.has(lang));
+}
+
+async function renderArticleVariant({ taskId, OUTPUT_ROOT, seoConfig, webInfo }, { articleId, article, lang }) {
+  logger.debug('渲染文章', { taskId, articleId, lang });
+
+  let contentHtml = article.articleContent || '';
+  let articleTitle = article.articleTitle || '';
+
+  const translation = await fetchTranslation(articleId, lang);
+  if (translation) {
+    if (translation.content) contentHtml = translation.content;
+    if (translation.title) articleTitle = translation.title;
+    logger.debug('翻译已应用', { taskId, articleId, lang });
+  }
+
+  contentHtml = decodeHtmlEntities(contentHtml);
+  contentHtml = md.render(contentHtml);
+  logger.debug('Markdown内容已渲染为HTML', { taskId, articleId, lang });
+
+  const articleMeta = await fetchMeta(articleId, lang);
+
+  const siteName = webInfo.webTitle || webInfo.webName;
+  const baseKeywords = seoConfig.site_keywords || '博客,个人网站,技术分享';
+  const author = seoConfig.default_author || webInfo.webName || 'Admin';
+  const baseUrl = seoConfig.site_address || process.env.SITE_URL;
+
+  const meta = {
+    ...articleMeta,
+    author: articleMeta.author || author,
+    keywords: articleMeta.keywords || baseKeywords,
+    'og:site_name': webInfo.webTitle || webInfo.webName,
+    'og:url': articleMeta['og:url'],
+    'og:image': ensureAbsoluteImageUrl(articleMeta['og:image'] || seoConfig.og_image || webInfo.avatar || '', baseUrl),
+    'twitter:card': seoConfig.twitter_card || 'summary_large_image',
+    'twitter:site': seoConfig.twitter_site || '',
+    'twitter:image': ensureAbsoluteImageUrl(articleMeta['og:image'] || seoConfig.og_image || webInfo.avatar || '', baseUrl)
+  };
+
+  logger.info('buildHtml前的元数据对象', {
+    taskId,
+    articleId,
+    lang,
+    metaType: typeof meta,
+    metaKeys: Object.keys(meta),
+    metaSample: Object.keys(meta).slice(0, 3).reduce((obj, key) => {
+      obj[key] = meta[key];
+      return obj;
+    }, {})
+  });
+
+  const pageTitle = `${meta.title || articleTitle} - ${siteName}`;
+
+  const html = buildHtml({
+    title: pageTitle,
+    articleTitle: meta.title || articleTitle,
+    meta,
+    content: contentHtml,
+    lang
+  });
+
+  const outputPath = path.join(OUTPUT_ROOT, 'article', articleId.toString());
+  const { filename } = writeRenderedHtml(outputPath, lang, html);
+
+  logger.debug('文章渲染成功', {
+    taskId,
+    articleId,
+    lang,
+    filePath: `${outputPath}/${filename}`,
+    size: `${(html.length / 1024).toFixed(1)}KB`
+  });
+
+  return { outputPath, filename, htmlSizeKb: `${(html.length / 1024).toFixed(1)}KB` };
+}
+
+async function safeRenderArticleVariant(context, payload) {
+  try {
+    const result = await renderArticleVariant(context, payload);
+    return { ok: true, result };
+  } catch (error) {
+    logger.error('文章渲染失败', {
+      taskId: context.taskId,
+      articleId: payload.articleId,
+      lang: payload.lang,
+      error: error.message,
+      stack: error.stack
+    });
+    return { ok: false, error };
+  }
+}
+
 async function renderIds(ids = [], options = {}) {
   if (!Array.isArray(ids) || ids.length === 0) {
     throw new Error('ids必须是非空数组');
@@ -2384,25 +2288,24 @@ async function renderIds(ids = [], options = {}) {
   const taskId = generateTaskId();
   monitor.recordRenderStart(taskId, 'article', { ids, options });
 
-  const OUTPUT_ROOT = options.outputRoot || process.env.PRERENDER_OUTPUT || path.resolve(__dirname, './dist/prerender');
+  const OUTPUT_ROOT = resolveOutputRoot(options.outputRoot);
 
-  // 使用调用方传入的语言列表，如果没有则默认为中文
-  const languagesToRender = options.languages || ['zh'];
+  const requestedLanguages = normalizeLanguagesInput(options.languages);
 
   // 支持的语言列表（用于验证）
   const ALL_SUPPORTED_LANGUAGES = ['zh', 'en', 'ja', 'zh-TW', 'ko', 'fr', 'de', 'es', 'ru'];
 
   // 验证传入的语言是否支持
-  const validLanguages = languagesToRender.filter(lang => ALL_SUPPORTED_LANGUAGES.includes(lang));
+  const validLanguages = filterSupportedLanguages(requestedLanguages, ALL_SUPPORTED_LANGUAGES);
   if (validLanguages.length === 0) {
-    throw new Error(`在以下语言中未找到支持的语言: ${languagesToRender.join(', ')}。支持的语言: ${ALL_SUPPORTED_LANGUAGES.join(', ')}`);
+    throw new Error(`在以下语言中未找到支持的语言: ${requestedLanguages.join(', ')}。支持的语言: ${ALL_SUPPORTED_LANGUAGES.join(', ')}`);
   }
 
   try {
     logger.info('开始文章渲染', {
       taskId,
       articleCount: ids.length,
-      requestedLanguages: languagesToRender,
+      requestedLanguages: requestedLanguages,
       validLanguages: validLanguages
     });
 
@@ -2440,106 +2343,20 @@ async function renderIds(ids = [], options = {}) {
     const errors = [];
 
     for (const id of ids) {
+      const article = await fetchArticle(id);
+      if (!article) {
+        logger.warn('文章未找到，跳过', { taskId, articleId: id });
+        continue;
+      }
+
+      const context = { taskId, OUTPUT_ROOT, assets, seoConfig, webInfo };
       for (const lang of validLanguages) {
-        try {
-          logger.debug('渲染文章', { taskId, articleId: id, lang });
-
-          const article = await fetchArticle(id);
-          if (!article) { 
-            logger.warn('文章未找到，跳过', { taskId, articleId: id });
-            continue; 
-          }
-
-          let contentHtml = article.articleContent || '';
-          let articleTitle = article.articleTitle || '';
-
-          // translation
-          const t = await fetchTranslation(id, lang);
-          if (t) {
-            if (t.content) contentHtml = t.content;
-            if (t.title) articleTitle = t.title;
-            logger.debug('翻译已应用', { taskId, articleId: id, lang });
-          }
-
-          // 对内容进行 HTML 实体解码，避免 &gt; 等导致 markdown 失效
-          contentHtml = decodeHtmlEntities(contentHtml);
-
-          // markdown -> html
-          contentHtml = md.render(contentHtml);
-          logger.debug('Markdown内容已渲染为HTML', { taskId, articleId: id, lang });
-
-          // 获取文章特定的meta信息
-          const articleMeta = await fetchMeta(id, lang);
-          
-          // 增强meta信息，结合SEO配置
-          const siteName = webInfo.webTitle || webInfo.webName ;
-          const baseKeywords = seoConfig.site_keywords || '博客,个人网站,技术分享';
-          const author = seoConfig.default_author || webInfo.webName || 'Admin';
-          const baseUrl = seoConfig.site_address || process.env.SITE_URL;
-          
-          // 合并meta信息：文章特定meta + SEO配置
-          const meta = {
-            ...articleMeta,
-            // 确保基础字段存在
-            author: articleMeta.author || author,
-            keywords: articleMeta.keywords || baseKeywords,
-            'og:site_name': webInfo.webTitle || webInfo.webName , // 优先使用webTitle
-            'og:url': articleMeta['og:url'],
-            'og:image': ensureAbsoluteImageUrl(articleMeta['og:image'] || seoConfig.og_image || webInfo.avatar || '', baseUrl),
-            'twitter:card': seoConfig.twitter_card || 'summary_large_image',
-            'twitter:site': seoConfig.twitter_site || '',
-            'twitter:image': ensureAbsoluteImageUrl(articleMeta['og:image'] || seoConfig.og_image || webInfo.avatar || '', baseUrl)
-          };
-
-          // 调试：检查meta对象的格式
-          logger.info('buildHtml前的元数据对象', { 
-            taskId, 
-            articleId: id, 
-            lang, 
-            metaType: typeof meta,
-            metaKeys: Object.keys(meta),
-            metaSample: Object.keys(meta).slice(0, 3).reduce((obj, key) => {
-              obj[key] = meta[key];
-              return obj;
-            }, {})
-          });
-
-          // 构建完整的页面标题：文章标题 - 网站名
-          const pageTitle = `${meta.title || articleTitle} - ${siteName}`;
-          
-          let html = buildHtml({ 
-            title: pageTitle,  // <title> 标签：文章标题 - 网站名
-            articleTitle: meta.title || articleTitle,  // <h1> 标签：文章标题
-            meta, 
-            content: contentHtml, 
-            lang 
-          });
-          
-          const dir = path.join(OUTPUT_ROOT, 'article', id.toString());
-          fs.mkdirSync(dir, { recursive: true });
-          const filename = lang === 'zh' ? 'index.html' : `index-${lang}.html`;
-          const filePath = path.join(dir, filename);
-          fs.writeFileSync(filePath, html, 'utf8');
-          
+        const attempt = await safeRenderArticleVariant(context, { articleId: id, article, lang });
+        if (attempt.ok) {
           successCount++;
-          logger.debug('文章渲染成功', { 
-            taskId, 
-            articleId: id, 
-            lang, 
-            filePath: `${dir}/${filename}`,
-            size: `${(html.length / 1024).toFixed(1)}KB`
-          });
-
-        } catch (err) {
+        } else {
           failCount++;
-          errors.push({ articleId: id, lang, error: err.message });
-          logger.error('文章渲染失败', { 
-            taskId, 
-            articleId: id, 
-            lang, 
-            error: err.message,
-            stack: err.stack 
-          });
+          errors.push({ articleId: id, lang, error: attempt.error.message });
         }
       }
     }
@@ -2570,7 +2387,7 @@ async function renderIds(ids = [], options = {}) {
   }
 }
 
-// ===== 新增：页面类型渲染函数 =====
+// ===== 页面类型渲染函数 =====
 
 // 辅助函数：渲染单个分类页面（用于批量渲染，不创建新任务）
 async function renderSingleSortPage(sortId, parentTaskId = null) {
@@ -2598,11 +2415,67 @@ async function renderSingleSortPage(sortId, parentTaskId = null) {
   }
 }
 
+async function resolvePageVariant({ type, lang, params, OUTPUT_ROOT }) {
+  const renderers = {
+    home: async () => ({ html: await renderHomePage(lang), outputPath: path.join(OUTPUT_ROOT, 'home') }),
+    friends: async () => ({ html: await renderFriendsPage(lang), outputPath: path.join(OUTPUT_ROOT, 'friends') }),
+    music: async () => ({ html: await renderMusicPage(lang), outputPath: path.join(OUTPUT_ROOT, 'music') }),
+    favorites: async () => ({ html: await renderFavoritesPage(lang), outputPath: path.join(OUTPUT_ROOT, 'favorites') }),
+    sort: async () => {
+      const { sortId, labelId } = params || {};
+      if (!sortId) {
+        return { html: await renderDefaultSortPage(lang), outputPath: path.join(OUTPUT_ROOT, 'sort') };
+      }
+      let outputPath = path.join(OUTPUT_ROOT, 'sort', sortId.toString());
+      if (labelId) outputPath = path.join(outputPath, labelId.toString());
+      return { html: await renderSortPage(sortId, labelId, lang), outputPath };
+    },
+    about: async () => ({ html: await renderAboutPage(lang), outputPath: path.join(OUTPUT_ROOT, 'about') }),
+    message: async () => ({ html: await renderMessagePage(lang), outputPath: path.join(OUTPUT_ROOT, 'message') }),
+    weiYan: async () => ({ html: await renderWeiYanPage(lang), outputPath: path.join(OUTPUT_ROOT, 'weiYan') }),
+    love: async () => ({ html: await renderLovePage(lang), outputPath: path.join(OUTPUT_ROOT, 'love') }),
+    travel: async () => ({ html: await renderTravelPage(lang), outputPath: path.join(OUTPUT_ROOT, 'travel') }),
+    privacy: async () => ({ html: await renderPrivacyPage(lang), outputPath: path.join(OUTPUT_ROOT, 'privacy') }),
+    letter: async () => ({ html: await renderLetterPage(lang), outputPath: path.join(OUTPUT_ROOT, 'letter') })
+  };
+
+  const renderer = renderers[type];
+  if (!renderer) throw new Error(`未知页面类型: ${type}`);
+  return renderer();
+}
+
+async function safeRenderPageVariant({ taskId, type, lang, params, OUTPUT_ROOT }) {
+  try {
+    logger.debug('渲染页面', { taskId, type, lang, params });
+    const { html, outputPath } = await resolvePageVariant({ type, lang, params, OUTPUT_ROOT });
+    const { filename } = writeRenderedHtml(outputPath, lang, html);
+    const size = `${(html.length / 1024).toFixed(1)}KB`;
+    logger.debug('页面渲染成功', {
+      taskId,
+      type,
+      lang,
+      filePath: `${outputPath}/${filename}`,
+      size
+    });
+    return { ok: true, result: { lang, path: `${outputPath}/${filename}`, size } };
+  } catch (error) {
+    logger.error('页面渲染失败', {
+      taskId,
+      type,
+      lang,
+      params,
+      error: error.message,
+      stack: error.stack
+    });
+    return { ok: false, error };
+  }
+}
+
 async function renderPages(type, params = {}) {
   const taskId = generateTaskId();
   monitor.recordRenderStart(taskId, type, { type, params });
 
-  const OUTPUT_ROOT = process.env.PRERENDER_OUTPUT || path.resolve(__dirname, './dist/prerender');
+  const OUTPUT_ROOT = resolveOutputRoot();
   // 只有文章页面需要多语言，其他页面只生成中文版
   const langs = ['zh'];
   
@@ -2614,115 +2487,12 @@ async function renderPages(type, params = {}) {
     const results = [];
 
     for (const lang of langs) {
-      try {
-        logger.debug('渲染页面', { taskId, type, lang, params });
-
-        let html;
-        let outputPath;
-
-        switch (type) {
-          case 'home':
-            html = await renderHomePage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'home');
-            break;
-            
-            
-          case 'friends':
-            html = await renderFriendsPage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'friends');
-            break;
-            
-          case 'music':
-            html = await renderMusicPage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'music');
-            break;
-            
-          case 'favorites':
-            html = await renderFavoritesPage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'favorites');
-            break;
-            
-          case 'sort':
-            const { sortId, labelId } = params;
-            if (!sortId) {
-              // 渲染默认分类页面（显示所有分类列表）
-              html = await renderDefaultSortPage(lang);
-              outputPath = path.join(OUTPUT_ROOT, 'sort');
-            } else {
-              // 渲染特定分类页面
-              html = await renderSortPage(sortId, labelId, lang);
-              outputPath = path.join(OUTPUT_ROOT, 'sort', sortId.toString());
-              if (labelId) outputPath = path.join(outputPath, labelId.toString());
-            }
-            break;
-
-          case 'about':
-            html = await renderAboutPage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'about');
-            break;
-            
-          case 'message':
-            html = await renderMessagePage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'message');
-            break;
-            
-          case 'weiYan':
-            html = await renderWeiYanPage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'weiYan');
-            break;
-            
-          case 'love':
-            html = await renderLovePage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'love');
-            break;
-            
-          case 'travel':
-            html = await renderTravelPage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'travel');
-            break;
-            
-          case 'privacy':
-            html = await renderPrivacyPage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'privacy');
-            break;
-
-            
-          case 'letter':
-            html = await renderLetterPage(lang);
-            outputPath = path.join(OUTPUT_ROOT, 'letter');
-            break;
-            
-            
-          default:
-            throw new Error(`未知页面类型: ${type}`);
-        }
-
-        fs.mkdirSync(outputPath, { recursive: true });
-        const filename = lang === 'zh' ? 'index.html' : `index-${lang}.html`;
-        const filePath = path.join(outputPath, filename);
-        fs.writeFileSync(filePath, html, 'utf8');
-        
+      const attempt = await safeRenderPageVariant({ taskId, type, lang, params, OUTPUT_ROOT });
+      if (attempt.ok) {
         successCount++;
-        results.push({ lang, path: `${outputPath}/${filename}`, size: `${(html.length / 1024).toFixed(1)}KB` });
-        
-        logger.debug('页面渲染成功', { 
-          taskId, 
-          type, 
-          lang, 
-          filePath: `${outputPath}/${filename}`,
-          size: `${(html.length / 1024).toFixed(1)}KB`
-        });
-
-      } catch (err) {
+        results.push(attempt.result);
+      } else {
         failCount++;
-        logger.error('页面渲染失败', { 
-          taskId, 
-          type, 
-          lang, 
-          params,
-          error: err.message,
-          stack: err.stack 
-        });
       }
     }
 
@@ -2761,13 +2531,9 @@ app.use((req, res, next) => {
   const requestId = generateTaskId();
   req.requestId = requestId;
   
-  // 只有渲染相关的请求才计入业务统计，监控API不计入
-  const isMonitoringRequest = req.path.startsWith('/status') || 
-                              req.path.startsWith('/health') || 
-                              req.path.startsWith('/logs') || 
-                              req.path.startsWith('/monitor') || 
-                              req.path.startsWith('/errors') ||
-                              req.path.startsWith('/cleanup');
+  // 监控API前缀 - 仅保留health
+  const monitoringPrefixes = ['/health'];
+  const isMonitoringRequest = monitoringPrefixes.some(prefix => req.path.startsWith(prefix));
   
   if (!isMonitoringRequest) {
     monitor.recordRequest(req.method + ' ' + req.path);
@@ -2867,7 +2633,93 @@ app.post('/render', async (req, res) => {
   }
 });
 
-// 新增：专门的文章渲染API
+function isInternalServiceRequest(req) {
+  const internalService = req.get('X-Internal-Service');
+  return typeof internalService === 'string' && internalService.trim() !== '';
+}
+
+function requireInternalService(req, res) {
+  if (isInternalServiceRequest(req)) return true;
+  res.status(403).json({
+    error: 'Forbidden',
+    requestId: req.requestId,
+    timestamp: new Date().toISOString()
+  });
+  return false;
+}
+
+function removePathIfExists(targetPath) {
+  if (!fs.existsSync(targetPath)) return { existed: false, deletedFiles: 0 };
+  const stat = fs.statSync(targetPath);
+  if (!stat.isDirectory()) {
+    fs.unlinkSync(targetPath);
+    return { existed: true, deletedFiles: 1 };
+  }
+
+  const deletedFiles = clearDirectory(targetPath);
+  try {
+    fs.rmdirSync(targetPath);
+  } catch (e) {
+  }
+  return { existed: true, deletedFiles };
+}
+
+function removeIndexFilesInDirectory(targetDir) {
+  if (!fs.existsSync(targetDir)) return { existed: false, deletedFiles: 0 };
+  const stat = fs.statSync(targetDir);
+  if (!stat.isDirectory()) return { existed: false, deletedFiles: 0 };
+
+  const files = fs.readdirSync(targetDir);
+  let deletedFiles = 0;
+  for (const file of files) {
+    if (!/^index(-[a-zA-Z-]+)?\.html$/.test(file)) continue;
+    try {
+      fs.unlinkSync(path.join(targetDir, file));
+      deletedFiles++;
+    } catch (e) {
+    }
+  }
+  return { existed: true, deletedFiles };
+}
+
+app.delete('/render/:id', (req, res) => {
+  if (!requireInternalService(req, res)) return;
+
+  const requestId = req.requestId;
+  const id = req.params.id;
+  if (!id || !/^\d+$/.test(id)) {
+    return res.status(400).json({
+      error: 'Invalid article id',
+      requestId,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  const OUTPUT_ROOT = resolveOutputRoot();
+  const articleDir = path.join(OUTPUT_ROOT, 'article', id.toString());
+
+  try {
+    const result = removePathIfExists(articleDir);
+    res.json({
+      success: true,
+      requestId,
+      articleId: parseInt(id, 10),
+      existed: result.existed,
+      deletedFiles: result.deletedFiles,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('删除文章预渲染文件失败', { requestId, articleId: id, error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      requestId,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// 专门的文章渲染API
 app.post('/render/article', async (req, res) => {
   const requestId = req.requestId;
   const { id, languages } = req.body;
@@ -2933,12 +2785,61 @@ app.post('/render/article', async (req, res) => {
   }
 });
 
+async function safeRenderAllSortVariant(batchTaskId, sortId) {
+  try {
+    await renderSingleSortPage(sortId, batchTaskId);
+    logger.info('分类页面渲染成功', { batchTaskId, sortId });
+    return { ok: true };
+  } catch (error) {
+    logger.error('分类页面渲染失败', { batchTaskId, sortId, error: error.message });
+    return { ok: false, error };
+  }
+}
+
+async function renderAllSortPages(sortIds) {
+  const batchTaskId = generateTaskId();
+  monitor.recordRenderStart(batchTaskId, 'allSorts', { sortIds, count: sortIds.length });
+
+  let successCount = 0;
+  let failCount = 0;
+  const results = [];
+
+  try {
+    for (const sortId of sortIds) {
+      const attempt = await safeRenderAllSortVariant(batchTaskId, sortId);
+      if (attempt.ok) {
+        successCount++;
+        results.push({ sortId, status: 'success' });
+      } else {
+        failCount++;
+        results.push({ sortId, status: 'failed', error: attempt.error.message });
+      }
+    }
+
+    monitor.recordRenderSuccess(batchTaskId, {
+      type: 'allSorts',
+      sortIds,
+      successCount,
+      failCount,
+      results,
+      count: successCount
+    });
+
+    return { batchTaskId, successCount, failCount, results };
+  } catch (error) {
+    monitor.recordRenderFailure(batchTaskId, error);
+    throw error;
+  }
+}
+
 // 新增：页面渲染API - 增强版
 app.post('/render/pages', async (req, res) => {
   const requestId = req.requestId;
   const { type, params = {} } = req.body;
   
   logger.info('收到页面渲染请求', { requestId, type, params });
+
+  const supportedTypes = ['home', 'friends', 'music', 'favorites', 'sort', 'allSorts', 'about', 'message', 'weiYan', 'love', 'travel', 'privacy', 'letter', 'verify', '403', '404', 'oauth-callback'];
   
   if (!type) {
     logger.warn('无效的页面渲染请求 - 需要type参数', { requestId, body: req.body });
@@ -2950,13 +2851,13 @@ app.post('/render/pages', async (req, res) => {
     });
   }
 
-  if (!['home', 'friends', 'music', 'favorites', 'sort', 'allSorts', 'about', 'message', 'weiYan', 'love', 'travel', 'privacy', 'letter', 'verify', '403', '404', 'oauth-callback'].includes(type)) {
+  if (!supportedTypes.includes(type)) {
     logger.warn('无效的页面类型', { requestId, type });
     return res.status(400).json({ 
       message: '无效的页面类型',
       requestId,
       received: type,
-      supported: ['home', 'friends', 'music', 'favorites', 'sort', 'allSorts', 'about', 'message', 'weiYan', 'love', 'travel', 'privacy', 'letter', 'verify', '403', '404', 'oauth-callback'],
+      supported: supportedTypes,
       timestamp: new Date().toISOString()
     });
   }
@@ -2965,7 +2866,6 @@ app.post('/render/pages', async (req, res) => {
     const startTime = Date.now();
     
     if (type === 'allSorts') {
-      // 处理批量分类页面渲染 - 创建统一的批量任务
       const { sortIds } = params;
       if (!Array.isArray(sortIds) || sortIds.length === 0) {
         return res.status(400).json({ 
@@ -2975,43 +2875,7 @@ app.post('/render/pages', async (req, res) => {
       }
       
       logger.info('渲染所有分类页面', { requestId, sortIds });
-      
-      // 创建统一的批量任务而不是多个独立任务
-      const batchTaskId = generateTaskId();
-      monitor.recordRenderStart(batchTaskId, 'allSorts', { sortIds, count: sortIds.length });
-      
-      try {
-        let successCount = 0;
-        let failCount = 0;
-        const results = [];
-        
-        for (const sortId of sortIds) {
-           try {
-             // 直接执行分类页面渲染逻辑，不创建新任务
-             await renderSingleSortPage(sortId, batchTaskId);
-             successCount++;
-             results.push({ sortId, status: 'success' });
-             logger.info('分类页面渲染成功', { batchTaskId, sortId });
-           } catch (error) {
-             failCount++;
-             results.push({ sortId, status: 'failed', error: error.message });
-             logger.error('分类页面渲染失败', { batchTaskId, sortId, error: error.message });
-           }
-         }
-        
-        monitor.recordRenderSuccess(batchTaskId, {
-          type: 'allSorts',
-          sortIds,
-          successCount,
-          failCount,
-          results,
-          count: successCount // 成功渲染的分类数量
-        });
-        
-      } catch (error) {
-        monitor.recordRenderFailure(batchTaskId, error);
-        throw error;
-      }
+      await renderAllSortPages(sortIds);
     } else {
       await renderPages(type, params);
     }
@@ -3051,19 +2915,121 @@ app.post('/render/pages', async (req, res) => {
   }
 });
 
+app.delete('/render/pages/sort/:sortId', (req, res) => {
+  if (!requireInternalService(req, res)) return;
+
+  const requestId = req.requestId;
+  const sortId = req.params.sortId;
+  const labelId = req.query.labelId;
+
+  if (!sortId || !/^\d+$/.test(sortId)) {
+    return res.status(400).json({
+      error: 'Invalid sortId',
+      requestId,
+      timestamp: new Date().toISOString()
+    });
+  }
+  if (labelId != null && labelId !== '' && !/^\d+$/.test(labelId)) {
+    return res.status(400).json({
+      error: 'Invalid labelId',
+      requestId,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  const OUTPUT_ROOT = resolveOutputRoot();
+  const targetPath = labelId
+    ? path.join(OUTPUT_ROOT, 'sort', sortId.toString(), labelId.toString())
+    : path.join(OUTPUT_ROOT, 'sort', sortId.toString());
+
+  try {
+    const result = removePathIfExists(targetPath);
+    res.json({
+      success: true,
+      requestId,
+      type: 'sort',
+      sortId: parseInt(sortId, 10),
+      labelId: labelId ? parseInt(labelId, 10) : null,
+      existed: result.existed,
+      deletedFiles: result.deletedFiles,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('删除分类预渲染文件失败', { requestId, sortId, labelId, error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      requestId,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.delete('/render/pages/:type', (req, res) => {
+  if (!requireInternalService(req, res)) return;
+
+  const requestId = req.requestId;
+  const type = req.params.type;
+
+  const supportedTypes = ['home', 'friends', 'music', 'favorites', 'sort', 'about', 'message', 'weiYan', 'love', 'travel', 'privacy', 'letter', 'verify', '403', '404', 'oauth-callback'];
+  if (!supportedTypes.includes(type)) {
+    return res.status(400).json({
+      error: 'Invalid page type',
+      requestId,
+      received: type,
+      supported: supportedTypes,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  const OUTPUT_ROOT = resolveOutputRoot();
+
+  try {
+    if (type === 'sort') {
+      const dir = path.join(OUTPUT_ROOT, 'sort');
+      const result = removeIndexFilesInDirectory(dir);
+      return res.json({
+        success: true,
+        requestId,
+        type,
+        existed: result.existed,
+        deletedFiles: result.deletedFiles,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const targetDir = path.join(OUTPUT_ROOT, type);
+    const result = removePathIfExists(targetDir);
+    res.json({
+      success: true,
+      requestId,
+      type,
+      existed: result.existed,
+      deletedFiles: result.deletedFiles,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('删除页面预渲染文件失败', { requestId, type, error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      requestId,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // 新增：服务状态监控API
 app.get('/status', (req, res) => {
   const requestId = req.requestId;
-  // 移除状态请求日志，避免刷屏
   
-  const stats = monitor.getStats();
+  // 仅保留基础运行状态，移除monitor.getStats调用
   res.json({
     service: 'prerender-worker',
     version: '2.0.0',
     status: 'running',
     requestId,
-    timestamp: new Date().toISOString(),
-    ...stats
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -3129,341 +3095,51 @@ app.get('/health', (req, res) => {
   }
 });
 
-// 新增：实时日志API
-app.get('/logs', (req, res) => {
+app.post('/clear-cache', (req, res) => {
+  if (!requireInternalService(req, res)) return;
   const requestId = req.requestId;
-  const limit = parseInt(req.query.limit) || 100;
-  const level = req.query.level; // 可选：按级别过滤
-  
-  // 移除内存日志请求的日志，避免刷屏
-  
-  let logs = logger.getMemoryLogs(limit);
-  
-  // 按级别过滤
-  if (level && ['error', 'warn', 'info', 'debug'].includes(level)) {
-    logs = logs.filter(log => log.level === level);
-  }
-  
-  res.json({
-    requestId,
-    timestamp: new Date().toISOString(),
-    logs,
-    total: logs.length,
-    memoryTotal: logger.memoryLogs.length
-  });
-});
-
-// 新增：日志文件列表API
-app.get('/logs/files', (req, res) => {
-  const requestId = req.requestId;
-  
-  // 移除日志文件列表请求的日志，避免刷屏
-  
-  const files = logger.getLogFiles();
-  res.json({
-    requestId,
-    timestamp: new Date().toISOString(),
-    files: files.map(file => ({
-      name: file.name,
-      size: `${(file.size / 1024).toFixed(1)}KB`,
-      modified: file.modified,
-      date: file.name.replace('prerender-', '').replace('.log', '')
-    }))
-  });
-});
-
-// 新增：读取特定日志文件API
-app.get('/logs/files/:filename', (req, res) => {
-  const requestId = req.requestId;
-  const filename = req.params.filename;
-  const lines = parseInt(req.query.lines) || 1000;
-  const level = req.query.level;
-  
-  // 移除日志文件读取请求的日志，避免刷屏
-  
-  // 安全检查
-  if (!filename.match(/^prerender-\d{4}-\d{2}-\d{2}\.log$/)) {
-    return res.status(400).json({
-      error: 'Invalid filename format',
-      requestId,
-      timestamp: new Date().toISOString()
-    });
-  }
-  
-  let logs = logger.readLogFile(filename, lines);
-  
-  // 按级别过滤
-  if (level && ['error', 'warn', 'info', 'debug'].includes(level)) {
-    logs = logs.filter(log => log.level === level);
-  }
-  
-  res.json({
-    requestId,
-    timestamp: new Date().toISOString(),
-    filename,
-    logs,
-    total: logs.length
-  });
-});
-
-// 新增：下载日志文件API
-app.get('/logs/download/:filename', (req, res) => {
-  const requestId = req.requestId;
-  const filename = req.params.filename;
-  
-  logger.info('日志文件下载请求', { requestId, filename });
-  
-  // 安全检查
-  if (!filename.match(/^prerender-\d{4}-\d{2}-\d{2}\.log$/)) {
-    return res.status(400).json({
-      error: 'Invalid filename format',
-      requestId
-    });
-  }
-  
-  const filePath = path.join(logger.logDir, filename);
-  
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({
-      error: 'File not found',
-      requestId,
-      filename
-    });
-  }
-  
-  res.download(filePath, filename, (err) => {
-    if (err) {
-      logger.error('日志文件下载失败', { requestId, filename, error: err.message });
-    } else {
-      logger.info('日志文件下载成功', { requestId, filename });
-    }
-  });
-});
-
-// 新增：详细的监控仪表板数据API
-app.get('/monitor/dashboard', (req, res) => {
-  const requestId = req.requestId;
-  
-  // 移除仪表板数据请求的日志，避免刷屏
-  
-  const stats = monitor.getStats();
-  const recentErrors = monitor.getRecentErrors(10);
-  const recentLogs = logger.getMemoryLogs(50);
-  const logFiles = logger.getLogFiles();
-  const logDiskUsage = logger.getLogDiskUsage();
-  
-  // 计算一些额外的统计信息
-  const now = new Date();
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-  
-  const recentActivity = recentLogs.filter(log => 
-    new Date(log.timestamp) > oneHourAgo
-  );
-  
-  const errorCount = recentActivity.filter(log => log.level === 'error').length;
-  const warnCount = recentActivity.filter(log => log.level === 'warn').length;
-  
-  // 格式化内存信息以匹配前端期望
-  const memUsage = process.memoryUsage();
-  
-  res.json({
-    requestId,
-    timestamp: new Date().toISOString(),
-    stats: {
-      // 确保所有前端期望的字段都存在
-      totalRequests: stats.totalRequests || 0,
-      successfulRenders: stats.successfulRenders || 0,
-      failedRenders: stats.failedRenders || 0,
-      averageRenderTime: stats.averageRenderTime || 0,
-      currentTasks: stats.currentTasks || [],
-      recentTasks: stats.recentTasks || [], // 添加任务历史到stats中
-      // 添加额外的统计信息
-      articlesRendered: stats.articlesRendered || 0,
-      pagesRendered: stats.pagesRendered || 0,
-      successRate: stats.successRate || 0,
-      lastRenderTime: stats.lastRenderTime,
-      recentActivity: {
-        totalLogs: recentActivity.length,
-        errorCount,
-        warnCount,
-        infoCount: recentActivity.filter(log => log.level === 'info').length,
-        timeRange: '1 hour'
-      }
-    },
-    recentErrors,
-    recentLogs: recentLogs.slice(0, 20),
-    logFiles: logFiles.slice(0, 7), // 最近7天的日志文件
-    logDiskUsage, // 添加日志磁盘使用情况
-    systemInfo: {
-      nodeVersion: process.version,
-      uptime: `${Math.floor(process.uptime())}s`,
-      // 格式化内存信息以匹配前端期望的结构
-      memory: {
-        used: memUsage.heapUsed,
-        total: memUsage.heapTotal,
-        rss: memUsage.rss,
-        external: memUsage.external
-      },
-      pid: process.pid
-    }
-  });
-});
-
-// 新增：错误日志API
-app.get('/errors', (req, res) => {
-  const requestId = req.requestId;
-  const limit = parseInt(req.query.limit) || 10;
-  
-  logger.debug('错误日志请求', { requestId, limit });
-  
-  const errors = monitor.getRecentErrors(limit);
-  res.json({
-    requestId,
-    timestamp: new Date().toISOString(),
-    errors,
-    total: monitor.stats.errors.length
-  });
-});
-
-// 新增：日志磁盘使用情况API
-app.get('/logs/usage', (req, res) => {
-  const requestId = req.requestId;
-  
-  logger.debug('日志磁盘使用情况请求', { requestId });
-  
-  const usage = logger.getLogDiskUsage();
-  res.json({
-    requestId,
-    timestamp: new Date().toISOString(),
-    ...usage
-  });
-});
-
-// 新增：手动日志清理API
-app.post('/logs/cleanup', (req, res) => {
-  const requestId = req.requestId;
-  const { retentionDays } = req.body || {};
-  
-  logger.info('手动日志清理请求', { requestId, retentionDays });
-  
-  try {
-    const result = logger.manualCleanup(retentionDays);
-    res.json({
-      requestId,
-      timestamp: new Date().toISOString(),
-      ...result
-    });
-  } catch (error) {
-    logger.error('手动日志清理失败', { requestId, error: error.message });
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      requestId,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-
-// 新增：获取当前源语言配置API
-app.get('/config/source-language', async (req, res) => {
-  const requestId = req.requestId;
-
-  logger.info('源语言配置请求', { requestId });
 
   try {
-    const sourceLanguage = await getSourceLanguage();
-
-    res.json({
-      success: true,
-      data: {
-        sourceLanguage
-      },
-      requestId,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    logger.error('获取源语言配置失败', { requestId, error: error.message });
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      requestId,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// 新增：清理预渲染数据API
-app.post('/cleanup', (req, res) => {
-  const requestId = req.requestId;
-  const options = req.body || {};
-  
-  logger.info('收到清理请求', { requestId, options });
-  
-  try {
-    const results = {};
-    
-    // 清理预渲染文件
-    if (options.clearFiles !== false) {
-      const prerenderDir = process.env.PRERENDER_OUTPUT || path.resolve(__dirname, './dist/prerender');
-      if (fs.existsSync(prerenderDir)) {
-        const deletedFiles = clearDirectory(prerenderDir);
-        results.deletedFiles = deletedFiles;
-        logger.info('预渲染文件已清理', { requestId, deletedFiles });
-      }
-    }
-    
-    // 清理内存缓存
-    if (options.clearMemory !== false) {
-      monitor.clearStats();
-      logger.memoryLogs = [];
-      results.memoryCleared = true;
-      logger.info('内存缓存已清理', { requestId });
-    }
-    
-    // 清理日志文件（可选，默认不清理）
-    if (options.clearLogs === true) {
-      const logFiles = logger.getLogFiles();
-      const deletedLogs = logFiles.length;
-      logFiles.forEach(file => {
-        try {
-          fs.unlinkSync(file.path);
-        } catch (e) {
-          logger.warn('删除日志文件失败', { requestId, file: file.name, error: e.message });
-        }
-      });
-      results.deletedLogs = deletedLogs;
-      logger.info('日志文件已清理', { requestId, deletedLogs });
-    }
-    
-    // 手动触发日志清理（使用自定义保留天数）
-    if (options.cleanupLogs === true) {
-      const retentionDays = options.logRetentionDays || null;
-      const cleanupResult = logger.manualCleanup(retentionDays);
-      results.logCleanup = cleanupResult;
-      logger.info('手动日志清理已触发', { requestId, retentionDays, result: cleanupResult });
-    }
-    
+    assetCache.assets = null;
+    assetCache.lastFetch = 0;
     res.json({
       success: true,
       requestId,
-      timestamp: new Date().toISOString(),
-      results
+      timestamp: new Date().toISOString()
     });
-    
   } catch (error) {
-    logger.error('清理失败', { requestId, error: error.message, stack: error.stack });
+    logger.error('清理缓存失败', { requestId, error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
-      error: error.message,
       requestId,
+      error: error.message,
       timestamp: new Date().toISOString()
     });
   }
 });
 
+app.post('/restart-routes', (req, res) => {
+  if (!requireInternalService(req, res)) return;
+  const requestId = req.requestId;
 
+  try {
+    assetCache.assets = null;
+    assetCache.lastFetch = 0;
+    res.json({
+      success: true,
+      requestId,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('重启路由失败', { requestId, error: error.message, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      requestId,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 // 工具函数：清理目录
 function clearDirectory(dirPath) {
@@ -3641,10 +3317,6 @@ function addSearchEngineVerificationTags(meta, seoConfig) {
   if (seoConfig.custom_head_code && seoConfig.custom_head_code.trim() !== '' && !meta.custom_head_code) {
     meta.custom_head_code = seoConfig.custom_head_code.trim();
     addedCount++;
-    console.log('已将自定义头部代码添加到meta对象', { 
-      codeLength: meta.custom_head_code.length,
-      preview: meta.custom_head_code.substring(0, 50) + '...'
-    });
   }
 
   // 添加其他基础SEO字段
@@ -3663,7 +3335,7 @@ function addSearchEngineVerificationTags(meta, seoConfig) {
   });
 
   if (addedCount > 0) {
-    console.log('已添加SEO相关标签到meta对象', { 
+    console.debug('已添加SEO相关标签到meta对象', { 
       verificationTagsCount: addedCount,
       hasRobots: !!meta.robots,
       hasCustomHeadCode: !!meta.custom_head_code

@@ -136,6 +136,8 @@ nextTick(() => {
     if (appElement) {
         appElement.classList.add('vue-mounted')
     }
+    document.documentElement.classList.add('loaded')
+    document.documentElement.classList.remove('prerender')
 
     // 初始化图片懒加载
     initImageLoader()

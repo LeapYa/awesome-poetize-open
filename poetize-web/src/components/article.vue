@@ -276,7 +276,9 @@
 
           <!-- 评论 -->
           <div v-if="article.commentStatus === true && enableComment">
+            <div ref="commentSentinel" style="height: 1px"></div>
             <comment
+              v-if="shouldLoadComments"
               :type="'article'"
               :source="article.id"
               :userId="article.userId"
@@ -481,7 +483,7 @@
             <!-- 品牌标识和二维码 -->
             <div class="card-bottom">
               <div class="card-brand">
-                {{ mainStore.webInfo.webTitle || 'POETIZE' }}
+                {{ mainStore.webInfo.webTitle }}
               </div>
               <div class="card-qrcode" ref="qrcode"></div>
             </div>
@@ -523,7 +525,7 @@
 </template>
 
 <script>
-import { defineAsyncComponent } from 'vue'
+import { defineAsyncComponent, h } from 'vue'
 import { $on, $off, $once, $emit } from '../utils/gogocodeTransfer'
 import {
   Upload as ElIconUpload,
@@ -558,10 +560,60 @@ import {
   isKatexLoadedGlobal,
 } from '@/components/live2d/utils/resourceLoader'
 
+const CommentLoading = {
+  name: 'CommentLoading',
+  render() {
+    return h(
+      'div',
+      {
+        style: {
+          padding: '24px 0',
+          textAlign: 'center',
+          color: 'var(--text-color-secondary, #999)',
+        },
+      },
+      '评论加载中...'
+    )
+  },
+}
+
+const CommentError = {
+  name: 'CommentError',
+  render() {
+    return h(
+      'div',
+      {
+        style: {
+          padding: '24px 0',
+          textAlign: 'center',
+          color: 'var(--el-color-danger, #f56c6c)',
+        },
+      },
+      '评论加载失败'
+    )
+  },
+}
+
+const AsyncComment = defineAsyncComponent({
+  loader: () => import('./comment/comment'),
+  delay: 200,
+  timeout: 30000,
+  suspensible: false,
+  onError: (error, retry, fail, attempts) => {
+    if (attempts <= 2) {
+      retry()
+      return
+    }
+    fail()
+  },
+  loadingComponent: CommentLoading,
+  errorComponent: CommentError,
+})
+
 export default {
   components: {
     myFooter: defineAsyncComponent(() => import('./common/myFooter')),
-    comment: defineAsyncComponent(() => import('./comment/comment')),
+    comment: AsyncComment,
     commentBox: defineAsyncComponent(() => import('./comment/commentBox')),
     proButton: defineAsyncComponent(() => import('./common/proButton')),
     process: defineAsyncComponent(() => import('./common/process')),
@@ -608,6 +660,8 @@ export default {
       tocbotRefreshed: false, // 标记tocbot是否已在首次滚动时刷新
       tocbotRefreshTimer: null, // tocbot刷新定时器
       loadingArticleId: null, // 正在加载的文章ID（用于防止异步回调干扰）
+      shouldLoadComments: false,
+      commentObserver: null,
       mermaidContextMenu: {
         visible: false,
         x: 0,
@@ -787,6 +841,10 @@ export default {
         }
       }
     )
+
+    this.$nextTick(() => {
+      this.setupCommentIntersectionObserver()
+    })
   },
   unmounted() {
     window.removeEventListener('scroll', this.onScrollPage)
@@ -818,6 +876,7 @@ export default {
     }
 
     document.removeEventListener('click', this.closeMermaidContextMenu)
+    this.teardownCommentIntersectionObserver()
   },
   watch: {
     scrollTop(scrollTop, oldScrollTop) {
@@ -901,6 +960,7 @@ export default {
   beforeUnmount() {
     // 组件销毁时清理状态，防止影响下一个文章组件
     this.clearComponentState()
+    this.teardownCommentIntersectionObserver()
 
     // 销毁tocbot实例
     if (window.tocbot) {
@@ -965,6 +1025,8 @@ export default {
       this.articleContentHtml = ''
       this.articleContentKey = Date.now()
       this.isLoading = false
+      this.shouldLoadComments = false
+      this.teardownCommentIntersectionObserver()
 
       // 重置语言相关状态 - 这是关键修复
       this.currentLang = this.sourceLanguage || 'zh'
@@ -1566,6 +1628,8 @@ export default {
       this.translatedTitle = ''
       this.translatedContent = ''
       this.tocbotRefreshed = false // 重置tocbot刷新标志
+      this.shouldLoadComments = false
+      this.teardownCommentIntersectionObserver()
 
       // 使用Promise.all并行处理所有请求
       // 如果当前语言不是源语言，在第一次请求时就带上语言参数
@@ -1631,6 +1695,7 @@ export default {
               // 在内容渲染到DOM后检测资源并初始化目录
               // 注意：getTocbot()会在detectAndLoadResources()中调用
               this.detectAndLoadResources()
+              this.setupCommentIntersectionObserver()
             })
 
             // 确保样式正确应用的保险措施
@@ -3554,6 +3619,7 @@ export default {
 
           if (commentAge < 24 * 60 * 60 * 1000) {
             this.tempComment = commentData.content
+            this.shouldLoadComments = true
 
             // 延迟一点时间确保评论组件已加载
             setTimeout(() => {
@@ -3589,7 +3655,7 @@ export default {
     },
 
     /**
-     * 🔧 新方法：检查是否有保存的页面状态
+     * 检查是否有保存的页面状态
      */
     checkPageState() {
       const articleId = this.id
@@ -3605,6 +3671,8 @@ export default {
           const stateAge = now - stateData.timestamp
 
           if (stateAge < 60 * 60 * 1000) {
+            this.shouldLoadComments = true
+
             // 延迟一点时间确保评论组件已加载
             setTimeout(() => {
               // 使用事件总线将状态数据发送到评论组件
@@ -3635,6 +3703,58 @@ export default {
       } catch (error) {
         console.error('恢复页面状态出错:', error)
         localStorage.removeItem(pageStateKey)
+      }
+    },
+
+    setupCommentIntersectionObserver() {
+      if (this.shouldLoadComments) {
+        this.teardownCommentIntersectionObserver()
+        return
+      }
+
+      this.teardownCommentIntersectionObserver()
+
+      const target = this.$refs.commentSentinel
+      if (!target) {
+        return
+      }
+
+      if (
+        typeof window === 'undefined' ||
+        typeof IntersectionObserver === 'undefined'
+      ) {
+        this.shouldLoadComments = true
+        return
+      }
+
+      this.commentObserver = new IntersectionObserver(
+        (entries) => {
+          const shouldLoad = entries.some(
+            (entry) => entry.isIntersecting || entry.intersectionRatio > 0
+          )
+          if (shouldLoad) {
+            this.shouldLoadComments = true
+            this.teardownCommentIntersectionObserver()
+          }
+        },
+        {
+          root: null,
+          rootMargin: '800px 0px',
+          threshold: 0,
+        }
+      )
+
+      this.commentObserver.observe(target)
+    },
+
+    teardownCommentIntersectionObserver() {
+      if (this.commentObserver) {
+        try {
+          this.commentObserver.disconnect()
+        } catch (e) {
+        } finally {
+          this.commentObserver = null
+        }
       }
     },
 

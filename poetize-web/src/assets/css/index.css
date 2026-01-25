@@ -86,6 +86,14 @@
     display: none !important;
 }
 
+html.loaded .article-detail::before,
+#app.loaded.article-detail::before,
+#app.vue-mounted.article-detail::before {
+    opacity: 0 !important;
+    animation: none !important;
+    background: none !important;
+}
+
 /* 性能优化: 为动画元素启用GPU硬件加速 */
 .article-head,
 .article-info-container,

@@ -138,10 +138,25 @@ public class CaptchaServiceImpl implements CaptchaService {
             
             // 从轨迹时间戳独立计算操作时间
             long serverCalculatedOperationTime = 0;
+            long trackMinTimestamp = 0;
+            long trackMaxTimestamp = 0;
+            boolean hasTrackTimestamps = false;
             if (mouseTrack != null && mouseTrack.size() >= 2) {
-                long firstTimestamp = getLongFromMap(mouseTrack.get(0), "timestamp", 0L);
-                long lastTimestamp = getLongFromMap(mouseTrack.get(mouseTrack.size() - 1), "timestamp", 0L);
-                serverCalculatedOperationTime = lastTimestamp - firstTimestamp;
+                long minTimestamp = Long.MAX_VALUE;
+                long maxTimestamp = Long.MIN_VALUE;
+                for (Map<String, Object> point : mouseTrack) {
+                    long ts = getLongFromMap(point, "timestamp", 0L);
+                    if (ts > 0) {
+                        hasTrackTimestamps = true;
+                        minTimestamp = Math.min(minTimestamp, ts);
+                        maxTimestamp = Math.max(maxTimestamp, ts);
+                    }
+                }
+                if (hasTrackTimestamps) {
+                    trackMinTimestamp = minTimestamp;
+                    trackMaxTimestamp = maxTimestamp;
+                    serverCalculatedOperationTime = Math.max(0, trackMaxTimestamp - trackMinTimestamp);
+                }
             }
             
             // ========== 蜜罐检测：对比前端传值与后端计算值 ==========
@@ -185,10 +200,8 @@ public class CaptchaServiceImpl implements CaptchaService {
             
             // 检测4：thinkingTime异常（声称思考了很久但轨迹时间戳不支持）
             if (thinkingTime != null && thinkingTime > 5000 && mouseTrack != null && mouseTrack.size() >= 2) {
-                long firstTimestamp = getLongFromMap(mouseTrack.get(0), "timestamp", 0L);
-                long lastTimestamp = getLongFromMap(mouseTrack.get(mouseTrack.size() - 1), "timestamp", 0L);
                 // 如果声称思考了5秒以上，但轨迹只有几百毫秒，可疑
-                if (lastTimestamp - firstTimestamp < 1000 && mouseTrack.size() > 5) {
+                if (hasTrackTimestamps && trackMaxTimestamp - trackMinTimestamp < 1000 && mouseTrack.size() > 5) {
                     honeypotScore += 25;
                     validationDetails.add("蜜罐触发:思考时间与轨迹时间不符");
                 }
@@ -480,10 +493,44 @@ public class CaptchaServiceImpl implements CaptchaService {
             
             // 从轨迹时间戳独立计算总时间
             long serverCalculatedTotalTime = 0;
+            long trackMinTimestamp = 0;
+            long trackMaxTimestamp = 0;
+            boolean hasTrackTimestamps = false;
+            double lastTrackXByTimestamp = 0.0;
             if (slideTrack != null && slideTrack.size() >= 2) {
-                long firstTimestamp = getLongFromMap(slideTrack.get(0), "timestamp", 0L);
-                long lastTimestamp = getLongFromMap(slideTrack.get(slideTrack.size() - 1), "timestamp", 0L);
-                serverCalculatedTotalTime = lastTimestamp - firstTimestamp;
+                slideTrack.sort((a, b) -> {
+                    if (a == null && b == null) return 0;
+                    if (a == null) return 1;
+                    if (b == null) return -1;
+                    long ta = getLongFromMap(a, "timestamp", 0L);
+                    long tb = getLongFromMap(b, "timestamp", 0L);
+                    if (ta == 0 && tb == 0) return 0;
+                    if (ta == 0) return 1;
+                    if (tb == 0) return -1;
+                    return Long.compare(ta, tb);
+                });
+
+                long minTimestamp = Long.MAX_VALUE;
+                long maxTimestamp = Long.MIN_VALUE;
+                double lastX = 0.0;
+                for (Map<String, Object> point : slideTrack) {
+                    if (point == null) continue;
+                    long ts = getLongFromMap(point, "timestamp", 0L);
+                    if (ts > 0) {
+                        hasTrackTimestamps = true;
+                        if (ts > maxTimestamp) {
+                            maxTimestamp = ts;
+                            lastX = getDoubleFromMap(point, "x", 0.0);
+                        }
+                        minTimestamp = Math.min(minTimestamp, ts);
+                    }
+                }
+                if (hasTrackTimestamps) {
+                    trackMinTimestamp = minTimestamp;
+                    trackMaxTimestamp = maxTimestamp;
+                    serverCalculatedTotalTime = Math.max(0, trackMaxTimestamp - trackMinTimestamp);
+                    lastTrackXByTimestamp = lastX;
+                }
             }
             
             // ========== 蜜罐检测 ==========
@@ -500,7 +547,7 @@ public class CaptchaServiceImpl implements CaptchaService {
             
             // 检测2：最终位置蜜罐
             if (finalPosition != null && slideTrack != null && !slideTrack.isEmpty()) {
-                double lastTrackX = getDoubleFromMap(slideTrack.get(slideTrack.size() - 1), "x", 0.0);
+                double lastTrackX = hasTrackTimestamps ? lastTrackXByTimestamp : getDoubleFromMap(slideTrack.get(slideTrack.size() - 1), "x", 0.0);
                 double posDiff = Math.abs(finalPosition - lastTrackX);
                 if (posDiff > 5) {
                     honeypotScore += 30;

@@ -236,12 +236,17 @@ export default {
       if (this.verifying) return
       this.verifying = true
 
-      // 合并鼠标和触屏轨迹
-      const allTrack = [...this.mouseTrack, ...this.touchTrack]
-      
-      // 前端统计数据
-      const straightRatio = this.calculateStraightRatio()
-      const clickDelay = this.checkTime - this.startTime
+      const allTrack = this.normalizeTrack(
+        [...this.mouseTrack, ...this.touchTrack],
+        this.checkTime
+      )
+
+      const straightRatio = this.calculateStraightRatioByTrack(allTrack)
+      const firstTimestamp =
+        allTrack.length > 0 && allTrack[0] && Number.isFinite(Number(allTrack[0].timestamp))
+          ? Number(allTrack[0].timestamp)
+          : this.startTime || this.checkTime
+      const clickDelay = this.checkTime - firstTimestamp
       const thinkingTime = this.checkTime - this.componentMountTime
 
       const verifyData = {
@@ -338,30 +343,64 @@ export default {
      * 计算鼠标轨迹直线率
      */
     calculateStraightRatio() {
-      if (this.mouseTrack.length < 3) return 1
+      return this.calculateStraightRatioByTrack(this.mouseTrack)
+    },
 
-      const firstPoint = this.mouseTrack[0]
-      const lastPoint = this.mouseTrack[this.mouseTrack.length - 1]
+    calculateStraightRatioByTrack(track) {
+      if (!Array.isArray(track) || track.length < 3) return 1
 
-      // 计算直线距离
+      const firstPoint = track[0]
+      const lastPoint = track[track.length - 1]
+
       const directDistance = Math.sqrt(
-        Math.pow(lastPoint.x - firstPoint.x, 2) +
-          Math.pow(lastPoint.y - firstPoint.y, 2)
+        Math.pow(lastPoint.x - firstPoint.x, 2) + Math.pow(lastPoint.y - firstPoint.y, 2)
       )
 
-      // 计算实际路径长度
       let pathDistance = 0
-      for (let i = 1; i < this.mouseTrack.length; i++) {
-        const prev = this.mouseTrack[i - 1]
-        const curr = this.mouseTrack[i]
+      for (let i = 1; i < track.length; i++) {
+        const prev = track[i - 1]
+        const curr = track[i]
 
         pathDistance += Math.sqrt(
           Math.pow(curr.x - prev.x, 2) + Math.pow(curr.y - prev.y, 2)
         )
       }
 
-      // 计算直线率（越接近1越直）
       return pathDistance > 0 ? directDistance / pathDistance : 1
+    },
+
+    normalizeTrack(track, checkTime) {
+      if (!Array.isArray(track)) return []
+
+      const normalized = track
+        .filter(
+          (p) =>
+            p &&
+            Number.isFinite(Number(p.timestamp)) &&
+            Number.isFinite(Number(p.x)) &&
+            Number.isFinite(Number(p.y))
+        )
+        .map((p) => ({
+          x: Number(p.x),
+          y: Number(p.y),
+          timestamp: Number(p.timestamp),
+        }))
+        .sort((a, b) => a.timestamp - b.timestamp)
+
+      if (normalized.length === 0 || !Number.isFinite(Number(checkTime))) return normalized
+
+      const lastPoint = normalized[normalized.length - 1]
+      const clickTime = Number(checkTime)
+      if (clickTime > lastPoint.timestamp) {
+        const clickPoint = { ...lastPoint, timestamp: clickTime }
+        if (normalized.length < 30) {
+          normalized.push(clickPoint)
+        } else {
+          normalized[normalized.length - 1] = clickPoint
+        }
+      }
+
+      return normalized
     },
 
     /**

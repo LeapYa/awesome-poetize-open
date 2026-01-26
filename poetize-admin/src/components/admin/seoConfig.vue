@@ -1315,7 +1315,8 @@ export default {
       this.getSeoConfig();
       
       // 初始化当前存储类型（安全访问）
-      this.currentStoreType = this.mainStore?.sysConfig?.['store.type'] || "local";
+      const mainStore = useMainStore();
+      this.currentStoreType = mainStore.sysConfig?.['store.type'] || "local";
       
       // 监听系统配置更新事件
       this.$bus.$on('sysConfigUpdated', this.handleSysConfigUpdate);
@@ -1360,9 +1361,6 @@ export default {
   },
 
   computed: {
-      mainStore() {
-        return useMainStore();
-      },
     // 移动端相关的计算属性
     isMobileDevice() {
       return this.isMobile;
@@ -2069,12 +2067,18 @@ export default {
         const fileName = `generated_${iconType}.${fileExtension}`;
         const prefix = `seo${iconType.charAt(0).toUpperCase() + iconType.slice(1)}`;
         
+        // 获取Store实例
+        const mainStore = useMainStore();
+        if (!mainStore.currentAdmin || !mainStore.currentAdmin.username) {
+           throw new Error("无法获取当前管理员信息，请确保已登录");
+        }
+
         // 生成key（参考uploadPicture组件的逻辑）
-        const username = this.mainStore.currentAdmin.username.replace(/[^a-zA-Z]/g, '') + this.mainStore.currentAdmin.id;
+        const username = mainStore.currentAdmin.username.replace(/[^a-zA-Z]/g, '') + mainStore.currentAdmin.id;
         const key = prefix + "/" + username + new Date().getTime() + Math.floor(Math.random() * 1000) + "." + fileExtension;
         
         // 获取当前配置的存储类型，优先使用更新后的配置
-        const storeType = this.currentStoreType || this.mainStore.sysConfig['store.type'] || "local";
+        const storeType = this.currentStoreType || mainStore.sysConfig['store.type'] || "local";
         
         // 创建FormData（使用与uploadPicture相同的字段结构）
         const formData = new FormData();

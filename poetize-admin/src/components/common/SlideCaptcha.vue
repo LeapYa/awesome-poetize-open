@@ -267,9 +267,8 @@ export default {
     },
     
     // 计算滑动轨迹的平均速度
-    calculateAverageSpeed() {
-      if (this.slideTrack.length < 2) return 0;
-      const track = this.slideTrack;
+    calculateAverageSpeed(track = this.slideTrack) {
+      if (!Array.isArray(track) || track.length < 2) return 0;
       let totalDistance = 0;
       let totalTime = 0;
       for (let i = 1; i < track.length; i++) {
@@ -282,30 +281,78 @@ export default {
     },
 
     // 计算回退次数
-    calculateBacktrackCount() {
-      if (this.slideTrack.length < 2) return 0;
+    calculateBacktrackCount(track = this.slideTrack) {
+      if (!Array.isArray(track) || track.length < 2) return 0;
       let count = 0;
-      for (let i = 1; i < this.slideTrack.length; i++) {
-        if (this.slideTrack[i].x < this.slideTrack[i - 1].x) {
+      for (let i = 1; i < track.length; i++) {
+        if (track[i].x < track[i - 1].x) {
           count++;
         }
       }
       return count;
     },
 
+    normalizeTrack(track, endTime, finalX) {
+      if (!Array.isArray(track)) return [];
+
+      const normalized = track
+        .filter(
+          (p) =>
+            p &&
+            Number.isFinite(Number(p.timestamp)) &&
+            Number.isFinite(Number(p.x))
+        )
+        .map((p) => ({
+          x: Number(p.x),
+          timestamp: Number(p.timestamp),
+        }))
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+      if (
+        normalized.length === 0 ||
+        !Number.isFinite(Number(endTime)) ||
+        !Number.isFinite(Number(finalX))
+      ) {
+        return normalized;
+      }
+
+      const lastPoint = normalized[normalized.length - 1];
+      const finalTime = Number(endTime);
+      const finalPosition = Number(finalX);
+
+      if (finalTime > lastPoint.timestamp) {
+        const endPoint = { x: finalPosition, timestamp: finalTime };
+        if (normalized.length < 100) {
+          normalized.push(endPoint);
+        } else {
+          normalized[normalized.length - 1] = endPoint;
+        }
+      } else {
+        lastPoint.x = finalPosition;
+      }
+
+      return normalized;
+    },
+
     // 后端验证
     async verifyWithServer() {
       this.isVerifying = true;  // 开始验证，保持填充条宽度
-      const totalTime = Date.now() - this.slideStartTime;
+      const endTime = Date.now();
+      const normalizedTrack = this.normalizeTrack(
+        this.slideTrack,
+        endTime,
+        this.slidePosition
+      );
+      const totalTime = endTime - this.slideStartTime;
 
       // 前端统计数据，用于验证一致性
-      const avgSpeed = this.calculateAverageSpeed();
-      const backtrackCount = this.calculateBacktrackCount();
-      const trackPointCount = this.slideTrack.length;
+      const avgSpeed = this.calculateAverageSpeed(normalizedTrack);
+      const backtrackCount = this.calculateBacktrackCount(normalizedTrack);
+      const trackPointCount = normalizedTrack.length;
 
       // 准备验证数据
       const verifyData = {
-        slideTrack: this.slideTrack,
+        slideTrack: normalizedTrack,
         totalTime: totalTime,
         maxDistance: this.maxSlideDistance,
         finalPosition: this.slidePosition,

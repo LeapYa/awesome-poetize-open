@@ -4,7 +4,7 @@
  */
 import { ref, computed, watch, nextTick } from 'vue'
 import { useAIChatStore } from '@/stores/aiChat'
-import { loadMarkdownResources } from '@/components/live2d/utils/resourceLoader'
+import { loadMarkdownResources } from '@/utils/resourceLoaders/resourceLoader'
 
 export function useAIChat() {
   const store = useAIChatStore()

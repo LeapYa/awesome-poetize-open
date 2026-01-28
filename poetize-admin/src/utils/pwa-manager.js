@@ -99,11 +99,15 @@ async function handleSwUpdate(worker, notifyFn) {
  * @param {Function} notifyFn - 通知函数（可选）
  */
 export function registerServiceWorker(notifyFn = null) {
-  // 检查浏览器是否支持 Service Worker
+  // 仅在生产模式且浏览器支持 Service Worker 时注册
+  if (process.env.VUE_APP_PRODUCTION_MODE !== 'true') {
+    return;
+  }
+
   if (!('serviceWorker' in navigator)) {
     return;
   }
-  
+
   navigator.serviceWorker.register('/sw.js')
     .then(function(registration) {
       // 检查是否有等待中的 Service Worker
@@ -129,7 +133,10 @@ export function registerServiceWorker(notifyFn = null) {
       });
     })
     .catch(function(error) {
-      console.error('Service Worker 注册失败:', error);
+      // 生产环境才输出错误，开发环境不打扰调试
+      if (process.env.VUE_APP_PRODUCTION_MODE === 'true') {
+        console.error('Service Worker 注册失败:', error);
+      }
     });
   
   // 监听 Service Worker 消息
@@ -139,4 +146,3 @@ export function registerServiceWorker(notifyFn = null) {
     }
   });
 }
-

@@ -4,7 +4,7 @@
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useLive2DStore } from '@/stores/live2d'
-import { loadLive2DResources } from '@/components/live2d/utils/resourceLoader'
+import { loadLive2DResources } from '@/utils/resourceLoaders/resourceLoader'
 import constant from '@/utils/constant'
 
 export function useLive2D() {

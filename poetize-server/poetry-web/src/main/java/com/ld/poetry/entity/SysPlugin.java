@@ -100,4 +100,6 @@ public class SysPlugin implements Serializable {
 
     // 插件类型常量
     public static final String TYPE_MOUSE_CLICK_EFFECT = "mouse_click_effect";
+    public static final String TYPE_WAIFU_MODEL = "waifu_model";
+    public static final String TYPE_EDITOR = "editor";
 }

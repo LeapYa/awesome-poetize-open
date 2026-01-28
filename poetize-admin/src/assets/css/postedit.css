@@ -1,0 +1,1138 @@
+.my-tag {
+  margin-bottom: 20px;
+  width: 100%;
+  text-align: left;
+  background: var(--lightYellow);
+  border: none;
+  height: 40px;
+  line-height: 40px;
+  font-size: 16px;
+  color: var(--black);
+}
+
+.table-td-thumb {
+  border-radius: 2px;
+  width: 40px;
+  height: 40px;
+}
+
+/* 编辑器加载骨架屏样式 */
+.editor-loading-wrapper {
+  width: 100%;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.editor-skeleton {
+  width: 100%;
+}
+
+.skeleton-toolbar {
+  height: 40px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.skeleton-content {
+  height: 600px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+}
+
+.skeleton-content i {
+  font-size: 48px;
+  color: #409EFF;
+  margin-bottom: 16px;
+  animation: spin 1s linear infinite;
+}
+
+.skeleton-content p {
+  font-size: 16px;
+  color: #909399;
+  margin: 0;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 暗色主题适配 */
+.dark-mode .editor-loading-wrapper {
+  border-color: #3a3a3a;
+  background: #1e1e1e;
+}
+
+.dark-mode .skeleton-toolbar {
+  background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
+  background-size: 200% 100%;
+  border-bottom-color: #3a3a3a;
+}
+
+.dark-mode .skeleton-content {
+  background: #252525;
+}
+
+.dark-mode .skeleton-content p {
+  color: #909399;
+}
+
+/* 封面相关样式 */
+.cover-input-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.cover-upload {
+  margin-top: 10px;
+}
+
+/* 封面输入框样式 */
+.cover-input-container .el-input {
+  flex: 1;
+  min-width: 0; /* 防止flex子项溢出 */
+}
+
+/* 封面预览占位符样式 */
+.table-td-thumb .image-slot {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  background: #f5f7fa;
+  color: #909399;
+  font-size: 12px;
+}
+
+.table-td-thumb .image-slot i {
+  font-size: 20px;
+  margin-bottom: 4px;
+}
+
+.table-td-thumb .image-placeholder-text {
+  font-size: 10px;
+  text-align: center;
+}
+
+.el-switch {
+  margin-left: 10px;
+}
+
+.tip-text {
+  margin-left: 10px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
+  display: inline-block;
+}
+
+.el-form-item {
+  margin-bottom: 40px;
+}
+
+/* ===========================================
+   PC端样式 - 768px以上
+   =========================================== */
+@media screen and (min-width: 769px) {
+  /* PC端表单标签保留浮动 */
+  ::v-deep .el-form-item__label {
+    float: left !important;
+    text-align: right !important;
+  }
+
+  /* 翻译对话框PC端样式 */
+  ::v-deep .translation-dialog .el-form-item__label {
+    float: left !important;
+  }
+
+  ::v-deep .translation-dialog .el-form-item__content {
+    margin-left: 120px !important;
+  }
+  
+  /* 翻译编辑器吸顶偏移量适配 */
+  ::v-deep .translation-editor {
+    --editor-toolbar-top: -20px;
+  }
+}
+
+/* ===========================================
+   移动端响应式设计优化
+   =========================================== */
+
+/* 768px及以下 - 移动端和平板 */
+@media screen and (max-width: 768px) {
+  /* 主容器移动端适配 */
+  .my-tag {
+    margin-bottom: 16px;
+    height: 36px;
+    line-height: 36px;
+    font-size: 14px;
+    padding: 0 12px;
+  }
+
+  /* 表单移动端适配 - 所有表单标签 */
+  ::v-deep .el-form-item__label {
+    float: none !important; /* 移动端不使用浮动 */
+    width: 100% !important;
+    text-align: left !important;
+    margin-bottom: 8px !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    padding-bottom: 0 !important;
+  }
+
+  ::v-deep .el-form-item__content {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+
+  ::v-deep .el-form-item {
+    margin-bottom: 24px !important;
+  }
+
+  /* 特定表单类的额外样式 */
+  ::v-deep .mobile-responsive-form.el-form--label-top .el-form-item__label {
+    width: 100% !important;
+    text-align: left !important;
+    margin-bottom: 8px !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    padding-bottom: 0 !important;
+    float: none !important;
+  }
+
+  ::v-deep .mobile-responsive-form .el-form-item__content {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+
+  ::v-deep .mobile-responsive-form .el-form-item {
+    margin-bottom: 24px !important;
+  }
+
+  /* 输入框移动端适配 */
+  ::v-deep .el-input__inner {
+    font-size: 16px !important; /* 防止iOS自动放大 */
+    height: 44px !important; /* 更好的触摸体验 */
+    border-radius: 8px !important;
+  }
+
+  ::v-deep .el-textarea__inner {
+    font-size: 16px !important;
+    min-height: 100px !important;
+    border-radius: 8px !important;
+  }
+
+  /* 选择器移动端适配 */
+  ::v-deep .el-select {
+    width: 100% !important;
+  }
+
+  ::v-deep .el-select .el-input__inner {
+    height: 44px !important;
+    line-height: 44px !important;
+  }
+
+  /* 开关移动端适配 */
+  ::v-deep .el-switch {
+    margin-left: 8px;
+  }
+
+  ::v-deep .el-form-item .el-switch__core,
+  ::v-deep .el-switch .el-switch__core {
+    width: 50px !important;
+    height: 24px !important;
+    min-height: 24px !important;
+    line-height: 24px !important;
+  }
+
+  /* 开关打开时 - 小圆点在右边 */
+  ::v-deep .el-form-item .el-switch.is-checked .el-switch__core::after,
+  ::v-deep .el-switch.is-checked .el-switch__core::after {
+    width: 20px !important;
+    height: 20px !important;
+    margin-left: -20px !important;
+  }
+
+  /* 开关关闭时 - 小圆点在左边 */
+  ::v-deep .el-form-item .el-switch:not(.is-checked) .el-switch__core::after,
+  ::v-deep .el-switch:not(.is-checked) .el-switch__core::after {
+    width: 20px !important;
+    height: 20px !important;
+    margin-right: -20px !important;
+  }
+
+  /* 提示文本移动端适配 */
+  .tip-text {
+    margin-left: 0 !important;
+    margin-top: 8px !important;
+    display: block !important;
+  }
+
+  /* 封面区域移动端适配 - 完整重设计 */
+  .cover-input-container {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    width: 100% !important;
+  }
+
+  /* 封面输入框移动端优化 */
+  .cover-input-container .el-input {
+    width: 100% !important;
+    order: 1 !important;
+  }
+
+  .cover-input-container .el-input .el-input__inner {
+    height: 44px !important;
+    font-size: 16px !important;
+    border-radius: 8px !important;
+    padding: 0 12px !important;
+  }
+
+  /* 封面图片预览移动端优化 */
+  .table-td-thumb {
+    width: 100px !important;
+    height: 100px !important;
+    margin: 0 !important;
+    align-self: center !important;
+    order: 2 !important;
+    border-radius: 8px !important;
+    border: 2px solid #e4e7ed !important;
+    object-fit: cover !important;
+    overflow: hidden !important;
+  }
+
+  /* 移动端占位符图标优化 */
+  .table-td-thumb .image-slot i {
+    font-size: 24px !important;
+    margin-bottom: 6px !important;
+  }
+
+  .table-td-thumb .image-placeholder-text {
+    font-size: 11px !important;
+  }
+
+  /* 封面上传组件移动端适配 */
+  .cover-upload {
+    margin-top: 16px !important;
+    width: 100% !important;
+  }
+
+  /* 上传组件内部优化 */
+  ::v-deep .cover-upload .el-upload {
+    width: 100% !important;
+  }
+
+  ::v-deep .cover-upload .el-upload .el-upload-dragger {
+    width: 100% !important;
+    height: 100px !important;
+    border-radius: 8px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+  }
+
+  ::v-deep .cover-upload .el-upload .el-upload-dragger .el-upload__text {
+    font-size: 14px !important;
+    margin-top: 8px !important;
+  }
+
+  /* 翻译相关按钮组移动端适配 */
+  ::v-deep .el-form-item .el-form-item__content > div {
+    flex-direction: column !important;
+    gap: 12px !important;
+    align-items: flex-start !important;
+  }
+
+  ::v-deep .el-form-item .el-form-item__content > div > div {
+    width: 100%;
+  }
+
+  /* 按钮组移动端适配 */
+  .myCenter {
+    flex-direction: column;
+    gap: 12px;
+    padding: 20px 0;
+  }
+
+  .myCenter .el-button {
+    width: 100% !important;
+    height: 44px !important;
+    font-size: 16px !important;
+    border-radius: 8px !important;
+    margin: 0 !important;
+  }
+
+  /* 对话框移动端适配 */
+
+  /* 翻译对话框表单移动端适配 */
+  ::v-deep .translation-dialog .el-form-item__label {
+    float: none !important;
+    width: 100% !important;
+    text-align: left !important;
+    margin-bottom: 8px !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    padding-bottom: 0 !important;
+  }
+
+  ::v-deep .translation-dialog .el-form-item__content {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+
+  ::v-deep .translation-dialog .el-form-item {
+    margin-bottom: 24px !important;
+  }
+
+  /* 翻译弹窗按钮适配 */
+  .dialog-footer {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  .dialog-footer .el-button {
+    width: 100% !important;
+    height: 44px !important;
+    font-size: 16px !important;
+    border-radius: 8px !important;
+    margin: 0 !important;
+  }
+
+  /* Markdown编辑器移动端适配 - 重新设计 */
+  ::v-deep .v-note-wrapper {
+    height: auto !important;
+    min-height: 400px !important;
+    max-height: 600px !important;
+  }
+  
+  /* 移动端全屏模式 */
+  ::v-deep .v-note-wrapper.fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    min-height: 100vh !important;
+    max-height: 100vh !important;
+    z-index: 9999 !important;
+    margin: 0 !important;
+  }
+  
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel {
+    height: calc(100vh - 50px) !important;
+    min-height: calc(100vh - 50px) !important;
+    max-height: calc(100vh - 50px) !important;
+    overflow: hidden !important;
+    overflow-x: hidden !important;
+    overflow-y: hidden !important;
+    display: flex !important;
+    flex-direction: row !important;
+  }
+  
+  /* 全屏模式下编辑区域和预览区域独立滚动 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit.divarea-wrapper,
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-show {
+    flex: 1 1 50% !important;
+    width: 50% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    position: relative !important;
+    padding: 8px 25px 100px 25px !important;
+  }
+  
+  /* 内容容器完全自然展开，不限制高度 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit .content-input-wrapper {
+    height: auto !important;
+  }
+  
+  /* 中间层也自然展开 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit .auto-textarea-wrapper {
+    height: auto !important;
+  }
+  
+  /* pre标签完全展开，不限制高度 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit .auto-textarea-wrapper .auto-textarea-block {
+    height: auto !important;
+    display: block !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+    padding: 16px !important;
+    padding-bottom: 350px !important;
+    margin-top: 0;
+    margin-bottom: 16px;
+  }
+
+  /* 工具栏移动端优化 - 关键修复 */
+  ::v-deep .v-note-wrapper .v-note-op {
+    height: auto !important; /* 允许工具栏自然扩展 */
+    min-height: 40px !important;
+    flex-wrap: wrap !important;
+    padding: 8px 4px !important;
+    overflow: visible !important;
+    position: relative !important;
+    z-index: 10 !important;
+  }
+
+  /* 工具栏按钮优化 */
+  ::v-deep .v-note-wrapper .v-note-op .v-left-item,
+  ::v-deep .v-note-wrapper .v-note-op .v-right-item {
+    height: auto !important;
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+  }
+
+  /* 工具栏按钮尺寸适配 */
+  ::v-deep .v-note-wrapper .v-note-op .op-icon {
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 14px !important;
+    margin: 2px !important;
+    border-radius: 4px !important;
+    /* 触摸优化 */
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1) !important;
+  }
+
+  /* 工具栏按钮悬停效果优化 */
+  ::v-deep .v-note-wrapper .v-note-op .op-icon:active {
+    background-color: rgba(0, 0, 0, 0.1) !important;
+    transform: scale(0.95) !important;
+  }
+
+  /* 编辑区域适配 */
+  ::v-deep .v-note-wrapper .v-note-panel {
+    height: calc(100% - 80px) !important; /* 为工具栏留出足够空间 */
+    min-height: 320px !important;
+    position: relative !important;
+  }
+
+  /* 编辑器和预览面板 */
+  ::v-deep .v-note-wrapper .v-note-panel .v-note-edit.divarea-wrapper,
+  ::v-deep .v-note-wrapper .v-note-panel .v-note-show {
+    height: 100% !important;
+  }
+
+  /* 文本输入区域 */
+  ::v-deep .v-note-wrapper .v-note-panel .v-note-edit.divarea-wrapper .ace-editor {
+    height: 100% !important;
+  }
+
+  /* 输入区域文本优化 */
+  ::v-deep .v-note-wrapper .v-note-panel .v-note-edit.divarea-wrapper textarea,
+  ::v-deep .v-note-wrapper .v-note-panel .v-note-edit.divarea-wrapper .ace-editor .ace_text-input {
+    font-size: 16px !important; /* 防止iOS自动放大 */
+    line-height: 1.5 !important;
+    -webkit-user-select: text !important;
+    user-select: text !important;
+  }
+
+  /* 防止双击缩放 */
+  ::v-deep .v-note-wrapper .v-note-panel {
+    touch-action: pan-y !important;
+  }
+
+  /* 图片上传组件移动端适配 */
+  ::v-deep .el-upload-dragger {
+    width: 100% !important;
+    height: 80px !important;
+  }
+}
+
+/* 600px及以下 - 小屏移动设备 */
+@media screen and (max-width: 600px) {
+  /* 进一步优化小屏幕 */
+  ::v-deep .mobile-responsive-form {
+    padding: 0 8px;
+  }
+
+  .my-tag {
+    margin: 0 -8px 16px;
+    border-radius: 0;
+  }
+
+  .myCenter {
+    padding: 16px 0;
+  }
+
+  /* 封面区域小屏优化 */
+  .table-td-thumb {
+    width: 80px !important;
+    height: 80px !important;
+  }
+
+  /* 小屏占位符优化 */
+  .table-td-thumb .image-slot i {
+    font-size: 20px !important;
+    margin-bottom: 4px !important;
+  }
+
+  .table-td-thumb .image-placeholder-text {
+    font-size: 9px !important;
+  }
+
+  ::v-deep .cover-upload .el-upload .el-upload-dragger {
+    height: 80px !important;
+  }
+
+  ::v-deep .cover-upload .el-upload .el-upload-dragger .el-upload__text {
+    font-size: 12px !important;
+  }
+
+  /* Markdown编辑器进一步适配 */
+  ::v-deep .v-note-wrapper {
+    min-height: 350px !important;
+    max-height: 500px !important;
+  }
+  
+  /* 全屏模式 */
+  ::v-deep .v-note-wrapper.fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    min-height: 100vh !important;
+    max-height: 100vh !important;
+    z-index: 9999 !important;
+    margin: 0 !important;
+  }
+  
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel {
+    height: calc(100vh - 45px) !important;
+    min-height: calc(100vh - 45px) !important;
+    max-height: calc(100vh - 45px) !important;
+    overflow: hidden !important;
+    overflow-x: hidden !important;
+    overflow-y: hidden !important;
+    display: flex !important;
+    flex-direction: row !important;
+  }
+  
+  /* 全屏模式下编辑区域和预览区域独立滚动 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit.divarea-wrapper,
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-show {
+    flex: 1 1 50% !important;
+    width: 50% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    position: relative !important;
+  }
+  
+  /* 内容容器完全自然展开，不限制高度 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit .content-input-wrapper {
+    height: auto !important;
+  }
+  
+  /* 中间层也自然展开 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit .auto-textarea-wrapper {
+    height: auto !important;
+  }
+  
+  /* pre标签完全展开，不限制高度 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit .auto-textarea-wrapper .auto-textarea-block {
+    height: auto !important;
+    display: block !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+    padding: 16px !important;
+    padding-bottom: 350px !important;
+    margin-top: 0;
+    margin-bottom: 16px;
+  }
+
+  ::v-deep .v-note-wrapper .v-note-panel {
+    min-height: 280px !important;
+  }
+
+  /* 工具栏按钮更紧凑 */
+  ::v-deep .v-note-wrapper .v-note-op .op-icon {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 13px !important;
+    margin: 1px !important;
+  }
+}
+
+/* 480px及以下 - 极小屏移动设备 */
+@media screen and (max-width: 480px) {
+  /* 标题区域适配 */
+  .my-tag {
+    font-size: 13px;
+    height: 32px;
+    line-height: 32px;
+  }
+
+  .my-tag svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+
+  /* 表单标签进一步缩小 */
+  ::v-deep .mobile-responsive-form.el-form--label-top .el-form-item__label {
+    font-size: 13px !important;
+  }
+
+  /* 封面区域极小屏优化 */
+  .cover-input-container {
+    gap: 8px !important;
+  }
+
+  .table-td-thumb {
+    width: 70px !important;
+    height: 70px !important;
+  }
+
+  /* 极小屏占位符优化 */
+  .table-td-thumb .image-slot i {
+    font-size: 18px !important;
+    margin-bottom: 3px !important;
+  }
+
+  .table-td-thumb .image-placeholder-text {
+    font-size: 8px !important;
+    line-height: 1.1 !important;
+  }
+
+  ::v-deep .cover-upload .el-upload .el-upload-dragger {
+    height: 70px !important;
+    padding: 8px !important;
+  }
+
+  ::v-deep .cover-upload .el-upload .el-upload-dragger .el-upload__text {
+    font-size: 11px !important;
+    line-height: 1.2 !important;
+  }
+
+  /* 按钮进一步适配 */
+  .myCenter .el-button {
+    height: 40px !important;
+    font-size: 15px !important;
+  }
+
+  .dialog-footer .el-button {
+    height: 40px !important;
+    font-size: 15px !important;
+  }
+
+  /* 输入框高度调整 */
+  ::v-deep .el-input__inner,
+  ::v-deep .el-select .el-input__inner {
+    height: 40px !important;
+    line-height: 40px !important;
+  }
+
+  /* Markdown编辑器小屏适配 */
+  ::v-deep .v-note-wrapper {
+    min-height: 300px !important;
+    max-height: 450px !important;
+  }
+  
+  /* 全屏模式 */
+  ::v-deep .v-note-wrapper.fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    min-height: 100vh !important;
+    max-height: 100vh !important;
+    z-index: 9999 !important;
+    margin: 0 !important;
+  }
+  
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel {
+    height: calc(100vh - 40px) !important;
+    min-height: calc(100vh - 40px) !important;
+    max-height: calc(100vh - 40px) !important;
+    overflow: hidden !important;
+    overflow-x: hidden !important;
+    overflow-y: hidden !important;
+    display: flex !important;
+    flex-direction: row !important;
+  }
+  
+  /* 全屏模式下编辑区域和预览区域独立滚动 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit.divarea-wrapper,
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-show {
+    flex: 1 1 50% !important;
+    width: 50% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    position: relative !important;
+  }
+  
+  /* 内容容器完全自然展开，不限制高度 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit .content-input-wrapper {
+    height: auto !important;
+  }
+  
+  /* 中间层也自然展开 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit .auto-textarea-wrapper {
+    height: auto !important;
+  }
+  
+  /* pre标签完全展开，不限制高度 */
+  ::v-deep .v-note-wrapper.fullscreen .v-note-panel .v-note-edit .auto-textarea-wrapper .auto-textarea-block {
+    height: auto !important;
+    display: block !important;
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+    padding: 16px !important;
+    padding-bottom: 350px !important;
+    margin-top: 0;
+    margin-bottom: 16px;
+  }
+
+  ::v-deep .v-note-wrapper .v-note-panel {
+    min-height: 220px !important;
+  }
+
+  /* 工具栏按钮进一步压缩 */
+  ::v-deep .v-note-wrapper .v-note-op {
+    padding: 6px 2px !important;
+  }
+
+  ::v-deep .v-note-wrapper .v-note-op .op-icon {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 12px !important;
+    margin: 1px !important;
+  }
+
+  /* 隐藏部分不常用的工具栏按钮以节省空间 */
+  ::v-deep .v-note-wrapper .v-note-op .op-icon.fa-columns,
+  ::v-deep .v-note-wrapper .v-note-op .op-icon.fa-header,
+  ::v-deep .v-note-wrapper .v-note-op .op-icon.fa-underline {
+    display: none !important;
+  }
+}
+
+/* 翻译编辑器全屏模式 - 确保在对话框上方显示 */
+/* 使用多种选择器确保覆盖所有情况 */
+.translation-editor.v-note-wrapper.fullscreen,
+.el-dialog .translation-editor.v-note-wrapper.fullscreen,
+body > .translation-editor.v-note-wrapper.fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 9999 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+
+.translation-editor.v-note-wrapper.fullscreen .v-note-panel,
+.el-dialog .translation-editor.v-note-wrapper.fullscreen .v-note-panel,
+body > .translation-editor.v-note-wrapper.fullscreen .v-note-panel {
+  height: calc(100vh - 45px) !important;
+  min-height: calc(100vh - 45px) !important;
+  max-height: calc(100vh - 45px) !important;
+  width: 100% !important;
+}
+
+.translation-editor.v-note-wrapper.fullscreen .v-note-panel .v-note-edit.divarea-wrapper,
+.translation-editor.v-note-wrapper.fullscreen .v-note-panel .v-note-show,
+.el-dialog .translation-editor.v-note-wrapper.fullscreen .v-note-panel .v-note-edit.divarea-wrapper,
+.el-dialog .translation-editor.v-note-wrapper.fullscreen .v-note-panel .v-note-show,
+body > .translation-editor.v-note-wrapper.fullscreen .v-note-panel .v-note-edit.divarea-wrapper,
+body > .translation-editor.v-note-wrapper.fullscreen .v-note-panel .v-note-show {
+  flex: 1 1 50% !important;
+  width: 50% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  position: relative !important;
+  padding: 8px 25px 100px 25px !important;
+}
+
+/* 翻译编辑器全屏模式 - 内容容器完全自然展开 */
+::v-deep .translation-editor.v-note-wrapper.fullscreen .v-note-panel .v-note-edit .content-input-wrapper {
+  height: auto !important;
+}
+
+/* 翻译编辑器全屏模式 - 中间层也自然展开 */
+::v-deep .translation-editor.v-note-wrapper.fullscreen .v-note-panel .v-note-edit .auto-textarea-wrapper {
+  height: auto !important;
+}
+
+/* 翻译编辑器全屏模式 - pre标签完全展开，设置padding和margin */
+::v-deep .translation-editor.v-note-wrapper.fullscreen .v-note-panel .v-note-edit .auto-textarea-wrapper .auto-textarea-block {
+  height: auto !important;
+  display: block !important;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  padding: 16px !important;
+  padding-bottom: 350px !important;
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+/* 翻译编辑器移动端特殊适配 */
+@media screen and (max-width: 768px) {
+  /* 翻译弹窗中的Markdown编辑器 */
+  ::v-deep .translation-editor.v-note-wrapper {
+    min-height: 250px !important;
+    max-height: 350px !important;
+  }
+
+  ::v-deep .translation-editor .v-note-panel {
+    min-height: 180px !important;
+  }
+  
+  /* 移动端全屏模式 */
+  ::v-deep .translation-editor.v-note-wrapper.fullscreen .v-note-panel {
+    height: calc(100vh - 40px) !important;
+    min-height: calc(100vh - 40px) !important;
+    max-height: calc(100vh - 40px) !important;
+  }
+}
+
+@media screen and (max-width: 600px) {
+  ::v-deep .translation-editor.v-note-wrapper {
+    min-height: 200px !important;
+    max-height: 300px !important;
+  }
+
+  ::v-deep .translation-editor .v-note-panel {
+    min-height: 140px !important;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  ::v-deep .translation-editor.v-note-wrapper {
+    min-height: 180px !important;
+    max-height: 250px !important;
+  }
+
+  ::v-deep .translation-editor .v-note-panel {
+    min-height: 120px !important;
+  }
+}
+
+/* Mermaid图表容器样式 */
+::v-deep .v-show-content .mermaid-container {
+  position: relative;
+  margin: 20px 0;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  overflow-x: auto;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+::v-deep .v-show-content .mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Mermaid放大/缩小按钮 */
+::v-deep .v-show-content .mermaid-zoom-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 10;
+  padding: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+::v-deep .v-show-content .mermaid-zoom-btn:hover {
+  background: rgba(255, 255, 255, 1);
+  border-color: #409eff;
+  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.3);
+  transform: scale(1.05);
+}
+
+::v-deep .v-show-content .mermaid-zoom-btn:active {
+  transform: scale(0.95);
+}
+
+::v-deep .v-show-content .mermaid-zoom-btn .zoom-icon {
+  width: 20px;
+  height: 20px;
+  color: #333;
+  transition: color 0.2s ease;
+}
+
+::v-deep .v-show-content .mermaid-zoom-btn:hover .zoom-icon {
+  color: #409eff;
+}
+
+/* Mermaid图表放大overlay */
+.mermaid-zoom-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 999999 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.3s ease;
+}
+
+.mermaid-zoom-content {
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  justify-content: center;
+  overflow: auto;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  position: relative;
+  z-index: 999999;
+}
+
+.mermaid-zoom-content svg {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto !important;
+  height: auto !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.dark-mode .mermaid-zoom-content {
+  background: #2d2d2d;
+}
+
+.mermaid-zoom-close {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 44px;
+  height: 44px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #ddd;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  padding: 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  z-index: 1000000 !important;
+}
+
+.mermaid-zoom-close:hover {
+  background: rgba(255, 255, 255, 1);
+  transform: scale(1.1) rotate(90deg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.mermaid-zoom-close svg {
+  color: #333;
+  transition: color 0.2s ease;
+}
+
+.mermaid-zoom-close:hover svg {
+  color: #ff4444;
+}
+
+.dark-mode .mermaid-zoom-close {
+  background: rgba(45, 45, 45, 0.9);
+  border-color: #555;
+}
+
+.mermaid-zoom-close:hover {
+  background: rgba(255, 255, 255, 1);
+  transform: scale(1.1) rotate(90deg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.mermaid-zoom-close svg {
+  color: #333;
+  transition: color 0.2s ease;
+}
+
+.mermaid-zoom-close:hover svg {
+  color: #ff4444;
+}
+
+.dark-mode .mermaid-zoom-close {
+  background: rgba(45, 45, 45, 0.9);
+  border-color: #555;
+}
+
+.dark-mode .mermaid-zoom-close:hover {
+  background: rgba(45, 45, 45, 1);
+}
+
+.dark-mode .mermaid-zoom-close svg {
+  color: #ddd;
+}
+
+.dark-mode .mermaid-zoom-close:hover svg {
+  color: #ff6666;
+}
+
+/* 翻译对话框 z-index 设置 */
+::v-deep .translation-dialog {
+  z-index: 99 !important;
+}

@@ -246,17 +246,17 @@ html body .entry-content pre code.hljs {
   background: #1d1f21 !important;
   display: block !important;
   overflow-x: auto !important;
-  padding: 0.5em !important;
+  padding: 0.3em !important;
 }
 
-body .entry-content .hljs,
+/* body .entry-content .hljs,
 html body .entry-content .hljs {
   color: #a9b7c6 !important;
   background: #1d1f21 !important;
   display: block !important;
   overflow-x: auto !important;
   padding: 0.5em !important;
-}
+} */
 
 /* 行号样式 - 使用 CSS 计数器（替代 hljs-ln 插件） */
 body .entry-content pre code.css-line-numbers,
@@ -289,7 +289,7 @@ html body .entry-content pre code.css-line-numbers .code-line::before {
   top: 0 !important;
   bottom: 0 !important;
   width: var(--line-number-width, 25px) !important;
-  padding: 2px 6px !important;
+  padding: 2px 4px !important;
   text-align: right !important;
   color: #888f96 !important;
   background: #1d1f21 !important;

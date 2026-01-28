@@ -1025,12 +1025,16 @@ anime.timeline().add({
   offset: 0
 });', 1, 1, 2);
 
+INSERT INTO `poetize`.`sys_plugin` (`plugin_type`, `plugin_key`, `plugin_name`, `plugin_description`, `plugin_config`, `plugin_code`, `enabled`, `is_system`, `sort_order`) VALUES
+('editor', 'vditor', 'Vditor（功能完整）', '功能最全，启动相对较慢', '{"editorKey":"vditor"}', NULL, 1, 1, 0),
+('editor', 'split_preview', '分屏预览', '左侧编辑、右侧实时预览的 Markdown 编辑器，功能完善，覆盖绝大多数写作场景', '{"editorKey":"split_preview"}', NULL, 1, 1, 1),
+('editor', 'ir', 'IR 即时渲染', '自研的即时渲染编辑器，光标行显示源码、其他行显示渲染效果，类似 Typora 体验，完全自定义样式，无闪烁问题', '{"editorKey":"ir"}', NULL, 1, 1, 2),
+('editor', 'wysiwyg', 'WYSIWYG 所见即所得', '自研的所见即所得编辑器，全程显示渲染效果，编辑体验类似 Word，支持查看源码，适合不熟悉 Markdown 语法的用户', '{"editorKey":"wysiwyg"}', NULL, 1, 1, 3);
+
 -- 初始化插件激活状态
 INSERT INTO `poetize`.`sys_plugin_active` (`plugin_type`, `plugin_key`) VALUES
-('mouse_click_effect', 'none');
-
--- 初始化验证码配置数据
-INSERT INTO `poetize`.`sys_captcha_config` (`id`, `enable`, `login`, `register`, `comment`, `reset_password`, `screen_size_threshold`, `force_slide_for_mobile`, `slide_accuracy`, `slide_success_threshold`, `checkbox_track_sensitivity`, `checkbox_min_track_points`, `checkbox_reply_sensitivity`, `checkbox_max_retry_count`, `checkbox_retry_decrement`) VALUES (1, 1, 1, 1, 1, 1, 768, 1, 5, 0.95, 0.99, 3, 0.85, 5, 0.02);
+('mouse_click_effect', 'none'),
+('editor', 'ir');
 
 -- 初始化第三方OAuth登录配置数据
 INSERT INTO `poetize`.`third_party_oauth_config` (`platform_type`, `platform_name`, `scope`, `enabled`, `global_enabled`, `sort_order`, `remark`, `deleted`) VALUES

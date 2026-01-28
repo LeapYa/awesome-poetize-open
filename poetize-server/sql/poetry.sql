@@ -894,6 +894,21 @@ INSERT IGNORE INTO `sys_plugin` (`plugin_type`, `plugin_key`, `plugin_name`, `pl
 INSERT IGNORE INTO `sys_plugin_active` (`plugin_type`, `plugin_key`) VALUES
 ('waifu_model', 'neptune');
 
+-- 初始化编辑器插件
+INSERT IGNORE INTO `sys_plugin` (`plugin_type`, `plugin_key`, `plugin_name`, `plugin_description`, `plugin_config`, `plugin_code`, `enabled`, `is_system`, `sort_order`) VALUES
+('editor', 'vditor', 'Vditor（功能完整）', '功能最全的 Markdown 编辑器，支持即时渲染、分屏预览、所见即所得三种模式，适合追求完整编辑体验的用户', 
+'{"editorKey":"vditor"}', NULL, 1, 1, 0),
+('editor', 'split_preview', '分屏预览编辑器', '左侧编辑、右侧实时预览的 Markdown 编辑器，功能完善，覆盖绝大多数写作场景', 
+'{"editorKey":"split_preview"}', NULL, 1, 1, 1),
+('editor', 'ir', 'IR 即时渲染', '自研的即时渲染编辑器，光标行显示源码、其他行显示渲染效果，类似 Typora 体验，完全自定义样式，无闪烁问题', 
+'{"editorKey":"ir"}', NULL, 1, 1, 2),
+('editor', 'wysiwyg', 'WYSIWYG 所见即所得', '自研的所见即所得编辑器，全程显示渲染效果，编辑体验类似 Word，支持查看源码，适合不熟悉 Markdown 语法的用户', 
+'{"editorKey":"wysiwyg"}', NULL, 1, 1, 3);
+
+-- 设置默认激活的编辑器
+INSERT IGNORE INTO `sys_plugin_active` (`plugin_type`, `plugin_key`) VALUES
+('editor', 'ir');
+
 -- 初始化插件数据
 INSERT INTO `poetize`.`sys_plugin` (`plugin_type`, `plugin_key`, `plugin_name`, `plugin_description`, `plugin_config`, `plugin_code`, `enabled`, `is_system`, `sort_order`) VALUES
 ('mouse_click_effect', 'none', '无效果', '关闭鼠标点击效果', '{}', NULL, 1, 1, 0),

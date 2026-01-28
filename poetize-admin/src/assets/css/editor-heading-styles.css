@@ -1,0 +1,413 @@
+/**
+ * @file 编辑器标题样式 - 公共样式文件
+ * @description 
+ * 统一管理所有编辑器（Vditor、SplitPreviewMarkdownEditor、IRMarkdownEditor）的标题样式
+ * 
+ * 设计原理：
+ * - 编辑器中用户写 # 标题，但显示为 h2 的样式（标题降级显示）
+ * - 保存到数据库时 # → ##，所以文章页渲染时 ## 对应 h2
+ * - 这样编辑器预览和文章页的视觉效果一致
+ * 
+ * 使用方法：
+ * 1. 在组件中 import 此文件
+ * 2. 使用对应的容器类名包裹内容区域
+ * 
+ * 主题定制：
+ * 修改下方的 CSS 变量即可实现主题切换
+ */
+
+/* ==================== CSS 变量定义 ==================== */
+/* 可通过覆盖这些变量实现主题切换 */
+:root {
+  /* 标题字体大小 */
+  --editor-h1-font-size: 27px;
+  --editor-h2-font-size: 24px;
+  --editor-h3-font-size: 21px;
+  --editor-h4-font-size: 18px;
+  --editor-h5-font-size: 16px;
+  --editor-h6-font-size: 16px;
+  
+  /* 标题装饰颜色 */
+  --editor-heading-accent-color: #ff6d6d;
+  
+  /* 标题边距 */
+  --editor-heading-margin-top: 30px;
+  --editor-heading-margin-bottom: 20px;
+  
+  /* 标题边框 */
+  --editor-h1-border-color: #ddd;
+  
+  /* h5/h6 文字颜色 */
+  --editor-h5h6-color: #666;
+  
+  /* 标题装饰符号 */
+  --editor-h1-icon: "📑";
+  --editor-h2-icon: "#";
+  --editor-h3-icon: "▌";
+  --editor-h4-icon: "🌷";
+}
+
+/* 暗色模式变量 */
+.dark-mode {
+  --editor-h1-border-color: #444;
+  --editor-h5h6-color: #999;
+}
+
+/* ==================== 通用标题基础样式 ==================== */
+/* 适用于所有编辑器的标题通用样式 */
+
+.editor-heading-styles h1,
+.editor-heading-styles h2,
+.editor-heading-styles h3,
+.editor-heading-styles h4,
+.editor-heading-styles h5,
+.editor-heading-styles h6 {
+  margin-top: var(--editor-heading-margin-top) !important;
+  margin-bottom: var(--editor-heading-margin-bottom) !important;
+  line-height: 1.25 !important;
+  position: relative !important;
+}
+
+/* ==================== H1 样式（用户的 # → 显示为文章页 h2 样式）==================== */
+.editor-heading-styles h1 {
+  padding-left: 40px !important;
+  font-size: var(--editor-h1-font-size) !important;
+  padding-bottom: 8px !important;
+  border-bottom: 1px dashed var(--editor-h1-border-color) !important;
+}
+
+.editor-heading-styles h1:before {
+  content: var(--editor-h1-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  font-size: 1.03em !important;
+  margin-top: -2px !important;
+}
+
+/* ==================== H2 样式（用户的 ## → 显示为文章页 h3 样式）==================== */
+.editor-heading-styles h2 {
+  padding-left: 25px !important;
+  font-size: var(--editor-h2-font-size) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.editor-heading-styles h2:before {
+  content: var(--editor-h2-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  color: var(--editor-heading-accent-color) !important;
+  font-size: inherit !important;
+}
+
+/* ==================== H3 样式（用户的 ### → 显示为文章页 h4 样式）==================== */
+.editor-heading-styles h3 {
+  padding-left: 20px !important;
+  font-size: var(--editor-h3-font-size) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.editor-heading-styles h3:before {
+  content: var(--editor-h3-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  color: var(--editor-heading-accent-color) !important;
+  font-size: inherit !important;
+}
+
+/* ==================== H4 样式（用户的 #### → 显示为文章页 h5 样式）==================== */
+.editor-heading-styles h4 {
+  font-size: var(--editor-h4-font-size) !important;
+  padding-left: 28px !important;
+  line-height: 1.25 !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.editor-heading-styles h4:before {
+  content: var(--editor-h4-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  font-size: inherit !important;
+}
+
+/* ==================== H5 样式（用户的 ##### → 显示为文章页 h6 样式）==================== */
+.editor-heading-styles h5 {
+  font-size: var(--editor-h5-font-size) !important;
+  line-height: 1.25 !important;
+  font-weight: 600 !important;
+  color: var(--editor-h5h6-color) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+/* ==================== H6 样式（用户的 ###### → 基础样式）==================== */
+.editor-heading-styles h6 {
+  font-size: var(--editor-h6-font-size) !important;
+  line-height: 1.25 !important;
+  font-weight: 600 !important;
+  color: var(--editor-h5h6-color) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+/* ==================== 文章主标题样式（仅用于文章页，编辑器中不出现）==================== */
+.editor-heading-styles h1.article-main-title {
+  font-size: 32px !important;
+  font-weight: 700 !important;
+  margin-top: 0 !important;
+  margin-bottom: 30px !important;
+  padding-bottom: 16px !important;
+  border-bottom: 2px solid #e0e0e0 !important;
+  color: var(--textColor, #333) !important;
+  padding-left: 0 !important;
+}
+
+.editor-heading-styles h1.article-main-title:before {
+  content: none !important;
+  display: none !important;
+}
+
+/* ====================================================================================
+   以下是针对不同编辑器的选择器映射
+   通过导入此文件，各编辑器自动获得统一的标题样式
+   ==================================================================================== */
+
+/* ==================== Vditor 编辑器选择器 ==================== */
+.vditor-reset h1,
+.vditor-reset h2,
+.vditor-reset h3,
+.vditor-reset h4,
+.vditor-reset h5,
+.vditor-reset h6 {
+  margin-top: var(--editor-heading-margin-top) !important;
+  margin-bottom: var(--editor-heading-margin-bottom) !important;
+  line-height: 1.25 !important;
+  position: relative !important;
+}
+
+.vditor-reset h1 {
+  padding-left: 40px !important;
+  font-size: var(--editor-h1-font-size) !important;
+  padding-bottom: 8px !important;
+  border-bottom: 1px dashed var(--editor-h1-border-color) !important;
+}
+
+.vditor-reset h1:before {
+  content: var(--editor-h1-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  font-size: 1.03em !important;
+  margin-top: -2px !important;
+}
+
+.vditor-reset h2 {
+  padding-left: 25px !important;
+  font-size: var(--editor-h2-font-size) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.vditor-reset h2:before {
+  content: var(--editor-h2-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  color: var(--editor-heading-accent-color) !important;
+  font-size: inherit !important;
+}
+
+.vditor-reset h3 {
+  padding-left: 20px !important;
+  font-size: var(--editor-h3-font-size) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.vditor-reset h3:before {
+  content: var(--editor-h3-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  color: var(--editor-heading-accent-color) !important;
+  font-size: inherit !important;
+}
+
+.vditor-reset h4 {
+  font-size: var(--editor-h4-font-size) !important;
+  padding-left: 28px !important;
+  line-height: 1.25 !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.vditor-reset h4:before {
+  content: var(--editor-h4-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  font-size: inherit !important;
+}
+
+.vditor-reset h5,
+.vditor-reset h6 {
+  font-size: var(--editor-h5-font-size) !important;
+  line-height: 1.25 !important;
+  font-weight: 600 !important;
+  color: var(--editor-h5h6-color) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.vditor-reset h1.article-main-title {
+  font-size: 32px !important;
+  font-weight: 700 !important;
+  margin-top: 0 !important;
+  margin-bottom: 30px !important;
+  padding-bottom: 16px !important;
+  border-bottom: 2px solid #e0e0e0 !important;
+  color: var(--textColor, #333) !important;
+  padding-left: 0 !important;
+}
+
+.vditor-reset h1.article-main-title:before {
+  content: none !important;
+  display: none !important;
+}
+
+/* ==================== IR/分屏预览 编辑器选择器（使用 .entry-content）==================== */
+/* 用于 IRMarkdownEditor 和 SplitPreviewMarkdownEditor 的预览区域 */
+
+.entry-content h1,
+.entry-content h2,
+.entry-content h3,
+.entry-content h4,
+.entry-content h5,
+.entry-content h6,
+body .ir-editor .entry-content h1,
+body .ir-editor .entry-content h2,
+body .ir-editor .entry-content h3,
+body .ir-editor .entry-content h4,
+body .ir-editor .entry-content h5,
+body .ir-editor .entry-content h6,
+body .split-preview-editor .entry-content h1,
+body .split-preview-editor .entry-content h2,
+body .split-preview-editor .entry-content h3,
+body .split-preview-editor .entry-content h4,
+body .split-preview-editor .entry-content h5,
+body .split-preview-editor .entry-content h6 {
+  margin-top: var(--editor-heading-margin-top) !important;
+  margin-bottom: var(--editor-heading-margin-bottom) !important;
+  line-height: 1.25 !important;
+  position: relative !important;
+}
+
+.entry-content h1,
+body .ir-editor .entry-content h1,
+body .split-preview-editor .entry-content h1 {
+  padding-left: 40px !important;
+  font-size: var(--editor-h1-font-size) !important;
+  padding-bottom: 8px !important;
+  border-bottom: 1px dashed var(--editor-h1-border-color) !important;
+}
+
+.entry-content h1:before,
+body .ir-editor .entry-content h1:before,
+body .split-preview-editor .entry-content h1:before {
+  content: var(--editor-h1-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  font-size: 1.03em !important;
+  margin-top: -2px !important;
+}
+
+.entry-content h2,
+body .ir-editor .entry-content h2,
+body .split-preview-editor .entry-content h2 {
+  padding-left: 25px !important;
+  font-size: var(--editor-h2-font-size) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.entry-content h2:before,
+body .ir-editor .entry-content h2:before,
+body .split-preview-editor .entry-content h2:before {
+  content: var(--editor-h2-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  color: var(--editor-heading-accent-color) !important;
+  font-size: inherit !important;
+}
+
+.entry-content h3,
+body .ir-editor .entry-content h3,
+body .split-preview-editor .entry-content h3 {
+  padding-left: 20px !important;
+  font-size: var(--editor-h3-font-size) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.entry-content h3:before,
+body .ir-editor .entry-content h3:before,
+body .split-preview-editor .entry-content h3:before {
+  content: var(--editor-h3-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  color: var(--editor-heading-accent-color) !important;
+  font-size: inherit !important;
+}
+
+.entry-content h4,
+body .ir-editor .entry-content h4,
+body .split-preview-editor .entry-content h4 {
+  font-size: var(--editor-h4-font-size) !important;
+  padding-left: 28px !important;
+  line-height: 1.25 !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.entry-content h4:before,
+body .ir-editor .entry-content h4:before,
+body .split-preview-editor .entry-content h4:before {
+  content: var(--editor-h4-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  font-size: inherit !important;
+}
+
+.entry-content h5,
+.entry-content h6,
+body .ir-editor .entry-content h5,
+body .ir-editor .entry-content h6,
+body .split-preview-editor .entry-content h5,
+body .split-preview-editor .entry-content h6 {
+  font-size: var(--editor-h5-font-size) !important;
+  line-height: 1.25 !important;
+  font-weight: 600 !important;
+  color: var(--editor-h5h6-color) !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.entry-content h5:before,
+body .ir-editor .entry-content h5:before,
+body .split-preview-editor .entry-content h5:before {
+  content: none !important;
+}
+
+.entry-content h1.article-main-title {
+  font-size: 32px !important;
+  font-weight: 700 !important;
+  margin-top: 0 !important;
+  margin-bottom: 30px !important;
+  padding-bottom: 16px !important;
+  border-bottom: 2px solid #e0e0e0 !important;
+  color: var(--textColor, #333) !important;
+  padding-left: 0 !important;
+}
+
+.entry-content h1.article-main-title:before {
+  content: none !important;
+  display: none !important;
+}

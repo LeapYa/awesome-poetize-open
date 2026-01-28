@@ -29,6 +29,7 @@
     "highlightjs-line-numbers.js": "^2.9.0",
     "markdown-it": "^14.0.0",
     "markdown-it-multimd-table": "^4.2.3",
+    "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^10.6.1",
     "mitt": "^3.0.1",
     "pinia": "^2.1.0",

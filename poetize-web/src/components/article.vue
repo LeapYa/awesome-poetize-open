@@ -538,6 +538,7 @@ import { useMainStore } from '@/stores/main'
 
 import MarkdownIt from 'markdown-it'
 import markdownItMultimdTable from 'markdown-it-multimd-table'
+import markdownItTaskLists from 'markdown-it-task-lists'
 // KaTeX 改为按需动态加载，只有文章包含数学公式时才加载
 import { hasMathFormula, loadMarkdownItKatex } from '@/utils/katexLoader'
 import axios from 'axios'
@@ -558,7 +559,7 @@ import {
   isClipboardLoaded,
   loadKatexResources,
   isKatexLoadedGlobal,
-} from '@/components/live2d/utils/resourceLoader'
+} from '@/utils/resourceLoaders/resourceLoader'
 
 const CommentLoading = {
   name: 'CommentLoading',
@@ -984,7 +985,13 @@ export default {
      * @returns {Promise<Object>} MarkdownIt 实例
      */
     async createMarkdownRenderer(content) {
-      const md = new MarkdownIt({ breaks: true }).use(markdownItMultimdTable)
+      const md = new MarkdownIt({ breaks: true })
+        .use(markdownItMultimdTable)
+        .use(markdownItTaskLists, {
+          enabled: true,
+          label: true,
+          labelAfter: true
+        })
       
       // 只有检测到数学公式时才加载 katex
       if (hasMathFormula(content)) {
@@ -995,6 +1002,46 @@ export default {
       }
       
       return md
+    },
+
+    normalizeTaskListCheckboxes(container) {
+      const root =
+        container ||
+        (this.$el ? this.$el.querySelector('.entry-content') : null) ||
+        document.querySelector('.entry-content')
+      if (!root) return
+
+      const checkboxes = root.querySelectorAll(
+        'li.task-list-item input[type="checkbox"], input.task-list-item-checkbox[type="checkbox"]'
+      )
+
+      checkboxes.forEach((checkbox) => {
+        // 移除 disabled 属性以保证样式正常（非灰色）
+        checkbox.removeAttribute('disabled')
+        
+        // 如果已经绑定过锁定逻辑，跳过
+        if (checkbox.dataset.todoReadonlyBound === 'true') return
+
+        const lockedChecked = checkbox.checked
+        checkbox.dataset.todoReadonlyBound = 'true'
+        
+        // 核心锁定逻辑：阻止点击和状态改变
+        const lock = (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          checkbox.checked = lockedChecked
+          return false
+        }
+
+        checkbox.addEventListener('click', lock, true)
+        checkbox.addEventListener('change', lock, true)
+        // 阻止键盘操作
+        checkbox.addEventListener('keydown', (e) => {
+           if (e.code === 'Space' || e.key === ' ') {
+             lock(e)
+           }
+        }, true)
+      })
     },
 
     // 处理分类标签拖拽开始事件
@@ -1687,10 +1734,11 @@ export default {
             // 等待DOM渲染完成后，再检测并加载资源
             this.$nextTick(() => {
               this.$common.imgShow('.entry-content img')
-              this.highlight()
-              this.renderMermaid()
-              this.renderECharts()
-              this.addId()
+          this.normalizeTaskListCheckboxes()
+          this.highlight()
+          this.renderMermaid()
+          this.renderECharts()
+          this.addId()
 
               // 在内容渲染到DOM后检测资源并初始化目录
               // 注意：getTocbot()会在detectAndLoadResources()中调用
@@ -1791,6 +1839,9 @@ export default {
         })
         .finally(() => {
           this.isLoading = false
+          this.$nextTick(() => {
+            this.normalizeTaskListCheckboxes()
+          })
         })
     },
     fetchArticleMeta() {
@@ -3426,6 +3477,7 @@ export default {
           // 重新应用文章内容处理
           this.$nextTick(() => {
             this.$common.imgShow('.entry-content img')
+            this.normalizeTaskListCheckboxes()
             this.highlight()
             this.renderMermaid()
             this.renderECharts()
@@ -3445,6 +3497,7 @@ export default {
         // 重新应用文章内容处理
         this.$nextTick(() => {
           this.$common.imgShow('.entry-content img')
+          this.normalizeTaskListCheckboxes()
           this.highlight()
           this.renderMermaid()
           this.renderECharts()
@@ -3481,6 +3534,7 @@ export default {
           // 重新应用文章内容处理
           this.$nextTick(() => {
             this.$common.imgShow('.entry-content img')
+            this.normalizeTaskListCheckboxes()
             this.highlight()
             this.renderMermaid()
             this.renderECharts()
@@ -3509,6 +3563,7 @@ export default {
 
           this.$nextTick(() => {
             this.$common.imgShow('.entry-content img')
+            this.normalizeTaskListCheckboxes()
             this.highlight()
             this.renderMermaid()
             this.renderECharts()
@@ -3535,6 +3590,7 @@ export default {
 
           this.$nextTick(() => {
             this.$common.imgShow('.entry-content img')
+            this.normalizeTaskListCheckboxes()
             this.highlight()
             this.renderMermaid()
             this.renderECharts()
@@ -3557,12 +3613,19 @@ export default {
         this.updateUrlWithLanguage(this.sourceLanguage)
 
         // 显示原文内容
-        const md = new MarkdownIt({ breaks: true }).use(markdownItMultimdTable)
+        const md = new MarkdownIt({ breaks: true })
+          .use(markdownItMultimdTable)
+          .use(markdownItTaskLists, {
+            enabled: true,
+            label: true,
+            labelAfter: true
+          })
         this.articleContentHtml = md.render(this.article.articleContent)
         this.articleContentKey = Date.now()
 
         this.$nextTick(() => {
           this.$common.imgShow('.entry-content img')
+          this.normalizeTaskListCheckboxes()
           this.highlight()
           this.renderMermaid()
           this.renderECharts()
@@ -3573,6 +3636,9 @@ export default {
         this.$message.error('翻译加载失败，已切换到原文显示')
       } finally {
         this.isLoading = false
+        this.$nextTick(() => {
+          this.normalizeTaskListCheckboxes()
+        })
       }
     },
     updateUrlWithLanguage(lang) {

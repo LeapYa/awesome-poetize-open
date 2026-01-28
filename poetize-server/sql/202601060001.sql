@@ -49,6 +49,13 @@ NULL, 1, 1, 1),
 '{"colors": ["#FF1461", "#18FF92", "#5A87FF", "#FBF38C"], "particleCount": 30, "minRadius": 16, "maxRadius": 32, "minDistance": 50, "maxDistance": 180}',
 NULL, 1, 1, 2);
 
+-- 插入默认的编辑器插件（用于后台文章编辑，可随时切换）
+INSERT IGNORE INTO `sys_plugin` (`plugin_type`, `plugin_key`, `plugin_name`, `plugin_description`, `plugin_config`, `plugin_code`, `enabled`, `is_system`, `sort_order`) VALUES
+('editor', 'vditor', 'Vditor（功能完整）', '社区成熟组件，功能最全，资源占用相对较高，启动相对较慢', '{"editorKey":"vditor"}', NULL, 1, 1, 0),
+('editor', 'split_preview', '分屏预览', '左侧编辑、右侧实时预览的 Markdown 编辑器，功能完善，覆盖绝大多数写作场景', '{"editorKey":"split_preview"}', NULL, 1, 1, 1),
+('editor', 'ir', 'IR 即时渲染', '自研的即时渲染编辑器，光标行显示源码、其他行显示渲染效果，类似 Typora 体验，完全自定义样式，无闪烁问题', '{"editorKey":"ir"}', NULL, 1, 1, 2),
+('editor', 'wysiwyg', 'WYSIWYG 所见即所得', '自研的所见即所得编辑器，全程显示渲染效果，编辑体验类似 Word，支持查看源码，适合不熟悉 Markdown 语法的用户', '{"editorKey":"wysiwyg"}', NULL, 1, 1, 3);
+
 -- ============================================
 -- 3. 创建插件激活状态表（如果不存在）
 -- ============================================
@@ -64,6 +71,10 @@ CREATE TABLE IF NOT EXISTS `sys_plugin_active` (
 -- 设置默认激活的鼠标点击效果（使用 INSERT IGNORE 避免重复插入）
 INSERT IGNORE INTO `sys_plugin_active` (`plugin_type`, `plugin_key`) VALUES
 ('mouse_click_effect', 'none');
+
+-- 设置默认激活的编辑器
+INSERT IGNORE INTO `sys_plugin_active` (`plugin_type`, `plugin_key`) VALUES
+('editor', 'ir');
 
 -- ============================================
 -- 3.1 添加看板娘模型插件数据

@@ -30,8 +30,63 @@ public class SysPluginServiceImpl extends ServiceImpl<SysPluginMapper, SysPlugin
     @Autowired
     private SysPluginActiveMapper sysPluginActiveMapper;
 
+    private void ensureBuiltInPlugins(String pluginType) {
+        if (!SysPlugin.TYPE_EDITOR.equals(pluginType)) {
+            return;
+        }
+
+        LambdaQueryWrapper<SysPlugin> pluginCountWrapper = new LambdaQueryWrapper<>();
+        pluginCountWrapper.eq(SysPlugin::getPluginType, SysPlugin.TYPE_EDITOR);
+        long count = this.count(pluginCountWrapper);
+        if (count > 0) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        SysPlugin vditor = new SysPlugin();
+        vditor.setPluginType(SysPlugin.TYPE_EDITOR);
+        vditor.setPluginKey("vditor");
+        vditor.setPluginName("Vditor（功能完整）");
+        vditor.setPluginDescription("功能最全，启动相对较慢");
+        vditor.setPluginConfig("{\"editorKey\":\"vditor\"}");
+        vditor.setPluginCode(null);
+        vditor.setEnabled(true);
+        vditor.setIsSystem(true);
+        vditor.setSortOrder(0);
+        vditor.setCreateTime(now);
+        vditor.setUpdateTime(now);
+        this.save(vditor);
+
+        SysPlugin simple = new SysPlugin();
+        simple.setPluginType(SysPlugin.TYPE_EDITOR);
+        simple.setPluginKey("split_preview");
+        simple.setPluginName("分屏预览编辑器");
+        simple.setPluginDescription("左侧编辑、右侧实时预览的 Markdown 编辑器，功能完善，覆盖绝大多数写作场景");
+        simple.setPluginConfig("{\"editorKey\":\"simple\"}");
+        simple.setPluginCode(null);
+        simple.setEnabled(true);
+        simple.setIsSystem(true);
+        simple.setSortOrder(1);
+        simple.setCreateTime(now);
+        simple.setUpdateTime(now);
+        this.save(simple);
+
+        LambdaQueryWrapper<SysPluginActive> activeWrapper = new LambdaQueryWrapper<>();
+        activeWrapper.eq(SysPluginActive::getPluginType, SysPlugin.TYPE_EDITOR);
+        SysPluginActive active = sysPluginActiveMapper.selectOne(activeWrapper);
+        if (active == null) {
+            SysPluginActive newActive = new SysPluginActive();
+            newActive.setPluginType(SysPlugin.TYPE_EDITOR);
+            newActive.setPluginKey("vditor");
+            newActive.setUpdateTime(now);
+            sysPluginActiveMapper.insert(newActive);
+        }
+    }
+
     @Override
     public List<SysPlugin> getPluginsByType(String pluginType) {
+        ensureBuiltInPlugins(pluginType);
         LambdaQueryWrapper<SysPlugin> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(SysPlugin::getPluginType, pluginType)
                     .orderByAsc(SysPlugin::getSortOrder);
@@ -48,12 +103,16 @@ public class SysPluginServiceImpl extends ServiceImpl<SysPluginMapper, SysPlugin
 
     @Override
     public SysPlugin getActivePlugin(String pluginType) {
+        ensureBuiltInPlugins(pluginType);
         // 先获取激活记录
         LambdaQueryWrapper<SysPluginActive> activeWrapper = new LambdaQueryWrapper<>();
         activeWrapper.eq(SysPluginActive::getPluginType, pluginType);
         SysPluginActive active = sysPluginActiveMapper.selectOne(activeWrapper);
         
         if (active == null) {
+            if (SysPlugin.TYPE_EDITOR.equals(pluginType)) {
+                return getPluginByTypeAndKey(SysPlugin.TYPE_EDITOR, "vditor");
+            }
             log.warn("未找到插件类型 {} 的激活记录", pluginType);
             return null;
         }
@@ -66,6 +125,7 @@ public class SysPluginServiceImpl extends ServiceImpl<SysPluginMapper, SysPlugin
     @Transactional
     public boolean setActivePlugin(String pluginType, String pluginKey) {
         try {
+            ensureBuiltInPlugins(pluginType);
             // 验证插件是否存在
             SysPlugin plugin = getPluginByTypeAndKey(pluginType, pluginKey);
             if (plugin == null) {

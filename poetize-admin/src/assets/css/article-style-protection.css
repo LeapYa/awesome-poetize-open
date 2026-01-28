@@ -189,23 +189,50 @@ html body .entry-content .highlight-wrap {
   margin-bottom: 1.6em !important;
   margin-top: 0 !important;
   width: 100% !important;
-  padding-top: 30px !important;
+  /* 新版代码块会输出 toolbar，这里不再预留伪元素标题栏高度 */
+  padding-top: 0 !important;
   box-shadow: 0 10px 30px 0 rgba(0, 0, 0, 0.4) !important;
 }
 
-/* 三个圆点装饰 - 关键：margin-top负值让圆点向上偏移 */
+/* 旧版伪元素三点会导致与新版 toolbar 三点重复，这里禁用 */
 body .entry-content .highlight-wrap:before,
 html body .entry-content .highlight-wrap:before {
-  content: "" !important;
-  position: absolute !important;
-  border-radius: 50% !important;
-  background: #fc625d !important;
+  content: none !important;
+  display: none !important;
+}
+
+/* 新版代码块工具栏保护（让三点/语言/复制在一行） */
+body .entry-content .highlight-wrap .highlight-toolbar,
+html body .entry-content .highlight-wrap .highlight-toolbar {
+  height: 30px !important;
+  display: flex !important;
+  align-items: center !important;
+  padding: 0 10px !important;
+  background: #21252b !important;
+  border-radius: 5px 5px 0 0 !important;
+}
+
+body .entry-content .highlight-wrap .highlight-toolbar .hl-dots,
+html body .entry-content .highlight-wrap .highlight-toolbar .hl-dots {
   width: 12px !important;
   height: 12px !important;
-  left: 12px !important;
-  margin-top: -18px !important;
+  border-radius: 50% !important;
+  background: #fc625d !important;
   box-shadow: 20px 0 #fdbc40, 40px 0 #35cd4b !important;
-  z-index: 2 !important;
+  flex: 0 0 auto !important;
+}
+
+body .entry-content .highlight-wrap .highlight-toolbar .hl-lang,
+html body .entry-content .highlight-wrap .highlight-toolbar .hl-lang {
+  flex: 1 1 auto !important;
+  text-align: center !important;
+  color: #fff !important;
+  font-size: 14px !important;
+  font-family: Ubuntu, "Microsoft YaHei", "Arial" !important;
+  font-weight: 700 !important;
+  line-height: 30px !important;
+  pointer-events: none !important;
+  padding: 0 12px !important;
 }
 
 /* 滚动条样式 */
@@ -227,6 +254,19 @@ html body .entry-content .highlight-wrap .copy-code {
   cursor: pointer !important;
 }
 
+/* toolbar 内的复制按钮：取消 absolute，垂直居中 */
+body .entry-content .highlight-wrap .highlight-toolbar .copy-code,
+html body .entry-content .highlight-wrap .highlight-toolbar .copy-code {
+  position: static !important;
+  right: auto !important;
+  top: auto !important;
+  display: flex !important;
+  align-items: center !important;
+  height: 30px !important;
+  line-height: 30px !important;
+  flex: 0 0 auto !important;
+}
+
 body .entry-content .highlight-wrap .copy-code:hover,
 html body .entry-content .highlight-wrap .copy-code:hover {
   color: rgba(255, 255, 255, 0.5) !important;
@@ -239,6 +279,12 @@ html body .entry-content .highlight-wrap code {
   border-radius: 0 0 5px 5px !important;
 }
 
+/* pre 默认上下外边距会把代码块顶开；这里仅保留下外边距 */
+body .entry-content .highlight-wrap pre,
+html body .entry-content .highlight-wrap pre {
+  margin: 0 0 15px 0 !important;
+}
+
 /* hljs样式 */
 body .entry-content pre code.hljs,
 html body .entry-content pre code.hljs {
@@ -246,17 +292,17 @@ html body .entry-content pre code.hljs {
   background: #1d1f21 !important;
   display: block !important;
   overflow-x: auto !important;
-  padding: 0.5em !important;
+  padding: 0.3em !important;
 }
 
-body .entry-content .hljs,
+/* body .entry-content .hljs,
 html body .entry-content .hljs {
   color: #a9b7c6 !important;
   background: #1d1f21 !important;
   display: block !important;
   overflow-x: auto !important;
   padding: 0.5em !important;
-}
+} */
 
 /* 行号样式 - 使用 CSS 计数器（替代 hljs-ln 插件） */
 body .entry-content pre code.css-line-numbers,
@@ -289,7 +335,7 @@ html body .entry-content pre code.css-line-numbers .code-line::before {
   top: 0 !important;
   bottom: 0 !important;
   width: var(--line-number-width, 25px) !important;
-  padding: 2px 6px !important;
+  padding: 2px 4px !important;
   text-align: right !important;
   color: #888f96 !important;
   background: #1d1f21 !important;

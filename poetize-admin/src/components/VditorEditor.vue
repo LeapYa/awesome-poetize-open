@@ -6,7 +6,10 @@
 
 <script>
 import Vditor from 'vditor'
-// 注意：Vditor CSS 动态加载，只在需要时引入
+import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils'
+// 导入公共编辑器标题样式
+import '@/assets/css/editor-heading-styles.css'
+// Vditor CSS 动态加载，只在需要时引入
 let vditorStyleLoaded = false
 
 function loadVditorStyle() {
@@ -62,7 +65,7 @@ export default {
       
       if (this.editor && !this.isComposing) {
         const currentValue = this.editor.getValue()
-        const displayValue = this.upgradeMarkdownHeadings(newVal || '')
+        const displayValue = upgradeMarkdownHeadings(newVal || '')
         
         // 只有当内容真正不同时才更新编辑器
         // 这样可以避免用户输入时触发不必要的 setValue
@@ -86,18 +89,6 @@ export default {
     if (this._fullscreenObserver) {
       this._fullscreenObserver.disconnect()
       this._fullscreenObserver = null
-    }
-    
-    // 清理代码块监听器
-    if (this._codeBlockObserver) {
-      this._codeBlockObserver.disconnect()
-      this._codeBlockObserver = null
-    }
-    
-    // 清理代码块计时器
-    if (this._codeBlockTimer) {
-      clearTimeout(this._codeBlockTimer)
-      this._codeBlockTimer = null
     }
     
     // 清理预览观察器
@@ -135,6 +126,9 @@ export default {
     }
   },
   methods: {
+    goPluginManager() {
+      this.$router.push({ name: 'pluginManager', query: { type: 'editor' } })
+    },
     initEditor() {
       // 检查 window.hljs 是否可用（优先使用项目的 hljs）
       if (typeof window.hljs !== 'undefined') {
@@ -181,6 +175,14 @@ export default {
         'fullscreen',
         'edit-mode',
         {
+          name: 'plugin-manager',
+          tip: '切换编辑器（插件管理）',
+          icon: '<svg t="1769589415141" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="4953" width="200" height="200"><path d="M915.2 1015.04H108.8a97.28 97.28 0 0 1-97.28-96.64V111.36A97.28 97.28 0 0 1 108.8 14.72h806.4a97.28 97.28 0 0 1 97.28 96.64v807.04a97.28 97.28 0 0 1-97.28 96.64zM108.8 80.64a30.72 30.72 0 0 0-30.72 30.72v807.04a30.72 30.72 0 0 0 30.72 30.72h806.4a30.72 30.72 0 0 0 30.72-30.72V111.36a30.72 30.72 0 0 0-30.72-30.72z" fill="#323333" p-id="4954"></path><path d="M323.84 817.28a32.64 32.64 0 0 1-32.64-33.28V245.76a33.28 33.28 0 1 1 64 0v538.24a33.28 33.28 0 0 1-31.36 33.28z" fill="#323333" p-id="4955"></path><path d="M323.84 638.08m-96.64 0a96.64 96.64 0 1 0 193.28 0 96.64 96.64 0 1 0-193.28 0Z" fill="#323333" p-id="4956"></path><path d="M700.16 817.28a33.28 33.28 0 0 1-33.28-33.28V245.76a33.28 33.28 0 1 1 64 0v538.24a32.64 32.64 0 0 1-30.72 33.28z" fill="#323333" p-id="4957"></path><path d="M700.16 391.68m-96.64 0a96.64 96.64 0 1 0 193.28 0 96.64 96.64 0 1 0-193.28 0Z" fill="#323333" p-id="4958"></path></svg>',
+          click: () => {
+            this.goPluginManager()
+          }
+        },
+        {
           name: 'more',
           toolbar: [
             'both',
@@ -209,6 +211,8 @@ export default {
         height: typeof this.height === 'number' ? this.height : parseInt(this.height),
         placeholder: this.placeholder,
         mode: this.mode,
+        lang: 'zh_CN',
+        i18nPath: '/static/vditor/i18n',
         theme: this.isDarkMode ? 'dark' : 'classic', // 编辑器整体主题
         toolbar,
         toolbarConfig: {
@@ -250,7 +254,7 @@ export default {
         input: (value) => {
           if (!this.isComposing) {
             // 用户输入时，降级标题后发送给父组件（保存到数据库）
-            const downgradedValue = this.downgradeMarkdownHeadings(value)
+            const downgradedValue = downgradeMarkdownHeadings(value)
             
             // 设置标志，防止 watch 触发 setValue 导致光标跳转
             this.isInternalUpdate = true
@@ -261,12 +265,6 @@ export default {
             this.$nextTick(() => {
               this.isInternalUpdate = false
             })
-            
-            // 内容变化后应用自定义代码样式
-            this.applyCustomCodeStyle()
-            
-            // 手动触发工具栏添加（用于 IR/WYSIWYG 模式）
-            this.addCodeLanguageLabels()
           }
         },
         focus: () => {
@@ -278,15 +276,9 @@ export default {
         after: () => {
           if (this.value) {
             // 初始化时也需要升级标题
-            const displayValue = this.upgradeMarkdownHeadings(this.value)
+            const displayValue = upgradeMarkdownHeadings(this.value)
             this.editor.setValue(displayValue)
           }
-          // 应用自定义代码高亮样式
-          this.applyCustomCodeStyle()
-          // 添加代码块语言标签
-          this.addCodeLanguageLabels()
-          // 设置代码块监听器
-          this.setupCodeBlockObserver()
           // 渲染 ECharts 图表（预览区域）
           this.renderEChartsInPreview()
           this.$emit('ready', this.editor)
@@ -322,7 +314,7 @@ export default {
         editArea.addEventListener('compositionend', () => {
           this.isComposing = false
           // 中文输入结束后，降级标题后发送给父组件
-          const downgradedValue = this.downgradeMarkdownHeadings(this.editor.getValue())
+          const downgradedValue = downgradeMarkdownHeadings(this.editor.getValue())
           
           // 设置标志，防止 watch 触发 setValue 导致光标跳转
           this.isInternalUpdate = true
@@ -339,12 +331,12 @@ export default {
     getValue() {
       // 获取编辑器内容时，降级标题后返回（保存到数据库）
       const editorValue = this.editor ? this.editor.getValue() : ''
-      return this.downgradeMarkdownHeadings(editorValue)
+      return downgradeMarkdownHeadings(editorValue)
     },
     setValue(value) {
       if (this.editor) {
         // 设置编辑器内容时，升级标题后显示
-        const displayValue = this.upgradeMarkdownHeadings(value || '')
+        const displayValue = upgradeMarkdownHeadings(value || '')
         this.editor.setValue(displayValue)
       }
     },
@@ -375,219 +367,6 @@ export default {
     },
     getHTML() {
       return this.editor ? this.editor.getHTML() : ''
-    },
-    // Markdown 标题降级（保存到数据库时用）
-    // # → ##, ## → ###, ### → ####, #### → #####, ##### → ######
-    downgradeMarkdownHeadings(markdown) {
-      if (!markdown) return ''
-      
-      // 按行处理，避免代码块中的 # 被误处理
-      const lines = markdown.split('\n')
-      let inCodeBlock = false
-      
-      const processedLines = lines.map(line => {
-        // 检测代码块
-        if (line.trim().startsWith('```')) {
-          inCodeBlock = !inCodeBlock
-          return line
-        }
-        
-        // 代码块内不处理
-        if (inCodeBlock) {
-          return line
-        }
-        
-        // 处理标题行：在开头的 # 前面添加一个 #
-        // 匹配行首的标题标记（支持空格）
-        if (/^\s*#{1,5}\s/.test(line)) {
-          return line.replace(/^(\s*)(#{1,5})(\s)/, '$1#$2$3')
-        }
-        
-        return line
-      })
-      
-      return processedLines.join('\n')
-    },
-    // Markdown 标题升级（从数据库读取时用于显示）
-    // ## → #, ### → ##, #### → ###, ##### → ####, ###### → #####
-    upgradeMarkdownHeadings(markdown) {
-      if (!markdown) return ''
-      
-      // 按行处理，避免代码块中的 # 被误处理
-      const lines = markdown.split('\n')
-      let inCodeBlock = false
-      
-      const processedLines = lines.map(line => {
-        // 检测代码块
-        if (line.trim().startsWith('```')) {
-          inCodeBlock = !inCodeBlock
-          return line
-        }
-        
-        // 代码块内不处理
-        if (inCodeBlock) {
-          return line
-        }
-        
-        // 处理标题行：移除开头的一个 #
-        // 匹配行首的标题标记（2-6个#）
-        if (/^\s*#{2,6}\s/.test(line)) {
-          return line.replace(/^(\s*)#{1}(#{1,5}\s)/, '$1$2')
-        }
-        
-        return line
-      })
-      
-      return processedLines.join('\n')
-    },
-    // 应用自定义代码高亮样式
-    applyCustomCodeStyle() {
-    },
-    // 添加代码块语言标签和复制按钮（使用 flex 布局）
-    addCodeLanguageLabels() {
-      // WYSIWYG 模式下不添加自定义工具栏，保持原生编辑体验
-      // 这样用户可以直接点击代码块进入编辑状态
-      if (this.mode === 'wysiwyg') {
-        return
-      }
-      
-      // 增加延迟时间，确保 Vditor 已经完全渲染代码块
-      // IR 模式需要更长的渲染时间
-      setTimeout(() => {
-        if (!this.$refs.vditorContainer) return
-        
-        // 查找所有预览区域的 pre 元素
-        let preElements = []
-        
-        // SV 分屏模式
-        const svPre = this.$refs.vditorContainer.querySelectorAll('.vditor-preview .vditor-reset pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre)')
-        if (svPre.length > 0) {
-          preElements = preElements.concat(Array.from(svPre))
-        }
-        
-        // IR 即时渲染模式 - pre 本身有 vditor-ir__preview 类名
-        const irPre = this.$refs.vditorContainer.querySelectorAll('pre.vditor-ir__preview')
-        if (irPre.length > 0) {
-          preElements = preElements.concat(Array.from(irPre))
-        }
-        
-        preElements.forEach((pre, i) => {
-          // 检查是否已经被包装
-          if (pre.parentNode && pre.parentNode.classList.contains('code-block-wrapper')) {
-            return
-          }
-          
-          // 跳过数学公式块（检查多种可能的结构）
-          // 1. 检查父元素是否有 data-type="math-block"
-          if (pre.parentNode && pre.parentNode.getAttribute && pre.parentNode.getAttribute('data-type') === 'math-block') {
-            return
-          }
-          
-          // 2. 检查 pre 内是否包含 .language-math
-          if (pre.querySelector('.language-math') || pre.querySelector('[data-type="math-block"]')) {
-            return
-          }
-          
-          // 3. 检查 pre 元素是否包含 KaTeX 相关的类名或属性
-          if (pre.classList.contains('katex-display') || 
-              pre.classList.contains('mathjax-display') ||
-              pre.querySelector('.katex') ||
-              pre.querySelector('.katex-display') ||
-              pre.querySelector('.katex-html')) {
-            return
-          }
-          
-          const code = pre.querySelector('code')
-          if (!code) return
-          
-          // 从 className 中提取语言名称
-          let lang = ''
-          const classNameStr = code.className || ''
-          const classNameArr = classNameStr.split(' ')
-          
-          classNameArr.some(className => {
-            if (className.indexOf('language-') > -1) {
-              lang = className.substring(className.indexOf('-') + 1)
-              return true
-            }
-            return false
-          })
-          
-          // 跳过 Mermaid 代码块和数学公式
-          if (lang === 'mermaid' || lang === 'math' || lang === 'katex') {
-            return
-          }
-          
-          // 设置唯一ID
-          code.id = 'vditor-hljs-' + i
-          
-          // 创建顶部工具栏（使用 flex 布局）
-          const toolbar = document.createElement('div')
-          toolbar.className = 'code-header-toolbar'
-          
-          // 创建三个圆点装饰
-          const dots = document.createElement('div')
-          dots.className = 'code-dots'
-          toolbar.appendChild(dots)
-          
-          // 创建语言标签（直接使用用户填写的原始名称）
-          if (lang) {
-            const langLabel = document.createElement('div')
-            langLabel.className = 'code-language-label'
-            langLabel.textContent = lang
-            toolbar.appendChild(langLabel)
-          }
-          
-          // 创建复制按钮
-          const copyButton = document.createElement('a')
-          copyButton.className = 'copy-code'
-          copyButton.href = 'javascript:;'
-          copyButton.setAttribute('data-clipboard-target', '#vditor-hljs-' + i)
-          copyButton.innerHTML = '<i class="fa fa-clipboard" aria-hidden="true"></i>'
-          toolbar.appendChild(copyButton)
-          
-          // 创建包装容器
-          try {
-            // 创建包装容器
-            const wrapper = document.createElement('div')
-            wrapper.className = 'code-block-wrapper'
-            
-            // 用包装器替换 pre 的位置
-            pre.parentNode.insertBefore(wrapper, pre)
-            
-            // 将工具栏和 pre 都放入包装器
-            wrapper.appendChild(toolbar)
-            wrapper.appendChild(pre)
-          } catch (e) {
-            console.error('创建包装器失败:', e)
-          }
-        })
-        
-        // 初始化剪贴板功能（使用 ClipboardJS）
-        if (typeof ClipboardJS !== 'undefined') {
-          const that = this // 保存Vue实例引用
-          const clipboard = new ClipboardJS('.copy-code')
-          
-          // 复制成功回调
-          clipboard.on('success', (e) => {
-            that.$message({
-              message: '代码已复制到剪贴板',
-              type: 'success',
-              duration: 2000
-            })
-            e.clearSelection()
-          })
-          
-          // 复制失败回调
-          clipboard.on('error', (e) => {
-            that.$message({
-              message: '复制失败，请手动复制',
-              type: 'error',
-              duration: 2000
-            })
-          })
-        }
-      }, 500)
     },
     // 检查暗色模式状态
     checkDarkMode() {
@@ -756,48 +535,6 @@ export default {
       } catch (error) {
       }
     },
-    // 设置代码块观察器，监听 DOM 变化并自动添加工具栏
-    setupCodeBlockObserver() {
-      // WYSIWYG 模式下不启动观察器，避免干扰原生编辑体验
-      if (this.mode === 'wysiwyg') {
-        return
-      }
-      
-      this.$nextTick(() => {
-        setTimeout(() => {
-          if (!this.$refs.vditorContainer) return
-          
-          // 创建观察器
-          const observer = new MutationObserver((mutations) => {
-            // 使用防抖，避免频繁调用
-            clearTimeout(this._codeBlockTimer)
-            this._codeBlockTimer = setTimeout(() => {
-              this.addCodeLanguageLabels()
-            }, 300)
-          })
-          
-          // 观察包含预览区域的父容器（不包括 WYSIWYG）
-          const contentAreas = [
-            this.$refs.vditorContainer.querySelector('.vditor-preview'),
-            this.$refs.vditorContainer.querySelector('.vditor-ir')
-          ]
-          
-          
-          contentAreas.forEach(area => {
-            if (area) {
-              observer.observe(area, {
-                childList: true,
-                subtree: true,
-                attributes: false
-              })
-            }
-          })
-          
-          // 保存观察器引用以便清理
-          this._codeBlockObserver = observer
-        }, 100)
-      })
-    },
     setupFullscreenHandler() {
       // 保存原始父节点和位置信息
       let originalParent = null
@@ -928,125 +665,6 @@ body > .vditor-editor-isolate {
   font-size: 16px !important;
 }
 
-/* 标题样式 - 编辑器预览样式映射 */
-/* 说明：用户写 # 在编辑器中显示为二级标题样式，预渲染时会降级为 h2 */
-/* 这样编辑器预览和最终文章页的样式保持一致 */
-
-::v-deep .vditor-reset h1,
-::v-deep .vditor-reset h2,
-::v-deep .vditor-reset h3,
-::v-deep .vditor-reset h4,
-::v-deep .vditor-reset h5,
-::v-deep .vditor-reset h6 {
-  margin-top: 30px !important;
-  margin-bottom: 20px !important;
-  line-height: 1.25 !important;
-}
-
-/* h1 - 用户的 # → 显示为二级标题样式（预渲染会降为h2） */
-::v-deep .vditor-reset h1 {
-  padding-left: 40px !important;
-  position: relative !important;
-  font-size: 27px !important;
-  padding-bottom: 8px !important;
-  border-bottom: 1px dashed #ddd !important;
-}
-
-::v-deep .vditor-reset h1:before {
-  content: "📑" !important;
-  position: absolute !important;
-  left: 0 !important;
-  font-size: 1.03em !important;
-  margin-top: -2px !important;
-}
-
-/* h2 - 用户的 ## → 显示为三级标题样式（预渲染会降为h3） */
-::v-deep .vditor-reset h2 {
-  padding-left: 25px !important;
-  font-size: 24px !important;
-  position: relative !important;
-  padding-bottom: 0 !important;
-  border-bottom: none !important;
-}
-
-::v-deep .vditor-reset h2:before {
-  content: "#" !important;
-  position: absolute !important;
-  left: 0 !important;
-  color: #ff6d6d !important;
-  font-size: inherit !important;
-}
-
-/* h3 - 用户的 ### → 显示为四级标题样式（预渲染会降为h4） */
-::v-deep .vditor-reset h3 {
-  padding-left: 20px !important;
-  font-size: 21px !important;
-  position: relative !important;
-  padding-bottom: 0 !important;
-  border-bottom: none !important;
-}
-
-::v-deep .vditor-reset h3:before {
-  content: "▌" !important;
-  position: absolute !important;
-  left: 0 !important;
-  color: #ff6d6d !important;
-  font-size: inherit !important;
-}
-
-/* h4 - 用户的 #### → 显示为五级标题样式（预渲染会降为h5） */
-::v-deep .vditor-reset h4 {
-  font-size: 18px !important;
-  padding-left: 28px !important;
-  position: relative !important;
-  line-height: 1.25 !important;
-  padding-bottom: 0 !important;
-  border-bottom: none !important;
-}
-
-::v-deep .vditor-reset h4:before {
-  content: "🌷" !important;
-  position: absolute !important;
-  left: 0 !important;
-  font-size: inherit !important;
-}
-
-/* h5 - 用户的 ##### → 显示为六级标题样式（预渲染会降为h6） */
-::v-deep .vditor-reset h5 {
-  font-size: 16px !important;
-  line-height: 1.25 !important;
-  font-weight: 600 !important;
-  color: #666 !important;
-  padding-bottom: 0 !important;
-  border-bottom: none !important;
-}
-
-/* h6 - 用户的 ###### → 基础样式（预渲染后仍为h6，但几乎不会用到） */
-::v-deep .vditor-reset h6 {
-  font-size: 16px !important;
-  line-height: 1.25 !important;
-  font-weight: 600 !important;
-  color: #666 !important;
-  padding-bottom: 0 !important;
-  border-bottom: none !important;
-}
-
-/* h1.article-main-title - 仅用于文章页的主标题（编辑器中不会出现） */
-::v-deep .vditor-reset h1.article-main-title {
-  font-size: 32px !important;
-  font-weight: 700 !important;
-  margin-top: 0 !important;
-  margin-bottom: 30px !important;
-  padding-bottom: 16px !important;
-  border-bottom: 2px solid #e0e0e0 !important;
-  color: var(--textColor) !important;
-  padding-left: 0 !important;
-}
-
-::v-deep .vditor-reset h1.article-main-title:before {
-  content: none !important;
-  display: none !important;
-}
 
 /* ========== WYSIWYG 模式专用样式覆盖 ========== */
 /* 修复所见即所得模式下标题装饰符号与文字间距过大的问题 */
@@ -1145,213 +763,6 @@ body > .vditor-editor-isolate {
   border-radius: 5px !important;
   word-break: break-word !important;
 }
-
-/* 代码块包装器 */
-::v-deep .code-block-wrapper {
-  position: relative !important;
-  margin-bottom: 1.6em !important;
-  margin-top: 0 !important;
-  border-radius: 5px !important;
-  overflow: visible !important;
-  box-shadow: 0 10px 30px 0 rgba(0, 0, 0, 0.4) !important;
-}
-
-  /* 代码块容器 - 只应用于预览区域和文章页面 */
-  /* 排除数学公式、Mermaid 图表和 ECharts 图表的 pre 元素 */
-  /* SV 模式：.vditor-preview 内的 pre */
-  ::v-deep .vditor-preview .vditor-reset pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):not(:has(.language-math)):not(:has(.katex)):not(:has(code.language-mermaid)):not(:has(div.language-mermaid)):not(:has(code.language-echarts)):not(:has(div.language-echarts)),
-  /* IR 模式：pre 元素本身就是预览容器 */
-  ::v-deep pre.vditor-ir__preview:not(:has(.language-math)):not(:has(.katex)):not(:has(code.language-mermaid)):not(:has(div.language-mermaid)):not(:has(code.language-echarts)):not(:has(div.language-echarts)),
-  /* WYSIWYG 模式：pre 元素本身就是预览容器 */
-  ::v-deep pre.vditor-wysiwyg__preview:not(:has(.language-math)):not(:has(.katex)):not(:has(code.language-mermaid)):not(:has(div.language-mermaid)):not(:has(code.language-echarts)):not(:has(div.language-echarts)),
-  /* 文章页面 */
-  ::v-deep .vditor-reset pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):not(:has(.language-math)):not(:has(.katex)):not(:has(code.language-mermaid)):not(:has(div.language-mermaid)):not(:has(code.language-echarts)):not(:has(div.language-echarts)) {
-  position: relative !important;
-  background: #21252b !important;
-  border-radius: 0 0 5px 5px !important;
-  font: 15px/22px "Microsoft YaHei", "Arial" !important;
-  line-height: 1.6 !important;
-  margin-bottom: 1.6em !important;
-  margin-top: 0 !important;
-  padding: 0 !important;
-  box-shadow: none !important;
-  overflow: visible !important;
-}
-
-/* 在包装器内的 pre 元素，添加阴影 */
-::v-deep .code-block-wrapper pre {
-  box-shadow: none !important;
-  margin-bottom: 0 !important;
-}
-
-/* 代码块顶部工具栏 - 使用 flex 布局 */
-::v-deep .code-header-toolbar {
-  position: relative !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  height: 30px !important;
-  min-height: 30px !important;
-  background: #21252b !important;
-  padding: 0 10px !important;
-  border-radius: 5px 5px 0 0 !important;
-  flex-shrink: 0 !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  box-sizing: border-box !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  z-index: 10 !important;
-  box-shadow: 0 10px 30px 0 rgba(0, 0, 0, 0.4) !important;
-  margin-bottom: 0 !important;
-}
-
-/* 三个圆点装饰 - 第一个红点 */
-::v-deep .code-dots {
-  position: relative !important;
-  width: 12px !important;
-  height: 12px !important;
-  border-radius: 50% !important;
-  background: #fc625d !important;
-  flex-shrink: 0 !important;
-}
-
-/* 第二个黄点 */
-::v-deep .code-dots:before {
-  content: "" !important;
-  position: absolute !important;
-  width: 12px !important;
-  height: 12px !important;
-  border-radius: 50% !important;
-  background: #fdbc40 !important;
-  left: 20px !important;
-  top: 0 !important;
-}
-
-/* 第三个绿点 */
-::v-deep .code-dots:after {
-  content: "" !important;
-  position: absolute !important;
-  width: 12px !important;
-  height: 12px !important;
-  border-radius: 50% !important;
-  background: #35cd4b !important;
-  left: 40px !important;
-  top: 0 !important;
-}
-
-/* 语言标签 */
-::v-deep .code-language-label {
-  position: absolute !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-  color: #fff !important;
-  font-size: 16px !important;
-  font-family: Ubuntu, "Microsoft YaHei", Arial !important;
-  font-weight: 700 !important;
-  line-height: 30px !important;
-}
-
-/* 移除 Mermaid 代码块的工具栏 */
-/* 支持未渲染的代码块（code.language-mermaid）和已渲染的图表（div.language-mermaid） */
-::v-deep .vditor-reset pre:has(> code.language-mermaid) .code-header-toolbar,
-::v-deep pre.vditor-wysiwyg__preview:has(> code.language-mermaid) .code-header-toolbar,
-::v-deep pre.vditor-ir__preview:has(> code.language-mermaid) .code-header-toolbar {
-  display: none !important;
-}
-
-/* 移除数学公式块的工具栏 */
-::v-deep .vditor-reset pre:has(.katex) .code-header-toolbar,
-::v-deep .vditor-reset pre:has(.katex-display) .code-header-toolbar,
-::v-deep .vditor-reset pre:has(.language-math) .code-header-toolbar,
-::v-deep pre.vditor-wysiwyg__preview:has(.katex) .code-header-toolbar,
-::v-deep pre.vditor-wysiwyg__preview:has(.language-math) .code-header-toolbar,
-::v-deep pre.vditor-ir__preview:has(.katex) .code-header-toolbar,
-::v-deep pre.vditor-ir__preview:has(.language-math) .code-header-toolbar {
-  display: none !important;
-}
-
-/* Mermaid 代码块样式 */
-::v-deep .vditor-reset pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(> code.language-mermaid),
-::v-deep .vditor-reset pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(> div.language-mermaid),
-::v-deep pre.vditor-wysiwyg__preview:has(> code.language-mermaid),
-::v-deep pre.vditor-wysiwyg__preview:has(> div.language-mermaid),
-::v-deep pre.vditor-ir__preview:has(> code.language-mermaid),
-::v-deep pre.vditor-ir__preview:has(> div.language-mermaid) {
-  background: #f8f9fa !important;
-  border: 1px solid #e0e0e0 !important;
-  border-radius: 8px !important;
-  padding: 15px !important;
-  margin: 15px 0 !important;
-  box-shadow: none !important;
-}
-
-/* 数学公式块样式 - 不应用代码块样式 */
-::v-deep .vditor-reset pre:has(.katex),
-::v-deep .vditor-reset pre:has(.katex-display),
-::v-deep .vditor-reset pre:has(.language-math),
-::v-deep pre.vditor-wysiwyg__preview:has(.katex),
-::v-deep pre.vditor-wysiwyg__preview:has(.language-math),
-::v-deep pre.vditor-ir__preview:has(.katex),
-::v-deep pre.vditor-ir__preview:has(.language-math) {
-  background: transparent !important;
-  border: none !important;
-  border-radius: 0 !important;
-  padding: 0 !important;
-  margin: 1em 0 !important;
-  box-shadow: none !important;
-}
-
-/* 数学公式内容不应用代码样式 */
-::v-deep .vditor-reset .katex-display,
-::v-deep .vditor-reset .language-math,
-::v-deep pre.vditor-wysiwyg__preview .katex-display,
-::v-deep pre.vditor-wysiwyg__preview .language-math,
-::v-deep pre.vditor-ir__preview .katex-display,
-::v-deep pre.vditor-ir__preview .language-math {
-  background: transparent !important;
-  padding: 1em 0 !important;
-  margin: 0 !important;
-}
-
-/* 滚动条样式 */
-::v-deep .vditor-reset pre code::-webkit-scrollbar {
-  height: 6px !important;
-  width: 6px !important;
-}
-
-  /* 代码块内容 - 只应用于预览区域和文章页面 */
-  /* 排除数学公式、Mermaid 和 ECharts 的代码 */
-  ::v-deep .vditor-preview pre:not(:has(.language-math)):not(:has(.katex)):not(:has(code.language-echarts)):not(:has(div.language-echarts)) > code,
-  ::v-deep pre.vditor-ir__preview:not(:has(.language-math)):not(:has(.katex)):not(:has(code.language-echarts)):not(:has(div.language-echarts)) > code,
-  ::v-deep pre.vditor-wysiwyg__preview:not(:has(.language-math)):not(:has(.katex)):not(:has(code.language-echarts)):not(:has(div.language-echarts)) > code,
-  ::v-deep .vditor-reset pre:not(:has(.language-math)):not(:has(.katex)):not(:has(code.language-echarts)):not(:has(div.language-echarts)) > code,
-  ::v-deep .vditor-reset pre code.hljs:not(.language-math):not(.language-echarts) {
-  background: #1d1f21 !important;
-  color: #a9b7c6 !important;
-  display: block !important;
-  overflow-x: auto !important;
-  border-radius: 0 0 5px 5px !important;
-  padding: 1em !important;
-  padding-left: 4em !important;
-}
-
-/* Mermaid 代码块内容样式覆盖 */
-::v-deep .vditor-reset pre > code.language-mermaid,
-::v-deep pre.vditor-wysiwyg__preview > code.language-mermaid,
-::v-deep pre.vditor-ir__preview > code.language-mermaid {
-  background: transparent !important;
-  color: #333 !important;
-  font-family: 'Courier New', monospace !important;
-  font-size: 14px !important;
-  border-radius: 0 !important;
-}
-
-::v-deep .vditor-reset .hljs:not(.language-math) {
-  background: #1d1f21 !important;
-  color: #a9b7c6 !important;
-}
-
 /* 引用块样式 */
 ::v-deep .vditor-reset blockquote {
   margin: 0 !important;
@@ -1444,27 +855,6 @@ body > .vditor-editor-isolate {
 ::v-deep .vditor-reset pre code::selection {
   background: var(--lightGreen) !important;
   color: var(--white) !important;
-}
-
-/* 隐藏 Vditor 自带的复制按钮，我们将使用与文章页一致的复制按钮 */
-::v-deep .vditor-copy {
-  display: none !important;
-}
-
-/* 自定义复制按钮样式 - 与文章页保持一致 */
-::v-deep .copy-code {
-  color: #fff !important;
-  position: absolute !important;
-  right: 10px !important;
-  top: 5px !important;
-  font-size: 16px !important;
-  z-index: 10 !important;
-  cursor: pointer !important;
-  text-decoration: none !important;
-}
-
-::v-deep .copy-code:hover {
-  color: rgba(255, 255, 255, 0.5) !important;
 }
 
 /* ========== Mermaid 图表样式 ========== */

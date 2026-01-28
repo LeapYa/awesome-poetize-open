@@ -15,7 +15,7 @@
     "build:no-compress": "vite build",
     "preview": "vite preview",
     "compress": "node scripts/compress-build.js",
-    "lint": "vue-cli-service lint",
+    "lint": "eslint --ext .js,.vue src",
     "postinstall": "node scripts/fix-element-ui-ce.js"
   },
   "dependencies": {
@@ -25,11 +25,16 @@
     "core-js": "^3.37.0",
     "echarts": "^5.4.2",
     "element-ui-ce": "^2.15.14",
+    "github-markdown-css": "^5.8.1",
+    "highlight.js": "^11.11.1",
     "markdown-it": "^14.0.0",
     "markdown-it-multimd-table": "^4.2.3",
+    "markdown-it-task-lists": "^2.1.1",
     "pinia": "^2.0.0",
     "qiniu-js": "^4.0.0-beta.6",
     "qs": "^6.12.2",
+    "turndown": "^7.2.2",
+    "turndown-plugin-gfm": "^1.0.2",
     "vditor": "^3.11.2",
     "vue": "^2.7.16",
     "vue-router": "^3.6.5"

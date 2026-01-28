@@ -1,0 +1,73 @@
+/* 强制覆盖 Vditor 全屏模式的 z-index */
+.vditor-wrapper.vditor--fullscreen,
+body > .vditor-editor-isolate > .vditor-wrapper.vditor--fullscreen,
+.vditor-editor-isolate .vditor-wrapper.vditor--fullscreen {
+  z-index: 100 !important;
+}
+
+/* 确保全屏容器也是 100 */
+body > .vditor-editor-isolate {
+  z-index: 100 !important;
+}
+
+/* 暗色模式下的 Mermaid 图表样式 - 全局样式，优先级更高 */
+/* 排除 Vditor 的内部标记元素 */
+body.dark-mode
+  .vditor-reset
+  pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(
+    > code.language-mermaid
+  ),
+body.dark-mode
+  .vditor-reset
+  pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(
+    > div.language-mermaid
+  ),
+body.dark-mode pre.vditor-wysiwyg__preview:has(> code.language-mermaid),
+body.dark-mode pre.vditor-wysiwyg__preview:has(> div.language-mermaid),
+body.dark-mode pre.vditor-ir__preview:has(> code.language-mermaid),
+body.dark-mode pre.vditor-ir__preview:has(> div.language-mermaid) {
+  background: #2d2d2d !important;
+  border: 1px solid #3a3a3a !important;
+}
+
+body.dark-mode .vditor-reset .mermaid-container,
+body.dark-mode pre.vditor-wysiwyg__preview .mermaid-container,
+body.dark-mode pre.vditor-ir__preview .mermaid-container {
+  background: #2d2d2d !important;
+}
+
+body.dark-mode .vditor-reset pre > code.language-mermaid,
+body.dark-mode pre.vditor-wysiwyg__preview > code.language-mermaid,
+body.dark-mode pre.vditor-ir__preview > code.language-mermaid {
+  color: #e0e0e0 !important;
+}
+
+/* 全局暗色模式下的代码块语言标签 */
+body.dark-mode pre code[data-rel]:before {
+  color: #e0e0e0 !important;
+  background: #1d1f21 !important;
+}
+
+/* 全局数学公式样式 - 保持透明背景 */
+body .vditor-reset pre:has(.katex),
+body .vditor-reset pre:has(.katex-display),
+body .vditor-reset pre:has(.language-math),
+body pre.vditor-wysiwyg__preview:has(.katex),
+body pre.vditor-wysiwyg__preview:has(.language-math),
+body pre.vditor-ir__preview:has(.katex),
+body pre.vditor-ir__preview:has(.language-math) {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* 全局暗色模式下的数学公式 */
+body.dark-mode .vditor-reset pre:has(.katex),
+body.dark-mode .vditor-reset pre:has(.katex-display),
+body.dark-mode .vditor-reset pre:has(.language-math),
+body.dark-mode pre.vditor-wysiwyg__preview:has(.katex),
+body.dark-mode pre.vditor-wysiwyg__preview:has(.language-math),
+body.dark-mode pre.vditor-ir__preview:has(.katex),
+body.dark-mode pre.vditor-ir__preview:has(.language-math) {
+  background: transparent !important;
+  border: none !important;
+}

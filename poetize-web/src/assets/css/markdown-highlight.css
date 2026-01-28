@@ -57,14 +57,14 @@ html body .entry-content {
 .entry-content ul {
     list-style: disc;
     padding: 0 10px 0 35px;
-    color: var(--articleGreyFontColor);
+    color: var(--articleFontColor);
     border-radius: 10px;
 }
 
 .entry-content ol {
     list-style: decimal;
     padding: 0 10px 0 35px;
-    color: var(--articleGreyFontColor);
+    color: var(--articleFontColor);
     border-radius: 10px;
 }
 
@@ -483,4 +483,105 @@ td.hljs-ln-numbers {
 
 .table-wrapper > table tbody > tr:hover {
     background-color: rgba(0, 0, 0, 0.2);
+}
+
+.dark-mode .table-wrapper > table,
+body.dark-mode .table-wrapper > table {
+    color: var(--articleFontColor, #e0e0e0);
+}
+
+.dark-mode .table-wrapper > table th,
+body.dark-mode .table-wrapper > table th {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark-mode .table-wrapper > table tr:nth-child(2n),
+body.dark-mode .table-wrapper > table tr:nth-child(2n) {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.dark-mode .table-wrapper > table td,
+.dark-mode .table-wrapper > table th,
+body.dark-mode .table-wrapper > table td,
+body.dark-mode .table-wrapper > table th {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.dark-mode .table-wrapper > table tbody > tr:hover,
+body.dark-mode .table-wrapper > table tbody > tr:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.entry-content ul.task-list,
+.entry-content ol.task-list,
+.entry-content li.task-list-item {
+    list-style: none;
+}
+
+.entry-content li.task-list-item {
+    padding-left: 0;
+}
+
+.entry-content li.task-list-item input[type='checkbox'] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin: 0 8px 0 0;
+    vertical-align: middle;
+    border: 1px solid #dcdfe6;
+    border-radius: 2px;
+    background-color: #fff;
+    position: relative;
+    cursor: pointer;
+    outline: none;
+}
+
+.entry-content li.task-list-item input[type='checkbox']:checked {
+    background-color: #409eff;
+    border-color: #409eff;
+}
+
+.entry-content li.task-list-item input[type='checkbox']:checked::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.entry-content li.task-list-item input[type='checkbox'][disabled] {
+    opacity: 1;
+}
+
+
+.dark-mode .entry-content li.task-list-item input[type='checkbox'],
+body.dark-mode .entry-content li.task-list-item input[type='checkbox'] {
+    background-color: transparent;
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.dark-mode .entry-content li.task-list-item input[type='checkbox']:checked,
+body.dark-mode .entry-content li.task-list-item input[type='checkbox']:checked {
+    background-color: #409eff;
+    border-color: #409eff;
+}
+
+.entry-content .md-list-item.md-todo {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.entry-content .md-list-item.md-todo .md-marker {
+    opacity: 0.6;
+}
+
+.entry-content .md-list-item.md-todo.md-todo-checked {
+    text-decoration: line-through;
+    opacity: 0.85;
 }

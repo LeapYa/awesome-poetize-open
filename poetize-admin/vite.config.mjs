@@ -91,6 +91,10 @@ export default defineConfig({
                         if (id.includes('vditor')) {
                             return 'vditor';
                         }
+                        // HTML -> Markdown (按需加载)
+                        if (id.includes('turndown')) {
+                            return 'turndown';
+                        }
                         // Markdown 解析
                         if (id.includes('markdown-it') || id.includes('katex')) {
                             return 'markdown';

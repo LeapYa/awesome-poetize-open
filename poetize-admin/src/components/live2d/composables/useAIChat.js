@@ -70,7 +70,7 @@ export function useAIChat() {
       await store.init()
 
       // 懒加载 Markdown 渲染资源
-      const { loadMarkdownResources } = await import('@/components/live2d/utils/resourceLoader')
+      const { loadMarkdownResources } = await import('@/utils/resourceLoaders/resourceLoader')
       await loadMarkdownResources()
 
       return true

@@ -20,7 +20,7 @@
 
 <script>
 import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { loadMermaidResources, isMermaidLoaded } from '../utils/resourceLoader'
+import { loadMermaidResources, isMermaidLoaded } from '@/utils/resourceLoaders/resourceLoader'
 import { loadMarkdownIt, isMarkdownItLoaded } from '@/utils/markdownItLoader'
 
 export default {

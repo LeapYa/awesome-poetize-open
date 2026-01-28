@@ -12,6 +12,7 @@
         <el-select v-model="currentPluginType" placeholder="请选择插件类型" @change="handleTypeChange" class="handle-select mr10">
           <el-option label="鼠标点击效果" value="mouse_click_effect"></el-option>
           <el-option label="看板娘模型" value="waifu_model"></el-option>
+          <el-option label="文章编辑器" value="editor"></el-option>
         </el-select>
         <el-button type="primary" icon="el-icon-plus" @click="handleCreate">新增插件</el-button>
       </div>
@@ -57,6 +58,14 @@
               class="primary-text" 
               v-if="currentPluginType === 'waifu_model' && activePluginKey !== scope.row.pluginKey"
               @click="handleSetActive(scope.row)">使用此模型</el-button>
+            
+            <!-- 编辑器插件专用：使用此编辑器按钮 -->
+            <el-button 
+              type="text" 
+              icon="el-icon-edit-outline" 
+              class="primary-text" 
+              v-if="currentPluginType === 'editor' && activePluginKey !== scope.row.pluginKey && scope.row.enabled"
+              @click="handleSetActive(scope.row)">使用此编辑器</el-button>
             
             <el-button type="text" icon="el-icon-edit" @click="handleEdit(scope.row)">编辑</el-button>
             <el-button 
@@ -338,6 +347,18 @@ export default {
   components: {
     UploadPicture
   },
+  watch: {
+    '$route.query.type': {
+      handler(val) {
+        const t = String(val || '');
+        if (['mouse_click_effect', 'waifu_model', 'editor'].includes(t) && t !== this.currentPluginType) {
+          this.currentPluginType = t;
+          this.form.pluginType = t;
+          this.getData();
+        }
+      }
+    }
+  },
   data() {
     return {
       loading: false,
@@ -413,7 +434,8 @@ export default {
     currentPluginTypeLabel() {
       const labels = {
         'mouse_click_effect': '鼠标效果管理',
-        'waifu_model': '看板娘模型管理'
+        'waifu_model': '看板娘模型管理',
+        'editor': '文章编辑器管理'
       };
       return labels[this.currentPluginType] || '插件管理';
     },
@@ -423,6 +445,11 @@ export default {
     }
   },
   created() {
+    const t = String(this.$route?.query?.type || '');
+    if (['mouse_click_effect', 'waifu_model', 'editor'].includes(t)) {
+      this.currentPluginType = t;
+      this.form.pluginType = t;
+    }
     this.getData();
     this.loadSettings();
   },
@@ -506,6 +533,10 @@ export default {
     },
 
     handleTypeChange() {
+      if (this.$router && this.$route) {
+        const nextQuery = { ...this.$route.query, type: this.currentPluginType };
+        this.$router.replace({ name: 'pluginManager', query: nextQuery });
+      }
       this.getData();
     },
 

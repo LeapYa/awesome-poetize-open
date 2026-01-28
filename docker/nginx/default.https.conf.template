@@ -329,7 +329,7 @@ server {
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' *.jsdelivr.net cdn.jsdelivr.net *.cloudflare.com cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' *.jsdelivr.net *.cloudflare.com cdnjs.cloudflare.com fonts.googleapis.com; img-src 'self' data: blob: *; font-src 'self' data: *; connect-src 'self' *;" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' *.jsdelivr.net cdn.jsdelivr.net *.cloudflare.com cdnjs.cloudflare.com *.unpkg.com unpkg.com; style-src 'self' 'unsafe-inline' *.jsdelivr.net *.cloudflare.com cdnjs.cloudflare.com fonts.googleapis.com *.unpkg.com unpkg.com; img-src 'self' data: blob: *; font-src 'self' data: *; connect-src 'self' *;" always;
     
     # 防止点击劫持
     add_header X-Frame-Options "SAMEORIGIN";

@@ -57,14 +57,14 @@ html body .entry-content {
 .entry-content ul {
     list-style: disc;
     padding: 0 10px 0 35px;
-    color: var(--articleGreyFontColor);
+    color: var(--articleFontColor);
     border-radius: 10px;
 }
 
 .entry-content ol {
     list-style: decimal;
     padding: 0 10px 0 35px;
-    color: var(--articleGreyFontColor);
+    color: var(--articleFontColor);
     border-radius: 10px;
 }
 
@@ -201,21 +201,42 @@ html body .entry-content {
     line-height: 1.6;
     margin-bottom: 1.6em;
     width: 100%;
-    padding-top: 30px;
+    padding-top: 0;
     box-shadow: 0 10px 30px 0 rgba(0, 0, 0, 0.4);
 }
 
-.highlight-wrap:before {
-    content: "";
-    position: absolute;
-    border-radius: 50%;
-    background: #fc625d;
+/* 旧版伪元素工具栏（保留但禁用，避免与新版 toolbar 重叠） */
+.highlight-wrap:before { content: none; }
+
+/* 新版代码块工具栏：三点 + 语言 + 复制，同一水平线 */
+.highlight-wrap .highlight-toolbar {
+    height: 30px;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    background: #21252b;
+    border-radius: 5px 5px 0 0;
+}
+
+.highlight-wrap .highlight-toolbar .hl-dots {
     width: 12px;
     height: 12px;
-    left: 12px;
-    margin-top: -18px;
+    border-radius: 50%;
+    background: #fc625d;
     box-shadow: 20px 0 #fdbc40, 40px 0 #35cd4b;
-    z-index: 2;
+    flex: 0 0 auto;
+}
+
+.highlight-wrap .highlight-toolbar .hl-lang {
+    flex: 1 1 auto;
+    text-align: center;
+    color: #fff;
+    font-size: 14px;
+    font-family: Ubuntu, "Microsoft YaHei", "Arial";
+    font-weight: 700;
+    line-height: 30px;
+    pointer-events: none;
+    padding: 0 12px;
 }
 
 .highlight-wrap .copy-code {
@@ -225,6 +246,16 @@ html body .entry-content {
     top: 5px;
     font-size: 16px;
     z-index: 2;
+}
+
+.highlight-wrap .highlight-toolbar .copy-code {
+    position: static;
+    z-index: 2;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    height: 30px;
+    line-height: 30px;
 }
 
 .highlight-wrap .copy-code:hover {
@@ -241,23 +272,13 @@ html body .entry-content {
     border-radius: 0 0 5px 5px;
 }
 
-.highlight-wrap code[data-rel]:before {
-    color: #fff;
-    content: attr(data-rel);
-    height: 30px;
-    line-height: 23px;
-    background: #21252b;
-    font-size: 16px;
-    position: absolute;
-    left: 0;
-    margin-top: -30px;
-    width: 100%;
-    font-family: Ubuntu;
-    font-weight: 700;
-    text-align: center;
-    pointer-events: none;
-    z-index: 1;
+/* pre 默认会有上下外边距；代码块只保留下外边距 */
+.highlight-wrap pre {
+    margin: 0 0 15px 0;
 }
+
+/* 旧版语言标签伪元素（保留但禁用，语言由 .hl-lang 输出） */
+.highlight-wrap code[data-rel]:before { content: none; }
 
 .hljs {
     color: #a9b7c6;
@@ -483,4 +504,116 @@ td.hljs-ln-numbers {
 
 .table-wrapper > table tbody > tr:hover {
     background-color: rgba(0, 0, 0, 0.2);
+}
+
+.dark-mode .table-wrapper > table,
+body.dark-mode .table-wrapper > table {
+    color: var(--articleFontColor, #e0e0e0);
+}
+
+.dark-mode .table-wrapper > table th,
+body.dark-mode .table-wrapper > table th {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark-mode .table-wrapper > table tr:nth-child(2n),
+body.dark-mode .table-wrapper > table tr:nth-child(2n) {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+.dark-mode .table-wrapper > table td,
+.dark-mode .table-wrapper > table th,
+body.dark-mode .table-wrapper > table td,
+body.dark-mode .table-wrapper > table th {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.dark-mode .table-wrapper > table tbody > tr:hover,
+body.dark-mode .table-wrapper > table tbody > tr:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.entry-content ul.task-list,
+.entry-content ol.task-list,
+.entry-content li.task-list-item {
+    list-style: none;
+}
+
+.entry-content li.task-list-item {
+    padding-left: 0;
+}
+
+.entry-content li.task-list-item input[type='checkbox'],
+.entry-content .md-list-item.md-todo input[type='checkbox'] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin: 0 8px 0 0;
+    vertical-align: middle;
+    border: 1px solid #dcdfe6;
+    border-radius: 2px;
+    background-color: #fff;
+    position: relative;
+    cursor: pointer;
+    outline: none;
+}
+
+.entry-content li.task-list-item input[type='checkbox']:checked,
+.entry-content .md-list-item.md-todo input[type='checkbox']:checked {
+    background-color: #409eff;
+    border-color: #409eff;
+}
+
+.entry-content li.task-list-item input[type='checkbox']:checked::after,
+.entry-content .md-list-item.md-todo input[type='checkbox']:checked::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+/* Split Preview Editor 预览区禁止复选框交互 */
+.preview-pane .entry-content input[type='checkbox'] {
+    pointer-events: none;
+}
+
+.entry-content li.task-list-item input[type='checkbox'][disabled] {
+    opacity: 1;
+}
+
+.dark-mode .entry-content li.task-list-item input[type='checkbox'],
+body.dark-mode .entry-content li.task-list-item input[type='checkbox'],
+.dark-mode .entry-content .md-list-item.md-todo input[type='checkbox'],
+body.dark-mode .entry-content .md-list-item.md-todo input[type='checkbox'] {
+    background-color: transparent;
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.dark-mode .entry-content li.task-list-item input[type='checkbox']:checked,
+body.dark-mode .entry-content li.task-list-item input[type='checkbox']:checked,
+.dark-mode .entry-content .md-list-item.md-todo input[type='checkbox']:checked,
+body.dark-mode .entry-content .md-list-item.md-todo input[type='checkbox']:checked {
+    background-color: #409eff;
+    border-color: #409eff;
+}
+
+.entry-content .md-list-item.md-todo {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.entry-content .md-list-item.md-todo .md-marker {
+    opacity: 0.6;
+}
+
+.entry-content .md-list-item.md-todo.md-todo-checked {
+    text-decoration: line-through;
+    opacity: 0.85;
 }

@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-01-17
+## 修改时间: 2026-01-28
 ## 描述: 部署 POETIZE 博客系统安装脚本
-## 版本: 1.15.0
+## 版本: 1.15.1
 
 # 定义颜色
 RED='\033[0;31m'
@@ -5054,7 +5054,9 @@ start_services() {
   info "启动Docker服务..."
   
   # 检测并修复网络冲突
-  check_and_fix_network_conflict
+  if ! check_and_fix_network_conflict; then
+    return 1
+  fi
   
   # 使用定义的docker-compose命令
   if [ -z "$DOCKER_COMPOSE_CMD" ]; then
@@ -5100,6 +5102,7 @@ start_services() {
       sleep $retry_delay
     fi
     
+    START_RESULT=0
     if [ -z "$SKIP_BUILD" ] && [ "$DISABLE_DOCKER_CACHE" = true ]; then
       # 如果需要构建且禁用缓存
       # 串行构建前端项目以减少内存峰值（两个前端同时构建会占用约4GB内存）
@@ -5108,31 +5111,35 @@ start_services() {
       info "[1/2] 构建博客前端 (poetize-web)..."
       DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
       run_docker_compose build --no-cache poetize-web
-      if [ $? -ne 0 ]; then
+      local build_web_status=$?
+      if [ $build_web_status -ne 0 ]; then
         error "poetize-web 构建失败"
-        return 1
+        START_RESULT=$build_web_status
+      else
+        success "poetize-web 构建完成"
+        
+        info "[2/2] 构建后台管理前端 (poetize-admin)..."
+        DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
+        run_docker_compose build --no-cache poetize-admin
+        local build_admin_status=$?
+        if [ $build_admin_status -ne 0 ]; then
+          error "poetize-admin 构建失败"
+          START_RESULT=$build_admin_status
+        else
+          success "poetize-admin 构建完成"
+          
+          info "启动所有服务中..."
+          DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
+          run_docker_compose up -d --build
+          START_RESULT=$?
+        fi
       fi
-      success "poetize-web 构建完成"
-      
-      info "[2/2] 构建后台管理前端 (poetize-admin)..."
-      DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
-      run_docker_compose build --no-cache poetize-admin
-      if [ $? -ne 0 ]; then
-        error "poetize-admin 构建失败"
-        return 1
-      fi
-      success "poetize-admin 构建完成"
-      
-      info "启动所有服务中..."
-      DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
-      run_docker_compose up -d --build
     else
       # 使用离线镜像或正常构建
       info "启动所有服务中..."
       run_docker_compose up -d $SKIP_BUILD
+      START_RESULT=$?
     fi
-    
-    START_RESULT=$?
     
     if [ $START_RESULT -eq 0 ]; then
       start_success=true
@@ -9073,7 +9080,9 @@ main() {
   init_deploy
   
   # 构建和启动Docker服务
-  start_services
+  if ! start_services; then
+    exit 1
+  fi
   
   # 智能等待服务启动
   wait_for_services_ready

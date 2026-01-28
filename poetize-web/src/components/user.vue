@@ -1715,9 +1715,14 @@ export default {
 .user-content :deep(.el-input__wrapper),
 .user-content :deep(.el-textarea__inner){
   border: none;
-  background: #2d2d2d !important;
+  background: var(--whiteMask) !important;
   color: var(--fontColor);
   box-shadow: none !important;
+}
+
+body.dark-mode .user-content :deep(.el-input__wrapper),
+body.dark-mode .user-content :deep(.el-textarea__inner){
+  background: #2d2d2d !important;
 }
 
 .user-content :deep(.el-input__inner) {

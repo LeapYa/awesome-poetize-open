@@ -396,9 +396,10 @@
     padding: 0px;
     position: relative; /* Ensure pseudo-element positioning context */
   }
-
+ 
+  /* 群设置tab */
   .group-card .el-tabs__item {
-    color: var(--white) !important;
+    color: var(--fontColor) !important;
   }
   
   /* 隐藏原生的 active-bar */

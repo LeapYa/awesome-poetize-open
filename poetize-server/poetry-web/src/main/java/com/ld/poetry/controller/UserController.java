@@ -1,6 +1,9 @@
 package com.ld.poetry.controller;
 
 import com.ld.poetry.aop.LoginCheck;
+import com.ld.poetry.aop.RateLimit;
+import com.ld.poetry.aop.RateLimit.KeyType;
+import com.ld.poetry.aop.RateLimits;
 import com.ld.poetry.aop.SaveCheck;
 import com.ld.poetry.constants.CommonConst;
 import com.ld.poetry.entity.User;
@@ -52,8 +55,16 @@ public class UserController {
 
     /**
      * 用户名/密码注册
+     * 
+     * 限流规则：
+     * - 指纹维度：5次/5分钟（防自动化注册）
+     * - IP维度：50次/分钟（宽松兜底，防DDoS）
      */
     @PostMapping("/regist")
+    @RateLimits({
+        @RateLimit(name = "regist:fp", count = 5, time = 300, keyType = KeyType.FINGERPRINT, message = "注册操作过于频繁，请5分钟后再试"),
+        @RateLimit(name = "regist:ip", count = 50, time = 60, keyType = KeyType.IP, message = "当前网络注册请求过多，请稍后再试")
+    })
     public PoetryResult<UserVO> regist(@Validated @RequestBody UserVO user) {
         // 检查是否需要验证码（使用register配置项）
         boolean captchaRequired = captchaService.isCaptchaRequired("register");
@@ -80,8 +91,16 @@ public class UserController {
 
     /**
      * 用户名、邮箱、手机号/密码登录
+     * 
+     * 限流规则：
+     * - 指纹维度：20次/5分钟（防暴力破解）
+     * - IP维度：100次/分钟（宽松兜底，防DDoS）
      */
     @PostMapping("/login")
+    @RateLimits({
+        @RateLimit(name = "login:fp", count = 20, time = 300, keyType = KeyType.FINGERPRINT, message = "登录尝试过于频繁，请5分钟后再试"),
+        @RateLimit(name = "login:ip", count = 100, time = 60, keyType = KeyType.IP, message = "当前网络登录请求过多，请稍后再试")
+    })
     public PoetryResult<EncryptedResponseVO> login(@RequestParam(value = "account", required = false) String account,
                                       @RequestParam(value = "password", required = false) String password,
                                       @RequestParam(value = "isAdmin", defaultValue = "false") Boolean isAdmin,
@@ -167,8 +186,12 @@ public class UserController {
 
     /**
      * Token登录
+     * 
+     * 限流规则：
+     * - IP维度：50次/分钟（Token验证通常自动化，阈值适中）
      */
     @PostMapping("/token")
+    @RateLimit(name = "token:ip", count = 50, time = 60, keyType = KeyType.IP, message = "Token验证请求过于频繁，请稍后再试")
     public PoetryResult<UserVO> login(@RequestParam("userToken") String userToken) {
         return userService.token(userToken);
     }
@@ -254,14 +277,18 @@ public class UserController {
     }
 
     /**
-     * 获取验证码
+     * 获取验证码（已登录用户）
      * <p>
      * 1 手机号
      * 2 邮箱
+     * 
+     * 限流规则（分层递进，正常用户只触发第一层）：
+     * - 用户维度：1次/60秒（核心规则，同一用户60秒只能发一次）
      */
     @GetMapping("/getCode")
     @LoginCheck
     @SaveCheck
+    @RateLimit(name = "getCode:user", count = 1, time = 60, keyType = KeyType.USER, message = "验证码发送过于频繁，请60秒后再试")
     public PoetryResult getCode(@RequestParam("flag") Integer flag) {
         return userService.getCode(flag);
     }
@@ -271,10 +298,18 @@ public class UserController {
      * <p>
      * 1 手机号
      * 2 邮箱
+     * 
+     * 限流规则（分层递进）：
+     * - 目标维度：1次/60秒（核心规则，同一邮箱/手机60秒只能发一次）
+     * - 指纹维度：10次/小时（防止换目标批量攻击）
      */
     @GetMapping("/getCodeForBind")
     @LoginCheck
     @SaveCheck
+    @RateLimits({
+        @RateLimit(name = "sendCode:target", count = 1, time = 60, keyType = KeyType.CUSTOM, key = "#place", message = "该邮箱/手机号验证码发送过于频繁，请60秒后再试"),
+        @RateLimit(name = "sendCode:fp", count = 10, time = 3600, keyType = KeyType.FINGERPRINT, message = "验证码发送次数过多，请1小时后再试")
+    })
     public PoetryResult getCodeForBind(@RequestParam("place") String place, @RequestParam("flag") Integer flag) {
         return userService.getCodeForBind(place, flag);
     }
@@ -297,9 +332,17 @@ public class UserController {
      * <p>
      * 1 手机号
      * 2 邮箱
+     * 
+     * 限流规则（分层递进）：
+     * - 目标维度：1次/60秒（核心规则，同一邮箱/手机60秒只能发一次）
+     * - 指纹维度：10次/小时（防止换目标批量攻击）
      */
     @GetMapping("/getCodeForForgetPassword")
     @SaveCheck
+    @RateLimits({
+        @RateLimit(name = "sendCode:target", count = 1, time = 60, keyType = KeyType.CUSTOM, key = "#place", message = "该邮箱/手机号验证码发送过于频繁，请60秒后再试"),
+        @RateLimit(name = "sendCode:fp", count = 10, time = 3600, keyType = KeyType.FINGERPRINT, message = "验证码发送次数过多，请1小时后再试")
+    })
     public PoetryResult getCodeForForgetPassword(@RequestParam("place") String place, @RequestParam("flag") Integer flag) {
         return userService.getCodeForForgetPassword(place, flag);
     }
@@ -309,8 +352,16 @@ public class UserController {
      * <p>
      * 1 手机号
      * 2 邮箱
+     * 
+     * 限流规则：
+     * - 指纹维度：5次/5分钟（防暴力尝试）
+     * - IP维度：20次/5分钟（适中阈值）
      */
     @PostMapping("/updateForForgetPassword")
+    @RateLimits({
+        @RateLimit(name = "resetPassword:fp", count = 5, time = 300, keyType = KeyType.FINGERPRINT, message = "密码重置尝试过于频繁，请5分钟后再试"),
+        @RateLimit(name = "resetPassword:ip", count = 20, time = 300, keyType = KeyType.IP, message = "当前网络密码重置请求过多，请稍后再试")
+    })
     public PoetryResult updateForForgetPassword(@RequestParam("place") String place, @RequestParam("flag") Integer flag, @RequestParam("code") String code, @RequestParam("password") String password) {
         return userService.updateForForgetPassword(place, flag, code, password);
     }
@@ -362,8 +413,16 @@ public class UserController {
 
     /**
      * 第三方登录
+     * 
+     * 限流规则：
+     * - 指纹维度：20次/5分钟（防自动化攻击）
+     * - IP维度：100次/分钟（宽松兜底）
      */
     @PostMapping("/thirdLogin")
+    @RateLimits({
+        @RateLimit(name = "thirdLogin:fp", count = 20, time = 300, keyType = KeyType.FINGERPRINT, message = "登录尝试过于频繁，请5分钟后再试"),
+        @RateLimit(name = "thirdLogin:ip", count = 100, time = 60, keyType = KeyType.IP, message = "当前网络登录请求过多，请稍后再试")
+    })
     public PoetryResult<UserVO> thirdLogin(@RequestBody UserVO thirdUserInfo) {
         // 检查是否需要验证码
         boolean captchaRequired = captchaService.isCaptchaRequired("login");

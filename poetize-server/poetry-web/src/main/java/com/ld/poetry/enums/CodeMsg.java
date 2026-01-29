@@ -9,6 +9,7 @@ public enum CodeMsg {
     CAPTCHA_REQUIRED(460, "需要完成验证码验证"),
     CAPTCHA_INVALID(461, "验证码验证失败"),
     CAPTCHA_BLOCKED(462, "验证码验证过于频繁，已被限制"),
+    RATE_LIMITED(429, "操作过于频繁，请稍后再试"),
     FAIL(500, "服务异常！");
 
 

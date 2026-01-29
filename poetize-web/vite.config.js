@@ -142,6 +142,10 @@ export default defineConfig({
             if (id.includes('katex')) {
               return 'katex';
             }
+            // 代码高亮库 - 按需加载的语言包打包到一起
+            if (id.includes('highlight.js') || id.includes('highlightjs-line-numbers')) {
+              return 'highlight';
+            }
             // Mermaid 及其依赖 - 不指定 chunk，让 Vite 自动处理动态导入
             // 这些库只通过动态 import() 加载，不需要预先打包
             if (id.includes('mermaid') || id.includes('cytoscape') || id.includes('elkjs')) {

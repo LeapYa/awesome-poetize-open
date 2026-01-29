@@ -5,6 +5,7 @@ import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.enums.CodeMsg;
 import com.ld.poetry.utils.PoetryUtil;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -12,6 +13,8 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -28,6 +31,37 @@ import java.util.stream.Collectors;
 @ControllerAdvice
 @Slf4j
 public class PoetryExceptionHandler {
+
+    /**
+     * 处理限流异常
+     * 
+     * <p>返回429状态码，并设置Retry-After响应头</p>
+     */
+    @ExceptionHandler(RateLimitException.class)
+    @ResponseBody
+    public PoetryResult handleRateLimitException(RateLimitException ex) {
+        HttpServletRequest request = PoetryUtil.getRequest();
+        String requestUrl = request != null ? request.getRequestURL().toString() : "unknown";
+        String clientIp = PoetryUtil.getCurrentClientIp();
+        
+        log.warn("[限流] IP: {}, URL: {}, 限流器: {}, Key: {}, 重试间隔: {}s", 
+            clientIp, requestUrl, ex.getLimitName(), ex.getLimitKey(), ex.getRetryAfterSeconds());
+        
+        // 设置Retry-After响应头
+        try {
+            ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attributes != null) {
+                HttpServletResponse response = attributes.getResponse();
+                if (response != null) {
+                    response.setHeader("Retry-After", String.valueOf(ex.getRetryAfterSeconds()));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("设置Retry-After响应头失败", e);
+        }
+        
+        return PoetryResult.fail(CodeMsg.RATE_LIMITED.getCode(), ex.getMessage());
+    }
 
     /**
      * 专门处理内容协商异常

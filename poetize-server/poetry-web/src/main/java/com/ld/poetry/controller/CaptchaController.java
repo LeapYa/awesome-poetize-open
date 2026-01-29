@@ -1,6 +1,9 @@
 package com.ld.poetry.controller;
 
 import com.ld.poetry.aop.LoginCheck;
+import com.ld.poetry.aop.RateLimit;
+import com.ld.poetry.aop.RateLimit.KeyType;
+import com.ld.poetry.aop.RateLimits;
 import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.service.CaptchaService;
 import com.ld.poetry.utils.CryptoUtil;
@@ -50,8 +53,16 @@ public class CaptchaController {
     /**
      * 验证复选框验证码
      * POST /captcha/verify-checkbox
+     * 
+     * 限流规则：
+     * - 指纹维度：15次/5分钟（与现有服务层限流保持一致）
+     * - IP维度：100次/分钟（宽松兜底）
      */
     @PostMapping("/verify-checkbox")
+    @RateLimits({
+        @RateLimit(name = "captcha:checkbox:fp", count = 15, time = 300, keyType = KeyType.FINGERPRINT, message = "验证码验证过于频繁，请稍后再试"),
+        @RateLimit(name = "captcha:checkbox:ip", count = 100, time = 60, keyType = KeyType.IP, message = "当前网络验证码请求过多，请稍后再试")
+    })
     public PoetryResult<Map<String, Object>> verifyCheckboxCaptcha(
             @RequestBody Map<String, Object> data,
             HttpServletRequest request) {
@@ -146,8 +157,16 @@ public class CaptchaController {
     /**
      * 验证滑动验证码
      * POST /captcha/verify-slide
+     * 
+     * 限流规则：
+     * - 指纹维度：15次/5分钟（与现有服务层限流保持一致）
+     * - IP维度：100次/分钟（宽松兜底）
      */
     @PostMapping("/verify-slide")
+    @RateLimits({
+        @RateLimit(name = "captcha:slide:fp", count = 15, time = 300, keyType = KeyType.FINGERPRINT, message = "验证码验证过于频繁，请稍后再试"),
+        @RateLimit(name = "captcha:slide:ip", count = 100, time = 60, keyType = KeyType.IP, message = "当前网络验证码请求过多，请稍后再试")
+    })
     public PoetryResult<Map<String, Object>> verifySlideCaptcha(
             @RequestBody Map<String, Object> data,
             HttpServletRequest request) {

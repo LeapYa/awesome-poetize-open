@@ -155,26 +155,11 @@ export async function loadLive2DResources(live2dPath) {
  * 注意：markdown-it 现在通过 npm 包动态导入，不再使用外部 JS 文件
  */
 export async function loadMarkdownResources() {
-  const resources = []
-
-  // KaTeX
-  if (!isKatexLoaded()) {
-    resources.push(
-      { url: '/libs/css/katex.min.css', type: 'css' },
-      { url: '/libs/js/katex.min.js', type: 'js' }
-    )
+  // KaTeX 使用动态导入
+  if (!isKatexLoadedGlobal()) {
+    await loadKatexResources()
   }
-
-  if (resources.length === 0) {
-    return true
-  }
-
-  try {
-    await loadResources(resources)
-    return true
-  } catch (error) {
-    return false
-  }
+  return true
 }
 
 /**
@@ -258,7 +243,8 @@ export function isHighlightJsLoaded() {
 }
 
 /**
- * 加载代码高亮资源
+ * 加载代码高亮资源（按需导入优化）
+ * 使用 npm 包动态导入，只加载需要的语言包，实现 Tree Shaking
  */
 export async function loadHighlightResources() {
   if (isHighlightJsLoaded()) {
@@ -266,23 +252,117 @@ export async function loadHighlightResources() {
   }
 
   try {
-    const resources = [
-      { url: '/libs/css/highlight.min.css', type: 'css' },
-      { url: '/libs/js/highlight.min.js', type: 'js' },
-    ]
+    // 动态导入 highlight.js 核心
+    const hljs = await import('highlight.js/lib/core')
 
-    await loadResources(resources)
+    // 按需导入常用语言包（并行加载提高速度）
+    const [
+      javascript,
+      typescript,
+      css,
+      xml, // HTML 使用 xml 语言包
+      python,
+      java,
+      sql,
+      bash,
+      json,
+      markdown,
+      yaml,
+      go,
+      rust,
+      cpp,
+      csharp,
+      php,
+      ruby,
+      swift,
+      kotlin,
+      shell,
+      dockerfile,
+      nginx,
+      properties,
+      ini,
+    ] = await Promise.all([
+      import('highlight.js/lib/languages/javascript'),
+      import('highlight.js/lib/languages/typescript'),
+      import('highlight.js/lib/languages/css'),
+      import('highlight.js/lib/languages/xml'),
+      import('highlight.js/lib/languages/python'),
+      import('highlight.js/lib/languages/java'),
+      import('highlight.js/lib/languages/sql'),
+      import('highlight.js/lib/languages/bash'),
+      import('highlight.js/lib/languages/json'),
+      import('highlight.js/lib/languages/markdown'),
+      import('highlight.js/lib/languages/yaml'),
+      import('highlight.js/lib/languages/go'),
+      import('highlight.js/lib/languages/rust'),
+      import('highlight.js/lib/languages/cpp'),
+      import('highlight.js/lib/languages/csharp'),
+      import('highlight.js/lib/languages/php'),
+      import('highlight.js/lib/languages/ruby'),
+      import('highlight.js/lib/languages/swift'),
+      import('highlight.js/lib/languages/kotlin'),
+      import('highlight.js/lib/languages/shell'),
+      import('highlight.js/lib/languages/dockerfile'),
+      import('highlight.js/lib/languages/nginx'),
+      import('highlight.js/lib/languages/properties'),
+      import('highlight.js/lib/languages/ini'),
+    ])
 
-    // 加载行号插件
-    if (typeof window.hljs !== 'undefined') {
-      await loadExternalResource(
-        '/libs/js/highlightjs-line-numbers.min.js',
-        'js'
-      )
-    }
+    const hljsCore = hljs.default
+
+    // 注册语言包
+    hljsCore.registerLanguage('javascript', javascript.default)
+    hljsCore.registerLanguage('js', javascript.default) // 别名
+    hljsCore.registerLanguage('typescript', typescript.default)
+    hljsCore.registerLanguage('ts', typescript.default) // 别名
+    hljsCore.registerLanguage('css', css.default)
+    hljsCore.registerLanguage('xml', xml.default)
+    hljsCore.registerLanguage('html', xml.default) // HTML 使用 xml
+    hljsCore.registerLanguage('python', python.default)
+    hljsCore.registerLanguage('py', python.default) // 别名
+    hljsCore.registerLanguage('java', java.default)
+    hljsCore.registerLanguage('sql', sql.default)
+    hljsCore.registerLanguage('bash', bash.default)
+    hljsCore.registerLanguage('sh', bash.default) // 别名
+    hljsCore.registerLanguage('json', json.default)
+    hljsCore.registerLanguage('markdown', markdown.default)
+    hljsCore.registerLanguage('md', markdown.default) // 别名
+    hljsCore.registerLanguage('yaml', yaml.default)
+    hljsCore.registerLanguage('yml', yaml.default) // 别名
+    hljsCore.registerLanguage('go', go.default)
+    hljsCore.registerLanguage('golang', go.default) // 别名
+    hljsCore.registerLanguage('rust', rust.default)
+    hljsCore.registerLanguage('rs', rust.default) // 别名
+    hljsCore.registerLanguage('cpp', cpp.default)
+    hljsCore.registerLanguage('c++', cpp.default) // 别名
+    hljsCore.registerLanguage('c', cpp.default) // C 使用 cpp
+    hljsCore.registerLanguage('csharp', csharp.default)
+    hljsCore.registerLanguage('cs', csharp.default) // 别名
+    hljsCore.registerLanguage('php', php.default)
+    hljsCore.registerLanguage('ruby', ruby.default)
+    hljsCore.registerLanguage('rb', ruby.default) // 别名
+    hljsCore.registerLanguage('swift', swift.default)
+    hljsCore.registerLanguage('kotlin', kotlin.default)
+    hljsCore.registerLanguage('kt', kotlin.default) // 别名
+    hljsCore.registerLanguage('shell', shell.default)
+    hljsCore.registerLanguage('dockerfile', dockerfile.default)
+    hljsCore.registerLanguage('docker', dockerfile.default) // 别名
+    hljsCore.registerLanguage('nginx', nginx.default)
+    hljsCore.registerLanguage('properties', properties.default)
+    hljsCore.registerLanguage('ini', ini.default)
+
+    // 挂载到 window 对象
+    window.hljs = hljsCore
+
+    // 动态导入行号插件
+    await import('highlightjs-line-numbers.js')
+
+    // 动态加载 highlight.js 样式
+    await loadExternalResource('/libs/css/highlight.min.css', 'css')
 
     return true
   } catch (error) {
+    console.error('highlight.js 模块化加载失败:', error)
     return false
   }
 }
@@ -296,6 +376,7 @@ export function isClipboardLoaded() {
 
 /**
  * 加载Clipboard.js（代码复制功能）
+ * 使用 npm 包动态导入，支持 Tree Shaking
  */
 export async function loadClipboardResources() {
   if (isClipboardLoaded()) {
@@ -303,9 +384,11 @@ export async function loadClipboardResources() {
   }
 
   try {
-    await loadExternalResource('/libs/js/clipboard.min.js', 'js')
+    const ClipboardJS = await import('clipboard')
+    window.ClipboardJS = ClipboardJS.default || ClipboardJS
     return true
   } catch (error) {
+    console.error('Clipboard.js 加载失败:', error)
     return false
   }
 }
@@ -319,6 +402,7 @@ export function isKatexLoadedGlobal() {
 
 /**
  * 加载KaTeX数学公式库
+ * 使用 npm 包动态导入，支持 Tree Shaking
  */
 export async function loadKatexResources() {
   if (isKatexLoadedGlobal()) {
@@ -326,37 +410,16 @@ export async function loadKatexResources() {
   }
 
   try {
-    const resources = [
-      { url: '/libs/css/katex.min.css', type: 'css' },
-      { url: '/libs/js/katex.min.js', type: 'js' },
-    ]
+    // 动态导入 KaTeX
+    const katex = await import('katex')
+    window.katex = katex.default || katex
 
-    await loadResources(resources)
+    // 动态加载 KaTeX CSS（仍使用外部文件，因为 Vite 对 CSS 动态导入支持有限）
+    await loadExternalResource('/libs/css/katex.min.css', 'css')
+
     return true
   } catch (error) {
-    return false
-  }
-}
-
-/**
- * 检查Qiniu SDK是否已加载
- */
-export function isQiniuLoaded() {
-  return typeof window.qiniu !== 'undefined'
-}
-
-/**
- * 加载七牛云SDK（仅在上传时需要）
- */
-export async function loadQiniuResources() {
-  if (isQiniuLoaded()) {
-    return true
-  }
-
-  try {
-    await loadExternalResource('/libs/js/qiniu.min.js', 'js')
-    return true
-  } catch (error) {
+    console.error('KaTeX 加载失败:', error)
     return false
   }
 }

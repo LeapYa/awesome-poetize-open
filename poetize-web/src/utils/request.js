@@ -2,9 +2,39 @@ import axios from 'axios'
 import constant from './constant'
 //处理url参数
 import cryptoUtil from './crypto'
+import { getBrowserFingerprint } from './fingerprintUtil'
 
 import router from '../router'
 import { handleTokenExpire } from './tokenExpireHandler'
+
+// 缓存浏览器指纹，避免每次请求都重新计算
+let cachedFingerprint = null
+let fingerprintPromise = null
+
+/**
+ * 获取缓存的浏览器指纹
+ * 使用Promise缓存确保并发请求不会重复计算指纹
+ */
+async function getCachedFingerprint() {
+  if (cachedFingerprint) {
+    return cachedFingerprint
+  }
+
+  if (!fingerprintPromise) {
+    fingerprintPromise = getBrowserFingerprint()
+      .then((fp) => {
+        cachedFingerprint = fp
+        return fp
+      })
+      .catch((err) => {
+        console.warn('获取浏览器指纹失败:', err)
+        fingerprintPromise = null // 重置，允许重试
+        return null
+      })
+  }
+
+  return fingerprintPromise
+}
 
 // 缓存翻译配置，避免重复请求
 let cachedTranslationConfig = null
@@ -130,6 +160,22 @@ axios.interceptors.request.use(
     // 统一处理超时配置
     config = configureTimeout(config)
 
+    // 确保headers对象存在
+    if (!config.headers) {
+      config.headers = {}
+    }
+
+    // 添加浏览器指纹到请求头（用于限流）
+    try {
+      const fingerprint = await getCachedFingerprint()
+      if (fingerprint) {
+        config.headers['X-Fingerprint'] = fingerprint
+      }
+    } catch (err) {
+      // 指纹获取失败不阻塞请求
+      console.debug('添加指纹到请求头失败:', err)
+    }
+
     // 如果是验证码相关的请求，不需要token
     if (config.url && config.url.includes('/captcha/')) {
       // 特殊处理：getBlockedIps 接口需要管理员token，不能跳过
@@ -217,6 +263,26 @@ axios.interceptors.response.use(
       response.data.hasOwnProperty('code') &&
       response.data.code !== 200
     ) {
+      // 处理限流响应 (429)
+      if (response.data.code === 429) {
+        const retryAfter = response.headers['retry-after'] || 60
+        const error = new Error(
+          response.data.message || '操作过于频繁，请稍后再试'
+        )
+        error.code = 429
+        error.retryAfter = parseInt(retryAfter, 10)
+        error.isRateLimited = true
+
+        // 显示限流提示（使用全局消息提示，如果可用）
+        if (typeof window !== 'undefined' && window.$message) {
+          window.$message.warning(`${error.message}（${retryAfter}秒后可重试）`)
+        } else if (typeof window !== 'undefined' && window.ElMessage) {
+          window.ElMessage.warning(`${error.message}（${retryAfter}秒后可重试）`)
+        }
+
+        return Promise.reject(error)
+      }
+
       if (response.data.code === 300 || response.data.code === 401) {
         // token失效，使用统一的token过期处理逻辑
         const isAdminRequest = response.config.isAdmin || false
@@ -310,6 +376,26 @@ axios.interceptors.response.use(
   function (error) {
     // 处理网络错误
     if (error.response) {
+      // 处理HTTP状态码429（限流）
+      if (error.response.status === 429) {
+        const retryAfter = error.response.headers['retry-after'] || 60
+        const message =
+          error.response.data?.message || '操作过于频繁，请稍后再试'
+
+        error.isRateLimited = true
+        error.retryAfter = parseInt(retryAfter, 10)
+        error.message = message
+
+        // 显示限流提示
+        if (typeof window !== 'undefined' && window.$message) {
+          window.$message.warning(`${message}（${retryAfter}秒后可重试）`)
+        } else if (typeof window !== 'undefined' && window.ElMessage) {
+          window.ElMessage.warning(`${message}（${retryAfter}秒后可重试）`)
+        }
+
+        return Promise.reject(error)
+      }
+
       // 服务器返回错误状态码
       if (error.response.status === 401 || error.response.status === 403) {
         // token相关错误，使用统一的token过期处理逻辑
@@ -338,8 +424,6 @@ export default {
       isAdmin: isAdmin,
       headers: {},
     }
-
-    // 注意：token处理已移至请求拦截器中统一处理，此处不再重复处理
 
     // 显式设置Content-Type，确保JSON请求正确识别
     if (json) {

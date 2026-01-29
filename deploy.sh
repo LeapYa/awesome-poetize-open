@@ -1703,6 +1703,50 @@ disable_certbot_service() {
   success "已禁用certbot容器"
 }
 
+# 配置IP直接访问拦截
+# 当用户使用域名部署时，禁止通过IP直接访问网站（提高安全性）
+# 当用户使用IP地址部署时，允许IP访问（本地开发或无域名场景）
+configure_ip_access_block() {
+  info "配置IP访问策略..."
+  
+  # 判断主域名是否为IP地址格式
+  local is_ip_deployment=false
+  
+  # 检查是否为 localhost
+  if [ "$PRIMARY_DOMAIN" = "localhost" ]; then
+    is_ip_deployment=true
+  # 检查是否为 127.0.0.1
+  elif [ "$PRIMARY_DOMAIN" = "127.0.0.1" ]; then
+    is_ip_deployment=true
+  # 检查是否为有效的IPv4地址格式
+  elif is_valid_ipv4 "$PRIMARY_DOMAIN"; then
+    is_ip_deployment=true
+  # 检查是否为有效的IPv6地址格式  
+  elif is_valid_ipv6 "$PRIMARY_DOMAIN"; then
+    is_ip_deployment=true
+  fi
+  
+  if [ "$is_ip_deployment" = true ]; then
+    # IP地址部署模式：删除IP访问拦截配置，允许IP直接访问
+    info "检测到IP地址部署模式 ($PRIMARY_DOMAIN)，允许IP直接访问"
+    
+    # 删除 BLOCK_IP_ACCESS_START 和 BLOCK_IP_ACCESS_END 之间的所有内容
+    # 注意：只处理 HTTP 配置，HTTPS 配置仅在域名部署时使用，不需要处理
+    sed_i '/# BLOCK_IP_ACCESS_START/,/# BLOCK_IP_ACCESS_END/d' docker/nginx/default.http.conf
+    sed_i '/# BLOCK_IP_ACCESS_START/,/# BLOCK_IP_ACCESS_END/d' docker/nginx/default.conf
+    
+    # 同时删除开头的注释说明（如果还存在的话）
+    sed_i '/# ===== 禁止IP直接访问配置（仅域名模式启用）=====/d' docker/nginx/default.http.conf
+    sed_i '/# ===== 禁止IP直接访问配置（仅域名模式启用）=====/d' docker/nginx/default.conf
+    
+    success "已配置为允许IP直接访问"
+  else
+    # 域名部署模式：保留IP访问拦截配置
+    info "检测到域名部署模式 ($PRIMARY_DOMAIN)，将禁止IP直接访问"
+    success "已配置为禁止IP直接访问（仅允许通过域名访问）"
+  fi
+}
+
 # 配置自定义HTTP端口
 configure_http_port() {
   # 如果没有指定HTTP_PORT，跳过配置
@@ -4724,6 +4768,10 @@ init_deploy() {
     sed_i "s/valid_referers none blocked server_names ~\.example\.com$ example.com;/valid_referers none blocked server_names $DOMAIN_CONFIG;/g" docker/nginx/default.conf
     sed_i "s/valid_referers none blocked server_names ~\.example\.com$ example.com;/valid_referers none blocked server_names $DOMAIN_CONFIG;/g" docker/nginx/default.http.conf
     sed_i "s/valid_referers none blocked server_names ~\.example\.com$ example.com;/valid_referers none blocked server_names $DOMAIN_CONFIG;/g" docker/nginx/default.https.conf
+    
+    # 根据域名类型决定是否启用"禁止IP直接访问"功能
+    # 如果用户输入的是IP地址，则删除IP拦截配置；如果是域名，则保留
+    configure_ip_access_block
   else
     error "主域名为空，无法更新Nginx配置"
     exit 1

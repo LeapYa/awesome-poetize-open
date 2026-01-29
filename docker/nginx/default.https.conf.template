@@ -1,3 +1,27 @@
+# ===== 禁止IP直接访问配置 =====
+# 当请求的Host头不匹配任何配置的server_name时（如直接用IP访问），返回444关闭连接
+# 注意：HTTPS配置仅在域名部署时使用，IP拦截块固定存在
+server {
+    listen 80 default_server;
+    server_name _;
+    
+    # 返回444，直接关闭连接不响应任何内容
+    # 这可以防止IP直接访问，提高安全性
+    return 444;
+}
+
+server {
+    listen 443 ssl default_server;
+    server_name _;
+    
+    # 使用自签名证书（在Docker构建时生成）
+    ssl_certificate /etc/nginx/ssl/default.crt;
+    ssl_certificate_key /etc/nginx/ssl/default.key;
+    
+    # 返回444，直接关闭连接
+    return 444;
+}
+
 # 定义上游服务块，解决容器启动时序问题
 upstream poetize-java {
     server poetize-java:8081 max_fails=3 fail_timeout=30s;

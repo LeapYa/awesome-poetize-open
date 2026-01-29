@@ -174,6 +174,14 @@ COPY default.https.conf /usr/local/openresty/nginx/conf/conf.d/default.https.con
 RUN cp /usr/local/openresty/nginx/conf/conf.d/default.http.conf.template \
        /usr/local/openresty/nginx/conf/conf.d/default.conf
 
+# 生成默认自签名证书（用于拒绝IP直接访问HTTPS的default_server块）
+RUN mkdir -p /etc/nginx/ssl && \
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        -keyout /etc/nginx/ssl/default.key \
+        -out /etc/nginx/ssl/default.crt \
+        -subj "/CN=_" && \
+    chmod 644 /etc/nginx/ssl/default.crt /etc/nginx/ssl/default.key
+
 # 设置nginx相关目录的权限
 RUN chown -R nginx:nginx /usr/local/openresty/nginx/ && \
     chmod -R 755 /usr/local/openresty/nginx/conf/ && \
@@ -198,7 +206,10 @@ RUN chown -R nginx:nginx /usr/local/openresty/nginx/ && \
     # 创建并设置lua脚本目录权限（nginx需要读取lua脚本文件）
     mkdir -p /etc/nginx/lua && \
     chown nginx:nginx /etc/nginx/lua && \
-    chmod 755 /etc/nginx/lua
+    chmod 755 /etc/nginx/lua && \
+    # 设置默认SSL证书目录权限
+    chown -R nginx:nginx /etc/nginx/ssl && \
+    chmod 755 /etc/nginx/ssl
 
 # 暴露端口
 EXPOSE 80 443/tcp 443/udp

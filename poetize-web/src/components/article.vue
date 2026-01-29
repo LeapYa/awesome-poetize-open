@@ -560,6 +560,7 @@ import {
   loadKatexResources,
   isKatexLoadedGlobal,
 } from '@/utils/resourceLoaders/resourceLoader'
+import { parseEChartsOption } from '@/utils/echartsOptionParser'
 
 const CommentLoading = {
   name: 'CommentLoading',
@@ -2478,9 +2479,28 @@ export default {
           }
 
           try {
-            // 解析 JSON 配置
             const code = codeBlock.textContent
-            const config = JSON.parse(code)
+            let config
+            try {
+              config = await parseEChartsOption(code)
+            } catch (parseError) {
+              pre.classList.remove('chart-loading')
+              pre.classList.add('echarts-rendered')
+              pre.setAttribute(
+                'data-echarts-error',
+                String(parseError?.message || parseError)
+              )
+              if (!pre.hasAttribute('data-echarts-error-rendered')) {
+                const errorEl = document.createElement('div')
+                errorEl.className = 'echarts-error-message'
+                errorEl.textContent = `ECharts 配置解析失败：${String(
+                  parseError?.message || parseError
+                )}\n请使用纯 JSON/JSON5（支持注释、单引号、尾逗号、未加引号的 key），暂不支持 function/=>`
+                pre.parentNode.insertBefore(errorEl, pre)
+                pre.setAttribute('data-echarts-error-rendered', 'true')
+              }
+              continue
+            }
 
             // 检查父节点是否存在
             if (!pre.parentNode) {
@@ -2545,9 +2565,8 @@ export default {
 
             // 保存 resize 处理器，便于清理
             container._resizeHandler = resizeHandler
-          } catch (parseError) {
-            console.error('ECharts 配置解析失败:', parseError)
-            // 解析失败时不做任何操作
+          } catch (renderError) {
+            console.error('ECharts渲染失败:', renderError)
           }
         }
       } catch (error) {
@@ -4876,6 +4895,21 @@ body.dark-mode :deep(pre.chart-loading::before){
   100% {
     transform: translateX(-50%) rotate(360deg);
   }
+}
+:deep(.echarts-error-message){
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(245, 108, 108, 0.08);
+  border: 1px solid rgba(245, 108, 108, 0.25);
+  color: var(--el-color-danger, #f56c6c);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+body.dark-mode :deep(.echarts-error-message){
+  background: rgba(245, 108, 108, 0.12);
+  border-color: rgba(245, 108, 108, 0.35);
 }
 :deep(.echarts-container){
   position: relative;

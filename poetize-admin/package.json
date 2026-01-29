@@ -27,6 +27,7 @@
     "element-ui-ce": "^2.15.14",
     "github-markdown-css": "^5.8.1",
     "highlight.js": "^11.11.1",
+    "json5": "^2.2.3",
     "markdown-it": "^14.0.0",
     "markdown-it-multimd-table": "^4.2.3",
     "markdown-it-task-lists": "^2.1.1",

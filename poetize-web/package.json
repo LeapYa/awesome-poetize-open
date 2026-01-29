@@ -27,6 +27,7 @@
     "element-plus": "^2.8.0",
     "highlight.js": "^11.11.1",
     "highlightjs-line-numbers.js": "^2.9.0",
+    "json5": "^2.2.3",
     "markdown-it": "^14.0.0",
     "markdown-it-multimd-table": "^4.2.3",
     "markdown-it-task-lists": "^2.1.1",

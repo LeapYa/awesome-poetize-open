@@ -7,6 +7,7 @@
 <script>
 import Vditor from 'vditor'
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils'
+import { parseEChartsOption } from '@/utils/echartsOptionParser'
 // 导入公共编辑器标题样式
 import '@/assets/css/editor-heading-styles.css'
 // Vditor CSS 动态加载，只在需要时引入
@@ -53,7 +54,8 @@ export default {
       editor: null,
       isComposing: false,
       isDarkMode: false,
-      isInternalUpdate: false // 标记是否为内部更新，避免循环
+      isInternalUpdate: false, // 标记是否为内部更新，避免循环
+      helpDialogVisible: false
     }
   },
   watch: {
@@ -193,7 +195,6 @@ export default {
             'preview',
             'devtools',
             'info',
-            'help',
           ],
         }
       ]
@@ -401,7 +402,7 @@ export default {
       window.addEventListener('storage', this._storageListener)
     },
     // 渲染 ECharts 图表（预览区域）
-    renderEChartsInPreview() {
+    async renderEChartsInPreview() {
       // 防止重复执行
       if (this._isRenderingECharts) {
         return;
@@ -432,59 +433,60 @@ export default {
       this._isRenderingECharts = true;
       
       try {
-        echartsBlocks.forEach((codeBlock, index) => {
-          try {
-            const pre = codeBlock.parentElement
-            
-            // 跳过已经渲染过的
-            if (pre.classList.contains('echarts-rendered') || pre.hasAttribute('data-echarts-rendered')) {
-              return
-            }
-            
-            // 标记为已渲染（在替换前标记）
-            pre.classList.add('echarts-rendered')
-            pre.setAttribute('data-echarts-rendered', 'true')
-            
-            // 解析 JSON 配置
-            const code = codeBlock.textContent
-            const config = JSON.parse(code)
-            
-            // 创建容器
-            const container = document.createElement('div')
-            container.className = 'echarts-container vditor-echarts'
-            container.style.width = '100%'
-            container.style.height = config.height || '400px'
-            container.style.marginBottom = '20px'
-            
-            // 保存原始配置
-            container.setAttribute('data-echarts-config', code)
-            
-            // 替换代码块
-            pre.parentNode.replaceChild(container, pre)
-            
-            // 初始化图表
-            const chart = echarts.init(container, this.isDarkMode ? 'dark' : 'light')
-            
-            // 设置配置
-            const finalConfig = {
-              animation: true,
-              animationDuration: 1000,
-              animationEasing: 'cubicOut',
-              animationDelay: 0,
-              backgroundColor: 'transparent',
-              ...config
-            }
-            
-            chart.setOption(finalConfig)
-            
-            // 保存实例
-            this._echartsInstances.push(chart)
-            container._echartsInstance = chart
-            
-          } catch (error) {
-            console.error('Vditor 预览中 ECharts 渲染失败:', error)
+        for (let index = 0; index < echartsBlocks.length; index++) {
+          const codeBlock = echartsBlocks[index]
+          const pre = codeBlock.parentElement
+
+          if (!pre || !pre.parentNode) continue
+
+          if (
+            pre.classList.contains('echarts-rendered') ||
+            pre.hasAttribute('data-echarts-rendered')
+          ) {
+            continue
           }
-        })
+
+          const code = codeBlock.textContent
+          let config
+          try {
+            config = await parseEChartsOption(code)
+          } catch (parseError) {
+            const errorEl = document.createElement('div')
+            errorEl.className = 'echarts-error-message vditor-echarts-error'
+            errorEl.textContent = `ECharts 配置解析失败：${String(
+              parseError?.message || parseError
+            )}\n请使用纯 JSON/JSON5（支持注释、单引号、尾逗号、未加引号的 key），暂不支持 function/=>`
+            pre.classList.add('echarts-rendered')
+            pre.setAttribute('data-echarts-rendered', 'error')
+            pre.parentNode.replaceChild(errorEl, pre)
+            continue
+          }
+
+          pre.classList.add('echarts-rendered')
+          pre.setAttribute('data-echarts-rendered', 'true')
+
+          const container = document.createElement('div')
+          container.className = 'echarts-container vditor-echarts'
+          container.style.width = '100%'
+          container.style.height = config.height || '400px'
+          container.style.marginBottom = '20px'
+          container.setAttribute('data-echarts-config', code)
+          pre.parentNode.replaceChild(container, pre)
+
+          const chart = echarts.init(container, this.isDarkMode ? 'dark' : 'light')
+          const finalConfig = {
+            animation: true,
+            animationDuration: 1000,
+            animationEasing: 'cubicOut',
+            animationDelay: 0,
+            backgroundColor: 'transparent',
+            ...config
+          }
+          chart.setOption(finalConfig)
+
+          this._echartsInstances.push(chart)
+          container._echartsInstance = chart
+        }
       } finally {
         this._isRenderingECharts = false;
       }
@@ -639,6 +641,18 @@ body > .vditor-editor-isolate {
 
 ::v-deep .vditor-toolbar__item:hover {
   background-color: #e8e8e8;
+}
+
+::v-deep .echarts-error-message {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(245, 108, 108, 0.08);
+  border: 1px solid rgba(245, 108, 108, 0.25);
+  color: #f56c6c;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 /* ========== 预览区域样式 - 使用项目自定义样式 ========== */

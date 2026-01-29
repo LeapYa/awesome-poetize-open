@@ -79,6 +79,11 @@
       <div class="toolbar-spacer"></div>
       
       <div class="toolbar-group">
+        <el-tooltip content="使用说明" placement="top" :enterable="false">
+          <div class="toolbar-item" @click="helpDialogVisible = true">
+            <i class="el-icon-question"></i>
+          </div>
+        </el-tooltip>
         <el-tooltip :content="showPreview ? '隐藏预览' : '显示预览'" placement="top" :enterable="false">
           <div class="toolbar-item" :class="{ 'active': showPreview }" @click="togglePreview">
             <i class="el-icon-view"></i>
@@ -133,6 +138,47 @@
       accept="image/*" 
       @change="handleFileChange"
     >
+
+    <!-- 帮助对话框 -->
+    <el-dialog
+      title="编辑器使用说明"
+      :visible.sync="helpDialogVisible"
+      width="500px"
+      append-to-body
+      custom-class="centered-dialog editor-help-dialog"
+    >
+      <div class="help-content">
+        <h3>⌨️ 常用快捷键</h3>
+        <ul class="help-list">
+          <li><strong>加粗</strong>：<code>Ctrl + B</code></li>
+          <li><strong>斜体</strong>：<code>Ctrl + I</code></li>
+          <li><strong>删除线</strong>：<code>Ctrl + D</code></li>
+          <li><strong>行内代码</strong>：<code>Ctrl + E</code></li>
+          <li><strong>引用</strong>：<code>Ctrl + Q</code></li>
+          <li><strong>有序列表</strong>：<code>Ctrl + O</code></li>
+          <li><strong>无序列表</strong>：<code>Ctrl + U</code></li>
+          <li><strong>插入链接</strong>：<code>Ctrl + L</code></li>
+          <li><strong>插入代码块</strong>：<code>Ctrl + K</code></li>
+          <li><strong>插入图片</strong>：<code>Ctrl + G</code></li>
+          <li><strong>保存</strong>：<code>Ctrl + S</code></li>
+          <li><strong>撤销 / 重做</strong>：<code>Ctrl + Z</code> / <code>Ctrl + Y</code></li>
+          <li><strong>全屏</strong>：<code>F11</code> / <code>Esc</code></li>
+        </ul>
+        <h3>📝 其他功能</h3>
+        <ul class="help-list">
+          <li><strong>Markdown 兼容</strong>：支持直接粘贴 Markdown 文本。</li>
+          <li><strong>图片上传</strong>：支持截图直接粘贴。</li>
+        </ul>
+        <h3>📊 图表支持</h3>
+        <ul class="help-list">
+          <li><strong>Mermaid 图表</strong>：使用 <code>```mermaid</code> 代码块渲染流程图、时序图等。</li>
+          <li><strong>ECharts 图表</strong>：使用 <code>```echarts</code> 代码块渲染 ECharts 图表。</li>
+        </ul>
+      </div>
+      <span slot="footer">
+        <el-button type="primary" @click="helpDialogVisible = false">知道了</el-button>
+      </span>
+    </el-dialog>
   </div>
 </template>
 
@@ -140,6 +186,7 @@
 import { renderMarkdown } from '@/utils/markdownLazyRenderer';
 import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
+import { parseEChartsOption } from '@/utils/echartsOptionParser';
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
 import { htmlToMarkdown, isRichHtml } from '@/utils/htmlToMarkdown';
 // 导入公共编辑器标题样式
@@ -341,13 +388,14 @@ export default {
         if (hasECharts && window.echarts) {
           try {
             const echartsDivs = previewEl.querySelectorAll('.echarts-render');
-            echartsDivs.forEach(el => {
+            for (let i = 0; i < echartsDivs.length; i++) {
+              const el = echartsDivs[i]
               // 避免重复初始化
-              if (el.getAttribute('data-processed')) return;
+              if (el.getAttribute('data-processed')) continue;
               
               const jsonContent = el.textContent || el.innerText;
               try {
-                const option = JSON.parse(jsonContent);
+                const option = await parseEChartsOption(jsonContent);
                 const chart = window.echarts.init(el);
                 chart.setOption(option);
                 el.setAttribute('data-processed', 'true');
@@ -361,7 +409,7 @@ export default {
                 console.error('ECharts JSON parse error:', jsonError);
                 el.innerHTML = `<div style="color:red;padding:10px;">ECharts 配置解析失败: ${jsonError.message}</div>`;
               }
-            });
+            }
           } catch (e) {
             console.error('ECharts render error:', e);
           }
@@ -1190,5 +1238,66 @@ function computeLineStartOffset(lines, lineIndex) {
 .editor-textarea::-webkit-scrollbar-track,
 .preview-pane::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* 帮助内容样式 */
+.help-content {
+  padding: 0 10px;
+}
+
+.help-content h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 15px 0 10px;
+  color: #303133;
+}
+
+.help-content h3:first-child {
+  margin-top: 0;
+}
+
+.help-content p {
+  font-size: 14px;
+  color: #606266;
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.help-list {
+  padding-left: 20px;
+  margin: 0;
+}
+
+.help-list li {
+  font-size: 14px;
+  color: #606266;
+  line-height: 2;
+  list-style-type: disc;
+}
+
+.help-list code {
+  background-color: #f2f6fc;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: Consolas, Monaco, monospace;
+  color: #409eff;
+  margin: 0 4px;
+}
+</style>
+
+<style>
+/* 帮助弹窗内容样式（适配 Dark Mode） */
+body.dark-mode .editor-help-dialog .help-content h3 {
+  color: #d4d4d4;
+}
+
+body.dark-mode .editor-help-dialog .help-content p,
+body.dark-mode .editor-help-dialog .help-content li {
+  color: #a9b7c6;
+}
+
+body.dark-mode .editor-help-dialog .help-list code {
+  background-color: #3e4145;
+  color: #67c23a;
 }
 </style>

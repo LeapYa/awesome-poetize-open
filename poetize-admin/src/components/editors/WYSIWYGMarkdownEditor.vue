@@ -250,6 +250,12 @@
           <li>删除当前行/列或整个表格</li>
         </ul>
 
+        <h3>📊 图表支持</h3>
+        <ul class="help-list">
+          <li><strong>Mermaid 图表</strong>：使用 <code>```mermaid</code> 代码块渲染流程图、时序图等。</li>
+          <li><strong>ECharts 图表</strong>：使用 <code>```echarts</code> 代码块渲染 ECharts 图表。</li>
+        </ul>
+
         <h3>📝 其他功能</h3>
         <ul class="help-list">
           <li><strong>代码块</strong>：点击左上角语言名称可修改语言类型。</li>
@@ -303,6 +309,7 @@ import { htmlToMarkdown, isRichHtml } from '@/utils/htmlToMarkdown';
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
 import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
+import { parseEChartsOption } from '@/utils/echartsOptionParser';
 // 导入公共样式（与文章页、IR模式保持一致）
 import '@/assets/css/markdown-highlight.css';
 import '@/assets/css/editor-heading-styles.css';
@@ -545,7 +552,8 @@ export default {
       const blocks = rootEl.querySelectorAll('div.echarts-render');
       if (!blocks.length) return;
 
-      blocks.forEach(el => {
+      for (let i = 0; i < blocks.length; i++) {
+        const el = blocks[i]
         const encoded = el.getAttribute('data-source');
         let jsonContent = '';
         if (encoded) {
@@ -560,14 +568,14 @@ export default {
         }
 
         jsonContent = String(jsonContent).trim();
-        if (!jsonContent) return;
+        if (!jsonContent) continue;
 
         const newEncoded = encodeURIComponent(jsonContent);
         el.setAttribute('data-source', newEncoded);
         el.setAttribute('contenteditable', 'false');
 
         if (el.getAttribute('data-rendered') === newEncoded && window.echarts.getInstanceByDom(el)) {
-          return;
+          continue;
         }
 
         const existing = window.echarts.getInstanceByDom(el);
@@ -579,7 +587,7 @@ export default {
 
         el.innerHTML = '';
         try {
-          const option = JSON.parse(jsonContent);
+          const option = await parseEChartsOption(jsonContent);
           const chart = window.echarts.init(el);
           chart.setOption(option, true);
           el.setAttribute('data-rendered', newEncoded);
@@ -587,7 +595,7 @@ export default {
           el.innerHTML = `<div style="color:red;padding:10px;">ECharts 配置解析失败: ${e.message}</div>`;
           el.removeAttribute('data-rendered');
         }
-      });
+      }
     },
 
     getNodePath(root, node) {

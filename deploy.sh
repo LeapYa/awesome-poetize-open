@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-01-28
+## 修改时间: 2026-01-31
 ## 描述: 部署 POETIZE 博客系统安装脚本
-## 版本: 1.15.1
+## 版本: 1.15.2
 
 # 定义颜色
 RED='\033[0;31m'
@@ -5155,31 +5155,59 @@ start_services() {
       # 如果需要构建且禁用缓存
       # 串行构建前端项目以减少内存峰值（两个前端同时构建会占用约4GB内存）
       info "串行构建前端项目以节省内存..."
-      
-      info "[1/2] 构建博客前端 (poetize-web)..."
-      DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
-      run_docker_compose build --no-cache poetize-web
-      local build_web_status=$?
-      if [ $build_web_status -ne 0 ]; then
-        error "poetize-web 构建失败"
-        START_RESULT=$build_web_status
-      else
-        success "poetize-web 构建完成"
-        
-        info "[2/2] 构建后台管理前端 (poetize-admin)..."
+      if [ -f "lib/config.sh" ]; then
+        info "[1/2] 构建博客前端 (poetize-web)..."
         DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
-        run_docker_compose build --no-cache poetize-admin
-        local build_admin_status=$?
-        if [ $build_admin_status -ne 0 ]; then
-          error "poetize-admin 构建失败"
-          START_RESULT=$build_admin_status
+        run_docker_compose build --no-cache poetize-web
+        local build_web_status=$?
+        if [ $build_web_status -ne 0 ]; then
+          error "poetize-web 构建失败"
+          START_RESULT=$build_web_status
         else
-          success "poetize-admin 构建完成"
+          success "poetize-web 构建完成"
           
-          info "启动所有服务中..."
+          info "[2/2] 构建后台管理前端 (poetize-admin)..."
           DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
-          run_docker_compose up -d --build
-          START_RESULT=$?
+          run_docker_compose build --no-cache poetize-admin
+          local build_admin_status=$?
+          if [ $build_admin_status -ne 0 ]; then
+            error "poetize-admin 构建失败"
+            START_RESULT=$build_admin_status
+          else
+            success "poetize-admin 构建完成"
+            
+            info "启动所有服务中..."
+            DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
+            run_docker_compose up -d --build
+            START_RESULT=$?
+          fi
+        fi
+      else
+        info "[1/2] 构建博客前台+后台管理(poetize-ui)..."
+        DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
+        run_docker_compose build --no-cache poetize-ui
+        local build_ui_status=$?
+        if [ $build_ui_status -ne 0 ]; then
+          error "poetize-ui 构建失败"
+          START_RESULT=$build_ui_status
+        else
+          success "poetize-ui 构建完成"
+          
+          info "[2/2] 构建博客聊天室(poetize-im-ui)..."
+          DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
+          run_docker_compose build --no-cache poetize-im-ui
+          local build_im_status=$?
+          if [ $build_im_status -ne 0 ]; then
+            error "poetize-im-ui 构建失败"
+            START_RESULT=$build_im_status
+          else
+            success "poetize-im-ui 构建完成"
+            
+            info "启动所有服务中..."
+            DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 BUILDKIT_PROGRESS=auto \
+            run_docker_compose up -d --build
+            START_RESULT=$?
+          fi
         fi
       fi
     else

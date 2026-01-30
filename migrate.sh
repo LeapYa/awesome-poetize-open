@@ -570,7 +570,7 @@ extract_domains_from_nginx() {
             # 如果数据文件不存在，重新提取域名
             local nginx_config_file="docker/nginx/default.https.conf"
             if [ -f "$nginx_config_file" ]; then
-                local domains=$(grep "server_name" "$nginx_config_file" | sed 's/server_name \(.*\);/\1/' | tr -d ' ' | tr ';' '\n' | grep -v "example.com" | grep -v "^$" | sort -u)
+                local domains=$(grep "^[[:space:]]*server_name" "$nginx_config_file" | sed 's/^[[:space:]]*server_name[[:space:]]\+//' | sed 's/;.*//' | tr ' ' '\n' | grep -vE "^_$" | grep -v "example.com" | grep -v "^$" | sort -u)
                 if [ -n "$domains" ]; then
                     NGINX_DOMAINS="$domains"
                     save_nginx_domains
@@ -591,7 +591,7 @@ extract_domains_from_nginx() {
     fi
     
     # 提取server_name行中的域名，排除example.com
-    local domains=$(grep "server_name" "$nginx_config_file" | sed 's/server_name \(.*\);/\1/' | tr ';' '\n' | grep -v "example.com" | grep -v "^$" | sort -u)
+    local domains=$(grep "^[[:space:]]*server_name" "$nginx_config_file" | sed 's/^[[:space:]]*server_name[[:space:]]\+//' | sed 's/;.*//' | tr ' ' '\n' | grep -vE "^_$" | grep -v "example.com" | grep -v "^$" | sort -u)
     
     if [ -n "$domains" ]; then
         NGINX_DOMAINS="$domains"

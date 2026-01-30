@@ -760,10 +760,14 @@ get_project_info() {
             echo -e "   服务端口: ${BLUE}$(sudo docker port "poetize-nginx${num}" 2>/dev/null  | grep "0.0.0.0" | grep "tcp" | awk -F '[:/]' '{print $1}' | tr '\n' ', ' | sed 's/,\s*$//')${NC}"
             
             project_nginx_domains=$(grep '^[[:space:]]*server_name' "$project_nginx_conf" \
-            | sed -E 's/.*server_name[[:space:]]+([^;]+);/\1/' \
+            | sed 's/^[[:space:]]*server_name[[:space:]]\+//' \
+            | sed 's/;.*//' \
+            | tr ' ' '\n' \
+            | grep -vE "^_$" \
+            | grep -v "example.com" \
             | sort -u \
             | xargs \
-            | tr ' ' ', ')
+            | tr ' ' ',')
 
             echo -e "   访问域名: ${BLUE}$project_nginx_domains${NC}"
             
@@ -1103,7 +1107,7 @@ extract_domains_from_nginx_config() {
     if [ -f "$nginx_config_file" ]; then
         info "从nginx配置文件中提取域名..." >&2
         # 提取server_name行中的域名，排除example.com
-        domains=$(grep "server_name" "$nginx_config_file" | sed 's/server_name \(.*\);/\1/' | tr ';' '\n' | grep -v "example.com" | grep -v "^$" | sort -u | sed 's/^[[:space:]]*//')
+        domains=$(grep "^[[:space:]]*server_name" "$nginx_config_file" | sed 's/^[[:space:]]*server_name[[:space:]]\+//' | sed 's/;.*//' | tr ' ' '\n' | grep -vE "^_$" | grep -v "example.com" | grep -v "^$" | sort -u)
         
         if [ -n "$domains" ]; then
             info "提取到域名: $domains" >&2

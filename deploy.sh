@@ -1780,12 +1780,9 @@ configure_http_port() {
       success "已将HTTP端口映射修改为 $HTTP_PORT:80"
     fi
     
-    # 注释掉所有443端口配置
-    info "注释掉443端口配置..."
-    sed_i 's/^\([ ]*\)- "443:443\/tcp"/\1# - "443:443\/tcp"  # 已禁用HTTPS端口/g' docker-compose.yml
-    sed_i 's/^\([ ]*\)- "443:443\/udp"/\1# - "443:443\/udp"  # 已禁用HTTPS端口/g' docker-compose.yml
-    sed_i 's/^\([ ]*\)- "443:443"/\1# - "443:443"  # 已禁用HTTPS端口/g' docker-compose.yml
-    success "已注释掉所有443端口配置"
+    # 443端口处理已移至 handle_https_port_mapping 函数统一处理
+    # 此处无需再手动注释
+
   fi
   
   # 禁用certbot容器
@@ -5097,9 +5094,39 @@ check_and_fix_network_conflict() {
   return 0
 }
 
+# 处理HTTPS端口映射
+handle_https_port_mapping() {
+  local compose_file="docker-compose.yml"
+  if [ ! -f "$compose_file" ]; then
+    return
+  fi
+
+  if [ "$ENABLE_HTTPS" = "false" ]; then
+    info "检测到 HTTPS 已禁用，正在从 docker-compose.yml 中禁用 443 端口映射..."
+    # 注释掉 443 端口映射 (TCP 和 UDP)
+    sed_i 's/^\(\s*\)- "\${HTTPS_PORT:-443}:443\/tcp"/\1# - "\${HTTPS_PORT:-443}:443\/tcp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)- "\${HTTPS_PORT:-443}:443\/udp"/\1# - "\${HTTPS_PORT:-443}:443\/udp"/g' "$compose_file"
+    # 兼容直接写死端口的情况
+    sed_i 's/^\(\s*\)- "443:443\/tcp"/\1# - "443:443\/tcp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)- "443:443\/udp"/\1# - "443:443\/udp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)- "443:443"/\1# - "443:443"/g' "$compose_file"
+  else
+    # 确保 443 端口映射未被注释
+    sed_i 's/^\(\s*\)# - "\${HTTPS_PORT:-443}:443\/tcp"/\1- "\${HTTPS_PORT:-443}:443\/tcp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)# - "\${HTTPS_PORT:-443}:443\/udp"/\1- "\${HTTPS_PORT:-443}:443\/udp"/g' "$compose_file"
+    # 兼容直接写死端口的情况（恢复）
+    sed_i 's/^\(\s*\)# - "443:443\/tcp"/\1- "443:443\/tcp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)# - "443:443\/udp"/\1- "443:443\/udp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)# - "443:443"/\1- "443:443"/g' "$compose_file"
+  fi
+}
+
 # 构建和启动Docker服务
 start_services() {
   info "启动Docker服务..."
+  
+  # 根据HTTPS配置处理端口映射
+  handle_https_port_mapping
   
   # 检测并修复网络冲突
   if ! check_and_fix_network_conflict; then

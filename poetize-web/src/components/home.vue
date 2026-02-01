@@ -811,6 +811,15 @@ export default {
     },
 
     async goIm() {
+      // 检查IM是否启用
+      if (this.mainStore.sysConfig && this.mainStore.sysConfig['im.enable'] === 'false') {
+        this.$message({
+          message: '聊天室功能暂时关闭',
+          type: 'warning',
+        })
+        return
+      }
+
       if (this.$common.isEmpty(this.mainStore.currentUser)) {
         this.$message({
           message: '请先登录！',

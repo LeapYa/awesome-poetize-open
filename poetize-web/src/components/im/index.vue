@@ -664,6 +664,19 @@
       const $constant = globalProperties.$constant;
       const mainStore = useMainStore();
       const imStore = useImStore();
+      const router = useRouter();
+
+      // 检查聊天室功能是否开启
+      watchEffect(() => {
+        if (mainStore.sysConfig && mainStore.sysConfig['im.enable'] === 'false') {
+          ElMessage({
+            message: '聊天室功能已关闭',
+            type: 'warning'
+          });
+          router.push('/');
+        }
+      });
+
       // 创建兼容层，让模板中的 $store.state 可以继续工作
       const store = {
         state: {

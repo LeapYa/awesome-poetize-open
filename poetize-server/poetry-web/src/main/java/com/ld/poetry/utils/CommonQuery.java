@@ -7,23 +7,18 @@ import com.ld.poetry.dao.*;
 import com.ld.poetry.entity.*;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.UserService;
+import com.ld.poetry.service.provider.Ip2RegionProvider;
 import com.ld.poetry.vo.FamilyVO;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.io.IOUtils;
-import org.lionsoul.ip2region.xdb.Searcher;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
-
-import jakarta.annotation.PostConstruct;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
-
 
 @Slf4j
 @Component
@@ -58,15 +53,8 @@ public class CommonQuery {
     @Autowired
     private LockManager lockManager;
 
-    private Searcher searcher;
-
-    @PostConstruct
-    public void init() {
-        try {
-            searcher = Searcher.newWithBuffer(IOUtils.toByteArray(new ClassPathResource("ip2region.xdb").getInputStream()));
-        } catch (Exception e) {
-        }
-    }
+    @Autowired
+    private Ip2RegionProvider ip2RegionProvider;
 
     public void saveHistory(String ip) {
         try {
@@ -74,46 +62,38 @@ public class CommonQuery {
             if (ip == null || ip.isEmpty() || "unknown".equals(ip) || isInvalidIP(ip)) {
                 return;
             }
-            
-            
+
             Integer userId = PoetryUtil.getUserId();
             String ipUser = ip + (userId != null ? "_" + userId.toString() : "");
-    
+
             // 记录每次访问 - 使用 LockManager 替代 String.intern()，避免内存泄漏
             lockManager.executeWithLock("saveHistory:" + ipUser, () -> {
                 // log.info("[saveHistory] 记录访问到Redis: {}", ipUser);
-                
+
                 // 解析IP地理位置信息
                 String nation = null, province = null, city = null;
-                if (searcher != null) {
+                if (ip2RegionProvider != null && ip2RegionProvider.isAvailable()) {
                     try {
-                        String search = searcher.search(ip);
-                        String[] region = search.split("\\|");
-                        if (!"0".equals(region[0])) {
-                            nation = region[0];
-                        }
-                        if (region.length > 2 && !"0".equals(region[2])) {
-                            province = region[2];
-                        }
-                        if (region.length > 3 && !"0".equals(region[3])) {
-                            city = region[3];
+                        String location = ip2RegionProvider.resolveLocation(ip);
+                        // 简化处理：location 已经是格式化后的位置
+                        if (!"未知".equals(location)) {
+                            province = location;
                         }
                     } catch (Exception e) {
                         log.warn("[saveHistory] IP地理位置解析失败: {}, 错误: {}", ip, e.getMessage());
                     }
-                } else {
                 }
-                
+
                 // 记录访问信息到Redis（不立即写数据库）
                 cacheService.recordVisitToRedis(ip, userId, nation, province, city);
-                
+
                 // log.info("[saveHistory] 访问记录已保存到Redis缓存，等待定时同步到数据库: {}", ipUser);
             });
         } catch (Exception e) {
             log.error("[saveHistory] 保存访问记录时发生异常: {}", e.getMessage(), e);
         }
     }
-    
+
     /**
      * 判断是否为无效IP地址
      * 在开发环境下放宽IP过滤条件，允许内网IP访问统计
@@ -122,41 +102,42 @@ public class CommonQuery {
         if (ip == null || ip.isEmpty()) {
             return true;
         }
-        
+
         ip = ip.trim();
-        
+
         // IPv4本地回环地址
         if (ip.equals("127.0.0.1") || ip.equals("localhost")) {
             return true;
         }
-        
+
         // IPv6本地回环地址
-        if (ip.equals("::1") || ip.equals("0:0:0:0:0:0:0:1") || 
-            ip.equalsIgnoreCase("localhost")) {
+        if (ip.equals("::1") || ip.equals("0:0:0:0:0:0:0:1") ||
+                ip.equalsIgnoreCase("localhost")) {
             return true;
         }
-        
+
         // 其他明确无效的IP
-        if (ip.equals("unknown") || ip.equals("0.0.0.0") || ip.equals("null") || 
-            ip.equals("-") || ip.equals("undefined")) {
+        if (ip.equals("unknown") || ip.equals("0.0.0.0") || ip.equals("null") ||
+                ip.equals("-") || ip.equals("undefined")) {
             return true;
         }
-        
+
         // 在开发/测试环境下，允许内网IP进行访问统计
         // 检查是否为有效的IP格式
         if (!isValidIpFormat(ip)) {
             return true;
         }
-        
+
         // 生产环境下可以考虑过滤内网IP，但开发环境需要统计
         // 注释掉严格的内网IP过滤，允许所有有效格式的IP
-        // if (ip.startsWith("172.") || ip.startsWith("10.") || ip.startsWith("192.168.")) {
-        //     return true;
+        // if (ip.startsWith("172.") || ip.startsWith("10.") ||
+        // ip.startsWith("192.168.")) {
+        // return true;
         // }
-        
+
         return false;
     }
-    
+
     /**
      * 验证IP格式是否有效（支持IPv4和IPv6）
      */
@@ -164,9 +145,9 @@ public class CommonQuery {
         if (ip == null || ip.trim().isEmpty()) {
             return false;
         }
-        
+
         ip = ip.trim();
-        
+
         // 使用Java内置的InetAddress来验证IP格式
         try {
             java.net.InetAddress.getByName(ip);
@@ -176,7 +157,7 @@ public class CommonQuery {
             return isValidIPv4(ip);
         }
     }
-    
+
     /**
      * 验证IPv4格式
      */
@@ -184,12 +165,12 @@ public class CommonQuery {
         if (ip == null || ip.trim().isEmpty()) {
             return false;
         }
-        
+
         String[] parts = ip.split("\\.");
         if (parts.length != 4) {
             return false;
         }
-        
+
         try {
             for (String part : parts) {
                 int num = Integer.parseInt(part);
@@ -224,7 +205,7 @@ public class CommonQuery {
     public List<User> getAdmire() {
         // 使用Redis缓存替换PoetryCache
         String cacheKey = CacheConstants.CACHE_PREFIX + "admire:list";
-        
+
         // 先使用读锁尝试获取缓存（允许多个线程并发读取）
         @SuppressWarnings("unchecked")
         List<User> admire = (List<User>) cacheService.get(cacheKey);
@@ -240,7 +221,9 @@ public class CommonQuery {
             if (cachedAdmire != null) {
                 return cachedAdmire;
             } else {
-                List<User> users = userService.lambdaQuery().select(User::getId, User::getUsername, User::getAdmire, User::getAvatar).isNotNull(User::getAdmire).list();
+                List<User> users = userService.lambdaQuery()
+                        .select(User::getId, User::getUsername, User::getAdmire, User::getAvatar)
+                        .isNotNull(User::getAdmire).list();
 
                 cacheService.set(cacheKey, users, CacheConstants.LONG_EXPIRE_TIME);
 
@@ -252,7 +235,7 @@ public class CommonQuery {
     public List<FamilyVO> getFamilyList() {
         // 使用Redis缓存替换PoetryCache
         String cacheKey = CacheConstants.CACHE_PREFIX + "family:list";
-        
+
         // 先尝试获取缓存（无需锁）
         @SuppressWarnings("unchecked")
         List<FamilyVO> familyVOList = (List<FamilyVO>) cacheService.get(cacheKey);
@@ -306,7 +289,7 @@ public class CommonQuery {
     public List<Integer> getUserArticleIds(Integer userId) {
         // 使用Redis缓存替换PoetryCache
         String cacheKey = CacheConstants.CACHE_PREFIX + "user:article:list:" + userId;
-        
+
         // 先尝试获取缓存（无需锁）
         @SuppressWarnings("unchecked")
         List<Integer> ids = (List<Integer>) cacheService.get(cacheKey);
@@ -336,16 +319,16 @@ public class CommonQuery {
         if (!StringUtils.hasText(searchText)) {
             return Arrays.asList(new ArrayList<>(), new ArrayList<>());
         }
-        
+
         // 检测是否为正则表达式（以 / 开头和结尾）
         boolean isRegex = searchText.startsWith("/") && searchText.endsWith("/") && searchText.length() > 2;
         String actualSearchText = isRegex ? searchText.substring(1, searchText.length() - 1) : searchText;
-        
+
         // 限制文章搜索关键词长度，避免过长搜索导致性能问题
         if (actualSearchText.length() > 50) {
             actualSearchText = actualSearchText.substring(0, 50);
         }
-        
+
         // 使用Redis缓存替换PoetryCache
         String cacheKey = CacheConstants.buildSearchArticleKey(searchText);
 
@@ -354,7 +337,7 @@ public class CommonQuery {
         if (cachedIds != null) {
             return cachedIds;
         }
-        
+
         // 直接在数据库层面执行搜索，避免加载所有文章内容到内存
         List<List<Integer>> ids = new ArrayList<>();
         Set<Integer> titleIds = new HashSet<>();
@@ -396,7 +379,7 @@ public class CommonQuery {
                 .map(Article::getId)
                 .collect(Collectors.toList());
         titleIds.addAll(originalTitleIds);
-        
+
         // 2. 搜索原文内容包含关键词的文章ID
         LambdaQueryChainWrapper<Article> contentWrapper = new LambdaQueryChainWrapper<>(articleMapper);
         List<Integer> originalContentIds = contentWrapper
@@ -409,10 +392,11 @@ public class CommonQuery {
                 .map(Article::getId)
                 .collect(Collectors.toList());
         contentIds.addAll(originalContentIds);
-        
+
         // 3. 搜索翻译标题包含关键词的文章ID
         try {
-            LambdaQueryChainWrapper<ArticleTranslation> translationTitleWrapper = new LambdaQueryChainWrapper<>(articleTranslationMapper);
+            LambdaQueryChainWrapper<ArticleTranslation> translationTitleWrapper = new LambdaQueryChainWrapper<>(
+                    articleTranslationMapper);
             List<Integer> translationTitleIds = translationTitleWrapper
                     .select(ArticleTranslation::getArticleId)
                     .like(ArticleTranslation::getTitle, searchText)
@@ -422,7 +406,7 @@ public class CommonQuery {
                     .map(ArticleTranslation::getArticleId)
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
-            
+
             // 验证这些文章ID对应的文章是否存在且未删除
             if (!translationTitleIds.isEmpty()) {
                 LambdaQueryChainWrapper<Article> validationWrapper = new LambdaQueryChainWrapper<>(articleMapper);
@@ -439,10 +423,11 @@ public class CommonQuery {
         } catch (Exception e) {
             log.warn("搜索翻译标题时出错，跳过翻译标题搜索: {}", e.getMessage());
         }
-        
+
         // 4. 搜索翻译内容包含关键词的文章ID
         try {
-            LambdaQueryChainWrapper<ArticleTranslation> translationContentWrapper = new LambdaQueryChainWrapper<>(articleTranslationMapper);
+            LambdaQueryChainWrapper<ArticleTranslation> translationContentWrapper = new LambdaQueryChainWrapper<>(
+                    articleTranslationMapper);
             List<Integer> translationContentIds = translationContentWrapper
                     .select(ArticleTranslation::getArticleId)
                     .like(ArticleTranslation::getContent, searchText)
@@ -452,7 +437,7 @@ public class CommonQuery {
                     .map(ArticleTranslation::getArticleId)
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
-            
+
             // 验证这些文章ID对应的文章是否存在且未删除
             if (!translationContentIds.isEmpty()) {
                 LambdaQueryChainWrapper<Article> validationWrapper = new LambdaQueryChainWrapper<>(articleMapper);
@@ -478,7 +463,7 @@ public class CommonQuery {
         try {
             // 验证正则表达式是否有效
             Pattern.compile(regexPattern);
-            
+
             // 使用MySQL的REGEXP进行数据库层面的正则搜索
             // 1. 搜索原文标题
             try {
@@ -495,7 +480,7 @@ public class CommonQuery {
             } catch (Exception e) {
                 log.warn("正则搜索原文标题时出错: {}", e.getMessage());
             }
-            
+
             // 2. 搜索原文内容
             try {
                 LambdaQueryChainWrapper<Article> contentWrapper = new LambdaQueryChainWrapper<>(articleMapper);
@@ -511,10 +496,11 @@ public class CommonQuery {
             } catch (Exception e) {
                 log.warn("正则搜索原文内容时出错: {}", e.getMessage());
             }
-            
+
             // 3. 搜索翻译标题
             try {
-                LambdaQueryChainWrapper<ArticleTranslation> translationTitleWrapper = new LambdaQueryChainWrapper<>(articleTranslationMapper);
+                LambdaQueryChainWrapper<ArticleTranslation> translationTitleWrapper = new LambdaQueryChainWrapper<>(
+                        articleTranslationMapper);
                 List<Integer> translationTitleIds = translationTitleWrapper
                         .select(ArticleTranslation::getArticleId)
                         .last("WHERE title REGEXP '" + regexPattern.replace("'", "\\'") + "' LIMIT 100")
@@ -523,7 +509,7 @@ public class CommonQuery {
                         .map(ArticleTranslation::getArticleId)
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
-                
+
                 // 验证这些文章ID对应的文章是否存在且未删除
                 if (!translationTitleIds.isEmpty()) {
                     LambdaQueryChainWrapper<Article> validationWrapper = new LambdaQueryChainWrapper<>(articleMapper);
@@ -540,10 +526,11 @@ public class CommonQuery {
             } catch (Exception e) {
                 log.warn("正则搜索翻译标题时出错: {}", e.getMessage());
             }
-            
+
             // 4. 搜索翻译内容
             try {
-                LambdaQueryChainWrapper<ArticleTranslation> translationContentWrapper = new LambdaQueryChainWrapper<>(articleTranslationMapper);
+                LambdaQueryChainWrapper<ArticleTranslation> translationContentWrapper = new LambdaQueryChainWrapper<>(
+                        articleTranslationMapper);
                 List<Integer> translationContentIds = translationContentWrapper
                         .select(ArticleTranslation::getArticleId)
                         .last("WHERE content REGEXP '" + regexPattern.replace("'", "\\'") + "' LIMIT 100")
@@ -552,7 +539,7 @@ public class CommonQuery {
                         .map(ArticleTranslation::getArticleId)
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
-                
+
                 // 验证这些文章ID对应的文章是否存在且未删除
                 if (!translationContentIds.isEmpty()) {
                     LambdaQueryChainWrapper<Article> validationWrapper = new LambdaQueryChainWrapper<>(articleMapper);
@@ -569,7 +556,7 @@ public class CommonQuery {
             } catch (Exception e) {
                 log.warn("正则搜索翻译内容时出错: {}", e.getMessage());
             }
-            
+
         } catch (PatternSyntaxException e) {
             log.warn("无效的正则表达式: {}, 错误: {}", regexPattern, e.getMessage());
             // 如果正则表达式无效，回退到普通文本搜索
@@ -588,18 +575,18 @@ public class CommonQuery {
         if (articleId == null || !StringUtils.hasText(searchText)) {
             return null;
         }
-        
+
         try {
-            LambdaQueryChainWrapper<ArticleTranslation> wrapper = 
-                new LambdaQueryChainWrapper<>(articleTranslationMapper);
-            
+            LambdaQueryChainWrapper<ArticleTranslation> wrapper = new LambdaQueryChainWrapper<>(
+                    articleTranslationMapper);
+
             List<ArticleTranslation> translations = wrapper
-                .eq(ArticleTranslation::getArticleId, articleId)
-                .and(w -> w.like(ArticleTranslation::getTitle, searchText)
-                          .or()
-                          .like(ArticleTranslation::getContent, searchText))
-                .list();
-                
+                    .eq(ArticleTranslation::getArticleId, articleId)
+                    .and(w -> w.like(ArticleTranslation::getTitle, searchText)
+                            .or()
+                            .like(ArticleTranslation::getContent, searchText))
+                    .list();
+
             return translations.isEmpty() ? null : translations.get(0).getLanguage();
         } catch (Exception e) {
             log.warn("检查翻译匹配失败，文章ID: {}, 搜索词: {}, 错误: {}", articleId, searchText, e.getMessage());
@@ -614,19 +601,19 @@ public class CommonQuery {
         if (articleId == null || !StringUtils.hasText(searchText) || !StringUtils.hasText(language)) {
             return null;
         }
-        
+
         try {
-            LambdaQueryChainWrapper<ArticleTranslation> wrapper = 
-                new LambdaQueryChainWrapper<>(articleTranslationMapper);
-            
+            LambdaQueryChainWrapper<ArticleTranslation> wrapper = new LambdaQueryChainWrapper<>(
+                    articleTranslationMapper);
+
             ArticleTranslation translation = wrapper
-                .eq(ArticleTranslation::getArticleId, articleId)
-                .eq(ArticleTranslation::getLanguage, language)
-                .and(w -> w.like(ArticleTranslation::getTitle, searchText)
-                          .or()
-                          .like(ArticleTranslation::getContent, searchText))
-                .one();
-                
+                    .eq(ArticleTranslation::getArticleId, articleId)
+                    .eq(ArticleTranslation::getLanguage, language)
+                    .and(w -> w.like(ArticleTranslation::getTitle, searchText)
+                            .or()
+                            .like(ArticleTranslation::getContent, searchText))
+                    .one();
+
             if (translation != null) {
                 Map<String, String> result = new HashMap<>();
                 result.put("language", translation.getLanguage());
@@ -637,7 +624,7 @@ public class CommonQuery {
         } catch (Exception e) {
             log.warn("获取匹配翻译内容失败，文章ID: {}, 语言: {}, 错误: {}", articleId, language, e.getMessage());
         }
-        
+
         return null;
     }
 
@@ -648,9 +635,9 @@ public class CommonQuery {
             sorts.forEach(sort -> {
                 LambdaQueryChainWrapper<Article> sortWrapper = new LambdaQueryChainWrapper<>(articleMapper);
                 Long countOfSort = sortWrapper
-                    .eq(Article::getSortId, sort.getId())
-                    .eq(Article::getDeleted, false)
-                    .count();
+                        .eq(Article::getSortId, sort.getId())
+                        .eq(Article::getDeleted, false)
+                        .count();
                 sort.setCountOfSort(countOfSort.intValue());
 
                 LambdaQueryChainWrapper<Label> wrapper = new LambdaQueryChainWrapper<>(labelMapper);
@@ -659,9 +646,9 @@ public class CommonQuery {
                     labels.forEach(label -> {
                         LambdaQueryChainWrapper<Article> labelWrapper = new LambdaQueryChainWrapper<>(articleMapper);
                         Long countOfLabel = labelWrapper
-                            .eq(Article::getLabelId, label.getId())
-                            .eq(Article::getDeleted, false)
-                            .count();
+                                .eq(Article::getLabelId, label.getId())
+                                .eq(Article::getDeleted, false)
+                                .count();
                         label.setCountOfLabel(countOfLabel.intValue());
                     });
                     sort.setLabels(labels);

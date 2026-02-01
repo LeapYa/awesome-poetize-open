@@ -17,6 +17,7 @@ import com.ld.poetry.im.http.vo.LastMessageVO;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.utils.CommonQuery;
 import com.ld.poetry.utils.StringUtil;
+import com.ld.poetry.service.SysConfigService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -71,6 +72,9 @@ public class ImWsMsgHandler implements IWsMsgHandler {
     @Autowired
     private CacheService cacheService;
 
+    @Autowired
+    private SysConfigService sysConfigService;
+
     /**
      * 握手时走这个方法，业务可以在这里获取cookie，request等
      * 对httpResponse参数进行补充并返回，如果返回null表示不想和对方建立连接
@@ -78,6 +82,13 @@ public class ImWsMsgHandler implements IWsMsgHandler {
      */
     @Override
     public HttpResponse handshake(HttpRequest httpRequest, HttpResponse httpResponse, ChannelContext channelContext) {
+        // 检查IM功能是否启用
+        String imEnable = sysConfigService.getConfigValueByKey("im.enable");
+        if ("false".equalsIgnoreCase(imEnable)) {
+            log.warn("WebSocket握手失败：IM功能已禁用");
+            return null;
+        }
+
         String token = httpRequest.getParam("token");
 
         if (!StringUtils.hasText(token)) {

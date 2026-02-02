@@ -1,3 +1,16 @@
+<!--
+  POETIZE 最美博客系统 - LeapYa维护版
+  
+  Keywords: 博客系统, blog system, 个人博客, personal blog, Vue3, Spring Boot, 
+  Java, Docker, 一键部署, 开源博客, open source blog, 聊天室, chatroom, 
+  Live2D, SEO优化, 自托管, self-hosted, MariaDB, Redis, WebSocket, 
+  OAuth2登录, 第三方登录, 看板娘, 最美博客, poetize, 表白墙, 相册, 
+  markdown博客, 博客模板, blog template, docker-compose
+  
+  GitHub: https://github.com/LeapYa/Awesome-poetize-open
+  Demo: https://leapya.com
+-->
+
 <p align="center">
   <a href="#">
     <img src="poetize_picture/logo.png" alt="POETIZE Open Fork Logo" width="180px">

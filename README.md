@@ -189,9 +189,17 @@ git clone https://github.com/LeapYa/Awesome-poetize-open.git && sudo chmod +x de
 - 用户名：`Sara`
 - 密码：`aaa`
 
+> 首次登录后进入"网站设置"完成基础信息配置（网站名称、头像、背景、发件邮箱等），然后到个人中心配置自己的信息和邮箱，之后退出登录，点击登录页面的"忘记密码"修改默认密码。
+
 ### 4.可选配置
 
-#### （1）更换字体
+#### （1）SEO优化配置
+
+SEO（搜索引擎优化）可以让你的博客更容易被 Google、百度等搜索引擎收录，让更多人通过搜索找到你的文章。
+
+本项目内置了完整的 SEO 功能，包括智能摘要生成、站点地图、搜索引擎推送等。如果你希望网站被更多人发现，建议阅读 [SEO优化指南](docs/SEO优化指南.md)。
+
+#### （2）更换字体
 
 如需更换网站字体，提供两种方法：
 
@@ -215,11 +223,11 @@ git clone https://github.com/LeapYa/Awesome-poetize-open.git && sudo chmod +x de
    - `poetize-web/public/static/assets/`
 4. 重启前端服务
 
-#### （2）OAuth代理
+#### （3）OAuth代理
 
 若需支持国外第三方登录平台（GitHub、Google等），请配置海外代理服务器，详见[OAuth代理配置说明文档](docs/OAuth代理配置说明.md)。
 
-#### （3）Ollama本地翻译模型
+#### （4）Ollama本地翻译模型
 
 如需启用本地AI翻译功能，编辑 `docker-compose.yml` 找到"Ollama翻译模型服务"部分取消注释即可。默认使用 `qwen3:0.6b` 轻量级模型。更多模型选择和配置详见 [Ollama官方模型库](https://ollama.com/library)。
 
@@ -308,6 +316,7 @@ sudo docker system prune -af && rm -rf Awesome-poetize-open && bash <(curl -sL i
 - 从 MariaDB 切换到 MySQL 的步骤
 
 其他文档：
+- **[SEO优化指南](docs/SEO优化指南.md)** - 发布策略、收录技巧、技术配置
 - **[数据库设计文档](docs/数据库设计.md)** - 表结构、字段说明、ER图
 - **[架构设计文档](docs/架构设计.md)** - 系统架构、技术栈、部署架构
 

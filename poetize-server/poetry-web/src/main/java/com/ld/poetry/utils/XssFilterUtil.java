@@ -5,6 +5,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 import org.owasp.html.HtmlPolicyBuilder;
 import org.owasp.html.PolicyFactory;
+import org.springframework.web.util.HtmlUtils;
 
 /**
  * XSS过滤工具类
@@ -21,19 +22,18 @@ public class XssFilterUtil {
     // 严格模式：不允许任何HTML标签，只允许纯文本
     private static final PolicyFactory STRICT_POLICY = new HtmlPolicyBuilder()
             .toFactory();
-    
+
     // 基本格式模式：允许基本文本格式标签
     private static final PolicyFactory BASIC_FORMAT_POLICY = new HtmlPolicyBuilder()
             .allowElements("b", "i", "u", "em", "strong", "p", "br", "span")
             .allowAttributes("class").onElements("span", "p")
             .toFactory();
-    
+
     // 富文本模式：允许更多HTML标签，但仍保持安全性
     private static final PolicyFactory RICH_TEXT_POLICY = new HtmlPolicyBuilder()
             .allowElements(
-                "a", "b", "i", "u", "em", "strong", "p", "br", "span", "div",
-                "ul", "ol", "li", "blockquote", "code", "pre", "h1", "h2", "h3", "h4", "h5", "h6"
-            )
+                    "a", "b", "i", "u", "em", "strong", "p", "br", "span", "div",
+                    "ul", "ol", "li", "blockquote", "code", "pre", "h1", "h2", "h3", "h4", "h5", "h6")
             .allowAttributes("href").onElements("a")
             .allowAttributes("class", "style").onElements("span", "p", "div")
             .allowAttributes("class").onElements("ul", "ol", "li", "blockquote", "code", "pre")
@@ -51,9 +51,10 @@ public class XssFilterUtil {
         if (StringUtils.isBlank(content)) {
             return content;
         }
-        
+
         try {
-            return STRICT_POLICY.sanitize(content);
+            String sanitized = STRICT_POLICY.sanitize(content);
+            return HtmlUtils.htmlUnescape(sanitized);
         } catch (Exception e) {
             log.error("XSS过滤处理异常: {}", e.getMessage(), e);
             // 出现异常时，返回转义后的内容
@@ -73,11 +74,11 @@ public class XssFilterUtil {
         }
 
         return content.replace("&", "&amp;")
-                     .replace("<", "&lt;")
-                     .replace(">", "&gt;")
-                     .replace("\"", "&quot;")
-                     .replace("'", "&#x27;")
-                     .replace("/", "&#x2F;");
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#x27;")
+                .replace("/", "&#x2F;");
     }
 
     /**
@@ -90,7 +91,7 @@ public class XssFilterUtil {
         if (StringUtils.isBlank(content)) {
             return false;
         }
-        
+
         // 使用严格模式清理后，如果内容发生变化，说明包含XSS风险
         String cleaned = STRICT_POLICY.sanitize(content);
         return !content.equals(cleaned);
@@ -99,7 +100,7 @@ public class XssFilterUtil {
     /**
      * 验证并清理输入内容，适用于评论、文章等用户输入
      * 
-     * @param content 原始内容
+     * @param content   原始内容
      * @param maxLength 允许的最大长度
      * @return 验证和清理后的内容，如果输入无效返回null
      */
@@ -144,16 +145,17 @@ public class XssFilterUtil {
         if (StringUtils.isBlank(content)) {
             return content;
         }
-        
+
         try {
-            return RICH_TEXT_POLICY.sanitize(content);
+            String sanitized = RICH_TEXT_POLICY.sanitize(content);
+            return HtmlUtils.htmlUnescape(sanitized);
         } catch (Exception e) {
             log.error("XSS过滤处理异常: {}", e.getMessage(), e);
             // 出现异常时，返回转义后的内容
             return escapeHtml(content);
         }
     }
-    
+
     /**
      * 允许基本格式标签的内容清理（适用于需要基本格式的场景）
      * 
@@ -164,9 +166,10 @@ public class XssFilterUtil {
         if (StringUtils.isBlank(content)) {
             return content;
         }
-        
+
         try {
-            return BASIC_FORMAT_POLICY.sanitize(content);
+            String sanitized = BASIC_FORMAT_POLICY.sanitize(content);
+            return HtmlUtils.htmlUnescape(sanitized);
         } catch (Exception e) {
             log.error("XSS过滤处理异常: {}", e.getMessage(), e);
             // 出现异常时，返回转义后的内容

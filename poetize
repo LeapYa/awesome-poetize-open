@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-01-06
+## 修改时间: 2026-02-02
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.9.0
+## 版本: 1.9.1
 
 # 定义颜色
 RED='\033[0;31m'
@@ -21,6 +21,15 @@ info() { echo -e "${BLUE}[信息]${NC} $1"; }
 success() { echo -e "${GREEN}[成功]${NC} $1"; }
 error() { echo -e "${RED}[失败]${NC} $1"; }
 warning() { echo -e "${YELLOW}[警告]${NC} $1"; }
+
+# 引入配置管理库
+load_config_lib() {
+    if [ -f "lib/config.sh" ]; then
+        source "lib/config.sh"
+        return 0
+    fi
+    return 1
+}
 
 # 检查用户权限
 check_user_permissions() {
@@ -172,6 +181,7 @@ find_project_dir() {
     elif [ ${#dirs[@]} -eq 1 ]; then
         echo "发现一个博客目录: ${dirs[0]}"
         cd "${dirs[0]}" || { echo "切换目录失败: ${dirs[0]}"; exit 1; }
+        load_config_lib  # 加载配置管理库
     else
         echo "发现多个博客目录："
         for i in "${!dirs[@]}"; do
@@ -190,6 +200,7 @@ find_project_dir() {
         target_dir="${dirs[$((choice-1))]}"
         echo "迁移目录: $target_dir"
         cd "$target_dir" || { echo "切换目录失败: $target_dir"; exit 1; }
+        load_config_lib  # 加载配置管理库
     fi
 }
 

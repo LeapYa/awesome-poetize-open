@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-01-06
+## 修改时间: 2026-02-02
 ## 描述: POETIZE 博客系统自动迁移脚本
-## 版本: 1.5.0
+## 版本: 1.5.1
 
 # 定义颜色
 RED='\033[0;31m'
@@ -16,6 +16,11 @@ info() { echo -e "${BLUE}[信息]${NC} $1"; }
 success() { echo -e "${GREEN}[成功]${NC} $1"; }
 error() { echo -e "${RED}[失败]${NC} $1"; }
 warning() { echo -e "${YELLOW}[警告]${NC} $1"; }
+
+# 引入配置管理库
+if [ -f "lib/config.sh" ]; then
+    source "lib/config.sh"
+fi
 
 # 全局变量
 NGINX_DOMAINS=""
@@ -657,8 +662,8 @@ backup_database() {
         info "备份端口配置..."
         local http_port=""
         
-        # 优先从 .env 文件读取端口配置
-        if [ -f "${SCRIPT_DIR}/lib/config.sh" ] && [ -f ".env" ]; then
+        # 优先从 .env 文件读取端口配置（使用配置管理库函数）
+        if [ -f ".env" ] && type read_env_config &>/dev/null; then
             http_port=$(read_env_config "HTTP_PORT" "")
             if [ -n "$http_port" ] && [ "$http_port" != "80" ]; then
                 echo "$http_port" > "$BACKUP_DIR/http_port.txt"

@@ -7,7 +7,7 @@
     <artifactId>poetry</artifactId>
     <version>3.0-LeapYa</version>
     <name>POETIZE - 最美博客 (LeapYa维护版)</name>
-    <description>POETIZE - 最美博客系统 LeapYa维护版，基于Spring Boot 3.x + Java 25</description>
+    <description>POETIZE - 最美博客系统 LeapYa维护版，基于Spring Boot 3.x + Java 25 LTS</description>
     <packaging>pom</packaging>
 
     <properties>

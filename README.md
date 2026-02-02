@@ -322,7 +322,7 @@ sudo docker system prune -af && rm -rf Awesome-poetize-open && bash <(curl -sL i
 
 ### 快速开发启动
 
-**环境准备**：JDK 25、Node.js 14+、Maven 3.9+、MariaDB + Redis（详见 [开发指南](docs/开发指南.md#数据库环境准备)）
+**环境准备**：JDK 25 LTS、Node.js 14+、Maven 3.9+、MariaDB + Redis（详见 [开发指南](docs/开发指南.md#数据库环境准备)）
 
 ```bash
 # 1. 启动后端
@@ -355,7 +355,7 @@ cd poetize-admin && npm install && npm run dev
 ## 🛠️ 技术栈
 
 * **前端** - Vue3（前台+聊天室）、Vue2（后台管理）、Element Plus/Element UI、WebSocket、Live2D
-* **后端** - Spring Boot 3.5.5、Java 25、FastAPI、Python 3.9+
+* **后端** - Spring Boot 3.5.5、Java 25 LTS、FastAPI、Python 3.9+
 * **数据库** - MariaDB 11、Redis 7
 * **部署** - Docker、Docker Compose、OpenResty（Nginx）、Shell 脚本
 

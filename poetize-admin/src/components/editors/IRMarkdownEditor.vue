@@ -259,7 +259,6 @@ import { HistoryManager } from './core/HistoryManager';
 import { IRRenderer } from './render/IRRenderer';
 import { renderMarkdown } from '@/utils/markdownLazyRenderer';
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
-import { htmlToMarkdown, isRichHtml } from '@/utils/htmlToMarkdown';
 import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
 import { parseEChartsOption } from '@/utils/echartsOptionParser';
@@ -1335,70 +1334,14 @@ export default {
      * 处理粘贴（支持图片上传 + HTML转Markdown）
      */
     handlePaste(e) {
-      e.preventDefault();
-      
-      const clipboardData = e.clipboardData || window.clipboardData;
-      if (!clipboardData) return;
-
-      // 优先级1：自定义 Markdown MIME 类型（从本编辑器复制的内容）
-      const poetizeMarkdown = clipboardData.getData('text/x-poetize-markdown');
-      if (poetizeMarkdown) {
-        this.insertText(poetizeMarkdown);
-        return;
-      }
-
-      // 优先级2：标准 Markdown MIME 类型
-      const standardMarkdown = clipboardData.getData('text/markdown');
-      if (standardMarkdown) {
-        this.insertText(standardMarkdown);
-        return;
-      }
-
-      // 优先级3：检测图片文件
-      const items = clipboardData.items;
-      if (items) {
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].kind === 'file' && items[i].type.indexOf('image') !== -1) {
-            const file = items[i].getAsFile();
-            if (file) {
-              this.$emit('image-add', file);
-            }
-            return;
-          }
+      handlePaste(e, {
+        onImage: (file) => {
+          this.$emit('image-add', file);
+        },
+        onText: (text) => {
+          this.insertText(text);
         }
-      }
-
-      // 优先级4：HTML 富文本 → 转换为 Markdown
-      const html = clipboardData.getData('text/html');
-      const plainText = clipboardData.getData('text/plain');
-      
-      const htmlCandidate =
-        (html && isRichHtml(html) ? html : '') ||
-        (plainText && plainText.trim().startsWith('<') && isRichHtml(plainText) ? plainText : '');
-
-      if (htmlCandidate) {
-        try {
-          const markdown = htmlToMarkdown(htmlCandidate);
-          if (markdown && markdown.trim()) {
-            this.insertText(markdown);
-          } else if (plainText) {
-            // 转换失败，回退到纯文本
-            this.insertText(plainText);
-          }
-        } catch (err) {
-          console.error('HTML to Markdown conversion failed:', err);
-          // 转换出错，回退到纯文本
-          if (plainText) {
-            this.insertText(plainText);
-          }
-        }
-        return;
-      }
-
-      // 优先级5：纯文本
-      if (plainText) {
-        this.insertText(plainText);
-      }
+      });
     },
 
     /**

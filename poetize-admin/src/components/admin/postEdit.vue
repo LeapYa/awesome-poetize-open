@@ -1150,7 +1150,7 @@ const uploadPicture = () => import("../common/uploadPicture");
         if (url.startsWith('/')) {
           // 开发环境（非生产模式）：前后端端口不同，需要完整URL
           // 生产环境：前后端同域，使用相对路径由Nginx代理
-          if (this.$env.VUE_APP_PRODUCTION_MODE !== 'true') {
+          if (!import.meta.env.PROD) {
             fullUrl = this.$constant.baseURL + url;
           }
         }

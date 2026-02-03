@@ -305,7 +305,7 @@
 
 <script>
 import { renderMarkdown } from '@/utils/markdownLazyRenderer';
-import { htmlToMarkdown, isRichHtml } from '@/utils/htmlToMarkdown';
+import { htmlToMarkdown } from '@/utils/htmlToMarkdown';
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
 import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
@@ -2367,50 +2367,14 @@ export default {
      * 处理粘贴
      */
     handlePaste(e) {
-      const clipboardData = e.clipboardData || window.clipboardData;
-      if (!clipboardData) return;
-      
-      // 检测图片
-      const items = clipboardData.items;
-      if (items) {
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].kind === 'file' && items[i].type.indexOf('image') !== -1) {
-            e.preventDefault();
-            const file = items[i].getAsFile();
-            if (file) {
-              this.$emit('image-add', file);
-            }
-            return;
-          }
+      handlePaste(e, {
+        onImage: (file) => {
+          this.$emit('image-add', file);
+        },
+        onText: (text) => {
+          this.insertMarkdownContent(text);
         }
-      }
-      
-      // 检测 Markdown 格式
-      const poetizeMarkdown = clipboardData.getData('text/x-poetize-markdown');
-      if (poetizeMarkdown) {
-        e.preventDefault();
-        this.insertMarkdownContent(poetizeMarkdown);
-        return;
-      }
-      
-      const standardMarkdown = clipboardData.getData('text/markdown');
-      if (standardMarkdown) {
-        e.preventDefault();
-        this.insertMarkdownContent(standardMarkdown);
-        return;
-      }
-      
-      // 检测 HTML
-      const html = clipboardData.getData('text/html');
-      if (html && isRichHtml(html)) {
-        e.preventDefault();
-        // 转换为 Markdown 再渲染为 HTML 插入
-        const markdown = htmlToMarkdown(html);
-        this.insertMarkdownContent(markdown);
-        return;
-      }
-      
-      // 纯文本：默认行为
+      });
     },
     
     /**

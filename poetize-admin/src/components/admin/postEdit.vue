@@ -1098,6 +1098,15 @@ const uploadPicture = () => import("../common/uploadPicture");
       // 图片上传处理（适配 Vditor）
       imgAdd(file) {
         try {
+          // 显示上传中提示
+          const loadingMessage = this.$message({
+            message: '正在上传图片...',
+            type: 'info',
+            iconClass: 'el-icon-loading',
+            duration: 0, // 不自动关闭
+            showClose: true
+          });
+
           let suffix = file.name.lastIndexOf('.') !== -1 ? file.name.substring(file.name.lastIndexOf('.')) : "";
           let key = "articlePicture" + "/" + this.mainStore.currentAdmin.username.replace(/[^a-zA-Z]/g, '') 
                     + this.mainStore.currentAdmin.id + new Date().getTime() 
@@ -1115,13 +1124,13 @@ const uploadPicture = () => import("../common/uploadPicture");
           fd.append("storeType", storeType);
 
           if (storeType === "local") {
-            this.saveLocal(fd);
+            this.saveLocal(fd, loadingMessage);
           } else if (storeType === "qiniu") {
-            this.saveQiniu(fd);
+            this.saveQiniu(fd, loadingMessage);
           } else if (storeType === "lsky") {
-            this.saveLsky(fd);
+            this.saveLsky(fd, loadingMessage);
           } else if (storeType === "easyimage") {
-            this.saveLsky(fd);
+            this.saveLsky(fd, loadingMessage);
           }
         } catch (error) {
           this.showError("图片上传准备失败", error);
@@ -1129,16 +1138,22 @@ const uploadPicture = () => import("../common/uploadPicture");
       },
       
       // 本地保存图片
-      saveLocal(fd) {
+      saveLocal(fd, loadingMessage) {
         this.$http.upload(this.$constant.baseURL + "/resource/upload", fd, true)
           .then((res) => {
+            // 关闭上传中提示
+            if (loadingMessage) loadingMessage.close();
+            
             if (!this.$common.isEmpty(res.data)) {
               this.insertImage(res.data, fd.get("file").name);
+              this.$message.success('图片上传成功');
             } else {
               this.showError("图片上传失败", "服务器未返回有效的图片URL");
             }
           })
           .catch((error) => {
+            // 关闭上传中提示
+            if (loadingMessage) loadingMessage.close();
             this.showError("图片本地上传失败", error);
           });
       },
@@ -1161,7 +1176,7 @@ const uploadPicture = () => import("../common/uploadPicture");
       },
       
       // 七牛云保存图片
-      saveQiniu(fd) {
+      saveQiniu(fd, loadingMessage) {
         this.$http.get(this.$constant.baseURL + "/qiniu/getUpToken", {key: fd.get("key")}, true)
           .then((res) => {
             if (!this.$common.isEmpty(res.data)) {
@@ -1169,31 +1184,44 @@ const uploadPicture = () => import("../common/uploadPicture");
 
               this.$http.uploadQiniu(this.mainStore.sysConfig.qiniuUrl, fd)
                 .then((res) => {
+                  // 关闭上传中提示
+                  if (loadingMessage) loadingMessage.close();
+                  
                   if (!this.$common.isEmpty(res.key)) {
                     let url = this.mainStore.sysConfig['qiniu.downloadUrl'] + res.key;
                     let file = fd.get("file");
                     this.$common.saveResource(this, "articlePicture", url, file.size, file.type, file.name, "qiniu", true);
                     this.insertImage(url, file.name);
+                    this.$message.success('图片上传成功');
                   } else {
                     this.showError("七牛云上传失败", "未返回有效的图片密钥");
                   }
                 })
                 .catch((error) => {
+                  // 关闭上传中提示
+                  if (loadingMessage) loadingMessage.close();
                   this.showError("七牛云上传请求失败", error);
                 });
             } else {
+              // 关闭上传中提示
+              if (loadingMessage) loadingMessage.close();
               this.showError("获取七牛云上传Token失败", "服务器未返回有效的Token");
             }
           })
           .catch((error) => {
+            // 关闭上传中提示
+            if (loadingMessage) loadingMessage.close();
             this.showError("获取七牛云上传Token失败", error);
           });
       },
       
       // 兰空图床保存图片
-      saveLsky(fd) {
+      saveLsky(fd, loadingMessage) {
         this.$http.post(this.$constant.baseURL + "/resource/upload", fd, true)
           .then((res) => {
+            // 关闭上传中提示
+            if (loadingMessage) loadingMessage.close();
+            
             if (!this.$common.isEmpty(res.data)) {
               // 获取返回的图片URL
               let url = res.data;
@@ -1201,11 +1229,14 @@ const uploadPicture = () => import("../common/uploadPicture");
               let storeType = fd.get("storeType") || "lsky";
               this.$common.saveResource(this, "articlePicture", url, file.size, file.type, file.name, storeType, true);
               this.insertImage(url, file.name);
+              this.$message.success('图片上传成功');
             } else {
               this.showError("图床上传失败", "服务器未返回有效的图片URL");
             }
           })
           .catch((error) => {
+            // 关闭上传中提示
+            if (loadingMessage) loadingMessage.close();
             this.showError("图床上传失败", error);
           });
       },

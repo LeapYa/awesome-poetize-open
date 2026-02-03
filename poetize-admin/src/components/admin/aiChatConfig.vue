@@ -134,11 +134,14 @@
 
             <el-form-item label="连接测试">
               <el-button @click="testConnection" :loading="testing">测试连接</el-button>
-              <span v-if="isApiKeyMasked" class="help-text" style="margin-left: 10px;">
+              <span v-if="hasStoredApiKey && (!modelConfig.apiKey || modelConfig.apiKey.includes('*'))" class="help-text" style="margin-left: 10px;">
                 🔒 将使用已保存的配置进行测试
               </span>
-              <span v-else class="help-text" style="margin-left: 10px;">
+              <span v-else-if="modelConfig.apiKey && !modelConfig.apiKey.includes('*')" class="help-text" style="margin-left: 10px;">
                 🔧 将使用当前输入的配置进行测试
+              </span>
+              <span v-else class="help-text" style="margin-left: 10px;">
+                ⚠️ 请先输入API密钥或保存配置
               </span>
               <span v-if="testResult" :class="testResult.success ? 'test-success' : 'test-error'">
                 {{ testResult.message }}
@@ -477,6 +480,7 @@ export default {
       },
       
       isApiKeyMasked: true,
+      hasStoredApiKey: false, // 标记后端是否有已保存的API密钥
       showingFullKey: false,
       originalMaskedKey: '',
       
@@ -594,13 +598,17 @@ export default {
           this.modelConfig.apiKey = config.apiKey || '';
           this.modelConfig.model = config.model || 'gpt-3.5-turbo';
           this.modelConfig.baseUrl = config.apiBase || '';
-          this.modelConfig.temperature = config.temperature || 0.7;
-          this.modelConfig.maxTokens = config.maxTokens || 1000;
-          this.modelConfig.enabled = config.enabled || false;
-          this.modelConfig.enableStreaming = config.enableStreaming || false;
+          this.modelConfig.temperature = config.temperature ?? 0.7;
+          const maxTokensVal = config.maxTokens ?? config.max_tokens;
+          this.modelConfig.maxTokens = maxTokensVal != null ? Number(maxTokensVal) : 1000;
+          
+          this.modelConfig.enabled = config.enabled ?? false;
+          this.modelConfig.enableStreaming = config.enableStreaming ?? false;
           
           // 检查API密钥是否被隐藏（包含星号表示已保存但被隐藏）
           this.isApiKeyMasked = this.modelConfig.apiKey && this.modelConfig.apiKey.includes('*');
+          // 标记后端是否有已保存的密钥（用于测试连接时判断）
+          this.hasStoredApiKey = this.isApiKeyMasked;
           this.originalMaskedKey = this.isApiKeyMasked ? this.modelConfig.apiKey : '';
           
           // 映射聊天配置（Java驼峰格式）
@@ -686,7 +694,7 @@ export default {
           apiBase: this.modelConfig.baseUrl,
           model: this.modelConfig.model,
           temperature: this.modelConfig.temperature,
-          maxTokens: this.modelConfig.maxTokens,
+          maxTokens: this.modelConfig.maxTokens ? Number(this.modelConfig.maxTokens) : 1000,
           enabled: this.modelConfig.enabled,
           enableStreaming: this.modelConfig.enableStreaming,
           // 聊天配置
@@ -758,9 +766,14 @@ export default {
       this.testResult = '';
 
       try {
-        // 检查是否使用的是隐藏的密钥
-        if (this.isApiKeyMasked || (this.modelConfig.apiKey && this.modelConfig.apiKey.includes('*'))) {
-          // 如果密钥被隐藏，使用保存的配置进行测试（不发送密钥）
+        // 检查是否应该使用已保存的配置
+        // 条件：1. 有已保存的密钥 且 2. 当前输入框为空或显示掩码密钥
+        const currentKeyEmpty = !this.modelConfig.apiKey || this.modelConfig.apiKey.trim() === '';
+        const currentKeyIsMasked = this.modelConfig.apiKey && this.modelConfig.apiKey.includes('*');
+        const shouldUseSavedConfig = this.hasStoredApiKey && (currentKeyEmpty || currentKeyIsMasked);
+        
+        if (shouldUseSavedConfig) {
+          // 如果有已保存的密钥且输入框为空或显示掩码，使用保存的配置进行测试
           const response = await this.$http.post(this.$constant.baseURL + '/webInfo/ai/config/chat/test', {
             provider: this.modelConfig.provider,
             apiBase: this.modelConfig.baseUrl,
@@ -781,12 +794,12 @@ export default {
             };
             this.$message.error('连接测试失败: ' + response.message);
           }
-        } else {
-          // 使用当前输入的密钥进行测试
+        } else if (this.modelConfig.apiKey && this.modelConfig.apiKey.trim() !== '' && !this.modelConfig.apiKey.includes('*')) {
+          // 使用当前输入的新密钥进行测试
           const testData = {
             provider: this.modelConfig.provider,
-            api_key: this.modelConfig.apiKey,
-            api_base: this.modelConfig.baseUrl,
+            apiKey: this.modelConfig.apiKey,
+            apiBase: this.modelConfig.baseUrl,
             model: this.modelConfig.model
           };
 
@@ -805,6 +818,15 @@ export default {
             };
             this.$message.error('连接测试失败: ' + response.message);
           }
+        } else {
+          // 没有可用的密钥
+          this.testing = false;
+          this.testResult = {
+            success: false,
+            message: '请先输入API密钥或保存配置'
+          };
+          this.$message.warning('请先输入API密钥或保存配置');
+          return;
         }
       } catch (error) {
         this.testResult = {

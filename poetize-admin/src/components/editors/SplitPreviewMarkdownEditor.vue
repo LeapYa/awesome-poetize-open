@@ -188,7 +188,7 @@ import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
 import { parseEChartsOption } from '@/utils/echartsOptionParser';
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
-import { handlePaste } from '@/utils/pasteHandler';
+import { handlePaste as handlePasteUtil } from '@/utils/pasteHandler';
 // 导入公共编辑器标题样式
 import '@/assets/css/editor-heading-styles.css';
 import 'katex/dist/katex.min.css';
@@ -775,7 +775,7 @@ export default {
 
     // 粘贴处理（支持图片上传 + HTML转Markdown）
     handlePaste(e) {
-      handlePaste(e, {
+      handlePasteUtil(e, {
         onImage: (file) => {
           this.uploadFile(file);
         },

@@ -310,6 +310,7 @@ import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/mark
 import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
 import { parseEChartsOption } from '@/utils/echartsOptionParser';
+import { handlePaste as handlePasteUtil } from '@/utils/pasteHandler';
 // 导入公共样式（与文章页、IR模式保持一致）
 import '@/assets/css/markdown-highlight.css';
 import '@/assets/css/editor-heading-styles.css';
@@ -2367,7 +2368,7 @@ export default {
      * 处理粘贴
      */
     handlePaste(e) {
-      handlePaste(e, {
+      handlePasteUtil(e, {
         onImage: (file) => {
           this.$emit('image-add', file);
         },

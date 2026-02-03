@@ -156,6 +156,8 @@
 .editor-heading-styles h1.article-main-title {
   font-size: 32px !important;
   font-weight: 700 !important;
+  font-synthesis: weight !important;
+  -webkit-text-stroke: 0.2px !important;
   margin-top: 0 !important;
   margin-bottom: 30px !important;
   padding-bottom: 16px !important;
@@ -260,6 +262,8 @@
 .vditor-reset h1.article-main-title {
   font-size: 32px !important;
   font-weight: 700 !important;
+  font-synthesis: weight !important;
+  -webkit-text-stroke: 0.2px !important;
   margin-top: 0 !important;
   margin-bottom: 30px !important;
   padding-bottom: 16px !important;
@@ -399,6 +403,8 @@ body .split-preview-editor .entry-content h5:before {
 .entry-content h1.article-main-title {
   font-size: 32px !important;
   font-weight: 700 !important;
+  font-synthesis: weight !important;
+  -webkit-text-stroke: 0.2px !important;
   margin-top: 0 !important;
   margin-bottom: 30px !important;
   padding-bottom: 16px !important;
@@ -419,6 +425,8 @@ body .split-preview-editor .entry-content h5:before {
 .editor-heading-styles strong,
 .editor-heading-styles b {
   font-weight: 700 !important;
+  font-synthesis: weight !important;
+  -webkit-text-stroke: 0.2px !important;
 }
 
 .editor-heading-styles em,
@@ -430,6 +438,8 @@ body .split-preview-editor .entry-content h5:before {
 .vditor-reset strong,
 .vditor-reset b {
   font-weight: 700 !important;
+  font-synthesis: weight !important;
+  -webkit-text-stroke: 0.2px !important;
 }
 
 .vditor-reset em,
@@ -445,6 +455,8 @@ body .split-preview-editor .entry-content strong,
 body .ir-editor .entry-content b,
 body .split-preview-editor .entry-content b {
   font-weight: 700 !important;
+  font-synthesis: weight !important;
+  -webkit-text-stroke: 0.2px !important;
 }
 
 .entry-content em,
@@ -461,6 +473,8 @@ body .split-preview-editor .entry-content i:not(.fa):not([class^="el-icon"]):not
 .CodeMirror b,
 .cm-strong {
   font-weight: 700 !important;
+  font-synthesis: weight !important;
+  -webkit-text-stroke: 0.2px !important;
 }
 
 .CodeMirror em,
@@ -475,6 +489,8 @@ body .split-preview-editor .entry-content i:not(.fa):not([class^="el-icon"]):not
 .markdown-body strong,
 .markdown-body b {
   font-weight: 700 !important;
+  font-synthesis: weight !important;
+  -webkit-text-stroke: 0.2px !important;
 }
 
 .preview-content em,

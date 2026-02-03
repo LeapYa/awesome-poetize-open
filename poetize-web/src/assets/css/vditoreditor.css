@@ -61,6 +61,8 @@ body>.vditor-editor-isolate {
 :deep(.vditor-reset strong),
 :deep(.vditor-reset b) {
   font-weight: 700 !important;
+  font-synthesis: weight !important;
+  -webkit-text-stroke: 0.2px !important;
 }
 
 :deep(.vditor-reset em),

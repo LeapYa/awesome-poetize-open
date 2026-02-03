@@ -173,6 +173,8 @@ html body .entry-content strong,
 body .entry-content b,
 html body .entry-content b {
   font-weight: 700 !important;
+  font-synthesis: weight !important;
+  -webkit-text-stroke: 0.2px !important;
 }
 
 body .entry-content em,

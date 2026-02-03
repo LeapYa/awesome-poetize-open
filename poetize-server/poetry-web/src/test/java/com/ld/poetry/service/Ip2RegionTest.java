@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class Ip2RegionTest {
 
-    private static final String IPV4_DB_URL = "https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region.xdb";
+    private static final String IPV4_DB_URL = "https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v4.xdb";
     private static final String IPV6_DB_URL = "https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v6.xdb";
 
     private Path getTestDataDir() {
@@ -71,7 +71,7 @@ public class Ip2RegionTest {
     public void testIp2RegionDatabase() {
         Searcher searcher = null;
         try {
-            File dbFile = ensureDbFile("ip2region.xdb", IPV4_DB_URL);
+            File dbFile = ensureDbFile("ip2region_v4.xdb", IPV4_DB_URL);
             LongByteArray cBuff = Searcher.loadContentFromFile(dbFile.getAbsolutePath());
             searcher = Searcher.newWithBuffer(Version.IPv4, cBuff);
 
@@ -141,7 +141,7 @@ public class Ip2RegionTest {
     public void testParseResult() {
         Searcher searcher = null;
         try {
-            File dbFile = ensureDbFile("ip2region.xdb", IPV4_DB_URL);
+            File dbFile = ensureDbFile("ip2region_v4.xdb", IPV4_DB_URL);
             LongByteArray cBuff = Searcher.loadContentFromFile(dbFile.getAbsolutePath());
             searcher = Searcher.newWithBuffer(Version.IPv4, cBuff);
 

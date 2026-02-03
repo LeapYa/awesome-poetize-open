@@ -1736,6 +1736,7 @@ export default {
             this.$nextTick(() => {
               this.$common.imgShow('.entry-content img')
           this.normalizeTaskListCheckboxes()
+          this.wrapTables()  // 先处理表格包装（独立于代码高亮）
           this.highlight()
           this.renderMermaid()
           this.renderECharts()
@@ -2043,7 +2044,16 @@ export default {
         })
       }
 
-      // 处理表格样式
+    },
+    
+    /**
+     * 处理表格样式 - 将表格包装到 table-wrapper 中以应用样式
+     * 此方法独立于代码高亮，确保无论是否有代码块，表格都能正确显示样式
+     */
+    wrapTables() {
+      const entryContent = document.querySelector('.entry-content')
+      if (!entryContent) return
+
       const tables = entryContent.querySelectorAll('table')
       tables.forEach((table) => {
         // 避免重复包装

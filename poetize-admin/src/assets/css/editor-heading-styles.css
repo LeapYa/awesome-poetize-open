@@ -26,20 +26,20 @@
   --editor-h4-font-size: 18px;
   --editor-h5-font-size: 16px;
   --editor-h6-font-size: 16px;
-  
+
   /* 标题装饰颜色 */
   --editor-heading-accent-color: #ff6d6d;
-  
+
   /* 标题边距 */
   --editor-heading-margin-top: 30px;
   --editor-heading-margin-bottom: 20px;
-  
+
   /* 标题边框 */
   --editor-h1-border-color: #ddd;
-  
+
   /* h5/h6 文字颜色 */
   --editor-h5h6-color: #666;
-  
+
   /* 标题装饰符号 */
   --editor-h1-icon: "📑";
   --editor-h2-icon: "#";
@@ -410,4 +410,76 @@ body .split-preview-editor .entry-content h5:before {
 .entry-content h1.article-main-title:before {
   content: none !important;
   display: none !important;
+}
+
+/* ==================== 加粗和斜体样式保护 ==================== */
+/* 确保所有编辑器和预览区域的加粗和斜体正确显示 */
+
+/* 通用编辑器容器 */
+.editor-heading-styles strong,
+.editor-heading-styles b {
+  font-weight: 700 !important;
+}
+
+.editor-heading-styles em,
+.editor-heading-styles i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont) {
+  font-style: italic !important;
+}
+
+/* Vditor 编辑器 */
+.vditor-reset strong,
+.vditor-reset b {
+  font-weight: 700 !important;
+}
+
+.vditor-reset em,
+.vditor-reset i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont) {
+  font-style: italic !important;
+}
+
+/* IR/分屏预览编辑器 */
+.entry-content strong,
+body .ir-editor .entry-content strong,
+body .split-preview-editor .entry-content strong,
+.entry-content b,
+body .ir-editor .entry-content b,
+body .split-preview-editor .entry-content b {
+  font-weight: 700 !important;
+}
+
+.entry-content em,
+body .ir-editor .entry-content em,
+body .split-preview-editor .entry-content em,
+.entry-content i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont),
+body .ir-editor .entry-content i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont),
+body .split-preview-editor .entry-content i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont) {
+  font-style: italic !important;
+}
+
+/* CodeMirror 编辑器（如果使用）*/
+.CodeMirror strong,
+.CodeMirror b,
+.cm-strong {
+  font-weight: 700 !important;
+}
+
+.CodeMirror em,
+.CodeMirror i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont),
+.cm-em {
+  font-style: italic !important;
+}
+
+/* 文章预览区域 */
+.preview-content strong,
+.preview-content b,
+.markdown-body strong,
+.markdown-body b {
+  font-weight: 700 !important;
+}
+
+.preview-content em,
+.preview-content i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont),
+.markdown-body em,
+.markdown-body i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont) {
+  font-style: italic !important;
 }

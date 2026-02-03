@@ -3,7 +3,8 @@
   position: relative;
   isolation: isolate;
 }
-body > .vditor-editor-isolate {
+
+body>.vditor-editor-isolate {
   z-index: 100 !important;
   position: fixed !important;
   top: 0 !important;
@@ -11,94 +12,122 @@ body > .vditor-editor-isolate {
   width: 100vw !important;
   height: 100vh !important;
 }
-:deep(.vditor--fullscreen){
+
+:deep(.vditor--fullscreen) {
   z-index: 100 !important;
 }
+
 .vditor-wrapper {
   width: 100%;
 }
-:deep(.vditor){
+
+:deep(.vditor) {
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   font-size: 16px !important;
 }
-:deep(.vditor-toolbar){
+
+:deep(.vditor-toolbar) {
   background-color: #fafafa;
   border-bottom: 1px solid #e0e0e0;
 }
-:deep(.vditor-toolbar__item:hover){
+
+:deep(.vditor-toolbar__item:hover) {
   background-color: #e8e8e8;
 }
+
 :deep(.vditor-wysiwyg),
 :deep(.vditor-ir),
-:deep(.vditor-sv){
+:deep(.vditor-sv) {
   font-size: 16px !important;
 }
-:deep(.vditor-reset){
+
+:deep(.vditor-reset) {
   font-size: 16px !important;
 }
-:deep(.vditor-reset p){
+
+:deep(.vditor-reset p) {
   font-size: 16px !important;
   line-height: 1.75 !important;
 }
+
 :deep(.vditor-reset div),
 :deep(.vditor-reset span),
-:deep(.vditor-reset li){
+:deep(.vditor-reset li) {
   font-size: 16px !important;
 }
+
+/* 加粗和斜体样式 - 确保在编辑器中正确显示 */
+:deep(.vditor-reset strong),
+:deep(.vditor-reset b) {
+  font-weight: 700 !important;
+}
+
+:deep(.vditor-reset em),
+:deep(.vditor-reset i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont)) {
+  font-style: italic !important;
+}
+
 :deep(.vditor-reset h1),
 :deep(.vditor-reset h2),
 :deep(.vditor-reset h3),
 :deep(.vditor-reset h4),
 :deep(.vditor-reset h5),
-:deep(.vditor-reset h6){
+:deep(.vditor-reset h6) {
   margin-top: 30px !important;
   margin-bottom: 20px !important;
   line-height: 1.25 !important;
 }
-:deep(.vditor-reset h1){
+
+:deep(.vditor-reset h1) {
   padding-left: 40px !important;
   position: relative !important;
   font-size: 27px !important;
   padding-bottom: 8px !important;
   border-bottom: 1px dashed #ddd !important;
 }
-:deep(.vditor-reset h1:before){
+
+:deep(.vditor-reset h1:before) {
   content: '📑' !important;
   position: absolute !important;
   left: 0 !important;
   font-size: 1.03em !important;
   margin-top: -2px !important;
 }
-:deep(.vditor-reset h2){
+
+:deep(.vditor-reset h2) {
   padding-left: 25px !important;
   font-size: 24px !important;
   position: relative !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
 }
-:deep(.vditor-reset h2:before){
+
+:deep(.vditor-reset h2:before) {
   content: '#' !important;
   position: absolute !important;
   left: 0 !important;
   color: #ff6d6d !important;
   font-size: inherit !important;
 }
-:deep(.vditor-reset h3){
+
+:deep(.vditor-reset h3) {
   padding-left: 20px !important;
   font-size: 21px !important;
   position: relative !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
 }
-:deep(.vditor-reset h3:before){
+
+:deep(.vditor-reset h3:before) {
   content: '▌' !important;
   position: absolute !important;
   left: 0 !important;
   color: #ff6d6d !important;
   font-size: inherit !important;
 }
-:deep(.vditor-reset h4){
+
+:deep(.vditor-reset h4) {
   font-size: 18px !important;
   padding-left: 28px !important;
   position: relative !important;
@@ -106,13 +135,15 @@ body > .vditor-editor-isolate {
   padding-bottom: 0 !important;
   border-bottom: none !important;
 }
-:deep(.vditor-reset h4:before){
+
+:deep(.vditor-reset h4:before) {
   content: '🌷' !important;
   position: absolute !important;
   left: 0 !important;
   font-size: inherit !important;
 }
-:deep(.vditor-reset h5){
+
+:deep(.vditor-reset h5) {
   font-size: 16px !important;
   line-height: 1.25 !important;
   font-weight: 600 !important;
@@ -120,7 +151,8 @@ body > .vditor-editor-isolate {
   padding-bottom: 0 !important;
   border-bottom: none !important;
 }
-:deep(.vditor-reset h6){
+
+:deep(.vditor-reset h6) {
   font-size: 16px !important;
   line-height: 1.25 !important;
   font-weight: 600 !important;
@@ -128,7 +160,8 @@ body > .vditor-editor-isolate {
   padding-bottom: 0 !important;
   border-bottom: none !important;
 }
-:deep(.vditor-reset h1.article-main-title){
+
+:deep(.vditor-reset h1.article-main-title) {
   font-size: 32px !important;
   font-weight: 700 !important;
   margin-top: 0 !important;
@@ -138,88 +171,101 @@ body > .vditor-editor-isolate {
   color: var(--textColor) !important;
   padding-left: 0 !important;
 }
-:deep(.vditor-reset h1.article-main-title:before){
+
+:deep(.vditor-reset h1.article-main-title:before) {
   content: none !important;
   display: none !important;
 }
-:deep(.vditor-wysiwyg > .vditor-reset > h1:before){
+
+:deep(.vditor-wysiwyg > .vditor-reset > h1:before) {
   margin-left: 0 !important;
   float: none !important;
   padding-right: 0 !important;
   color: inherit !important;
   font-weight: inherit !important;
 }
-:deep(.vditor-wysiwyg > .vditor-reset > h2:before){
+
+:deep(.vditor-wysiwyg > .vditor-reset > h2:before) {
   margin-left: 0 !important;
   float: none !important;
   padding-right: 0 !important;
   color: #ff6d6d !important;
   font-weight: inherit !important;
 }
-:deep(.vditor-wysiwyg > .vditor-reset > h3:before){
+
+:deep(.vditor-wysiwyg > .vditor-reset > h3:before) {
   margin-left: 0 !important;
   float: none !important;
   padding-right: 0 !important;
   color: #ff6d6d !important;
   font-weight: inherit !important;
 }
-:deep(.vditor-wysiwyg > .vditor-reset > h4:before){
+
+:deep(.vditor-wysiwyg > .vditor-reset > h4:before) {
   margin-left: 0 !important;
   float: none !important;
   padding-right: 0 !important;
   color: inherit !important;
   font-weight: inherit !important;
 }
-:deep(.vditor-wysiwyg > .vditor-reset > h5:before){
+
+:deep(.vditor-wysiwyg > .vditor-reset > h5:before) {
   margin-left: 0 !important;
   float: none !important;
   padding-right: 0 !important;
   color: inherit !important;
   font-weight: inherit !important;
 }
-:deep(.vditor-ir > .vditor-reset > h1:before){
+
+:deep(.vditor-ir > .vditor-reset > h1:before) {
   margin-left: 0 !important;
   float: none !important;
   padding-right: 0 !important;
   color: inherit !important;
   font-weight: inherit !important;
 }
-:deep(.vditor-ir > .vditor-reset > h2:before){
+
+:deep(.vditor-ir > .vditor-reset > h2:before) {
   margin-left: 0 !important;
   float: none !important;
   padding-right: 0 !important;
   color: #ff6d6d !important;
   font-weight: inherit !important;
 }
-:deep(.vditor-ir > .vditor-reset > h3:before){
+
+:deep(.vditor-ir > .vditor-reset > h3:before) {
   margin-left: 0 !important;
   float: none !important;
   padding-right: 0 !important;
   color: #ff6d6d !important;
   font-weight: inherit !important;
 }
-:deep(.vditor-ir > .vditor-reset > h4:before){
+
+:deep(.vditor-ir > .vditor-reset > h4:before) {
   margin-left: 0 !important;
   float: none !important;
   padding-right: 0 !important;
   color: inherit !important;
   font-weight: inherit !important;
 }
-:deep(.vditor-ir > .vditor-reset > h5:before){
+
+:deep(.vditor-ir > .vditor-reset > h5:before) {
   margin-left: 0 !important;
   float: none !important;
   padding-right: 0 !important;
   color: inherit !important;
   font-weight: inherit !important;
 }
-:deep(.vditor-reset code:not(.hljs):not(pre code)){
+
+:deep(.vditor-reset code:not(.hljs):not(pre code)) {
   background: #fefac7 !important;
   color: #e67474 !important;
   padding: 4px 6px !important;
   border-radius: 5px !important;
   word-break: break-word !important;
 }
-:deep(.code-block-wrapper){
+
+:deep(.code-block-wrapper) {
   position: relative !important;
   margin-bottom: 1.6em !important;
   margin-top: 0 !important;
@@ -227,29 +273,11 @@ body > .vditor-editor-isolate {
   overflow: visible !important;
   box-shadow: 0 10px 30px 0 rgba(0, 0, 0, 0.4) !important;
 }
-:deep(.vditor-preview)
-  .vditor-reset
-  pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):not(
-    :has(.language-math)
-  ):not(:has(.katex)):not(:has(code.language-mermaid)):not(
-    :has(div.language-mermaid)
-  ):not(:has(code.language-echarts)):not(:has(div.language-echarts)),
-:deep(pre.vditor-ir__preview:not(:has(.language-math)):not(:has(.katex)):not()
-    :has(code.language-mermaid)
-  ):not(:has(div.language-mermaid)):not(:has(code.language-echarts)):not(
-    :has(div.language-echarts)
-  ),
-:deep(pre.vditor-wysiwyg__preview:not(:has(.language-math)):not(:has(.katex)):not()
-    :has(code.language-mermaid)
-  ):not(:has(div.language-mermaid)):not(:has(code.language-echarts)):not(
-    :has(div.language-echarts)
-  ),
-:deep(.vditor-reset)
-  pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):not(
-    :has(.language-math)
-  ):not(:has(.katex)):not(:has(code.language-mermaid)):not(
-    :has(div.language-mermaid)
-  ):not(:has(code.language-echarts)):not(:has(div.language-echarts)) {
+
+:deep(.vditor-preview) .vditor-reset pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):not( :has(.language-math)):not(:has(.katex)):not(:has(code.language-mermaid)):not( :has(div.language-mermaid)):not(:has(code.language-echarts)):not(:has(div.language-echarts)),
+:deep(pre.vditor-ir__preview:not(:has(.language-math)):not(:has(.katex)):not() :has(code.language-mermaid)):not(:has(div.language-mermaid)):not(:has(code.language-echarts)):not( :has(div.language-echarts)),
+:deep(pre.vditor-wysiwyg__preview:not(:has(.language-math)):not(:has(.katex)):not() :has(code.language-mermaid)):not(:has(div.language-mermaid)):not(:has(code.language-echarts)):not( :has(div.language-echarts)),
+:deep(.vditor-reset) pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):not( :has(.language-math)):not(:has(.katex)):not(:has(code.language-mermaid)):not( :has(div.language-mermaid)):not(:has(code.language-echarts)):not(:has(div.language-echarts)) {
   position: relative !important;
   background: #21252b !important;
   border-radius: 0 0 5px 5px !important;
@@ -261,11 +289,13 @@ body > .vditor-editor-isolate {
   box-shadow: none !important;
   overflow: visible !important;
 }
-:deep(.code-block-wrapper pre){
+
+:deep(.code-block-wrapper pre) {
   box-shadow: none !important;
   margin-bottom: 0 !important;
 }
-:deep(.code-header-toolbar){
+
+:deep(.code-header-toolbar) {
   position: relative !important;
   display: flex !important;
   align-items: center !important;
@@ -285,7 +315,8 @@ body > .vditor-editor-isolate {
   box-shadow: 0 10px 30px 0 rgba(0, 0, 0, 0.4) !important;
   margin-bottom: 0 !important;
 }
-:deep(.code-dots){
+
+:deep(.code-dots) {
   position: relative !important;
   width: 12px !important;
   height: 12px !important;
@@ -293,7 +324,8 @@ body > .vditor-editor-isolate {
   background: #fc625d !important;
   flex-shrink: 0 !important;
 }
-:deep(.code-dots:before){
+
+:deep(.code-dots:before) {
   content: '' !important;
   position: absolute !important;
   width: 12px !important;
@@ -303,7 +335,8 @@ body > .vditor-editor-isolate {
   left: 20px !important;
   top: 0 !important;
 }
-:deep(.code-dots:after){
+
+:deep(.code-dots:after) {
   content: '' !important;
   position: absolute !important;
   width: 12px !important;
@@ -313,7 +346,8 @@ body > .vditor-editor-isolate {
   left: 40px !important;
   top: 0 !important;
 }
-:deep(.code-language-label){
+
+:deep(.code-language-label) {
   position: absolute !important;
   left: 50% !important;
   transform: translateX(-50%) !important;
@@ -323,34 +357,29 @@ body > .vditor-editor-isolate {
   font-weight: 700 !important;
   line-height: 30px !important;
 }
+
 :deep(.vditor-reset pre:has(> code.language-mermaid) .code-header-toolbar),
-:deep(pre.vditor-wysiwyg__preview:has(> code.language-mermaid))
-  .code-header-toolbar,
-:deep(pre.vditor-ir__preview:has(> code.language-mermaid))
-  .code-header-toolbar {
+:deep(pre.vditor-wysiwyg__preview:has(> code.language-mermaid)) .code-header-toolbar,
+:deep(pre.vditor-ir__preview:has(> code.language-mermaid)) .code-header-toolbar {
   display: none !important;
 }
+
 :deep(.vditor-reset pre:has(.katex) .code-header-toolbar),
 :deep(.vditor-reset pre:has(.katex-display) .code-header-toolbar),
 :deep(.vditor-reset pre:has(.language-math) .code-header-toolbar),
 :deep(pre.vditor-wysiwyg__preview:has(.katex) .code-header-toolbar),
 :deep(pre.vditor-wysiwyg__preview:has(.language-math) .code-header-toolbar),
 :deep(pre.vditor-ir__preview:has(.katex) .code-header-toolbar),
-:deep(pre.vditor-ir__preview:has(.language-math) .code-header-toolbar){
+:deep(pre.vditor-ir__preview:has(.language-math) .code-header-toolbar) {
   display: none !important;
 }
-:deep(.vditor-reset)
-  pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(
-    > code.language-mermaid
-  ),
-:deep(.vditor-reset)
-  pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(
-    > div.language-mermaid
-  ),
+
+:deep(.vditor-reset) pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(> code.language-mermaid),
+:deep(.vditor-reset) pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(> div.language-mermaid),
 :deep(pre.vditor-wysiwyg__preview:has(> code.language-mermaid)),
 :deep(pre.vditor-wysiwyg__preview:has(> div.language-mermaid)),
 :deep(pre.vditor-ir__preview:has(> code.language-mermaid)),
-:deep(pre.vditor-ir__preview:has(> div.language-mermaid)){
+:deep(pre.vditor-ir__preview:has(> div.language-mermaid)) {
   background: #f8f9fa !important;
   border: 1px solid #e0e0e0 !important;
   border-radius: 8px !important;
@@ -358,13 +387,14 @@ body > .vditor-editor-isolate {
   margin: 15px 0 !important;
   box-shadow: none !important;
 }
+
 :deep(.vditor-reset pre:has(.katex)),
 :deep(.vditor-reset pre:has(.katex-display)),
 :deep(.vditor-reset pre:has(.language-math)),
 :deep(pre.vditor-wysiwyg__preview:has(.katex)),
 :deep(pre.vditor-wysiwyg__preview:has(.language-math)),
 :deep(pre.vditor-ir__preview:has(.katex)),
-:deep(pre.vditor-ir__preview:has(.language-math)){
+:deep(pre.vditor-ir__preview:has(.language-math)) {
   background: transparent !important;
   border: none !important;
   border-radius: 0 !important;
@@ -372,41 +402,28 @@ body > .vditor-editor-isolate {
   margin: 1em 0 !important;
   box-shadow: none !important;
 }
+
 :deep(.vditor-reset .katex-display),
 :deep(.vditor-reset .language-math),
 :deep(pre.vditor-wysiwyg__preview .katex-display),
 :deep(pre.vditor-wysiwyg__preview .language-math),
 :deep(pre.vditor-ir__preview .katex-display),
-:deep(pre.vditor-ir__preview .language-math){
+:deep(pre.vditor-ir__preview .language-math) {
   background: transparent !important;
   padding: 1em 0 !important;
   margin: 0 !important;
 }
-:deep(.vditor-reset pre code::-webkit-scrollbar){
+
+:deep(.vditor-reset pre code::-webkit-scrollbar) {
   height: 6px !important;
   width: 6px !important;
 }
-:deep(.vditor-preview)
-  pre:not(:has(.language-math)):not(:has(.katex)):not(
-    :has(code.language-echarts)
-  ):not(:has(div.language-echarts))
-  > code,
-:deep(pre.vditor-ir__preview:not(:has(.language-math)):not(:has(.katex)):not()
-    :has(code.language-echarts)
-  ):not(:has(div.language-echarts))
-  > code,
-:deep(pre.vditor-wysiwyg__preview:not(:has(.language-math)):not(:has(.katex)):not()
-    :has(code.language-echarts)
-  ):not(:has(div.language-echarts))
-  > code,
-:deep(.vditor-reset)
-  pre:not(:has(.language-math)):not(:has(.katex)):not(
-    :has(code.language-echarts)
-  ):not(:has(div.language-echarts))
-  > code,
-:deep(.vditor-reset)
-  pre
-  code.hljs:not(.language-math):not(.language-echarts) {
+
+:deep(.vditor-preview) pre:not(:has(.language-math)):not(:has(.katex)):not( :has(code.language-echarts)):not(:has(div.language-echarts))>code,
+:deep(pre.vditor-ir__preview:not(:has(.language-math)):not(:has(.katex)):not() :has(code.language-echarts)):not(:has(div.language-echarts))>code,
+:deep(pre.vditor-wysiwyg__preview:not(:has(.language-math)):not(:has(.katex)):not() :has(code.language-echarts)):not(:has(div.language-echarts))>code,
+:deep(.vditor-reset) pre:not(:has(.language-math)):not(:has(.katex)):not( :has(code.language-echarts)):not(:has(div.language-echarts))>code,
+:deep(.vditor-reset) pre code.hljs:not(.language-math):not(.language-echarts) {
   background: #1d1f21 !important;
   color: #a9b7c6 !important;
   display: block !important;
@@ -415,20 +432,23 @@ body > .vditor-editor-isolate {
   padding: 1em !important;
   padding-left: 4em !important;
 }
+
 :deep(.vditor-reset pre > code.language-mermaid),
 :deep(pre.vditor-wysiwyg__preview > code.language-mermaid),
-:deep(pre.vditor-ir__preview > code.language-mermaid){
+:deep(pre.vditor-ir__preview > code.language-mermaid) {
   background: transparent !important;
   color: #333 !important;
   font-family: 'Courier New', monospace !important;
   font-size: 14px !important;
   border-radius: 0 !important;
 }
-:deep(.vditor-reset .hljs:not(.language-math)){
+
+:deep(.vditor-reset .hljs:not(.language-math)) {
   background: #1d1f21 !important;
   color: #a9b7c6 !important;
 }
-:deep(.vditor-reset blockquote){
+
+:deep(.vditor-reset blockquote) {
   margin: 0 !important;
   padding: 15px 50px !important;
   position: relative !important;
@@ -437,7 +457,8 @@ body > .vditor-editor-isolate {
   background: rgba(255, 165, 0, 0.05) !important;
   border-left: 4px solid orange !important;
 }
-:deep(.vditor-reset blockquote:before){
+
+:deep(.vditor-reset blockquote:before) {
   content: '\f10d' !important;
   font-size: 1.5rem !important;
   position: absolute !important;
@@ -446,7 +467,8 @@ body > .vditor-editor-isolate {
   color: orange !important;
   font-family: FontAwesome !important;
 }
-:deep(.vditor-reset blockquote:after){
+
+:deep(.vditor-reset blockquote:after) {
   content: '\f10e' !important;
   font-size: 1.5rem !important;
   position: absolute !important;
@@ -455,56 +477,70 @@ body > .vditor-editor-isolate {
   color: orange !important;
   font-family: FontAwesome !important;
 }
-:deep(.vditor-reset ul){
+
+:deep(.vditor-reset ul) {
   list-style: disc !important;
   padding: 0 10px 0 35px !important;
 }
-:deep(.vditor-reset ol){
+
+:deep(.vditor-reset ol) {
   list-style: decimal !important;
   padding: 0 10px 0 35px !important;
 }
+
 :deep(.vditor-reset ol li),
-:deep(.vditor-reset ul li){
+:deep(.vditor-reset ul li) {
   padding: 8px 0 !important;
 }
-:deep(.vditor-reset a){
+
+:deep(.vditor-reset a) {
   color: #e67474 !important;
 }
-:deep(.vditor-reset .hljs-tag){
+
+:deep(.vditor-reset .hljs-tag) {
   color: #e06c75 !important;
 }
-:deep(.vditor-reset .hljs-tag .hljs-name){
+
+:deep(.vditor-reset .hljs-tag .hljs-name) {
   color: #e06c75 !important;
 }
-:deep(.vditor-reset .hljs-tag .hljs-attr){
+
+:deep(.vditor-reset .hljs-tag .hljs-attr) {
   color: #d19a66 !important;
 }
-:deep(.vditor-reset .hljs-tag .hljs-string){
+
+:deep(.vditor-reset .hljs-tag .hljs-string) {
   color: #98c379 !important;
 }
-:deep(.vditor-reset .hljs-tag > .hljs-name){
+
+:deep(.vditor-reset .hljs-tag > .hljs-name) {
   color: #61aeee !important;
 }
+
 :deep(.vditor-reset .hljs-template-variable),
-:deep(.vditor-reset .hljs-template-tag){
+:deep(.vditor-reset .hljs-template-tag) {
   color: #c678dd !important;
 }
-:deep(.vditor-reset img){
+
+:deep(.vditor-reset img) {
   max-width: 100% !important;
   border-radius: 5px !important;
 }
+
 :deep(.vditor-reset .hljs::selection),
 :deep(.vditor-reset .hljs *::selection),
 :deep(.vditor-reset code::selection),
 :deep(.vditor-reset pre::selection),
-:deep(.vditor-reset pre code::selection){
+:deep(.vditor-reset pre code::selection) {
   background: var(--lightGreen) !important;
   color: var(--white) !important;
 }
-:deep(.vditor-copy){
+
+:deep(.vditor-copy) {
   display: none !important;
 }
-:deep(.copy-code){
+
+:deep(.copy-code) {
   color: #fff !important;
   position: absolute !important;
   right: 10px !important;
@@ -514,12 +550,14 @@ body > .vditor-editor-isolate {
   cursor: pointer !important;
   text-decoration: none !important;
 }
-:deep(.copy-code:hover){
+
+:deep(.copy-code:hover) {
   color: rgba(255, 255, 255, 0.5) !important;
 }
+
 :deep(.vditor-reset .mermaid-container),
 :deep(.vditor-wysiwyg__preview .mermaid-container),
-:deep(.vditor-ir__preview .mermaid-container){
+:deep(.vditor-ir__preview .mermaid-container) {
   position: relative !important;
   margin: 15px 0 !important;
   padding: 15px !important;
@@ -528,66 +566,67 @@ body > .vditor-editor-isolate {
   overflow-x: auto !important;
   text-align: center !important;
 }
+
 :deep(.vditor-reset .mermaid-container svg),
 :deep(.vditor-wysiwyg__preview .mermaid-container svg),
-:deep(.vditor-ir__preview .mermaid-container svg){
+:deep(.vditor-ir__preview .mermaid-container svg) {
   max-width: 100% !important;
   height: auto !important;
 }
-.dark-mode :deep(.vditor){
+
+.dark-mode :deep(.vditor) {
   border-color: #3a3a3a;
   background-color: #1e1e1e;
 }
-.dark-mode :deep(.vditor-toolbar){
+
+.dark-mode :deep(.vditor-toolbar) {
   background-color: #2d2d2d;
   border-bottom-color: #3a3a3a;
 }
-.dark-mode :deep(.vditor-toolbar__item:hover){
+
+.dark-mode :deep(.vditor-toolbar__item:hover) {
   background-color: #3a3a3a;
 }
-.dark-mode :deep(.vditor-reset code:not(pre code)){
+
+.dark-mode :deep(.vditor-reset code:not(pre code)) {
   background: #2d2d2d !important;
   color: #e67474 !important;
 }
+
 .dark-mode :deep(.vditor-reset .mermaid-container),
 .dark-mode :deep(.vditor-wysiwyg__preview .mermaid-container),
-.dark-mode :deep(.vditor-ir__preview .mermaid-container){
+.dark-mode :deep(.vditor-ir__preview .mermaid-container) {
   background: #2d2d2d !important;
 }
-body.dark-mode
-  :deep(.vditor-reset)
-  pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(
-    > code.language-mermaid
-  ),
-body.dark-mode
-  :deep(.vditor-reset)
-  pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(
-    > div.language-mermaid
-  ),
-body.dark-mode
-  :deep(pre.vditor-wysiwyg__preview:has(> code.language-mermaid)),
+
+body.dark-mode :deep(.vditor-reset) pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(> code.language-mermaid),
+body.dark-mode :deep(.vditor-reset) pre:not(.vditor-ir__marker):not(.vditor-ir__marker--pre):has(> div.language-mermaid),
+body.dark-mode :deep(pre.vditor-wysiwyg__preview:has(> code.language-mermaid)),
 body.dark-mode :deep(pre.vditor-wysiwyg__preview:has(> div.language-mermaid)),
 body.dark-mode :deep(pre.vditor-ir__preview:has(> code.language-mermaid)),
-body.dark-mode :deep(pre.vditor-ir__preview:has(> div.language-mermaid)){
+body.dark-mode :deep(pre.vditor-ir__preview:has(> div.language-mermaid)) {
   background: #2d2d2d !important;
   border: 1px solid #3a3a3a !important;
 }
+
 body.dark-mode :deep(.vditor-reset pre:has(.katex)),
 body.dark-mode :deep(.vditor-reset pre:has(.katex-display)),
 body.dark-mode :deep(.vditor-reset pre:has(.language-math)),
 body.dark-mode :deep(pre.vditor-wysiwyg__preview:has(.katex)),
 body.dark-mode :deep(pre.vditor-wysiwyg__preview:has(.language-math)),
 body.dark-mode :deep(pre.vditor-ir__preview:has(.katex)),
-body.dark-mode :deep(pre.vditor-ir__preview:has(.language-math)){
+body.dark-mode :deep(pre.vditor-ir__preview:has(.language-math)) {
   background: transparent !important;
   border: none !important;
 }
+
 .dark-mode :deep(.vditor-reset pre > code.language-mermaid),
 .dark-mode :deep(pre.vditor-wysiwyg__preview > code.language-mermaid),
-.dark-mode :deep(pre.vditor-ir__preview > code.language-mermaid){
+.dark-mode :deep(pre.vditor-ir__preview > code.language-mermaid) {
   color: #e0e0e0 !important;
 }
-.dark-mode :deep(pre code[data-rel]:before){
+
+.dark-mode :deep(pre code[data-rel]:before) {
   color: #e0e0e0 !important;
   background: #1d1f21 !important;
 }

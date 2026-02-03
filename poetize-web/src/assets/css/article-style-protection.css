@@ -167,6 +167,21 @@ html body div.entry-content p {
   line-height: 1.75 !important;
 }
 
+/* ========== 加粗和斜体样式保护 ========== */
+body .entry-content strong,
+html body .entry-content strong,
+body .entry-content b,
+html body .entry-content b {
+  font-weight: 700 !important;
+}
+
+body .entry-content em,
+html body .entry-content em,
+body .entry-content i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont),
+html body .entry-content i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont) {
+  font-style: italic !important;
+}
+
 /* ========== 代码块样式保护 ========== */
 /* 行内代码 */
 body .entry-content code:not(.hljs),
@@ -282,7 +297,8 @@ html body .entry-content pre code.css-line-numbers .code-line {
 /* 行号伪元素 */
 body .entry-content pre code.css-line-numbers .code-line::before,
 html body .entry-content pre code.css-line-numbers .code-line::before {
-  counter-increment: line-number 0 !important; /* 不重复增加计数器 */
+  counter-increment: line-number 0 !important;
+  /* 不重复增加计数器 */
   content: counter(line-number) !important;
   position: absolute !important;
   left: 0 !important;
@@ -303,13 +319,11 @@ html body .entry-content pre code.css-line-numbers .code-line::before {
 /* 代码行悬停效果 - 只在代码内容区域显示 */
 body .entry-content pre code.css-line-numbers .code-line:hover,
 html body .entry-content pre code.css-line-numbers .code-line:hover {
-  background: linear-gradient(
-    to right, 
-    transparent 0%, 
-    transparent var(--line-number-width, 25px),
-    rgba(255, 255, 255, 0.1) var(--line-number-width, 25px),
-    rgba(255, 255, 255, 0.1) 100%
-  ) !important;
+  background: linear-gradient(to right,
+      transparent 0%,
+      transparent var(--line-number-width, 25px),
+      rgba(255, 255, 255, 0.1) var(--line-number-width, 25px),
+      rgba(255, 255, 255, 0.1) 100%) !important;
 }
 
 /* 兼容：保留旧的hljs-ln样式（以防某些地方还在使用） */
@@ -453,5 +467,72 @@ body .entry-content table,
 html body .entry-content table {
   border-collapse: collapse !important;
   width: 100% !important;
-  margin: 20px 0 !important;
+  margin: 20px auto !important;
+  display: table !important;
+}
+
+body .entry-content table th,
+html body .entry-content table th {
+  background-color: rgba(0, 0, 0, 0.1) !important;
+  padding: 8px 16px !important;
+  border: 1px solid #dfe2e5 !important;
+  line-height: 1.5 !important;
+  font-size: 90% !important;
+  text-align: center !important;
+}
+
+body .entry-content table td,
+html body .entry-content table td {
+  padding: 8px 16px !important;
+  border: 1px solid #dfe2e5 !important;
+  line-height: 1.5 !important;
+  font-size: 90% !important;
+  text-align: center !important;
+}
+
+body .entry-content table tr:nth-child(2n),
+html body .entry-content table tr:nth-child(2n) {
+  background-color: #f8f8f8 !important;
+}
+
+body .entry-content table tbody>tr,
+html body .entry-content table tbody>tr {
+  transition: background-color 0.28s ease !important;
+}
+
+body .entry-content table tbody>tr:hover,
+html body .entry-content table tbody>tr:hover {
+  background-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+/* 深色模式表格样式 */
+.dark-mode body .entry-content table,
+body.dark-mode .entry-content table,
+html body.dark-mode .entry-content table {
+  color: var(--articleFontColor, #e0e0e0) !important;
+}
+
+.dark-mode body .entry-content table th,
+body.dark-mode .entry-content table th,
+html body.dark-mode .entry-content table th {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark-mode body .entry-content table td,
+body.dark-mode .entry-content table td,
+html body.dark-mode .entry-content table td {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dark-mode body .entry-content table tr:nth-child(2n),
+body.dark-mode .entry-content table tr:nth-child(2n),
+html body.dark-mode .entry-content table tr:nth-child(2n) {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dark-mode body .entry-content table tbody>tr:hover,
+body.dark-mode .entry-content table tbody>tr:hover,
+html body.dark-mode .entry-content table tbody>tr:hover {
+  background-color: rgba(255, 255, 255, 0.12) !important;
 }

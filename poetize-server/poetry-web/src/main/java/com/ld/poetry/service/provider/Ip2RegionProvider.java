@@ -31,12 +31,12 @@ import java.nio.file.Paths;
 public class Ip2RegionProvider implements IpLocationProvider {
 
     // 数据库文件下载地址
-    private static final String IPV4_DB_URL = "https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region.xdb";
+    private static final String IPV4_DB_URL = "https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v4.xdb";
     private static final String IPV6_DB_URL = "https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v6.xdb";
 
     // 备用下载地址（国内镜像）
-    private static final String IPV4_DB_URL_MIRROR = "https://gitee.com/lionsoul/ip2region/raw/master/data/ip2region.xdb";
-    private static final String IPV6_DB_URL_MIRROR = "https://gitee.com/lionsoul/ip2region/raw/master/data/ip2region_v6.xdb";
+    private static final String IPV4_DB_URL_MIRROR = "https://gh-proxy.org/https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v4.xdb";
+    private static final String IPV6_DB_URL_MIRROR = "https://gh-proxy.org/https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v6.xdb";
 
     // 数据存储目录（相对于用户目录）
     @Value("${ip2region.data-dir:#{null}}")
@@ -55,7 +55,7 @@ public class Ip2RegionProvider implements IpLocationProvider {
 
         // 初始化 IPv4 搜索器
         try {
-            File ipv4File = ensureDbFile("ip2region.xdb", IPV4_DB_URL, IPV4_DB_URL_MIRROR);
+            File ipv4File = ensureDbFile("ip2region_v4.xdb", IPV4_DB_URL, IPV4_DB_URL_MIRROR);
             if (ipv4File != null && ipv4File.exists()) {
                 LongByteArray cBuff = Searcher.loadContentFromFile(ipv4File.getAbsolutePath());
                 ipv4Searcher = Searcher.newWithBuffer(Version.IPv4, cBuff);

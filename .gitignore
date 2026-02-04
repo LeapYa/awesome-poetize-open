@@ -160,3 +160,5 @@ py/data/.encryption_key
 # 数据库连接字符串
 *connection_string*
 *database_url*
+gitee_deploy_key
+gitee_deploy_key.pub

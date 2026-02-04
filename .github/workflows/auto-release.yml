@@ -1,0 +1,293 @@
+name: Auto Release
+
+on:
+  workflow_run:
+    workflows: ["Release Test"]
+    types:
+      - completed
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # 只有测试通过才发布
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: version
+        run: |
+          # 1. 获取触发的原始 Tag
+          RAW_TAG=$(echo "${{ github.event.workflow_run.head_branch }}" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$' || echo "")
+          
+          if [ -z "$RAW_TAG" ]; then
+            RAW_TAG=$(git describe --tags --exact-match ${{ github.event.workflow_run.head_sha }} 2>/dev/null || echo "")
+          fi
+          
+          if [ -z "$RAW_TAG" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "raw_tag=$RAW_TAG" >> $GITHUB_OUTPUT
+          
+          # 2. 计算发布版本 (Strip -rc suffix)
+          # v3.0.4-rc1 -> v3.0.4
+          # v3.0.4     -> v3.0.4
+          FINAL_TAG=$(echo "$RAW_TAG" | sed 's/-rc[0-9]*$//')
+          echo "tag=$FINAL_TAG" >> $GITHUB_OUTPUT
+          
+          # 3. 判断是否为晋升 (Promotion)
+          if [ "$RAW_TAG" != "$FINAL_TAG" ]; then
+            echo "is_promotion=true" >> $GITHUB_OUTPUT
+            echo "Promoting $RAW_TAG to Stable Release $FINAL_TAG"
+            # 标记为正式版 (prerelease=false)
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          else
+            echo "is_promotion=false" >> $GITHUB_OUTPUT
+            echo "Standard Release $FINAL_TAG"
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # 4. 获取上一个正式版本 (用于 Changelog)
+          PREV_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          # 如果 prev_tag 等于我们即将发布的 final_tag (比如重跑)，取下一个
+          if [ "$PREV_TAG" = "$FINAL_TAG" ]; then
+            PREV_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p')
+          fi
+          echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+
+      - name: Prepare Promotion Tag
+        if: steps.version.outputs.skip != 'true' && steps.version.outputs.is_promotion == 'true'
+        run: |
+          # 这是一个 RC 晋升，我们需要在本地创建正式 Tag，以便 Sync 到 Gitee
+          RAW_TAG="${{ steps.version.outputs.raw_tag }}"
+          FINAL_TAG="${{ steps.version.outputs.tag }}"
+          
+          git tag "$FINAL_TAG" "$RAW_TAG"
+          echo "Created alias tag $FINAL_TAG pointing to $RAW_TAG"
+
+      - name: Get commits
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          RAW_TAG="${{ steps.version.outputs.raw_tag }}"
+          PREV_TAG="${{ steps.version.outputs.prev_tag }}"
+          
+          if [ -n "$PREV_TAG" ]; then
+            git log --oneline ${PREV_TAG}..${RAW_TAG} > commits.txt 2>/dev/null || git log --oneline -20 > commits.txt
+          else
+            git log --oneline -20 > commits.txt
+          fi
+
+      - name: Get previous releases
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          for tag in $(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -3); do
+            BODY=$(curl -fsSL "https://api.github.com/repos/${{ github.repository }}/releases/tags/$tag" 2>/dev/null | jq -r '.body // empty' || echo "")
+            [ -n "$BODY" ] && echo -e "\n--- Release $tag ---\n${BODY}" >> prev_releases.txt
+          done
+          touch prev_releases.txt
+
+      - name: Check AI availability
+        id: check_ai
+        run: |
+          if [ -n "${{ secrets.OPENAI_API_KEY }}" ]; then
+            echo "has_ai=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_ai=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate notes with AI
+        if: steps.version.outputs.skip != 'true' && steps.check_ai.outputs.has_ai == 'true'
+        id: ai_notes
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          COMMITS=$(cat commits.txt)
+          PREV_RELEASES=$(cat prev_releases.txt || echo "")
+          
+          cat > prompt.txt << 'PROMPT_END'
+          你是一个专业的软件发布说明撰写者。请根据以下 Git 提交记录生成中文发布说明。
+          使用 emoji 图标（如 🐛 Bug修复、✨ 新功能、📚 文档更新）。
+          去除 commit message 中的 conventional commits 前缀（如 'feat:', 'fix:'）。
+          包含升级指南章节，使用 poetize -update && poetize -update-poetize-command 命令。
+          结尾添加 Full Changelog 链接。
+          PROMPT_END
+          echo -e "\n提交记录:\n$COMMITS" >> prompt.txt
+          echo -e "\n参考之前的发布说明格式:\n$PREV_RELEASES" >> prompt.txt
+          
+          PROMPT_CONTENT=$(cat prompt.txt | jq -Rs .)
+          
+          RESPONSE=$(curl -fsSL https://api.openai.com/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d "{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":$PROMPT_CONTENT}],\"temperature\":0.7}" 2>/dev/null || echo "")
+          
+          NOTES=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null || echo "")
+          
+          if [ -n "$NOTES" ] && [ "$NOTES" != "null" ]; then
+            echo "$NOTES" > release_notes.md
+            echo "success=true" >> $GITHUB_OUTPUT
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate notes (fallback)
+        if: steps.version.outputs.skip != 'true' && (steps.check_ai.outputs.has_ai != 'true' || steps.ai_notes.outputs.success != 'true')
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          PREV_TAG="${{ steps.version.outputs.prev_tag }}"
+          IS_PRERELEASE="${{ steps.version.outputs.is_prerelease }}"
+          RAW_TAG="${{ steps.version.outputs.raw_tag }}"
+          
+          # 使用临时文件存储，避免管道子 Shell 导致的变量丢失问题
+          > fixes.txt
+          > features.txt
+          > docs.txt
+          > other.txt
+          
+          # 读取 commits 并进行预处理
+          cat commits.txt | \
+          sed -E 's/([,，;；] +)(fix|feat|docs|chore|refactor|test|优化|重构|修复|新增|添加)/\n\2/Ig' | \
+          while IFS= read -r line; do
+            # 移除 hash
+            MSG_RAW=$(echo "$line" | sed -E 's/^[a-f0-9]+ //')
+            
+            # 跳过空行
+            if [ -z "$MSG_RAW" ]; then continue; fi
+            
+            # 分类并移除前缀，追加到对应临时文件
+            if echo "$MSG_RAW" | grep -qiE '^(fix|修复|bugfix)'; then
+              CLEAN_MSG=$(echo "$MSG_RAW" | sed -E 's/^(fix|修复|bugfix)(\([^)]+\))?: ?//I')
+              echo "- ${CLEAN_MSG}" >> fixes.txt
+            elif echo "$MSG_RAW" | grep -qiE '^(feat|feature|新增|添加)'; then
+              CLEAN_MSG=$(echo "$MSG_RAW" | sed -E 's/^(feat|feature|新增|添加)(\([^)]+\))?: ?//I')
+              echo "- ${CLEAN_MSG}" >> features.txt
+            elif echo "$MSG_RAW" | grep -qiE '^(docs|文档)'; then
+              CLEAN_MSG=$(echo "$MSG_RAW" | sed -E 's/^(docs|文档)(\([^)]+\))?: ?//I')
+              echo "- ${CLEAN_MSG}" >> docs.txt
+            elif echo "$MSG_RAW" | grep -qiE '^(chore|refactor|test|优化|重构)'; then
+              CLEAN_MSG=$(echo "$MSG_RAW" | sed -E 's/^(chore|refactor|test|优化|重构)(\([^)]+\))?: ?//I')
+              echo "- ${CLEAN_MSG}" >> other.txt
+            else
+              echo "- ${MSG_RAW}" >> other.txt
+            fi
+          done
+          
+          NOTES=""
+          
+          if [ -s features.txt ]; then NOTES="${NOTES}# ✨ 新功能\n$(cat features.txt)\n\n"; fi
+          if [ -s fixes.txt ]; then NOTES="${NOTES}# 🐛 Bug修复\n$(cat fixes.txt)\n\n"; fi
+          if [ -s docs.txt ]; then NOTES="${NOTES}# 📚 文档更新\n$(cat docs.txt)\n\n"; fi
+          if [ -s other.txt ]; then NOTES="${NOTES}# 🔧 其他更新\n$(cat other.txt)\n\n"; fi
+          
+          # 正式版本（包括 Promotion）添加升级指南
+          if [ "$IS_PRERELEASE" != "true" ]; then
+            # 检测是否有 SQL 变更
+            HAS_SQL_CHANGES=""
+            if [ -n "$PREV_TAG" ]; then
+              HAS_SQL_CHANGES=$(git diff --name-only "$PREV_TAG" "$RAW_TAG" | grep "poetize-server/sql/" || echo "")
+            fi
+
+            NOTES="${NOTES}# 升级\n\n"
+          NOTES="${NOTES}**查看项目版本：**\n\n\`\`\`bash\npoetize -info\n\`\`\`\n"
+          
+          if [ -n "$HAS_SQL_CHANGES" ]; then
+            # ===== 有 SQL 变更：使用简化的两段式说明 =====
+            
+            NOTES="${NOTES}**如果从v3.0.0升级：**\n\n"
+            NOTES="${NOTES}\`\`\`bash\n# 1. 先更新 poetize 脚本（修复端口备份问题）\n\n# GitHub（海外服务器）\nsudo curl -fsSL https://raw.githubusercontent.com/LeapYa/Awesome-poetize-open/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n# Gitee（国内服务器，如访问 GitHub 失败使用此命令）\nsudo curl -fsSL https://gitee.com/leapya/poetize/raw/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n\n# 2. 执行系统升级\npoetize -update\n\`\`\`\n\n"
+            
+            NOTES="${NOTES}**如果从其他的版本升级：**\n\n"
+            NOTES="${NOTES}\`\`\`bash\n# 执行此命令Java启动失败，这是正常的，主要是为了升级数据库\npoetize -update\n# 升级poetize脚本\npoetize -update-poetize-command\n# 完整启动项目\npoetize -update\n\`\`\`\n\n"
+            
+          else
+            # ===== 无 SQL 变更：使用标准的三段式说明 =====
+            
+            NOTES="${NOTES}**如果从v3.0.0以上版本升级：**\n\n"
+            NOTES="${NOTES}\`\`\`bash\npoetize -update && poetize -update-poetize-command\n\`\`\`\n\n"
+            
+            NOTES="${NOTES}**如果从v3.0.0升级：**\n\n"
+            NOTES="${NOTES}\`\`\`bash\n# 1. 先更新 poetize 脚本（修复端口备份问题）\n\n# GitHub（海外服务器）\nsudo curl -fsSL https://raw.githubusercontent.com/LeapYa/Awesome-poetize-open/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n# Gitee（国内服务器，如访问 GitHub 失败使用此命令）\nsudo curl -fsSL https://gitee.com/leapya/poetize/raw/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n\n# 2. 执行系统升级\npoetize -update\n\`\`\`\n\n"
+            
+            NOTES="${NOTES}**如果从v3.0.0以前的版本升级：**\n\n"
+            NOTES="${NOTES}\`\`\`bash\n# 执行此命令Java启动失败，这是正常的，主要是为了升级数据库\npoetize -update\n# 升级poetize脚本\npoetize -update-poetize-command\n# 完整启动项目\npoetize -update\n\`\`\`\n\n"
+          fi
+            
+          NOTES="${NOTES}> **注意**：升级后会自动更新 AES 密钥，原有 AI 配置中的 API 密钥将失效，需重新配置。\n\n"
+          fi
+          
+          [ -n "$PREV_TAG" ] && NOTES="${NOTES}**Full Changelog**: [${PREV_TAG}...${TAG}](https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG})"
+          
+          echo -e "$NOTES" > release_notes.md
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ steps.version.outputs.is_prerelease == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync to Gitee
+        if: steps.version.outputs.skip != 'true'
+        uses: Yikun/hub-mirror-action@v1.4
+        with:
+          src: github/LeapYa
+          dst: gitee/leapya
+          dst_key: ${{ secrets.GITEE_PRIVATE_KEY }}
+          dst_token: ${{ secrets.GITEE_TOKEN }}
+          static_list: "Awesome-poetize-open"
+          mappings: "Awesome-poetize-open=>poetize"
+          force_update: true
+          debug: true
+
+      - name: Create Gitee Release
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPO: poetize
+          GITEE_OWNER: leapya
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          IS_PRERELEASE="${{ steps.version.outputs.is_prerelease }}"
+          NOTES=$(cat release_notes.md)
+          
+          echo " Creating Gitee Release for $TAG..."
+          
+          # 构建 JSON payload
+          # 注意：为了安全处理多行字符串，使用 jq 来构建 JSON
+          jq -n \
+            --arg tag_name "$TAG" \
+            --arg name "$TAG" \
+            --arg body "$NOTES" \
+            --argjson prerelease "$IS_PRERELEASE" \
+            '{access_token: env.GITEE_TOKEN, tag_name: $tag_name, name: $name, body: $body, prerelease: $prerelease}' \
+            > gitee_payload.json
+            
+          # 调用 Gitee API
+          RESPONSE=$(curl -X POST -H "Content-Type: application/json" \
+            -d @gitee_payload.json \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases")
+            
+          # 检查结果
+          if echo "$RESPONSE" | grep -q "\"tag_name\":\"$TAG\""; then
+            echo "Successfully created Gitee Release"
+          else
+            echo "Failed to create Gitee Release"
+            echo "Response: $RESPONSE"
+            # 不让整个工作流失败，因为 GitHub Release 已经成功
+            exit 0 
+          fi

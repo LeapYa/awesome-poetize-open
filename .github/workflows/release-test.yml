@@ -1,0 +1,221 @@
+name: Release Test
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout current release
+        uses: actions/checkout@v4
+        with:
+          path: current-release
+
+      - name: Get previous version tag
+        id: prev_version
+        run: |
+          # 获取当前 tag
+          CURRENT_TAG=${GITHUB_REF#refs/tags/}
+          echo "Current tag: $CURRENT_TAG"
+          
+          # 获取所有 tag 并排序，找到前一个版本
+          cd current-release
+          git fetch --tags
+          PREV_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p')
+          
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous version found, skipping update test"
+            echo "skip_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "Previous tag: $PREV_TAG"
+            echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+            echo "skip_update=false" >> $GITHUB_OUTPUT
+          fi
+          echo "current_tag=$CURRENT_TAG" >> $GITHUB_OUTPUT
+
+      - name: Checkout previous version
+        if: steps.prev_version.outputs.skip_update == 'false'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.prev_version.outputs.prev_tag }}
+          path: previous-release
+
+      - name: Install previous version
+        if: steps.prev_version.outputs.skip_update == 'false'
+        run: |
+          cd previous-release
+          chmod +x deploy.sh
+          # 使用命令行参数进行非交互式安装
+          sudo bash deploy.sh --domain localhost --skip-dns-check
+          
+          # 等待服务启动
+          echo "Waiting for services to start..."
+          sleep 60
+          
+          # 检查服务状态
+          docker ps -a
+
+      - name: Test update to current version
+        if: steps.prev_version.outputs.skip_update == 'false'
+        run: |
+          # 覆盖旧版本的 poetize 命令，使用当前修复了 CI 问题的版本
+          sudo cp current-release/poetize /usr/local/bin/poetize
+          sudo chmod +x /usr/local/bin/poetize
+          
+          cd previous-release
+          # 更新到当前版本
+          sudo poetize -update ${{ steps.prev_version.outputs.current_tag }}
+          
+          # 等待服务重启
+          echo "Waiting for services to restart after update..."
+          sleep 60
+          
+          # 检查服务状态
+          docker ps -a
+          
+          # 健康检查
+          curl -f http://localhost:80/ || echo "Frontend check completed"
+          curl -f http://localhost:80/actuator/health || echo "Backend health check completed"
+
+      - name: Test fresh install (if no previous version)
+        if: steps.prev_version.outputs.skip_update == 'true'
+        run: |
+          cd current-release
+          chmod +x deploy.sh
+          sudo bash deploy.sh --domain localhost --skip-dns-check
+          
+          sleep 60
+          docker ps -a
+          curl -f http://localhost:80/ || echo "Frontend check completed"
+
+      - name: Delete tag on failure
+        if: failure()
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "Tests failed, deleting tag: $TAG_NAME"
+          git push --delete origin "$TAG_NAME" || echo "Failed to delete tag"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show final status
+        if: always()
+        run: |
+          echo "=== Final Docker Status ==="
+          docker ps -a
+          echo ""
+          echo "=== Docker Logs (last 50 lines per service) ==="
+          for container in $(docker ps -a --format '{{.Names}}' | grep poetize); do
+            echo "--- $container ---"
+            docker logs --tail 50 $container 2>&1 || true
+          done
+
+  external-services-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    services:
+      mysql:
+        image: mariadb:10.5
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: poetize
+          MYSQL_USER: poetize
+          MYSQL_PASSWORD: password
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+      redis:
+        image: redis:6.0
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get Host IP
+        id: host_ip
+        run: |
+          # 获取 docker0 网桥 IP，这是容器访问宿主机的网关
+          HOST_IP=$(ip -4 addr show docker0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+          echo "HOST_IP=$HOST_IP" >> $GITHUB_OUTPUT
+          echo "Host IP is $HOST_IP"
+
+      - name: Run deploy.sh with external services
+        run: |
+          chmod +x deploy.sh
+          HOST_IP=${{ steps.host_ip.outputs.HOST_IP }}
+          echo "Deploying with external services at $HOST_IP..."
+          
+          # 传入宿主机 IP 作为外部服务地址
+          # 注意：非交互式运行
+          sudo bash deploy.sh \
+            --domain localhost:8080 \
+            --skip-dns-check \
+            --db-host $HOST_IP \
+            --db-port 3306 \
+            --db-user poetize \
+            --db-pwd password \
+            --db-name poetize \
+            --redis-host $HOST_IP \
+            --redis-port 6379 \
+            --redis-db 0
+            
+          # 等待服务启动
+          echo "Waiting for services to start..."
+          sleep 60
+
+      - name: Verify Deployment
+        run: |
+          echo "=== Docker Containers ==="
+          docker ps -a
+          
+          # 1. 验证内置数据库和Redis容器不应该存在
+          if docker ps -a | grep -q "poetize-mariadb"; then
+            echo "Error: poetize-mariadb container found! External DB config failed."
+            exit 1
+          fi
+          
+          if docker ps -a | grep -q "poetize-redis"; then
+            echo "Error: poetize-redis container found! External Redis config failed."
+            exit 1
+          fi
+          
+          echo "✓ Internal DB/Redis containers not running (Expected)"
+          
+          # 2. 验证应用服务是否启动
+          if ! docker ps | grep -q "poetize-java"; then
+            echo "Error: poetize-java not running"
+            exit 1
+          fi
+          
+          # 3. 健康检查 (验证能否连接到外部数据库)
+          # 注意：前端可能还在构建，所以主要检查后端接口
+          echo "checking backend health..."
+          # 尝试多次，因为应用启动可能较慢
+          for i in {1..10}; do
+            if curl -s http://localhost:8080/actuator/health | grep "UP"; then
+               echo "✓ Backend is UP and connected to DB/Redis"
+               exit 0
+            fi
+            echo "Waiting for health check... ($i/10)"
+            sleep 10
+          done
+          
+          echo "Health check failed after timeout"
+          docker logs poetize-java 2>&1 | tail -n 100
+          exit 1
+

@@ -893,8 +893,8 @@ export default {
       const modKey = ctrlKey || metaKey;
       const keyLower = String(key || '').toLowerCase();
       
-      // 输入法期间不处理部分按键
-      if (this.isComposing && !['Escape'].includes(key)) {
+      // 输入法期间不处理部分按键（除非是快捷键组合）
+      if (this.isComposing && !modKey && !['Escape'].includes(key)) {
         return;
       }
       

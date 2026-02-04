@@ -25,7 +25,7 @@ export default {
   // 后台登录URL（用于Token过期跳转）
   adminLoginURL: import.meta.env.DEV
     ? `http://localhost:5174/admin`
-    : location.protocol + "//" + location.host + "/admin",
+    : location.protocol + "//" + location.host,
 
   host: location.host,
 

@@ -96,11 +96,12 @@ const routes = [
       }
     }]
   },
-  {
+  // 仅在开发环境开启 /user 路由（生产环境请访问主站）
+  ...(import.meta.env.DEV ? [{
     path: '/user',
     name: 'user',
     component: () => import('../components/user')
-  },
+  }] : []),
   {
     path: '/403',
     name: 'forbidden',

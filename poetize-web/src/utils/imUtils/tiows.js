@@ -13,10 +13,11 @@ export default function (ws_protocol, ip, port, paramStr, binaryType) {
   this.paramStr = paramStr;
   this.binaryType = binaryType;
 
+  // 使用统一端点 /ws/im（Spring WebSocket）
   if (port === "") {
-    this.url = ws_protocol + '://' + ip + '/socket';
+    this.url = ws_protocol + '://' + ip + '/ws/im';
   } else {
-    this.url = ws_protocol + '://' + ip + ":" + port + '/socket';
+    this.url = ws_protocol + '://' + ip + ":" + port + '/ws/im';
   }
   if (paramStr) {
     this.url += '?' + paramStr;
@@ -36,7 +37,7 @@ export default function (ws_protocol, ip, port, paramStr, binaryType) {
       console.log('WebSocket连接已建立');
       this.isConnected = true;
       this.isConnecting = false;
-      
+
       // 触发自定义onopen事件
       if (this.onopen) {
         this.onopen(event);
@@ -47,7 +48,7 @@ export default function (ws_protocol, ip, port, paramStr, binaryType) {
       console.log('WebSocket连接已关闭', event.code, event.reason);
       this.isConnected = false;
       this.isConnecting = false;
-      
+
       // 触发自定义onclose事件
       if (this.onclose) {
         this.onclose(event);
@@ -57,7 +58,7 @@ export default function (ws_protocol, ip, port, paramStr, binaryType) {
     ws.onerror = (event) => {
       console.error('WebSocket连接错误:', event);
       this.isConnected = false;
-      
+
       // 触发自定义onerror事件
       if (this.onerror) {
         this.onerror(event);
@@ -92,17 +93,17 @@ export default function (ws_protocol, ip, port, paramStr, binaryType) {
         if (this.ws.bufferedAmount > 0) {
           console.warn('WebSocket发送缓冲区不为空，可能存在网络问题');
         }
-        
+
         this.ws.send(data);
         console.log('消息发送成功:', data);
-        
+
         // 发送后检查缓冲区
         setTimeout(() => {
           if (this.ws && this.ws.bufferedAmount > 0) {
             console.warn('消息发送后缓冲区仍有数据，可能发送失败');
           }
         }, 100);
-        
+
         return true;
       } catch (error) {
         console.error('发送消息时出错:', error);
@@ -112,7 +113,7 @@ export default function (ws_protocol, ip, port, paramStr, binaryType) {
       console.error('WebSocket连接未就绪，当前状态:', currentState);
       const stateNames = {
         0: 'CONNECTING',
-        1: 'OPEN', 
+        1: 'OPEN',
         2: 'CLOSING',
         3: 'CLOSED'
       };

@@ -5,12 +5,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ld.poetry.aop.LoginCheck;
 import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.constants.CacheConstants;
-import com.ld.poetry.constants.CommonConst;
 import com.ld.poetry.entity.*;
 import com.ld.poetry.enums.CodeMsg;
 import com.ld.poetry.enums.PoetryEnum;
-import com.ld.poetry.im.websocket.TioUtil;
-import com.ld.poetry.im.websocket.TioWebsocketStarter;
+import com.ld.poetry.im.websocket.ImSessionManager;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.UserService;
 import com.ld.poetry.utils.PoetryUtil;
@@ -19,7 +17,6 @@ import com.ld.poetry.vo.UserVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-import org.tio.core.Tio;
 
 /**
  * <p>
@@ -39,6 +36,9 @@ public class AdminUserController {
 
     @Autowired
     private CacheService cacheService;
+
+    @Autowired(required = false)
+    private ImSessionManager imSessionManager;
 
     /**
      * 查询用户
@@ -64,9 +64,11 @@ public class AdminUserController {
 
         LambdaUpdateChainWrapper<User> updateChainWrapper = userService.lambdaUpdate().eq(User::getId, userId);
         if (flag) {
-            updateChainWrapper.eq(User::getUserStatus, PoetryEnum.STATUS_DISABLE.getCode()).set(User::getUserStatus, PoetryEnum.STATUS_ENABLE.getCode()).update();
+            updateChainWrapper.eq(User::getUserStatus, PoetryEnum.STATUS_DISABLE.getCode())
+                    .set(User::getUserStatus, PoetryEnum.STATUS_ENABLE.getCode()).update();
         } else {
-            updateChainWrapper.eq(User::getUserStatus, PoetryEnum.STATUS_ENABLE.getCode()).set(User::getUserStatus, PoetryEnum.STATUS_DISABLE.getCode()).update();
+            updateChainWrapper.eq(User::getUserStatus, PoetryEnum.STATUS_ENABLE.getCode())
+                    .set(User::getUserStatus, PoetryEnum.STATUS_DISABLE.getCode()).update();
         }
         logout(userId);
         return PoetryResult.success();
@@ -77,7 +79,8 @@ public class AdminUserController {
      */
     @GetMapping("/user/changeUserAdmire")
     @LoginCheck(0)
-    public PoetryResult changeUserAdmire(@RequestParam("userId") Integer userId, @RequestParam("admire") String admire) {
+    public PoetryResult changeUserAdmire(@RequestParam("userId") Integer userId,
+            @RequestParam("admire") String admire) {
         userService.lambdaUpdate()
                 .eq(User::getId, userId)
                 .set(User::getAdmire, admire)
@@ -98,7 +101,8 @@ public class AdminUserController {
      */
     @GetMapping("/user/changeUserType")
     @LoginCheck(0)
-    public PoetryResult changeUserType(@RequestParam("userId") Integer userId, @RequestParam("userType") Integer userType) {
+    public PoetryResult changeUserType(@RequestParam("userId") Integer userId,
+            @RequestParam("userType") Integer userType) {
         if (userId.intValue() == PoetryUtil.getAdminUser().getId().intValue()) {
             return PoetryResult.fail("站长类型不能修改！");
         }
@@ -120,9 +124,8 @@ public class AdminUserController {
             cacheService.evictAllUserTokens(userId);
 
             // 断开WebSocket连接
-            TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-            if (tioWebsocketStarter != null) {
-                Tio.removeUser(tioWebsocketStarter.getServerTioConfig(), String.valueOf(userId), "管理员强制下线");
+            if (imSessionManager != null) {
+                imSessionManager.closeUserSession(userId, "管理员强制下线");
             }
 
             log.info("用户强制下线完成: userId={}", userId);

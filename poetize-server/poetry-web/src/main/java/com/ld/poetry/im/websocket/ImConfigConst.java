@@ -1,7 +1,5 @@
 package com.ld.poetry.im.websocket;
 
-import org.tio.utils.time.Time;
-
 public class ImConfigConst {
 
     /**
@@ -22,20 +20,9 @@ public class ImConfigConst {
     public static final String CHARSET = "UTF-8";
 
     /**
-     * 监听端口
-     */
-    public static final int SERVER_PORT = 9324;
-
-    /**
      * 心跳超时时间，单位：毫秒
      */
     public static final int HEARTBEAT_TIMEOUT = 1000 * 600;
-
-    /**
-     * IP数据监控统计，时间段
-     */
-    public static final Long DURATION_DEFAULT = Time.MINUTE_1 * 5;
-    public static final Long[] IP_STAT_DURATIONS = new Long[]{DURATION_DEFAULT};
 
     /**
      * 默认群聊

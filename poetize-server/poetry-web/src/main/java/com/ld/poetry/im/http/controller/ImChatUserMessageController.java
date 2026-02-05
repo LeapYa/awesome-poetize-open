@@ -1,7 +1,5 @@
 package com.ld.poetry.im.http.controller;
 
-
-import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ld.poetry.aop.LoginCheck;
@@ -12,8 +10,7 @@ import com.ld.poetry.im.http.service.ImChatUserMessageService;
 import com.ld.poetry.im.http.vo.UserMessageVO;
 import com.ld.poetry.im.websocket.ImConfigConst;
 import com.ld.poetry.im.websocket.ImMessage;
-import com.ld.poetry.im.websocket.TioUtil;
-import com.ld.poetry.im.websocket.TioWebsocketStarter;
+import com.ld.poetry.im.websocket.ImSessionManager;
 import com.ld.poetry.utils.CommonQuery;
 import com.ld.poetry.utils.PoetryUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,8 +19,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.tio.core.Tio;
-import org.tio.websocket.common.WsResponse;
 
 import java.util.Collections;
 import java.util.List;
@@ -47,13 +42,16 @@ public class ImChatUserMessageController {
     @Autowired
     private CommonQuery commonQuery;
 
+    @Autowired(required = false)
+    private ImSessionManager imSessionManager;
+
     /**
      * 获取系统消息（只获取前十条）
      */
     @GetMapping("/listSystemMessage")
     @LoginCheck
     public PoetryResult<Page> listSystemMessage(@RequestParam(value = "current", defaultValue = "1") Long current,
-                                                @RequestParam(value = "size", defaultValue = "10") Long size) {
+            @RequestParam(value = "size", defaultValue = "10") Long size) {
         Page<ImChatUserMessage> page = new Page<>();
         page.setCurrent(current);
         page.setSize(size);
@@ -86,7 +84,6 @@ public class ImChatUserMessageController {
         }
     }
 
-
     /**
      * 管理员添加系统消息
      */
@@ -100,24 +97,19 @@ public class ImChatUserMessageController {
         userMessage.setMessageStatus(ImConfigConst.USER_MESSAGE_STATUS_TRUE);
         boolean isSuccess = imChatUserMessageService.save(userMessage);
 
-        if (isSuccess) {
-            TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-            if (tioWebsocketStarter != null) {
-                ImMessage imMessage = new ImMessage();
-                imMessage.setContent(content);
-                imMessage.setFromId(ImConfigConst.DEFAULT_SYSTEM_MESSAGE_ID);
-                imMessage.setToId(ImConfigConst.DEFAULT_SYSTEM_MESSAGE_ID);
-                // 使用单聊消息类型(1)，前端会根据 fromId == -1 识别为系统消息
-                imMessage.setMessageType(1);
+        if (isSuccess && imSessionManager != null) {
+            ImMessage imMessage = new ImMessage();
+            imMessage.setContent(content);
+            imMessage.setFromId(ImConfigConst.DEFAULT_SYSTEM_MESSAGE_ID);
+            imMessage.setToId(ImConfigConst.DEFAULT_SYSTEM_MESSAGE_ID);
+            // 使用单聊消息类型(1)，前端会根据 fromId == -1 识别为系统消息
+            imMessage.setMessageType(1);
 
-                String jsonString = JSON.toJSONString(imMessage);
-                WsResponse wsResponse = WsResponse.fromText(jsonString, ImConfigConst.CHARSET);
-                Tio.sendToAll(tioWebsocketStarter.getServerTioConfig(), wsResponse);
-            }
+            // 发送给默认群组（所有用户都在默认群组中）
+            imSessionManager.sendToGroup(String.valueOf(ImConfigConst.DEFAULT_GROUP_ID), imMessage.toJsonString());
         }
         return PoetryResult.success();
     }
-
 
     /**
      * 删除系统消息
@@ -135,8 +127,8 @@ public class ImChatUserMessageController {
     @GetMapping("/listFriendMessage")
     @LoginCheck
     public PoetryResult<Page> listFriendMessage(@RequestParam(value = "current", defaultValue = "1") Long current,
-                                                @RequestParam(value = "size", defaultValue = "40") Long size,
-                                                @RequestParam(value = "friendId") Integer friendId) {
+            @RequestParam(value = "size", defaultValue = "40") Long size,
+            @RequestParam(value = "friendId") Integer friendId) {
         Page<ImChatUserMessage> page = new Page<>();
         page.setCurrent(current);
         page.setSize(size);
@@ -144,8 +136,10 @@ public class ImChatUserMessageController {
         Integer userId = PoetryUtil.getUserId();
 
         LambdaQueryChainWrapper<ImChatUserMessage> lambdaQuery = imChatUserMessageService.lambdaQuery();
-        lambdaQuery.and(wrapper -> wrapper.eq(ImChatUserMessage::getFromId, userId).eq(ImChatUserMessage::getToId, friendId))
-                .or(wrapper -> wrapper.eq(ImChatUserMessage::getFromId, friendId).eq(ImChatUserMessage::getToId, userId));
+        lambdaQuery.and(
+                wrapper -> wrapper.eq(ImChatUserMessage::getFromId, userId).eq(ImChatUserMessage::getToId, friendId))
+                .or(wrapper -> wrapper.eq(ImChatUserMessage::getFromId, friendId).eq(ImChatUserMessage::getToId,
+                        userId));
         lambdaQuery.orderByDesc(ImChatUserMessage::getCreateTime);
         Page<ImChatUserMessage> result = lambdaQuery.page(page);
         List<ImChatUserMessage> records = result.getRecords();
@@ -176,4 +170,3 @@ public class ImChatUserMessageController {
         }
     }
 }
-

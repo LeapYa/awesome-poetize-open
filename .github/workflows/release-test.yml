@@ -118,7 +118,7 @@ jobs:
 
   external-services-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     
     services:
       mysql:
@@ -153,6 +153,39 @@ jobs:
           HOST_IP=$(ip -4 addr show docker0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
           echo "HOST_IP=$HOST_IP" >> $GITHUB_OUTPUT
           echo "Host IP is $HOST_IP"
+
+      - name: Initialize external services
+        run: |
+          # ========== MariaDB 初始化 ==========
+          echo "Waiting for MariaDB to be ready..."
+          for i in {1..30}; do
+            if mysql -h 127.0.0.1 -u poetize -ppassword -e "SELECT 1" &>/dev/null; then
+              echo "✓ MariaDB is ready"
+              break
+            fi
+            echo "Waiting for MariaDB... ($i/30)"
+            sleep 2
+          done
+          
+          echo "Importing poetry_old.sql schema (InnoDB engine)..."
+          mysql -h 127.0.0.1 -u poetize -ppassword poetize < poetize-server/sql/poetry_old.sql
+          echo "✓ Database schema imported successfully"
+          
+          # 验证表是否创建
+          TABLE_COUNT=$(mysql -h 127.0.0.1 -u poetize -ppassword poetize -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='poetize'")
+          echo "✓ Created $TABLE_COUNT tables in poetize database"
+          
+          # ========== Redis 连接验证 ==========
+          echo ""
+          echo "Verifying Redis connection..."
+          for i in {1..10}; do
+            if nc -z 127.0.0.1 6379 2>/dev/null; then
+              echo "✓ Redis is ready (port 6379 open)"
+              break
+            fi
+            echo "Waiting for Redis... ($i/10)"
+            sleep 1
+          done
 
       - name: Run deploy.sh with external services
         run: |
@@ -202,16 +235,16 @@ jobs:
             exit 1
           fi
           
-          # 3. 健康检查 (验证能否连接到外部数据库)
-          # 注意：前端可能还在构建，所以主要检查后端接口
+          # 3. 健康检查 - 验证 Docker 容器健康状态
           echo "checking backend health..."
-          # 尝试多次，因为应用启动可能较慢
+          # 检查 poetize-java 容器是否 healthy
           for i in {1..10}; do
-            if curl -s http://localhost:8080/actuator/health | grep "UP"; then
-               echo "✓ Backend is UP and connected to DB/Redis"
+            JAVA_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' poetize-java 2>/dev/null || echo "unknown")
+            if [ "$JAVA_HEALTH" = "healthy" ]; then
+               echo "✓ Backend container is healthy and connected to DB/Redis"
                exit 0
             fi
-            echo "Waiting for health check... ($i/10)"
+            echo "Waiting for health check... ($i/10) - status: $JAVA_HEALTH"
             sleep 10
           done
           

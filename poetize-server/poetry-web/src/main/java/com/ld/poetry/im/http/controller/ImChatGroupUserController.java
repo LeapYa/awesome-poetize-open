@@ -1,7 +1,5 @@
 package com.ld.poetry.im.http.controller;
 
-
-import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -15,8 +13,7 @@ import com.ld.poetry.im.http.service.ImChatGroupUserService;
 import com.ld.poetry.im.http.vo.GroupUserVO;
 import com.ld.poetry.im.websocket.ImConfigConst;
 import com.ld.poetry.im.websocket.ImMessage;
-import com.ld.poetry.im.websocket.TioUtil;
-import com.ld.poetry.im.websocket.TioWebsocketStarter;
+import com.ld.poetry.im.websocket.ImSessionManager;
 import com.ld.poetry.utils.CommonQuery;
 import com.ld.poetry.utils.PoetryUtil;
 import org.springframework.beans.BeanUtils;
@@ -27,8 +24,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.tio.core.Tio;
-import org.tio.websocket.common.WsResponse;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -56,12 +51,16 @@ public class ImChatGroupUserController {
     @Autowired
     private CommonQuery commonQuery;
 
+    @Autowired(required = false)
+    private ImSessionManager imSessionManager;
+
     /**
      * 申请加群
      */
     @GetMapping("/enterGroup")
     @LoginCheck
-    public PoetryResult enterGroup(@RequestParam("id") Integer id, @RequestParam(value = "remark", required = false) String remark) {
+    public PoetryResult enterGroup(@RequestParam("id") Integer id,
+            @RequestParam(value = "remark", required = false) String remark) {
         ImChatGroup chatGroup = imChatGroupService.getById(id);
         if (chatGroup == null) {
             return PoetryResult.fail("群组不存在！");
@@ -94,11 +93,8 @@ public class ImChatGroupUserController {
         }
         boolean isSuccess = imChatGroupUserService.save(imChatGroupUser);
         if (isSuccess && chatGroup.getInType() == ImConfigConst.IN_TYPE_FALSE) {
-            TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-            if (tioWebsocketStarter != null) {
-                Tio.bindGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(userId), String.valueOf(id));
-                sendGroupSystemMessage(id, commonQuery.getUser(userId).getUsername() + " 加入了群聊");
-            }
+            // 注：群组绑定由前端重新建立WebSocket连接时自动处理
+            sendGroupSystemMessage(id, commonQuery.getUser(userId).getUsername() + " 加入了群聊");
         }
         return PoetryResult.success();
     }
@@ -111,9 +107,9 @@ public class ImChatGroupUserController {
     @GetMapping("/changeUserStatus")
     @LoginCheck
     public PoetryResult changeUserStatus(@RequestParam("groupId") Integer groupId,
-                                         @RequestParam("userId") Integer userId,
-                                         @RequestParam("userStatus") Integer userStatus,
-                                         @RequestParam("oldUserStatus") Integer oldUserStatus) {
+            @RequestParam("userId") Integer userId,
+            @RequestParam("userStatus") Integer userStatus,
+            @RequestParam("oldUserStatus") Integer oldUserStatus) {
         ImChatGroup chatGroup = imChatGroupService.getById(groupId);
         if (chatGroup == null) {
             return PoetryResult.fail("群组不存在！");
@@ -154,19 +150,13 @@ public class ImChatGroupUserController {
             isSuccess = lambdaUpdate.update();
         }
         if (isSuccess && userStatus == ImConfigConst.GROUP_USER_STATUS_PASS) {
-            TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-            if (tioWebsocketStarter != null) {
-                Tio.bindGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(userId), String.valueOf(groupId));
-                sendGroupSystemMessage(groupId, commonQuery.getUser(userId).getUsername() + " 加入了群聊");
-            }
+            // 注：群组绑定由前端重新建立WebSocket连接时自动处理
+            sendGroupSystemMessage(groupId, commonQuery.getUser(userId).getUsername() + " 加入了群聊");
         } else if (isSuccess && userStatus.intValue() == ImConfigConst.GROUP_USER_STATUS_BAN &&
                 (oldUserStatus.intValue() == ImConfigConst.GROUP_USER_STATUS_PASS ||
                         oldUserStatus.intValue() == ImConfigConst.GROUP_USER_STATUS_SILENCE)) {
-            TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-            if (tioWebsocketStarter != null) {
-                Tio.unbindGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(userId), String.valueOf(groupId));
-                sendGroupSystemMessage(groupId, commonQuery.getUser(userId).getUsername() + " 退出了群聊");
-            }
+            // 注：群组解绑由前端重新建立WebSocket连接时自动处理
+            sendGroupSystemMessage(groupId, commonQuery.getUser(userId).getUsername() + " 退出了群聊");
         }
 
         if (isSuccess) {
@@ -185,8 +175,8 @@ public class ImChatGroupUserController {
     @GetMapping("/changeAdmin")
     @LoginCheck
     public PoetryResult changeAdmin(@RequestParam("groupId") Integer groupId,
-                                    @RequestParam("userId") Integer userId,
-                                    @RequestParam("adminFlag") Boolean adminFlag) {
+            @RequestParam("userId") Integer userId,
+            @RequestParam("adminFlag") Boolean adminFlag) {
         ImChatGroup chatGroup = imChatGroupService.getById(groupId);
         if (chatGroup == null) {
             return PoetryResult.fail("群组不存在！");
@@ -228,14 +218,14 @@ public class ImChatGroupUserController {
         Integer userId = PoetryUtil.getUserId();
 
         if (chatGroup.getMasterUserId().intValue() == userId.intValue()) {
-            //转让群
+            // 转让群
             LambdaQueryChainWrapper<ImChatGroupUser> wrapper = imChatGroupUserService.lambdaQuery();
             wrapper.ne(ImChatGroupUser::getUserId, userId);
             wrapper.last("order by admin_flag desc, create_time asc limit 1");
             ImChatGroupUser one = wrapper.one();
 
             if (one == null) {
-                //除了群主没别人，直接删除
+                // 除了群主没别人，直接删除
                 imChatGroupService.removeById(id);
             } else {
                 LambdaUpdateChainWrapper<ImChatGroup> groupUpdate = imChatGroupService.lambdaUpdate();
@@ -254,11 +244,8 @@ public class ImChatGroupUserController {
         lambdaUpdate.eq(ImChatGroupUser::getUserId, userId);
         boolean isSuccess = lambdaUpdate.remove();
         if (isSuccess) {
-            TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-            if (tioWebsocketStarter != null) {
-                Tio.unbindGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(userId), String.valueOf(id));
-                sendGroupSystemMessage(id, commonQuery.getUser(userId).getUsername() + " 退出了群聊");
-            }
+            // 注：群组解绑由前端重新建立WebSocket连接时自动处理
+            sendGroupSystemMessage(id, commonQuery.getUser(userId).getUsername() + " 退出了群聊");
         }
         return PoetryResult.success();
     }
@@ -269,9 +256,9 @@ public class ImChatGroupUserController {
     @GetMapping("/getGroupUserByStatus")
     @LoginCheck
     public PoetryResult<Page> getGroupUserByStatus(@RequestParam(value = "groupId", required = false) Integer groupId,
-                                                   @RequestParam(value = "userStatus", required = false) Integer userStatus,
-                                                   @RequestParam(value = "current", defaultValue = "1") Long current,
-                                                   @RequestParam(value = "size", defaultValue = "20") Long size) {
+            @RequestParam(value = "userStatus", required = false) Integer userStatus,
+            @RequestParam(value = "current", defaultValue = "1") Long current,
+            @RequestParam(value = "size", defaultValue = "20") Long size) {
         Integer userId = PoetryUtil.getUserId();
         Page<ImChatGroupUser> page = new Page<>();
         page.setCurrent(current);
@@ -305,7 +292,8 @@ public class ImChatGroupUserController {
                 // 该用户没有管理任何群
                 return PoetryResult.success();
             } else {
-                List<Integer> groupIds = groupUsers.stream().map(ImChatGroupUser::getGroupId).collect(Collectors.toList());
+                List<Integer> groupIds = groupUsers.stream().map(ImChatGroupUser::getGroupId)
+                        .collect(Collectors.toList());
                 lambdaQuery.in(ImChatGroupUser::getGroupId, groupIds);
             }
         }
@@ -318,9 +306,12 @@ public class ImChatGroupUserController {
 
         List<GroupUserVO> groupUserVOList = new ArrayList<>(page.getRecords().size());
         List<ImChatGroupUser> records = page.getRecords();
-        Map<Integer, List<ImChatGroupUser>> map = records.stream().collect(Collectors.groupingBy(ImChatGroupUser::getGroupId));
-        List<ImChatGroup> groups = imChatGroupService.lambdaQuery().select(ImChatGroup::getId, ImChatGroup::getGroupName).in(ImChatGroup::getId, map.keySet()).list();
-        Map<Integer, String> collect = groups.stream().collect(Collectors.toMap(ImChatGroup::getId, ImChatGroup::getGroupName));
+        Map<Integer, List<ImChatGroupUser>> map = records.stream()
+                .collect(Collectors.groupingBy(ImChatGroupUser::getGroupId));
+        List<ImChatGroup> groups = imChatGroupService.lambdaQuery()
+                .select(ImChatGroup::getId, ImChatGroup::getGroupName).in(ImChatGroup::getId, map.keySet()).list();
+        Map<Integer, String> collect = groups.stream()
+                .collect(Collectors.toMap(ImChatGroup::getId, ImChatGroup::getGroupName));
         map.forEach((key, value) -> {
             String groupName = collect.get(key);
             value.forEach(g -> {
@@ -350,8 +341,8 @@ public class ImChatGroupUserController {
     @GetMapping("/getGroupUser")
     @LoginCheck
     public PoetryResult<Page> getGroupUser(@RequestParam("groupId") Integer groupId,
-                                           @RequestParam(value = "current", defaultValue = "1") Long current,
-                                           @RequestParam(value = "size", defaultValue = "20") Long size) {
+            @RequestParam(value = "current", defaultValue = "1") Long current,
+            @RequestParam(value = "size", defaultValue = "20") Long size) {
         ImChatGroup chatGroup = imChatGroupService.getById(groupId);
         if (chatGroup == null) {
             return PoetryResult.fail("群组不存在！");
@@ -365,7 +356,8 @@ public class ImChatGroupUserController {
         LambdaQueryChainWrapper<ImChatGroupUser> wrapper = imChatGroupUserService.lambdaQuery();
         wrapper.eq(ImChatGroupUser::getUserId, userId);
         wrapper.eq(ImChatGroupUser::getGroupId, groupId);
-        wrapper.in(ImChatGroupUser::getUserStatus, ImConfigConst.GROUP_USER_STATUS_PASS, ImConfigConst.GROUP_USER_STATUS_SILENCE);
+        wrapper.in(ImChatGroupUser::getUserStatus, ImConfigConst.GROUP_USER_STATUS_PASS,
+                ImConfigConst.GROUP_USER_STATUS_SILENCE);
         Long count = wrapper.count();
         if (count < 1) {
             return PoetryResult.fail("未加群！");
@@ -376,7 +368,8 @@ public class ImChatGroupUserController {
         page.setSize(size);
         LambdaQueryChainWrapper<ImChatGroupUser> lambdaQuery = imChatGroupUserService.lambdaQuery();
         lambdaQuery.eq(ImChatGroupUser::getGroupId, groupId);
-        lambdaQuery.in(ImChatGroupUser::getUserStatus, ImConfigConst.GROUP_USER_STATUS_PASS, ImConfigConst.GROUP_USER_STATUS_SILENCE);
+        lambdaQuery.in(ImChatGroupUser::getUserStatus, ImConfigConst.GROUP_USER_STATUS_PASS,
+                ImConfigConst.GROUP_USER_STATUS_SILENCE);
         lambdaQuery.orderByAsc(ImChatGroupUser::getCreateTime).page(page);
 
         List<GroupUserVO> groupUserVOList = new ArrayList<>(page.getRecords().size());
@@ -402,8 +395,7 @@ public class ImChatGroupUserController {
     }
 
     private void sendGroupSystemMessage(Integer groupId, String content) {
-        TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-        if (tioWebsocketStarter != null) {
+        if (imSessionManager != null) {
             ImMessage imMessage = new ImMessage();
             imMessage.setContent(content);
             imMessage.setFromId(ImConfigConst.DEFAULT_SYSTEM_MESSAGE_ID);
@@ -411,10 +403,7 @@ public class ImChatGroupUserController {
             // 改为群聊消息类型(2)，前端识别 fromId == -1 渲染为居中系统提示
             imMessage.setMessageType(2);
 
-            String jsonString = JSON.toJSONString(imMessage);
-            WsResponse wsResponse = WsResponse.fromText(jsonString, ImConfigConst.CHARSET);
-            Tio.sendToGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(groupId), wsResponse);
+            imSessionManager.sendToGroup(String.valueOf(groupId), imMessage.toJsonString());
         }
     }
 }
-

@@ -87,8 +87,8 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true
       },
-      '/socket': {
-        target: 'ws://localhost:9324',
+      '/ws/im': {
+        target: 'ws://localhost:8081',
         ws: true,
         changeOrigin: true
       }

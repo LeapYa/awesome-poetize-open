@@ -863,6 +863,9 @@ export default {
 
     // 跳转到登录页，携带当前页面路径作为重定向参数
     goToLogin() {
+      if (this.$route.path === '/user') {
+        return
+      }
       const currentPath = this.$route.fullPath
       this.$router.push({
         path: '/user',
@@ -872,6 +875,10 @@ export default {
 
     // 移动端跳转到登录页，携带当前页面路径作为重定向参数
     goToLoginMobile() {
+      if (this.$route.path === '/user') {
+        this.toolbarDrawer = false
+        return
+      }
       const currentPath = this.$route.fullPath
       this.toolbarDrawer = false
       this.$router.push({

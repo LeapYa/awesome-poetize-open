@@ -1,6 +1,5 @@
 package com.ld.poetry.im.http.controller;
 
-
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -17,8 +16,7 @@ import com.ld.poetry.im.http.service.ImChatUserGroupMessageService;
 import com.ld.poetry.im.http.service.ImChatLastReadService;
 import com.ld.poetry.im.http.vo.GroupVO;
 import com.ld.poetry.im.websocket.ImConfigConst;
-import com.ld.poetry.im.websocket.TioUtil;
-import com.ld.poetry.im.websocket.TioWebsocketStarter;
+import com.ld.poetry.im.websocket.ImSessionManager;
 import com.ld.poetry.enums.CodeMsg;
 import com.ld.poetry.enums.PoetryEnum;
 import com.ld.poetry.utils.PoetryUtil;
@@ -27,7 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
-import org.tio.core.Tio;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -61,6 +58,9 @@ public class ImChatGroupController {
     @Autowired
     private ImChatLastReadService imChatLastReadService;
 
+    @Autowired(required = false)
+    private ImSessionManager imSessionManager;
+
     /**
      * 创建群组
      */
@@ -83,10 +83,7 @@ public class ImChatGroupController {
         imChatGroupUser.setUserStatus(ImConfigConst.GROUP_USER_STATUS_PASS);
         imChatGroupUserService.save(imChatGroupUser);
 
-        TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-        if (tioWebsocketStarter != null) {
-            Tio.bindGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(userId), String.valueOf(imChatGroup.getId()));
-        }
+        // 注：群组绑定由前端重新建立WebSocket连接时自动处理
 
         return PoetryResult.success();
     }
@@ -108,7 +105,6 @@ public class ImChatGroupController {
 
         return PoetryResult.success();
     }
-
 
     /**
      * 更新组
@@ -170,13 +166,11 @@ public class ImChatGroupController {
             LambdaUpdateChainWrapper<ImChatGroupUser> lambdaUpdate = imChatGroupUserService.lambdaUpdate();
             lambdaUpdate.eq(ImChatGroupUser::getGroupId, id).remove();
             // 删除聊天记录
-            LambdaUpdateChainWrapper<ImChatUserGroupMessage> messageLambdaUpdateChainWrapper = imChatUserGroupMessageService.lambdaUpdate();
+            LambdaUpdateChainWrapper<ImChatUserGroupMessage> messageLambdaUpdateChainWrapper = imChatUserGroupMessageService
+                    .lambdaUpdate();
             messageLambdaUpdateChainWrapper.eq(ImChatUserGroupMessage::getGroupId, id).remove();
 
-            TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-            if (tioWebsocketStarter != null) {
-                Tio.removeGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(id), "remove group");
-            }
+            // 注：群组解绑由前端重新建立WebSocket连接时自动处理
         }
         return PoetryResult.success();
     }
@@ -203,10 +197,8 @@ public class ImChatGroupController {
         Long count = lambdaQuery.eq(ImChatGroup::getId, id)
                 .eq(ImChatGroup::getGroupType, ImConfigConst.GROUP_TOPIC).count();
         if (count.intValue() == 1) {
-            TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-            if (tioWebsocketStarter != null) {
-                Tio.bindGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(PoetryUtil.getUserId()), String.valueOf(id));
-            }
+            // 注：话题绑定由前端在WebSocket连接后处理
+            // 前端会自动将话题加入到当前会话的群组中
         }
         return PoetryResult.success();
     }
@@ -222,10 +214,12 @@ public class ImChatGroupController {
         Integer userId = PoetryUtil.getUserId();
         LambdaQueryChainWrapper<ImChatGroupUser> lambdaQuery = imChatGroupUserService.lambdaQuery();
         lambdaQuery.eq(ImChatGroupUser::getUserId, userId);
-        lambdaQuery.in(ImChatGroupUser::getUserStatus, ImConfigConst.GROUP_USER_STATUS_PASS, ImConfigConst.GROUP_USER_STATUS_SILENCE);
+        lambdaQuery.in(ImChatGroupUser::getUserStatus, ImConfigConst.GROUP_USER_STATUS_PASS,
+                ImConfigConst.GROUP_USER_STATUS_SILENCE);
         List<ImChatGroupUser> groupUsers = lambdaQuery.list();
 
-        Map<Integer, ImChatGroupUser> groupUserMap = groupUsers.stream().collect(Collectors.toMap(ImChatGroupUser::getGroupId, Function.identity()));
+        Map<Integer, ImChatGroupUser> groupUserMap = groupUsers.stream()
+                .collect(Collectors.toMap(ImChatGroupUser::getGroupId, Function.identity()));
         LambdaQueryChainWrapper<ImChatGroup> wrapper = imChatGroupService.lambdaQuery();
         wrapper.eq(ImChatGroup::getGroupType, ImConfigConst.GROUP_TOPIC);
         if (!CollectionUtils.isEmpty(groupUserMap.keySet())) {
@@ -258,19 +252,16 @@ public class ImChatGroupController {
             log.warn("获取在线用户数请求参数无效: groupId={}", groupId);
             return PoetryResult.fail("无效的群组ID");
         }
-        
+
         try {
-            TioWebsocketStarter tioWebsocketStarter = TioUtil.getTio();
-            if (tioWebsocketStarter == null) {
+            if (imSessionManager == null) {
                 log.warn("WebSocket服务未启动，groupId: {}", groupId);
                 return PoetryResult.success(0);
             }
-            
+
             // 获取群组在线用户数
-            int onlineCount = Tio.getByGroup(tioWebsocketStarter.getServerTioConfig(), String.valueOf(groupId)).size();
-            
-            // 记录访问日志
-            
+            int onlineCount = imSessionManager.getGroupOnlineCount(String.valueOf(groupId));
+
             return PoetryResult.success(Math.max(0, onlineCount));
         } catch (Exception e) {
             log.error("获取群组在线用户数失败，groupId: {}", groupId, e);
@@ -390,4 +381,3 @@ public class ImChatGroupController {
         return groupVO;
     }
 }
-

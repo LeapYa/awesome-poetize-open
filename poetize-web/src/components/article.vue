@@ -4306,6 +4306,12 @@ blockquote {
   user-select: none;
   color: #333; /* 固定黑色，不受 im.css 暗色模式影响 */
 }
+/* 文章摘要引用块暗色模式 */
+body.dark-mode blockquote {
+  background-color: rgba(60, 60, 60, 0.8);
+  border-left-color: var(--blue, #5090ff);
+  color: #e0e0e0;
+}
 .article-sort {
   display: flex;
   justify-content: flex-end;

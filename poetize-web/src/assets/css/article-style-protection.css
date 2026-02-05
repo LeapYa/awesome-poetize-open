@@ -517,24 +517,26 @@ html body.dark-mode .entry-content table {
 .dark-mode body .entry-content table th,
 body.dark-mode .entry-content table th,
 html body.dark-mode .entry-content table th {
-  background-color: rgba(255, 255, 255, 0.08) !important;
+  background-color: rgba(255, 255, 255, 0.15) !important;
   border-color: rgba(255, 255, 255, 0.12) !important;
+  color: var(--articleFontColor, #e0e0e0) !important;
 }
 
 .dark-mode body .entry-content table td,
 body.dark-mode .entry-content table td,
 html body.dark-mode .entry-content table td {
   border-color: rgba(255, 255, 255, 0.12) !important;
+  color: var(--articleFontColor, #e0e0e0) !important;
 }
 
 .dark-mode body .entry-content table tr:nth-child(2n),
 body.dark-mode .entry-content table tr:nth-child(2n),
 html body.dark-mode .entry-content table tr:nth-child(2n) {
-  background-color: rgba(255, 255, 255, 0.06) !important;
+  background-color: rgba(255, 255, 255, 0.04) !important;
 }
 
 .dark-mode body .entry-content table tbody>tr:hover,
 body.dark-mode .entry-content table tbody>tr:hover,
 html body.dark-mode .entry-content table tbody>tr:hover {
-  background-color: rgba(255, 255, 255, 0.12) !important;
+  background-color: rgba(255, 255, 255, 0.1) !important;
 }

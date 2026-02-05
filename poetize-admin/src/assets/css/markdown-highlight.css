@@ -513,12 +513,18 @@ body.dark-mode .table-wrapper > table {
 
 .dark-mode .table-wrapper > table th,
 body.dark-mode .table-wrapper > table th {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: rgba(255, 255, 255, 0.15);
+    color: var(--articleFontColor, #e0e0e0);
+}
+
+.dark-mode .table-wrapper > table td,
+body.dark-mode .table-wrapper > table td {
+    color: var(--articleFontColor, #e0e0e0);
 }
 
 .dark-mode .table-wrapper > table tr:nth-child(2n),
 body.dark-mode .table-wrapper > table tr:nth-child(2n) {
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: rgba(255, 255, 255, 0.04);
 }
 
 .dark-mode .table-wrapper > table td,
@@ -530,7 +536,7 @@ body.dark-mode .table-wrapper > table th {
 
 .dark-mode .table-wrapper > table tbody > tr:hover,
 body.dark-mode .table-wrapper > table tbody > tr:hover {
-    background-color: rgba(255, 255, 255, 0.12);
+    background-color: rgba(255, 255, 255, 0.1);
 }
 
 .entry-content ul.task-list,

@@ -552,3 +552,32 @@ body .entry-content table tbody>tr:hover,
 html body .entry-content table tbody>tr:hover {
   background-color: rgba(0, 0, 0, 0.2) !important;
 }
+
+/* ========== 暗色模式表格样式 ========== */
+body.dark-mode .entry-content table,
+html body.dark-mode .entry-content table {
+  color: #d4d4d4 !important;
+}
+
+body.dark-mode .entry-content table th,
+html body.dark-mode .entry-content table th {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #d4d4d4 !important;
+}
+
+body.dark-mode .entry-content table td,
+html body.dark-mode .entry-content table td {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #d4d4d4 !important;
+}
+
+body.dark-mode .entry-content table tr:nth-child(2n),
+html body.dark-mode .entry-content table tr:nth-child(2n) {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+body.dark-mode .entry-content table tbody>tr:hover,
+html body.dark-mode .entry-content table tbody>tr:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}

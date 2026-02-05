@@ -485,32 +485,7 @@ td.hljs-ln-numbers {
     background-color: rgba(0, 0, 0, 0.2);
 }
 
-.dark-mode .table-wrapper > table,
-body.dark-mode .table-wrapper > table {
-    color: var(--articleFontColor, #e0e0e0);
-}
-
-.dark-mode .table-wrapper > table th,
-body.dark-mode .table-wrapper > table th {
-    background-color: rgba(255, 255, 255, 0.08);
-}
-
-.dark-mode .table-wrapper > table tr:nth-child(2n),
-body.dark-mode .table-wrapper > table tr:nth-child(2n) {
-    background-color: rgba(255, 255, 255, 0.06);
-}
-
-.dark-mode .table-wrapper > table td,
-.dark-mode .table-wrapper > table th,
-body.dark-mode .table-wrapper > table td,
-body.dark-mode .table-wrapper > table th {
-    border-color: rgba(255, 255, 255, 0.12);
-}
-
-.dark-mode .table-wrapper > table tbody > tr:hover,
-body.dark-mode .table-wrapper > table tbody > tr:hover {
-    background-color: rgba(255, 255, 255, 0.12);
-}
+/* 暗色模式表格样式由 article-style-protection.css 统一管理，此处不再重复定义 */
 
 .entry-content ul.task-list,
 .entry-content ol.task-list,

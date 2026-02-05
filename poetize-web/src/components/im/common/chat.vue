@@ -686,7 +686,7 @@
   }
   .msg-container {
     background: var(--midWhite);
-    overflow-y: scroll;
+    overflow-y: auto;
     flex: 1;
   }
   .chat-input-area {

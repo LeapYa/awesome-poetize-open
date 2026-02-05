@@ -143,11 +143,17 @@
     <el-dialog
       title="编辑器使用说明"
       :visible.sync="helpDialogVisible"
-      width="500px"
+      width="620px"
       append-to-body
       custom-class="centered-dialog editor-help-dialog"
     >
       <div class="help-content">
+        <h3>✨ Split 编辑器特性</h3>
+        <ul class="help-list">
+          <li><strong>分屏预览</strong>：左侧编辑 Markdown 源码，右侧实时预览效果。</li>
+          <li><strong>传统体验</strong>：经典的双栏编辑模式，源码与预览实时对照。</li>
+          <li><strong>同步滚动</strong>：编辑区和预览区滚动位置自动同步。</li>
+        </ul>
         <h3>⌨️ 常用快捷键</h3>
         <ul class="help-list">
           <li><strong>加粗</strong>：<code>Ctrl + B</code></li>
@@ -174,6 +180,39 @@
           <li><strong>Mermaid 图表</strong>：使用 <code>```mermaid</code> 代码块渲染流程图、时序图等。</li>
           <li><strong>ECharts 图表</strong>：使用 <code>```echarts</code> 代码块渲染 ECharts 图表。</li>
         </ul>
+        <h3>🔄 编辑器对比</h3>
+        <p style="margin-bottom: 8px; color: var(--text-color-secondary, #606266); font-size: 13px;">本项目提供多种编辑器，可在<strong>插件管理</strong>中切换：</p>
+        <table class="editor-compare-table">
+          <thead>
+            <tr>
+              <th>编辑器</th>
+              <th>模式</th>
+              <th>特点</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>IR 编辑器</strong></td>
+              <td>即时渲染</td>
+              <td>源码与渲染自动切换，轻量流畅</td>
+            </tr>
+            <tr>
+              <td><strong>WYSIWYG 编辑器</strong></td>
+              <td>所见即所得</td>
+              <td>富文本编辑体验，表格右键菜单</td>
+            </tr>
+            <tr class="current-editor">
+              <td><strong>Split 编辑器</strong></td>
+              <td>分屏预览</td>
+              <td>左右分栏，实时对照，传统体验</td>
+            </tr>
+            <tr>
+              <td><strong>Vditor 编辑器</strong></td>
+              <td>多模式可选</td>
+              <td>功能丰富，支持 IR/SV/WYSIWYG</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       <span slot="footer">
         <el-button type="primary" @click="helpDialogVisible = false">知道了</el-button>
@@ -1170,6 +1209,100 @@ function computeLineStartOffset(lines, lineIndex) {
   background-color: #252526;
 }
 
+/* ========== 暗色模式下预览内容的样式适配 ========== */
+
+/* 段落和通用文本 */
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content),
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content p),
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content li),
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content span) {
+  color: #d4d4d4;
+}
+
+/* 引用块 */
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content blockquote) {
+  color: #b0b0b0;
+}
+
+/* 行内代码 */
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content code:not(.hljs)) {
+  background: #3a3a00;
+  color: #f0c674;
+}
+
+/* 链接 */
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content a) {
+  color: #f0a0a0;
+}
+
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content a:hover) {
+  color: #ffa500;
+}
+
+/* 表格 - 暗色模式适配 */
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content table) {
+  color: #d4d4d4;
+}
+
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content table th) {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d4d4d4;
+}
+
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content table td) {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d4d4d4;
+}
+
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content table tr:nth-child(2n)) {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content table tbody > tr:hover) {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* table-wrapper 包裹的表格 */
+.split-preview-editor.dark-mode .preview-pane :deep(.table-wrapper > table) {
+  color: #d4d4d4;
+}
+
+.split-preview-editor.dark-mode .preview-pane :deep(.table-wrapper > table th) {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d4d4d4;
+}
+
+.split-preview-editor.dark-mode .preview-pane :deep(.table-wrapper > table td) {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d4d4d4;
+}
+
+.split-preview-editor.dark-mode .preview-pane :deep(.table-wrapper > table tr:nth-child(2n)) {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.split-preview-editor.dark-mode .preview-pane :deep(.table-wrapper > table tbody > tr:hover) {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 列表标记颜色 */
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content ul),
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content ol) {
+  color: #d4d4d4;
+}
+
+/* 水平线 */
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content hr) {
+  border-color: rgba(252, 98, 93, 0.5);
+}
+
+/* Mermaid 图表 */
+.split-preview-editor.dark-mode .preview-pane :deep(.mermaid) {
+  background: #2d2d2d;
+}
+
 /* 滚动条美化 */
 .editor-textarea::-webkit-scrollbar,
 .preview-pane::-webkit-scrollbar {
@@ -1231,6 +1364,39 @@ function computeLineStartOffset(lines, lineIndex) {
   color: #409eff;
   margin: 0 4px;
 }
+
+/* 编辑器对比表格样式 */
+.editor-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.editor-compare-table th,
+.editor-compare-table td {
+  border: 1px solid #e4e7ed;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.editor-compare-table th {
+  background-color: #f5f7fa;
+  color: #606266;
+  font-weight: 600;
+}
+
+.editor-compare-table td {
+  color: #606266;
+}
+
+.editor-compare-table tr.current-editor {
+  background-color: #ecf5ff;
+}
+
+.editor-compare-table tr.current-editor td {
+  color: #409eff;
+}
 </style>
 
 <style>
@@ -1246,6 +1412,29 @@ body.dark-mode .editor-help-dialog .help-content li {
 
 body.dark-mode .editor-help-dialog .help-list code {
   background-color: #3e4145;
+  color: #67c23a;
+}
+
+/* 暗色模式下的编辑器对比表格 */
+body.dark-mode .editor-help-dialog .editor-compare-table th,
+body.dark-mode .editor-help-dialog .editor-compare-table td {
+  border-color: #4c5157;
+}
+
+body.dark-mode .editor-help-dialog .editor-compare-table th {
+  background-color: #3e4145;
+  color: #a9b7c6;
+}
+
+body.dark-mode .editor-help-dialog .editor-compare-table td {
+  color: #a9b7c6;
+}
+
+body.dark-mode .editor-help-dialog .editor-compare-table tr.current-editor {
+  background-color: rgba(64, 158, 255, 0.15);
+}
+
+body.dark-mode .editor-help-dialog .editor-compare-table tr.current-editor td {
   color: #67c23a;
 }
 </style>

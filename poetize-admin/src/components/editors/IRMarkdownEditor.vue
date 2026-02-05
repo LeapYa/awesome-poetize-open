@@ -131,6 +131,10 @@
         @click="handleClick"
         @dblclick="handleDoubleClick"
         @scroll="handleScroll"
+        @touchstart="handleTouchStart"
+        @touchmove="handleTouchMove"
+        @touchend="handleTouchEnd"
+        @selectstart="handleSelectStart"
       >
         <!-- 内容区域 - 行号与内容整合在同一行中 -->
         <div class="lines-container" ref="linesContainer">
@@ -146,8 +150,8 @@
               }"
               :data-line-index="seg.lineIndex"
             >
-              <!-- 光标行或选中行：显示源码 -->
-              <template v-if="shouldShowSource(seg.lineIndex)">
+              <!-- 光标行、选中行、或正在编辑的块内的行：显示源码 -->
+              <template v-if="shouldShowSource(seg.lineIndex) || seg.inEditingBlock">
                 <span class="line-content source-mode">
                   <span
                     v-for="(char, charIndex) in getLineChars(seg.lineIndex)"
@@ -215,11 +219,18 @@
     <el-dialog
       title="编辑器使用说明"
       :visible.sync="helpDialogVisible"
-      width="500px"
+      width="620px"
       append-to-body
       custom-class="centered-dialog editor-help-dialog"
     >
       <div class="help-content">
+        <h3>✨ IR 编辑器特性</h3>
+        <ul class="help-list">
+          <li><strong>即时渲染</strong>：非编辑行实时显示渲染效果，所见即所得。</li>
+          <li><strong>源码编辑</strong>：点击任意行进入源码模式，直接编辑 Markdown。</li>
+          <li><strong>块级展开</strong>：编辑列表、代码块、表格时，整个块展开为源码便于查看结构。</li>
+          <li><strong>选区展开</strong>：选中多行时（如全选），被选中的块自动展开显示源码。</li>
+        </ul>
         <h3>⌨️ 常用快捷键</h3>
         <ul class="help-list">
           <li><strong>加粗</strong>：<code>Ctrl + B</code></li>
@@ -232,18 +243,53 @@
           <li><strong>插入链接</strong>：<code>Ctrl + K</code></li>
           <li><strong>保存</strong>：<code>Ctrl + S</code></li>
           <li><strong>撤销 / 重做</strong>：<code>Ctrl + Z</code> / <code>Ctrl + Y</code></li>
+          <li><strong>全选</strong>：<code>Ctrl + A</code></li>
           <li><strong>全屏</strong>：<code>F11</code> / <code>Esc</code></li>
         </ul>
         <h3>📝 其他功能</h3>
         <ul class="help-list">
           <li><strong>Markdown 兼容</strong>：支持直接粘贴 Markdown 文本。</li>
-          <li><strong>图片上传</strong>：支持截图直接粘贴。</li>
+          <li><strong>图片上传</strong>：支持截图直接粘贴上传。</li>
+          <li><strong>智能表格</strong>：在表格内点击工具栏表格按钮可添加新行。</li>
         </ul>
         <h3>📊 图表支持</h3>
         <ul class="help-list">
           <li><strong>Mermaid 图表</strong>：使用 <code>```mermaid</code> 代码块渲染流程图、时序图等。</li>
           <li><strong>ECharts 图表</strong>：使用 <code>```echarts</code> 代码块渲染 ECharts 图表。</li>
         </ul>
+        <h3>🔄 编辑器对比</h3>
+        <p style="margin-bottom: 8px; color: var(--text-color-secondary, #606266); font-size: 13px;">本项目提供多种编辑器，可在<strong>插件管理</strong>中切换：</p>
+        <table class="editor-compare-table">
+          <thead>
+            <tr>
+              <th>编辑器</th>
+              <th>模式</th>
+              <th>特点</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="current-editor">
+              <td><strong>IR 编辑器</strong></td>
+              <td>即时渲染</td>
+              <td>源码与渲染自动切换，轻量流畅</td>
+            </tr>
+            <tr>
+              <td><strong>WYSIWYG 编辑器</strong></td>
+              <td>所见即所得</td>
+              <td>富文本编辑体验，表格右键菜单</td>
+            </tr>
+            <tr>
+              <td><strong>Split 编辑器</strong></td>
+              <td>分屏预览</td>
+              <td>左右分栏，实时对照，传统体验</td>
+            </tr>
+            <tr>
+              <td><strong>Vditor 编辑器</strong></td>
+              <td>多模式可选</td>
+              <td>功能丰富，支持 IR/SV/WYSIWYG</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       <span slot="footer">
         <el-button type="primary" @click="helpDialogVisible = false">知道了</el-button>
@@ -338,7 +384,10 @@ export default {
       originalNextSibling: null,
       
       // 标记是否是内部更新，防止循环
-      isInternalUpdate: false
+      isInternalUpdate: false,
+      
+      // 帮助对话框
+      helpDialogVisible: false
     };
   },
 
@@ -660,6 +709,9 @@ export default {
      */
     handleCursorChange(change) {
       const oldCursorLine = this.cursorLine;
+      const hadSelection = !!(this.selectionStart && this.selectionEnd);
+      const oldSelStart = this.selectionStart;
+      const oldSelEnd = this.selectionEnd;
       
       this.cursorLine = change.position.line;
       this.cursorColumn = change.position.column;
@@ -672,9 +724,14 @@ export default {
         this.selectionEnd = null;
       }
       
-      // 如果光标行变化，需要重新渲染旧行（显示渲染结果）和新行（显示源码）
-      if (oldCursorLine !== this.cursorLine) {
-        // 光标切换会导致块折叠/展开策略变化，直接重渲染
+      // 检查选区是否变化（用于判断是否需要重渲染块）
+      const selectionChanged = hadSelection !== change.hasSelection ||
+        (oldSelStart?.line !== this.selectionStart?.line) ||
+        (oldSelEnd?.line !== this.selectionEnd?.line);
+      
+      // 如果光标行变化或选区变化，需要重新渲染
+      if (oldCursorLine !== this.cursorLine || selectionChanged) {
+        // 光标/选区变化会导致块折叠/展开策略变化，直接重渲染
         this.renderAllSegments();
         // 更新版本号确保视图刷新
         this.documentVersion++;
@@ -688,7 +745,7 @@ export default {
 
     /**
      * 根据文档结构重建 segments（代码块/表格/引用/列表会折叠为一个块）
-     * 注意：若光标在多行块内，为了便于编辑会展开为逐行渲染，但都显示源码
+     * 注意：若光标或选区在多行块内，为了便于编辑会展开为逐行渲染，显示源码
      */
     rebuildSegments() {
       if (!this.document || !this.renderer) {
@@ -705,10 +762,13 @@ export default {
         const endLine = block.endLine;
         const isMulti = endLine > startLine;
         const cursorInside = this.cursorLine >= startLine && this.cursorLine <= endLine;
+        
+        // 检查选区是否与块有交集
+        const selectionOverlap = this.selectionStart && this.selectionEnd && 
+          !(this.selectionEnd.line < startLine || this.selectionStart.line > endLine);
 
-        // 光标在多行块内时，为了保持可编辑性，展开为单行 segments
-        // 关键：标记这些行属于"正在编辑的块"，它们都显示源码，不渲染 HTML
-        if (isMulti && cursorInside) {
+        // 光标在块内 或 选区与块有交集时，展开为单行 segments
+        if (isMulti && (cursorInside || selectionOverlap)) {
           for (let i = startLine; i <= endLine; i++) {
             segs.push({ 
               kind: 'line', 
@@ -1212,114 +1272,247 @@ export default {
       }
     },
 
+    // ==================== 触摸事件处理（移动端支持）====================
+    
     /**
-     * 从鼠标事件获取文档位置
+     * 处理触摸开始
+     */
+    handleTouchStart(e) {
+      if (this.readonly) return;
+      this.focus();
+      
+      const touch = e.touches[0];
+      const pos = this.getPositionFromEvent(touch);
+      if (pos) {
+        this.cursor.setPosition(pos.line, pos.column);
+      }
+    },
+    
+    /**
+     * 处理触摸移动
+     */
+    handleTouchMove(e) {
+      if (this.readonly) return;
+      
+      const touch = e.touches[0];
+      const pos = this.getPositionFromEvent(touch);
+      if (pos) {
+        const anchor = this.cursor.getSelection().start;
+        this.cursor.setSelection(anchor.line, anchor.column, pos.line, pos.column);
+      }
+      
+      if (this.cursor.hasSelection()) {
+        e.preventDefault();
+      }
+    },
+    
+    /**
+     * 处理触摸结束
+     */
+    handleTouchEnd() {
+      // 空实现，保持接口完整
+    },
+    
+    /**
+     * 阻止浏览器默认选择行为
+     */
+    handleSelectStart(e) {
+      e.preventDefault();
+    },
+
+    /**
+     * 从鼠标/触摸事件获取文档位置
      */
     getPositionFromEvent(e) {
       const container = this.$refs.linesContainer;
       if (!container) return null;
       
-      // 直接使用 clientY 与元素的 getBoundingClientRect 比较
+      const { clientX, clientY } = e;
+      
+      // 找到点击的行元素
       const items = container.querySelectorAll('.editor-line, .editor-block');
       let targetEl = null;
       
-      for (let i = 0; i < items.length; i++) {
-        const r = items[i].getBoundingClientRect();
-        if (e.clientY >= r.top && e.clientY < r.bottom) {
-          targetEl = items[i];
+      for (const item of items) {
+        const r = item.getBoundingClientRect();
+        if (clientY >= r.top && clientY < r.bottom) {
+          targetEl = item;
           break;
         }
       }
       
-      // 如果没找到（点击在元素外），找最近的
       if (!targetEl && items.length > 0) {
-        // 点击在所有元素上方
         const firstRect = items[0].getBoundingClientRect();
-        if (e.clientY < firstRect.top) {
-          targetEl = items[0];
-        } else {
-          // 点击在所有元素下方，取最后一个
-          targetEl = items[items.length - 1];
-        }
+        targetEl = clientY < firstRect.top ? items[0] : items[items.length - 1];
       }
       
       if (!targetEl) return new Position(0, 0);
 
-      // 块渲染：映射到块内某一行
+      // 块渲染
       if (targetEl.classList.contains('editor-block')) {
-        const start = Number(targetEl.getAttribute('data-start-line') || 0);
-        const end = Number(targetEl.getAttribute('data-end-line') || start);
-        const type = String(targetEl.getAttribute('data-block-type') || '');
-
-        // 尽量把点击位置映射到块内部某一行（粗略按高度比例）
+        const start = Number(targetEl.dataset.startLine || 0);
+        const end = Number(targetEl.dataset.endLine || start);
+        const type = targetEl.dataset.blockType || '';
+        
         const r = targetEl.getBoundingClientRect();
-        const yIn = Math.max(0, Math.min(r.height, e.clientY - r.top));
-        const lineCount = Math.max(1, end - start + 1);
-        let offset = Math.floor((yIn / Math.max(1, r.height)) * lineCount);
-        if (offset >= lineCount) offset = lineCount - 1;
-        let lineIndex = start + offset;
-
-        // 代码块：优先把光标放到 fence 内部，便于直接编辑/删除
+        const ratio = (clientY - r.top) / Math.max(1, r.height);
+        let lineIndex = start + Math.floor(ratio * (end - start + 1));
+        lineIndex = Math.min(lineIndex, end);
+        
         if ((type === 'code_block' || type === 'mermaid' || type === 'echarts') && lineIndex === start && end > start) {
           lineIndex = start + 1;
         }
-
         return new Position(lineIndex, 0);
       }
 
-      const lineIndex = Number(targetEl.getAttribute('data-line-index') || 0);
-      
-      // 对于渲染模式的行，直接返回行首或行尾
-      const isRenderedMode = targetEl.querySelector('.rendered-mode');
-      if (isRenderedMode) {
-        // 渲染模式下，点击左半部分放行首，右半部分放行尾
-        const r = targetEl.getBoundingClientRect();
-        const xRatio = (e.clientX - r.left) / r.width;
-        const lineText = this.document.getLineText(lineIndex);
-        if (xRatio < 0.5) {
-          return new Position(lineIndex, 0);
-        } else {
-          return new Position(lineIndex, lineText.length);
-        }
-      }
-      
-      // 源码模式：精确定位到字符
-      const contentEl = targetEl.querySelector('.line-content') || targetEl;
-      const contentRect = contentEl.getBoundingClientRect();
-      const x = e.clientX - contentRect.left;
-      
-      // 获取行文本
+      const lineIndex = Number(targetEl.dataset.lineIndex || 0);
       const lineText = this.document.getLineText(lineIndex);
       
-      // 使用临时 span 测量字符宽度
-      const tempSpan = document.createElement('span');
-      tempSpan.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:inherit';
-      contentEl.appendChild(tempSpan);
-      
-      let column = 0;
-      for (let i = 0; i <= lineText.length; i++) {
-        tempSpan.textContent = lineText.substring(0, i);
-        if (tempSpan.offsetWidth >= x) {
-          column = i > 0 ? i - 1 : 0;
-          // 判断更接近前一个还是后一个字符
-          if (i > 0) {
-            const prevWidth = tempSpan.offsetWidth;
-            tempSpan.textContent = lineText.substring(0, i - 1);
-            const currWidth = tempSpan.offsetWidth;
-            if (x - currWidth < prevWidth - x) {
-              column = i - 1;
-            } else {
-              column = i;
-            }
-          }
-          break;
-        }
-        column = i;
+      // 渲染模式：通过测量元素精确计算点击位置
+      if (targetEl.querySelector('.rendered-mode')) {
+        const contentEl = targetEl.querySelector('.line-content') || targetEl;
+        const column = this.measureColumnAtPoint(clientX, clientY, contentEl, lineText);
+        return new Position(lineIndex, column);
       }
       
-      contentEl.removeChild(tempSpan);
-      
+      // 源码模式：遍历字符元素定位
+      const column = this.getColumnAtPoint(clientX, clientY, targetEl, lineText.length);
       return new Position(lineIndex, column);
+    },
+    
+    /**
+     * 通过测量元素精确计算点击位置对应的列索引
+     * 模拟源码模式的渲染方式，逐字符测量
+     */
+    measureColumnAtPoint(clientX, clientY, contentEl, lineText) {
+      if (!lineText) return 0;
+      
+      const contentRect = contentEl.getBoundingClientRect();
+      const clickX = clientX - contentRect.left;
+      const clickY = clientY - contentRect.top;
+      
+      if (clickX <= 0 && clickY <= 0) return 0;
+      
+      // 创建测量容器，完全模拟源码模式的样式
+      const container = document.createElement('div');
+      container.style.cssText = `
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        width: ${contentRect.width}px;
+        font-family: Consolas, Monaco, 'Courier New', monospace;
+        font-size: 16px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      `;
+      
+      // 为每个字符创建 span，和源码模式一致
+      for (let i = 0; i < lineText.length; i++) {
+        const span = document.createElement('span');
+        span.className = 'measure-char';
+        span.textContent = lineText[i] === '' ? '\u200B' : lineText[i];
+        container.appendChild(span);
+      }
+      
+      document.body.appendChild(container);
+      
+      // 遍历测量的字符，找到最匹配点击位置的
+      const charSpans = container.querySelectorAll('.measure-char');
+      let result = 0;
+      let found = false;
+      
+      for (let i = 0; i < charSpans.length; i++) {
+        const rect = charSpans[i].getBoundingClientRect();
+        // 转换为相对于容器的坐标
+        const charLeft = rect.left - container.getBoundingClientRect().left;
+        const charTop = rect.top - container.getBoundingClientRect().top;
+        const charRight = charLeft + rect.width;
+        const charBottom = charTop + rect.height;
+        
+        // 检查 Y 是否在这个字符的行内
+        if (clickY >= charTop && clickY <= charBottom) {
+          // 在同一视觉行
+          if (clickX < charLeft) {
+            // 点击在字符左边，检查是否是该视觉行的第一个字符
+            if (i === 0) {
+              result = 0;
+              found = true;
+              break;
+            }
+            const prevRect = charSpans[i - 1].getBoundingClientRect();
+            const prevBottom = prevRect.top - container.getBoundingClientRect().top + prevRect.height;
+            if (prevBottom <= charTop) {
+              // 前一个字符在上一行，这是当前视觉行的开头
+              result = i;
+              found = true;
+              break;
+            }
+          } else if (clickX <= charRight) {
+            // 点击在字符内部
+            const charCenter = charLeft + rect.width / 2;
+            result = clickX < charCenter ? i : i + 1;
+            found = true;
+            break;
+          }
+          // 点击在字符右边，继续检查下一个字符
+        }
+      }
+      
+      // 如果没找到精确匹配（点击在最后一行的末尾之后）
+      if (!found) {
+        result = lineText.length;
+      }
+      
+      document.body.removeChild(container);
+      return Math.min(result, lineText.length);
+    },
+    
+    /**
+     * 遍历字符元素，找到点击位置对应的列索引
+     * 支持自动换行的情况
+     */
+    getColumnAtPoint(clientX, clientY, lineEl, lineLength) {
+      const charSpans = lineEl.querySelectorAll('.char');
+      if (charSpans.length === 0) return 0;
+      
+      // 1. 先找到点击所在的视觉行（Y坐标匹配的字符）
+      // 2. 再在该视觉行中找到最近的字符（X坐标匹配）
+      
+      let bestIndex = 0;
+      let bestDistance = Infinity;
+      
+      for (let i = 0; i < charSpans.length; i++) {
+        const rect = charSpans[i].getBoundingClientRect();
+        
+        // 检查 Y 是否在这个字符的行内
+        if (clientY >= rect.top && clientY <= rect.bottom) {
+          // 在同一视觉行，检查 X
+          if (clientX < rect.left) {
+            // 点击在字符左边，检查是否是该视觉行的第一个字符
+            // （即前一个字符在上一行）
+            if (i === 0 || charSpans[i - 1].getBoundingClientRect().bottom <= rect.top) {
+              return i; // 这是换行后新行的开头
+            }
+          } else if (clientX <= rect.right) {
+            // 点击在字符内部
+            return clientX < rect.left + rect.width / 2 ? i : i + 1;
+          }
+          // 点击在字符右边，继续找这一视觉行的下一个字符
+        }
+        
+        // 计算距离，用于没有精确匹配时的降级
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const dist = Math.abs(clientX - centerX) + Math.abs(clientY - centerY) * 2; // Y权重更高
+        
+        if (dist < bestDistance) {
+          bestDistance = dist;
+          bestIndex = clientX < centerX ? i : i + 1;
+        }
+      }
+      
+      return Math.min(bestIndex, lineLength);
     },
 
     /**
@@ -1976,6 +2169,15 @@ export default {
   height: 100%;
   overflow: auto;
   cursor: text;
+  /* 阻止浏览器默认的文本选择，由编辑器自己管理 */
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  /* 移动端：阻止触摸时的高亮效果 */
+  -webkit-tap-highlight-color: transparent;
+  /* 移动端：阻止触摸时的调出菜单 */
+  -webkit-touch-callout: none;
 }
 
 /* 内容区域 */
@@ -2133,6 +2335,95 @@ export default {
   color: #d4d4d4;
 }
 
+/* ========== 暗色模式下渲染内容的样式适配 ========== */
+
+/* 段落和通用文本 */
+.ir-editor.dark-mode :deep(.entry-content),
+.ir-editor.dark-mode :deep(.entry-content p),
+.ir-editor.dark-mode :deep(.entry-content li),
+.ir-editor.dark-mode :deep(.entry-content span) {
+  color: #d4d4d4;
+}
+
+/* 引用块 */
+.ir-editor.dark-mode :deep(.entry-content blockquote) {
+  color: #b0b0b0;
+}
+
+/* 行内代码 */
+.ir-editor.dark-mode :deep(.entry-content code:not(.hljs)) {
+  background: #3a3a00;
+  color: #f0c674;
+}
+
+/* 链接 */
+.ir-editor.dark-mode :deep(.entry-content a) {
+  color: #f0a0a0;
+}
+
+.ir-editor.dark-mode :deep(.entry-content a:hover) {
+  color: #ffa500;
+}
+
+/* 表格 - 暗色模式适配 */
+.ir-editor.dark-mode :deep(.entry-content table) {
+  color: #d4d4d4;
+}
+
+.ir-editor.dark-mode :deep(.entry-content table th) {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d4d4d4;
+}
+
+.ir-editor.dark-mode :deep(.entry-content table td) {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d4d4d4;
+}
+
+.ir-editor.dark-mode :deep(.entry-content table tr:nth-child(2n)) {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.ir-editor.dark-mode :deep(.entry-content table tbody > tr:hover) {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* table-wrapper 包裹的表格 */
+.ir-editor.dark-mode :deep(.table-wrapper > table) {
+  color: #d4d4d4;
+}
+
+.ir-editor.dark-mode :deep(.table-wrapper > table th) {
+  background-color: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d4d4d4;
+}
+
+.ir-editor.dark-mode :deep(.table-wrapper > table td) {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #d4d4d4;
+}
+
+.ir-editor.dark-mode :deep(.table-wrapper > table tr:nth-child(2n)) {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.ir-editor.dark-mode :deep(.table-wrapper > table tbody > tr:hover) {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 列表标记颜色 */
+.ir-editor.dark-mode :deep(.entry-content ul),
+.ir-editor.dark-mode :deep(.entry-content ol) {
+  color: #d4d4d4;
+}
+
+/* 水平线 */
+.ir-editor.dark-mode :deep(.entry-content hr) {
+  border-color: rgba(252, 98, 93, 0.5);
+}
+
 /* 帮助内容样式 */
 .help-content {
   padding: 0 10px;
@@ -2176,6 +2467,39 @@ export default {
   color: #409eff;
   margin: 0 4px;
 }
+
+/* 编辑器对比表格样式 */
+.editor-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.editor-compare-table th,
+.editor-compare-table td {
+  border: 1px solid #e4e7ed;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.editor-compare-table th {
+  background-color: #f5f7fa;
+  color: #606266;
+  font-weight: 600;
+}
+
+.editor-compare-table td {
+  color: #606266;
+}
+
+.editor-compare-table tr.current-editor {
+  background-color: #ecf5ff;
+}
+
+.editor-compare-table tr.current-editor td {
+  color: #409eff;
+}
 </style>
 
 <style>
@@ -2191,6 +2515,29 @@ body.dark-mode .editor-help-dialog .help-content li {
 
 body.dark-mode .editor-help-dialog .help-list code {
   background-color: #3e4145;
+  color: #67c23a;
+}
+
+/* 暗色模式下的编辑器对比表格 */
+body.dark-mode .editor-help-dialog .editor-compare-table th,
+body.dark-mode .editor-help-dialog .editor-compare-table td {
+  border-color: #4c5157;
+}
+
+body.dark-mode .editor-help-dialog .editor-compare-table th {
+  background-color: #3e4145;
+  color: #a9b7c6;
+}
+
+body.dark-mode .editor-help-dialog .editor-compare-table td {
+  color: #a9b7c6;
+}
+
+body.dark-mode .editor-help-dialog .editor-compare-table tr.current-editor {
+  background-color: rgba(64, 158, 255, 0.15);
+}
+
+body.dark-mode .editor-help-dialog .editor-compare-table tr.current-editor td {
   color: #67c23a;
 }
 </style>

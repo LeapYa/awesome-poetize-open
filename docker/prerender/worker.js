@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const MarkdownIt = require('markdown-it');
-const { JSDOM } = require('jsdom');
 const { decode: decodeHtmlEntities } = require('html-entities');
 
 const app = express();
@@ -832,695 +831,285 @@ async function fetchArticlesBySort(sortId, labelId = null, limit = 10) {
 // ===== 通用HTML构建函数 =====
 function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' }) {
   const templatePath = path.resolve('/app/dist/index.html');
-  let templateHtml;
+  let html;
   
   if (!fs.existsSync(templatePath)) {
-    // 如果挂载路径不存在，尝试相对路径作为fallback
     const fallbackPath = path.resolve(__dirname, './dist/index.html');
     if (!fs.existsSync(fallbackPath)) {
       throw new Error(`在${templatePath}或${fallbackPath}找不到SPA模板。请确保poetize-ui已构建且卷已正确挂载。`);
     }
     console.warn(`使用备用模板路径: ${fallbackPath}`);
-    templateHtml = fs.readFileSync(fallbackPath, 'utf8');
+    html = fs.readFileSync(fallbackPath, 'utf8');
   } else {
-    templateHtml = fs.readFileSync(templatePath, 'utf8');
+    html = fs.readFileSync(templatePath, 'utf8');
   }
-  
-  // 使用 JSDOM 解析 HTML
-  const dom = new JSDOM(templateHtml);
-  const document = dom.window.document;
-  const Node = dom.window.Node; // 获取Node对象
 
-  // 设置语言属性
-  document.documentElement.setAttribute('lang', lang);
-  
-  // 设置标题
-  const titleElement = document.querySelector('head title');
-  if (titleElement) {
-    titleElement.textContent = title;
-  }
-  
-  // 添加PWA manifest链接到title之前
-  try {
-    const manifestLink = document.createElement('link');
-    manifestLink.setAttribute('rel', 'manifest');
-    manifestLink.setAttribute('href', '/manifest.json'); // Java端动态生成，包含完整的PWA配置
-    manifestLink.setAttribute('data-prerender-manifest', 'true');
-    
-    if (document.head && document.head.nodeType === Node.ELEMENT_NODE && titleElement) {
-      document.head.insertBefore(manifestLink, titleElement);
-      logger.debug('✅ PWA manifest链接已添加到title之前');
-    } else if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-      // 如果没有title元素，添加到head末尾以避免破坏HTML结构
-      document.head.appendChild(manifestLink);
-      logger.debug('✅ PWA manifest链接已添加到head末尾）');
+  // ── 1. 设置 <html lang> ──
+  html = html.replace(/<html([^>]*)>/i, (match, attrs) => {
+    if (/\slang\s*=/i.test(attrs)) {
+      return `<html${attrs.replace(/\slang\s*=\s*["'][^"']*["']/i, ` lang="${lang}"`)}>`;
     }
-  } catch (e) {
-    logger.warn('❌ 添加PWA manifest链接失败', { error: e.message });
-  }
+    return `<html${attrs} lang="${lang}">`;
+  });
 
-  // 清理占位符/旧meta，更彻底
-  const removeElements = (selector) => {
-    const elements = document.querySelectorAll(selector);
-    elements.forEach(el => el.remove());
-  };
-  
-  removeElements('head meta[name="description"]');
-  removeElements('head meta[name="keywords"]');
-  removeElements('head meta[name="author"]');
-  removeElements('head meta[property^="og:"]');
-  removeElements('head meta[property^="twitter:"]');
-  removeElements('head meta[property^="article:"]');
-  removeElements('head meta[property="structured_data"]');
-  removeElements('head script[type="application/ld+json"][data-prerender-structured-data="true"]');
-  removeElements('head link[rel="canonical"]');
-  removeElements('head link[rel="alternate"]');
+  // ── 2. 设置 <title> ──
+  html = html.replace(/<title[^>]*>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
 
-  // 处理图标字段
-  const iconMapping = {
-    'site_icon': { rel: 'icon', id: 'seo-favicon' },
-    'apple_touch_icon': { rel: 'apple-touch-icon' },
-    'site_icon_192': { rel: 'icon', type: 'image/png', sizes: '192x192' },
-    'site_icon_512': { rel: 'icon', type: 'image/png', sizes: '512x512' },
-    'site_logo': { rel: 'icon', type: 'image/png', sizes: 'any' }
-  };
-  
-  // 如果有site_icon，移除默认的favicon
-  if (meta && meta.site_icon) {
-    removeElements('head link[rel="icon"]');
-    removeElements('head link[id="default-favicon"]');
-    logger.info('已移除默认favicon以便替换');
-  }
-  
-  // 添加各种图标
-  if (meta) {
+  // ── 3. 清理旧的 meta/link 标签 ──
+  const removePatterns = [
+    /<meta\s+[^>]*name\s*=\s*["'](?:description|keywords|author)["'][^>]*>/gi,
+    /<meta\s+[^>]*property\s*=\s*["'](?:og:|twitter:|article:)[^"']*["'][^>]*>/gi,
+    /<meta\s+[^>]*property\s*=\s*["']structured_data["'][^>]*>/gi,
+    /<script\s+[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*data-prerender-structured-data\s*=\s*["']true["'][^>]*>[\s\S]*?<\/script>/gi,
+    /<link\s+[^>]*rel\s*=\s*["']canonical["'][^>]*>/gi,
+    /<link\s+[^>]*rel\s*=\s*["']alternate["'][^>]*>/gi
+  ];
+  removePatterns.forEach(pattern => {
+    html = html.replace(pattern, '');
+  });
+
+  // ── 4. 收集所有要插入 </head> 前的标签 ──
+  const headTags = [];
+
+  // PWA manifest
+  headTags.push(`<link rel="manifest" href="/manifest.json" data-prerender-manifest="true">`);
+
+  // dns-prefetch
+  headTags.push(`<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">`);
+
+  if (typeof meta === 'object' && meta !== null) {
+    // 图标
+    const iconMapping = {
+      'site_icon': { rel: 'icon', id: 'seo-favicon' },
+      'apple_touch_icon': { rel: 'apple-touch-icon' },
+      'site_icon_192': { rel: 'icon', type: 'image/png', sizes: '192x192' },
+      'site_icon_512': { rel: 'icon', type: 'image/png', sizes: '512x512' },
+      'site_logo': { rel: 'icon', type: 'image/png', sizes: 'any' }
+    };
+
+    // 如果有site_icon，移除模板中默认的favicon
+    if (meta.site_icon) {
+      html = html.replace(/<link\s+[^>]*rel\s*=\s*["']icon["'][^>]*>/gi, '');
+      html = html.replace(/<link\s+[^>]*id\s*=\s*["']default-favicon["'][^>]*>/gi, '');
+      // logger.info('已移除默认favicon以便替换');
+    }
+
     Object.keys(iconMapping).forEach(field => {
       if (meta[field]) {
         const attrs = iconMapping[field];
-        const linkElement = document.createElement('link');
-        linkElement.href = meta[field];
-        
-        // 添加所有属性
+        let tag = `<link href="${meta[field]}"`;
         Object.keys(attrs).forEach(attr => {
-          linkElement.setAttribute(attr, attrs[attr]);
+          tag += ` ${attr}="${attrs[attr]}"`;
         });
-        
-        // 安全地插入到title之前，避免appendChild在文本节点上的错误
-        try {
-          if (document.head && document.head.nodeType === Node.ELEMENT_NODE && titleElement) {
-            document.head.insertBefore(linkElement, titleElement);
-            logger.debug(`已添加${field}图标到title之前`, { url: meta[field] });
-          } else if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-            // 如果没有title元素，添加到head末尾作为fallback
-            document.head.appendChild(linkElement);
-            logger.debug(`已添加${field}图标到head末尾（fallback）`, { url: meta[field] });
-          } else {
-            logger.warn(`无法添加${field}图标 - document.head不是元素节点`);
-          }
-        } catch (error) {
-          logger.warn(`添加${field}图标失败`, { error: error.message, url: meta[field] });
-        }
+        tag += '>';
+        headTags.push(tag);
+        logger.debug(`已添加${field}图标`, { url: meta[field] });
       }
     });
-  }
 
-  // 注入新的meta，一次一个，更安全
-  if (typeof meta === 'object' && meta !== null) {
+    // 需要跳过通用处理的特殊字段
+    const skipInGenericLoop = new Set([
+      'structured_data', 'title', 'custom_head_code', 'robots',
+      'google_site_verification', 'baidu_site_verification', 'bing_site_verification',
+      'yandex_site_verification', 'sogou_site_verification', 'so_site_verification',
+      'shenma_site_verification', 'yahoo_site_verification', 'duckduckgo_site_verification',
+      'twitter_site', 'twitter_creator', 'fb_app_id', 'fb_page_url',
+      'og_type', 'og_site_name', 'linkedin_company_id',
+      'pinterest_verification', 'pinterest_description',
+      'wechat_miniprogram_id', 'wechat_miniprogram_path', 'qq_miniprogram_path',
+      '_rawHtmlSnippets'
+    ]);
+    const iconFields = new Set(Object.keys(iconMapping));
+
+    // 通用 meta 标签
     for (const key in meta) {
       if (!meta.hasOwnProperty(key)) continue;
+      if (skipInGenericLoop.has(key) || iconFields.has(key)) continue;
+      if (key.startsWith('hreflang_')) continue; // hreflang 后面单独处理
 
-      if (key === 'structured_data') {
-        continue;
-      }
+      const value = (meta[key] || '').toString().trim();
+      if (!value) continue;
 
-      const value = (meta[key] || '').toString().replace(/"/g, '&quot;');
-      
-      if (key === 'title') {
-        // title已在上面处理
-        continue;
-      } else if (Object.keys(iconMapping).includes(key)) {
-        // 图标已在上面处理
-        continue;
-      } else if (key.startsWith('hreflang_')) {
-        // hreflang 链接跳过DOM处理，稍后在序列化后直接插入HTML字符串
-        continue;
-      } else if (key === 'canonical') {
-        const canonicalLink = document.createElement('link');
-        canonicalLink.rel = 'canonical';
-        canonicalLink.href = value;
-        
-        // 安全地插入到title之前
-        try {
-          if (titleElement && titleElement.parentNode && titleElement.parentNode.nodeType === Node.ELEMENT_NODE) {
-            titleElement.parentNode.insertBefore(canonicalLink, titleElement);
-          } else if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-            document.head.appendChild(canonicalLink);
-          } else {
-            logger.warn('无法添加canonical链接 - 找不到合适的父元素节点');
-          }
-        } catch (error) {
-          logger.warn('添加canonical链接失败', { error: error.message, href: value });
-        }
+      if (key === 'canonical') {
+        headTags.push(`<link rel="canonical" href="${value}">`);
       } else if (['description', 'keywords', 'author'].includes(key)) {
-        // 跳过空值的 meta 标签
-        if (value && value.trim() !== '') {
-          const metaElement = document.createElement('meta');
-          metaElement.name = key;
-          metaElement.content = value;
-          
-          // 安全地添加到head
-          try {
-            if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-              document.head.appendChild(metaElement);
-            } else {
-              logger.warn(`无法添加meta标签${key} - document.head不是元素节点`);
-            }
-          } catch (error) {
-            logger.warn(`添加meta标签${key}失败`, { error: error.message, value });
-          }
-        }
-      } else if (key === 'custom_head_code') {
-        // 跳过 custom_head_code，它将在后面的专门逻辑中处理
-        logger.debug('跳过custom_head_code，将在专门的处理逻辑中处理');
+        headTags.push(`<meta name="${key}" content="${value}">`);
       } else {
-        // 处理 og:, twitter:, article: 等属性，但跳过空值
-        if (value && value.trim() !== '') {
-          const metaElement = document.createElement('meta');
-          metaElement.setAttribute('property', key);
-          metaElement.content = value;
-          
-          // 安全地添加到head
-          try {
-            if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-              document.head.appendChild(metaElement);
-            } else {
-              logger.warn(`无法添加property meta标签${key} - document.head不是元素节点`);
-            }
-          } catch (error) {
-            logger.warn(`添加property meta标签${key}失败`, { error: error.message, value });
-          }
-        }
+        // og:, twitter:, article: 等
+        headTags.push(`<meta property="${key}" content="${value}">`);
       }
     }
 
+    // JSON-LD 结构化数据
     if (meta.structured_data && meta.structured_data.toString().trim() !== '') {
-      try {
-        const structuredDataScript = document.createElement('script');
-        structuredDataScript.setAttribute('type', 'application/ld+json');
-        structuredDataScript.setAttribute('data-prerender-structured-data', 'true');
-        structuredDataScript.textContent =
-          typeof meta.structured_data === 'string'
-            ? meta.structured_data
-            : JSON.stringify(meta.structured_data);
-
-        if (document.head && document.head.nodeType === Node.ELEMENT_NODE && titleElement) {
-          document.head.insertBefore(structuredDataScript, titleElement);
-        } else if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-          document.head.appendChild(structuredDataScript);
-        }
-      } catch (e) {
-        logger.warn('注入JSON-LD结构化数据失败', { error: e.message });
-      }
+      const jsonLdContent = typeof meta.structured_data === 'string'
+        ? meta.structured_data
+        : JSON.stringify(meta.structured_data);
+      headTags.push(`<script type="application/ld+json" data-prerender-structured-data="true">${jsonLdContent}</script>`);
     }
-    
-    // 处理搜索引擎验证标签
+
+    // 搜索引擎验证标签
     const verificationTags = [
-      'google_site_verification',
-      'baidu_site_verification', 
-      'bing_site_verification',
-      'yandex_site_verification',
-      'sogou_site_verification',
-      'so_site_verification',
-      'shenma_site_verification',
-      'yahoo_site_verification',
-      'duckduckgo_site_verification'
+      'google_site_verification', 'baidu_site_verification', 'bing_site_verification',
+      'yandex_site_verification', 'sogou_site_verification', 'so_site_verification',
+      'shenma_site_verification', 'yahoo_site_verification', 'duckduckgo_site_verification'
     ];
-    
     verificationTags.forEach(tagKey => {
       if (meta[tagKey] && meta[tagKey].trim() !== '') {
-        try {
-          const tagValue = meta[tagKey].trim();
-          
-          if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-            // 如果值是完整的HTML标签（以<开头），则原样插入
-            if (tagValue.startsWith('<')) {
-              // 使用临时容器解析HTML标签，确保安全插入
-              const tempDiv = document.createElement('div');
-              tempDiv.innerHTML = tagValue;
-              const metaElement = tempDiv.firstElementChild;
-              if (metaElement) {
-                document.head.appendChild(metaElement);
-              }
-            } else {
-              // 向后兼容：如果只是content值，则构造meta标签
-              const verificationMeta = document.createElement('meta');
-              verificationMeta.setAttribute('name', tagKey.replace(/_/g, '-'));
-              verificationMeta.setAttribute('content', tagValue);
-              document.head.appendChild(verificationMeta);
-            }
-            logger.debug('成功添加搜索引擎验证标签', { 
-              platform: tagKey,
-              isRawHtml: tagValue.startsWith('<'),
-              content: tagValue.substring(0, 50) + (tagValue.length > 50 ? '...' : '')
-            });
-          }
-        } catch (e) {
-          logger.warn('添加搜索引擎验证标签失败', { 
-            platform: tagKey,
-            error: e.message 
-          });
+        let tagValue = decodeHtmlEntities(meta[tagKey].trim());
+        if (tagValue.startsWith('<')) {
+          // 完整HTML标签 → 原样插入
+          headTags.push(tagValue);
+        } else {
+          headTags.push(`<meta name="${tagKey.replace(/_/g, '-')}" content="${tagValue}">`);
         }
+        logger.debug('成功处理搜索引擎验证标签', {
+          platform: tagKey,
+          isRawHtml: tagValue.startsWith('<'),
+          content: tagValue.substring(0, 50) + (tagValue.length > 50 ? '...' : '')
+        });
       }
     });
 
-    // 处理robots meta标签
+    // robots
     if (meta.robots && meta.robots.trim() !== '') {
-      try {
-        const robotsMeta = document.createElement('meta');
-        robotsMeta.setAttribute('name', 'robots');
-        robotsMeta.setAttribute('content', meta.robots.trim());
-        robotsMeta.setAttribute('data-prerender-robots', 'true');
-        
-        if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-          document.head.appendChild(robotsMeta);
-          logger.debug('成功添加robots meta标签', { content: meta.robots });
-        }
-      } catch (e) {
-        logger.warn('添加robots meta标签失败', { error: e.message });
-      }
+      headTags.push(`<meta name="robots" content="${meta.robots.trim()}" data-prerender-robots="true">`);
+      logger.debug('成功添加robots meta标签', { content: meta.robots });
     }
 
-    // 处理社交媒体验证标签
+    // 社交媒体标签
     const socialMediaTags = {
-      // Twitter标签
       'twitter_site': 'twitter:site',
       'twitter_creator': 'twitter:creator',
-      
-      // Facebook标签
       'fb_app_id': 'fb:app_id',
       'fb_page_url': 'fb:page_url',
-      
-      // Open Graph标签（property字段）
       'og_type': 'og:type',
       'og_site_name': 'og:site_name',
-      
-      // LinkedIn标签
       'linkedin_company_id': 'linkedin:company',
-      
-      // Pinterest标签
       'pinterest_verification': 'p:domain_verify',
       'pinterest_description': 'pinterest:description',
-      
-      // 小程序标签
       'wechat_miniprogram_id': 'wechat:miniprogram',
       'wechat_miniprogram_path': 'wechat:miniprogram:path',
       'qq_miniprogram_path': 'qq:miniprogram:path'
     };
-    
     Object.entries(socialMediaTags).forEach(([configKey, metaName]) => {
       if (meta[configKey] && meta[configKey].trim() !== '') {
-        try {
-          const socialMeta = document.createElement('meta');
-          
-          // OpenGraph字段使用property，其他使用name
-          if (metaName.startsWith('og:')) {
-            socialMeta.setAttribute('property', metaName);
-          } else {
-            socialMeta.setAttribute('name', metaName);
-          }
-          
-          socialMeta.setAttribute('content', meta[configKey].trim());
-          socialMeta.setAttribute('data-prerender-social', 'true');
-          
-          if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-            document.head.appendChild(socialMeta);
-            logger.debug('成功添加社交媒体标签', { field: configKey, metaName });
-          }
-        } catch (e) {
-          logger.warn('添加社交媒体标签失败', { field: configKey, error: e.message });
-        }
+        const attrType = metaName.startsWith('og:') ? 'property' : 'name';
+        headTags.push(`<meta ${attrType}="${metaName}" content="${meta[configKey].trim()}" data-prerender-social="true">`);
+        logger.debug('成功添加社交媒体标签', { field: configKey, metaName });
       }
     });
 
-
-    // 处理自定义头部代码
-    if (meta.custom_head_code && meta.custom_head_code.trim() !== '') {
-      try {
-        logger.info('处理自定义头部代码', { 
-          codeLength: meta.custom_head_code.length,
-          preview: meta.custom_head_code.substring(0, 100) + '...'
-        });
-        
-        // 创建临时DOM容器来解析自定义头部代码
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = meta.custom_head_code;
-        
-        // 遍历解析的元素并添加到head
-        Array.from(tempDiv.children).forEach(element => {
-          if (element.nodeType === Node.ELEMENT_NODE) {
-            // 安全地添加到head
-            if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-              try {
-                const clonedElement = element.cloneNode(true);
-                document.head.appendChild(clonedElement);
-                logger.debug('成功添加自定义头部元素到prerender HTML', { 
-                  tagName: element.tagName,
-                  id: element.id || '无',
-                  className: element.className || '无'
-                });
-              } catch (e) {
-                logger.warn('添加自定义头部元素失败', { 
-                  error: e.message, 
-                  tagName: element.tagName 
-                });
-              }
-            }
-          }
-        });
-        
-        // 如果是纯文本/脚本内容（没有HTML标签），包装在script标签中
-        const trimmedCode = meta.custom_head_code.trim();
-        if (trimmedCode && !trimmedCode.includes('<') && !trimmedCode.includes('>')) {
-          const scriptElement = document.createElement('script');
-          scriptElement.textContent = trimmedCode;
-          
-          if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-            try {
-              document.head.appendChild(scriptElement);
-              logger.debug('成功添加自定义脚本到prerender HTML');
-            } catch (e) {
-              logger.warn('添加自定义脚本失败', { error: e.message });
-            }
-          }
-        }
-        
-      } catch (error) {
-        logger.error('处理自定义头部代码失败', { 
-          error: error.message,
-          codeLength: meta.custom_head_code.length 
-        });
+    // hreflang 链接
+    Object.keys(meta).forEach(key => {
+      if (key.startsWith('hreflang_') && meta[key]) {
+        headTags.push(meta[key]); // 直接使用接口返回的完整HTML标签
       }
+    });
+
+    // 自定义头部代码（原样插入，不转义）
+    if (meta.custom_head_code && meta.custom_head_code.trim() !== '') {
+      const decodedCustomCode = decodeHtmlEntities(meta.custom_head_code.trim());
+      headTags.push(decodedCustomCode);
+      logger.info('处理自定义头部代码（原样插入模式）', {
+        codeLength: decodedCustomCode.length,
+        preview: decodedCustomCode.substring(0, 100) + '...'
+      });
     }
-    
   } else {
     console.error('元数据不是有效对象:', meta);
   }
 
-  // 添加页面类型标识
-  document.body.setAttribute('data-prerender-type', pageType);
-  document.body.setAttribute('data-prerender-lang', lang);
-
-  // 添加防止FOUC的关键内联样式
-  const criticalCSS = `
-    <style>
+  // 关键内联样式
+  headTags.push(`<style>
       /* 防止FOUC的关键样式 */
-      html.prerender #app {
-        visibility: visible;
-        opacity: 1;
-      }
-      
-      html:not(.loaded) #app {
-        visibility: hidden;
-      }
-      
-      html.loaded #app {
-        visibility: visible;
-        opacity: 1;
-        transition: opacity 0.3s ease-in-out;
-      }
-      
-      /* 预渲染内容的样式保护 */
+      html.prerender #app { visibility: visible; opacity: 1; }
+      html:not(.loaded) #app { visibility: hidden; }
+      html.loaded #app { visibility: visible; opacity: 1; transition: opacity 0.3s ease-in-out; }
       .article-detail, .home-prerender, .favorite-prerender, .sort-prerender, .sort-list-prerender {
-        min-height: 200px;
-        position: relative;
-        opacity: 1;
-        transform: translateY(0);
-        animation: fadeIn 0.5s ease-in-out;
+        min-height: 200px; position: relative; opacity: 1; transform: translateY(0); animation: fadeIn 0.5s ease-in-out;
       }
-      
-      @keyframes fadeIn {
-        from { 
-          opacity: 0; 
-          transform: translateY(10px); 
-        }
-        to { 
-          opacity: 1; 
-          transform: translateY(0); 
-        }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+      .article-detail::before, .home-prerender::before, .favorite-prerender::before, .sort-prerender::before, .sort-list-prerender::before {
+        content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+        background: linear-gradient(90deg, rgba(240,240,240,0.1) 25%, transparent 37%, rgba(240,240,240,0.1) 63%);
+        animation: shimmer 1.5s ease-in-out infinite; z-index: 1; opacity: 0; transition: opacity 0.3s ease; pointer-events: none;
       }
-      
-      /* 骨架屏效果 */
-      .article-detail::before, 
-      .home-prerender::before, 
-      .favorite-prerender::before, 
-      .sort-prerender::before,
-      .sort-list-prerender::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: linear-gradient(90deg, 
-          rgba(240, 240, 240, 0.1) 25%, 
-          transparent 37%, 
-          rgba(240, 240, 240, 0.1) 63%
-        );
-        animation: shimmer 1.5s ease-in-out infinite;
-        z-index: 1;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-        pointer-events: none;
-      }
-      
-      html:not(.loaded) .article-detail::before,
-      html:not(.loaded) .home-prerender::before,
-      html:not(.loaded) .favorite-prerender::before,
-      html:not(.loaded) .sort-prerender::before,
-      html:not(.loaded) .sort-list-prerender::before {
-        opacity: 1;
-      }
-      
-      @keyframes shimmer {
-        0% { transform: translateX(-100%); }
-        100% { transform: translateX(100%); }
-      }
-      
-      /* 预渲染内容的响应式保护 */
-      @media (max-width: 768px) {
-        .article-detail, .home-prerender, .favorite-prerender, .sort-prerender, .sort-list-prerender {
-          min-height: 150px;
-          padding: 1rem;
-        }
-      }
-    </style>
-  `;
-  
-  // 安全地添加关键CSS
-  try {
-    if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-      document.head.insertAdjacentHTML('beforeend', criticalCSS);
-    } else {
-      logger.warn('无法添加关键CSS - document.head不是元素节点');
-    }
-  } catch (error) {
-    logger.warn('添加关键CSS失败', { error: error.message });
-  }
+      html:not(.loaded) .article-detail::before, html:not(.loaded) .home-prerender::before, html:not(.loaded) .favorite-prerender::before, html:not(.loaded) .sort-prerender::before, html:not(.loaded) .sort-list-prerender::before { opacity: 1; }
+      @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+      @media (max-width: 768px) { .article-detail, .home-prerender, .favorite-prerender, .sort-prerender, .sort-list-prerender { min-height: 150px; padding: 1rem; } }
+    </style>`);
 
-  // 添加资源预加载优化 - 在viewport meta标签之后插入
-  const viewportMeta = document.querySelector('meta[name="viewport"]');
-  if (viewportMeta) {
-    try {
-      if (viewportMeta.nodeType === Node.ELEMENT_NODE) {
-        viewportMeta.insertAdjacentHTML('afterend', `<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">`);
-      } else {
-        logger.warn('无法添加预加载链接 - viewport meta不是元素节点');
-      }
-    } catch (error) {
-      logger.warn('添加预加载链接失败', { error: error.message });
-    }
-  }
+  // ── 5. 将所有标签插入 </head> 前 ──
+  const allHeadContent = headTags.map(t => `  ${t}`).join('\n');
+  html = html.replace('</head>', `${allHeadContent}\n</head>`);
 
-  // 在修改DOM之前，提取原始HTML中body底部的所有script标签（字符串级别）
-  const bodyScriptsMatch = templateHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-  let originalBodyScripts = '';
-  if (bodyScriptsMatch) {
-    const bodyContent = bodyScriptsMatch[1];
-    // 提取</div>（#app结束）之后的所有script标签
-    const appEndMatch = bodyContent.match(/<div\s+id\s*=\s*["']?app["']?[^>]*>.*?<\/div>([\s\S]*)/i);
-    if (appEndMatch) {
-      originalBodyScripts = appEndMatch[1];
-    }
-  }
-
-  // 注入渲染好的内容
-  const appElement = document.getElementById('app');
-  if (appElement) {
-    appElement.innerHTML = content;
-    
-    // 根据页面类型给#app添加相应的CSS类
-    if (pageType === 'article') {
-      appElement.classList.add('article-detail');
-    }
-    // 其他页面类型(home, favorite, sort, sort-list)的包装div已经在HTML模板中处理
-  }
-
-  // 添加加载状态管理脚本
-  const loadingScript = `
-    <script>
-      // 防止FOUC的立即执行脚本
-      (function() {
-        // 标记页面为预渲染状态
-        document.documentElement.classList.add('prerender');
-        
-          // 图片加载状态处理 - 只处理预渲染容器内的图片
-         function handleImageLoad() {
-           const preRenderContainers = document.querySelectorAll('.article-detail, .home-prerender, .favorite-prerender, .sort-prerender, .sort-list-prerender');
-           preRenderContainers.forEach(function(container) {
-             const images = container.querySelectorAll('img');
-             images.forEach(function(img) {
-               // 立即处理已完成加载的图片
-               if (img.complete && img.naturalWidth > 0) {
-                 img.classList.add('loaded');
-               } else if (img.src.startsWith('data:') || img.src.startsWith('blob:')) {
-                 // data URL 和 blob URL 立即标记为已加载
-                 img.classList.add('loaded');
-               } else if (img.src) {
-                 // 为未完成加载的图片添加事件监听
-                 img.addEventListener('load', function() {
-                   this.classList.add('loaded');
-                 }, { once: true });
-                 img.addEventListener('error', function() {
-                   this.classList.add('loaded'); // 即使加载失败也要显示，避免一直隐藏
-                   console.warn('图片加载失败，但仍显示:', this.src);
-                 }, { once: true });
-                 
-                 // 设置一个超时，确保图片不会永远隐藏
-                 setTimeout(function() {
-                   if (!img.classList.contains('loaded')) {
-                     img.classList.add('loaded');
-                     console.warn('图片加载超时，强制显示:', img.src);
-                   }
-                 }, 5000); // 5秒超时
-               } else {
-                 // 没有src的图片直接标记为已加载
-                 img.classList.add('loaded');
-               }
-             });
-           });
-         }
-        
-        // 监听资源加载完成
-        function markAsLoaded() {
-          requestAnimationFrame(function() {
-            document.documentElement.classList.add('loaded');
-            document.documentElement.classList.remove('prerender');
-            handleImageLoad();
-          });
-        }
-        
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', markAsLoaded);
-        } else {
-          markAsLoaded();
-        }
-        
-        // Vue应用挂载完成后的回调
-        window.addEventListener('app-mounted', function() {
-          const app = document.getElementById('app');
-          if (app) {
-            app.classList.add('loaded');
-          }
-          handleImageLoad();
-        });
-        
-        // 字体加载完成后的优化
-        if (document.fonts) {
-          document.fonts.ready.then(function() {
-            document.documentElement.classList.add('fonts-loaded');
-          });
-        }
-      })();
-    </script>
-  `;
-  
-  // 安全地添加加载脚本
-  try {
-    if (document.body && document.body.nodeType === Node.ELEMENT_NODE) {
-      document.body.insertAdjacentHTML('beforeend', loadingScript);
-    } else {
-      logger.warn('无法添加加载脚本 - document.body不是元素节点');
-    }
-  } catch (error) {
-    logger.warn('添加加载脚本失败', { error: error.message });
-  }
-  
-  // 确保生成的HTML具有良好的格式
-  let html = dom.serialize();
-  
-  // 恢复原始的body script标签（直接在字符串级别替换，避免JSDOM丢失）
-  if (originalBodyScripts.trim()) {
-    html = html.replace('</body>', `${originalBodyScripts}</body>`);
-    logger.debug('已恢复原始body script标签', { pageType });
-  }
-  
-  // 处理 hreflang 链接（在序列化后直接操作字符串，避免转义问题）
-  if (meta && typeof meta === 'object') {
-    const hreflangLinks = [];
-    Object.keys(meta).forEach(key => {
-      if (key.startsWith('hreflang_')) {
-        hreflangLinks.push(meta[key]); // 直接使用接口返回的完整HTML标签
-      }
-    });
-    
-    if (hreflangLinks.length > 0) {
-      const titleMatch = html.match(/<title[^>]*>.*?<\/title>/i);
-      if (titleMatch) {
-        const allHreflangHTML = hreflangLinks.join('\n  ');
-        html = html.replace(titleMatch[0], `${allHreflangHTML}\n  ${titleMatch[0]}`);
-       }
-    }
-  }
-  
-  // 重排序webpack生成的CSS链接到title标签之前（符合HTML规范）
-  const titleMatch = html.match(/<title[^>]*>.*?<\/title>/i);
-  // 只匹配webpack生成的CSS文件（通常包含hash或chunk名称，且在/static/目录下）
+  // ── 6. 重排序webpack CSS到title之前 ──
+  const titleMatch = html.match(/<title[^>]*>[\s\S]*?<\/title>/i);
   const webpackCssMatches = html.match(/<link[^>]*href=["'][^"']*\/static\/[^"']*\.css[^"']*["'][^>]*rel=["']stylesheet["'][^>]*>/gi) || [];
-  
   if (titleMatch && webpackCssMatches.length > 0) {
     const titleTag = titleMatch[0];
-    
-    // 移除webpack生成的CSS链接
-    webpackCssMatches.forEach(link => {
-      html = html.replace(link, '');
-    });
-    
-    // 在title标签前插入webpack CSS链接
-    const cssLinks = webpackCssMatches.join('\n  ');
-    html = html.replace(titleTag, `${cssLinks}\n  ${titleTag}`);
-    
-    logger.debug('已重排序CSS链接到title标签之前', { 
-      cssLinksCount: webpackCssMatches.length 
+    webpackCssMatches.forEach(link => { html = html.replace(link, ''); });
+    html = html.replace(titleTag, `${webpackCssMatches.join('\n  ')}\n  ${titleTag}`);
+    logger.debug('已重排序CSS链接到title标签之前', { cssLinksCount: webpackCssMatches.length });
+  }
+
+  // ── 7. 设置 <body> 属性 ──
+  html = html.replace(/<body([^>]*)>/i, (match, attrs) => {
+    // 移除旧的 data-prerender-* 属性（如果有的话）
+    let newAttrs = attrs.replace(/\s*data-prerender-type\s*=\s*["'][^"']*["']/gi, '');
+    newAttrs = newAttrs.replace(/\s*data-prerender-lang\s*=\s*["'][^"']*["']/gi, '');
+    return `<body${newAttrs} data-prerender-type="${pageType}" data-prerender-lang="${lang}">`;
+  });
+
+  // ── 8. 注入内容到 #app ──
+  const appClass = pageType === 'article' ? ' class="article-detail"' : '';
+  html = html.replace(
+    /<div\s+id\s*=\s*["']app["'][^>]*>[\s\S]*?<\/div>/i,
+    `<div id="app"${appClass}>${content}</div>`
+  );
+
+  // ── 9. 注入加载脚本到 </body> 前 ──
+  const loadingScript = `<script>
+(function(){
+  document.documentElement.classList.add('prerender');
+  function handleImageLoad(){
+    var containers=document.querySelectorAll('.article-detail,.home-prerender,.favorite-prerender,.sort-prerender,.sort-list-prerender');
+    containers.forEach(function(c){
+      c.querySelectorAll('img').forEach(function(img){
+        if(img.complete&&img.naturalWidth>0){img.classList.add('loaded');}
+        else if(img.src&&(img.src.startsWith('data:')||img.src.startsWith('blob:'))){img.classList.add('loaded');}
+        else if(img.src){
+          img.addEventListener('load',function(){this.classList.add('loaded');},{once:true});
+          img.addEventListener('error',function(){this.classList.add('loaded');},{once:true});
+          setTimeout(function(){if(!img.classList.contains('loaded'))img.classList.add('loaded');},5000);
+        }else{img.classList.add('loaded');}
+      });
     });
   }
-  // 只格式化head部分，避免在body中引入文本节点导致Vue水合失败
+  function markAsLoaded(){requestAnimationFrame(function(){document.documentElement.classList.add('loaded');document.documentElement.classList.remove('prerender');handleImageLoad();});}
+  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',markAsLoaded);}else{markAsLoaded();}
+  window.addEventListener('app-mounted',function(){var a=document.getElementById('app');if(a)a.classList.add('loaded');handleImageLoad();});
+  if(document.fonts){document.fonts.ready.then(function(){document.documentElement.classList.add('fonts-loaded');});}
+})();
+</script>`;
+  html = html.replace('</body>', `${loadingScript}\n</body>`);
+
+  // ── 10. 格式化head部分 ──
   const headEnd = html.indexOf('</head>');
   if (headEnd > 0) {
     let headPart = html.substring(0, headEnd);
     const rest = html.substring(headEnd);
-    
-    // 格式化head部分
+
     headPart = headPart.replace(/<meta/g, '\n  <meta');
     headPart = headPart.replace(/<link/g, '\n  <link');
     headPart = headPart.replace(/<style/g, '\n  <style');
     headPart = headPart.replace(/<\/style>/g, '</style>\n');
-    
-    // 清理head部分的多余空行
     headPart = headPart.replace(/\n\s*\n/g, '\n');
-    
+
     html = headPart + '\n</head>' + rest;
   }
-  
+
   return html;
 }
 

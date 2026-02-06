@@ -44,7 +44,7 @@ public class SeoSiteVerification implements Serializable {
     private String platformDisplayName;
 
     /**
-     * 验证代码
+     * 验证代码（支持完整HTML标签，如 &lt;meta name="baidu-site-verification" content="xxx" /&gt;）
      */
     @TableField("verification_code")
     private String verificationCode;

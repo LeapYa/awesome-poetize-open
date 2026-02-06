@@ -309,7 +309,27 @@ export default {
   },
   methods: {
     goPluginManager() {
-      this.$router.push({ name: 'pluginManager', query: { type: 'editor' } });
+      const doNavigate = () => {
+        if (this.isFullscreen) {
+          this.toggleFullscreen();
+        }
+        this.$router.push({ name: 'pluginManager', query: { type: 'editor' } });
+      };
+
+      // 检测内容是否被修改过
+      const currentValue = downgradeMarkdownHeadings(this.internalContent);
+      const originalValue = this.value || '';
+      if (currentValue !== originalValue) {
+        this.$confirm('当前内容尚未保存，切换编辑器后修改将会丢失，确定要离开吗？', '提示', {
+          confirmButtonText: '确定离开',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }).then(() => {
+          doNavigate();
+        }).catch(() => {});
+      } else {
+        doNavigate();
+      }
     },
     syncThemeFromDom() {
       const htmlDark = document.documentElement && document.documentElement.classList.contains('dark-mode');

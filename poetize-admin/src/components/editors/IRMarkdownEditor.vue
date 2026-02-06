@@ -564,7 +564,28 @@ export default {
     },
 
     goPluginManager() {
-      this.$router.push({ name: 'pluginManager', query: { type: 'editor' } });
+      const doNavigate = () => {
+        // 如果处于全屏模式，先退出全屏
+        if (this.isFullscreen) {
+          this.toggleFullscreen();
+        }
+        this.$router.push({ name: 'pluginManager', query: { type: 'editor' } });
+      };
+
+      // 如果有未保存的修改（canUndo 为 true 说明做过编辑操作），弹出确认框
+      if (this.canUndo) {
+        this.$confirm('当前内容尚未保存，切换编辑器后修改将会丢失，确定要离开吗？', '提示', {
+          confirmButtonText: '确定离开',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }).then(() => {
+          doNavigate();
+        }).catch(() => {
+          // 用户取消，不做任何操作
+        });
+      } else {
+        doNavigate();
+      }
     },
     normalizeRange(startLine, startColumn, endLine, endColumn) {
       if (startLine > endLine || (startLine === endLine && startColumn > endColumn)) {
@@ -1207,6 +1228,8 @@ export default {
      */
     handleMouseDown(e) {
       if (e.button !== 0) return; // 只处理左键
+      // 如果是触摸产生的合成 mousedown，跳过（已在 touchend 中处理）
+      if (this._isTouching) return;
 
       this.isMouseDown = true;
       this.focus();
@@ -1273,50 +1296,95 @@ export default {
     },
 
     // ==================== 触摸事件处理（移动端支持）====================
-    
+
     /**
      * 处理触摸开始
+     * 只记录起始信息，不做任何光标/选区操作，以免干扰滚动。
      */
     handleTouchStart(e) {
       if (this.readonly) return;
-      this.focus();
-      
+
       const touch = e.touches[0];
-      const pos = this.getPositionFromEvent(touch);
-      if (pos) {
-        this.cursor.setPosition(pos.line, pos.column);
-      }
+      this._touchStartX = touch.clientX;
+      this._touchStartY = touch.clientY;
+      this._touchStartTime = Date.now();
+      this._touchMoved = false;
+      // 标记当前正处于触摸交互中，用于 handleSelectStart / handleMouseDown 判断
+      this._isTouching = true;
     },
-    
+
     /**
      * 处理触摸移动
+     * 只做一件事：判断手指是否产生了足够的位移（>8px）。
+     * 如果是，则标记为滚动手势，完全放行给浏览器处理。
      */
     handleTouchMove(e) {
       if (this.readonly) return;
-      
+      if (this._touchMoved) return; // 已经判定为滚动，后续 move 不用再算
+
       const touch = e.touches[0];
-      const pos = this.getPositionFromEvent(touch);
-      if (pos) {
-        const anchor = this.cursor.getSelection().start;
-        this.cursor.setSelection(anchor.line, anchor.column, pos.line, pos.column);
-      }
-      
-      if (this.cursor.hasSelection()) {
-        e.preventDefault();
+      const dx = touch.clientX - (this._touchStartX || 0);
+      const dy = touch.clientY - (this._touchStartY || 0);
+      if (dx * dx + dy * dy > 64) { // 8px 阈值 (64 = 8²)
+        this._touchMoved = true;
       }
     },
-    
+
     /**
      * 处理触摸结束
+     * 核心逻辑：未滑动 → 视为"点击"，设置光标并聚焦。
+     * 滑动了 → 什么都不做，浏览器已经完成了滚动。
+     * 
+     * 不调用 e.preventDefault()，让后续 click 事件自然触发。
+     * 通过 _isTouching 标记让 handleMouseDown 知道这次 mousedown
+     * 来自触摸，从而跳过重复处理。
      */
-    handleTouchEnd() {
-      // 空实现，保持接口完整
+    handleTouchEnd(e) {
+      if (this.readonly) {
+        this._isTouching = false;
+        return;
+      }
+
+      if (!this._touchMoved) {
+        // 未滑动 → 当作点击处理
+        this.focus();
+
+        // touchend 的 e.changedTouches 有最后的坐标
+        const touch = e.changedTouches && e.changedTouches[0];
+        const cx = touch ? touch.clientX : this._touchStartX;
+        const cy = touch ? touch.clientY : this._touchStartY;
+        const pos = this.getPositionFromEvent({ clientX: cx, clientY: cy });
+
+        if (pos) {
+          // 双击检测
+          const now = Date.now();
+          if (this._lastTapTime && (now - this._lastTapTime) < 400) {
+            this.cursor.setPosition(pos.line, pos.column);
+            this.cursor.selectWord();
+            this._lastTapTime = 0;
+          } else {
+            this.cursor.setPosition(pos.line, pos.column);
+            this._lastTapTime = now;
+          }
+        }
+
+        // 阻止后续的合成 mouse 事件，避免 handleMouseDown 重复处理
+        e.preventDefault();
+      }
+
+      // 延迟重置 _isTouching，因为合成的 mousedown 可能在 touchend 之后
+      // 同步触发（部分浏览器），也可能在下一个事件循环触发
+      setTimeout(() => {
+        this._isTouching = false;
+      }, 50);
     },
-    
+
     /**
      * 阻止浏览器默认选择行为
+     * 触摸滚动进行中时放行，其余情况阻止（由编辑器自己管理选区）。
      */
     handleSelectStart(e) {
+      if (this._touchMoved) return;
       e.preventDefault();
     },
 
@@ -2178,6 +2246,9 @@ export default {
   -webkit-tap-highlight-color: transparent;
   /* 移动端：阻止触摸时的调出菜单 */
   -webkit-touch-callout: none;
+  /* 移动端：允许纵向滚动，横向由编辑器自行管理 */
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 内容区域 */

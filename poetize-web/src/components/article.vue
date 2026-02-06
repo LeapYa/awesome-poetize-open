@@ -313,50 +313,50 @@
         </el-avatar>
         <div class="copyright-container">
           <p>
-            {{ mainStore.webInfo.webName }}是指运行在{{
+            {{ mainStore.webInfo.webTitle || mainStore.webInfo.webName }}是指运行在{{
               $constant.host
             }}域名及相关子域名上的网站，本条款描述了{{
-              mainStore.webInfo.webName
+              mainStore.webInfo.webTitle || mainStore.webInfo.webName
             }}的网站版权声明：
           </p>
           <ul>
             <li>
               {{
-                mainStore.webInfo.webName
+                mainStore.webInfo.webTitle || mainStore.webInfo.webName
               }}提供的所有文章、展示的图片素材等内容部分来源于互联网平台，仅供学习参考。如有侵犯您的版权，请联系{{
-                mainStore.webInfo.webName
+                mainStore.webInfo.webTitle || mainStore.webInfo.webName
               }}负责人，{{
-                mainStore.webInfo.webName
+                mainStore.webInfo.webTitle || mainStore.webInfo.webName
               }}承诺将在一个工作日内改正。
             </li>
             <li>
               {{
-                mainStore.webInfo.webName
+                mainStore.webInfo.webTitle || mainStore.webInfo.webName
               }}不保证网站内容的全部准确性、安全性和完整性，请您在阅读、下载及使用过程中自行确认，{{
-                mainStore.webInfo.webName
+                mainStore.webInfo.webTitle || mainStore.webInfo.webName
               }}亦不承担上述资源对您造成的任何形式的损失或伤害。
             </li>
             <li>
               未经{{
-                mainStore.webInfo.webName
+                mainStore.webInfo.webTitle || mainStore.webInfo.webName
               }}允许，不得盗链、盗用本站内容和资源。
             </li>
             <li>
-              {{ mainStore.webInfo.webName }}旨在为广大用户提供更多的信息；{{
-                mainStore.webInfo.webName
+              {{ mainStore.webInfo.webTitle || mainStore.webInfo.webName }}旨在为广大用户提供更多的信息；{{
+                mainStore.webInfo.webTitle || mainStore.webInfo.webName
               }}不保证向用户提供的外部链接的准确性和完整性，该外部链接指向的不由本站实际控制的任何网页上的内容，{{
-                mainStore.webInfo.webName
+                mainStore.webInfo.webTitle || mainStore.webInfo.webName
               }}对其合法性亦概不负责，亦不承担任何法律责任。
             </li>
             <li>
               {{
-                mainStore.webInfo.webName
+                mainStore.webInfo.webTitle || mainStore.webInfo.webName
               }}中的文章/视频（包括转载文章/视频）的版权仅归原作者所有，若作者有版权声明或文章从其它网站转载而附带有原所有站的版权声明者，其版权归属以附带声明为准；文章仅代表作者本人的观点，与{{
-                mainStore.webInfo.webName
+                mainStore.webInfo.webTitle || mainStore.webInfo.webName
               }}立场无关。
             </li>
             <li>
-              {{ mainStore.webInfo.webName }}自行编写排版的文章均采用
+              {{ mainStore.webInfo.webTitle || mainStore.webInfo.webName }}自行编写排版的文章均采用
               <a
                 href="https://creativecommons.org/licenses/by-nc-sa/4.0/"
                 style="color: #38f; text-decoration: none"
@@ -4305,12 +4305,6 @@ blockquote {
   margin: 0 0 40px 0;
   user-select: none;
   color: #333; /* 固定黑色，不受 im.css 暗色模式影响 */
-}
-/* 文章摘要引用块暗色模式 */
-body.dark-mode blockquote {
-  background-color: rgba(60, 60, 60, 0.8);
-  border-left-color: var(--blue, #5090ff);
-  color: #e0e0e0;
 }
 .article-sort {
   display: flex;

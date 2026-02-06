@@ -573,41 +573,41 @@
         <el-divider content-position="left">
           搜索引擎验证
           <el-tooltip class="item" effect="dark" placement="top">
-            <div slot="content">通过验证码证明您对网站的所有权，以便在各搜索引擎站长平台管理网站</div>
+            <div slot="content">请粘贴搜索引擎站长平台提供的完整HTML验证标签，系统会原样输出到页面中。<br/>注意：搜索引擎对验证标签格式要求非常严格，请务必完整粘贴，不要修改任何内容。</div>
             <i class="el-icon-question help-icon"></i>
           </el-tooltip>
         </el-divider>
         
         <el-form-item label="百度站点验证">
-          <el-input v-model="seoConfig.baidu_site_verification" placeholder="百度验证码"></el-input>
+          <el-input v-model="seoConfig.baidu_site_verification" placeholder='请粘贴完整标签，如：<meta name="baidu-site-verification" content="codeva-xxxx" />'></el-input>
         </el-form-item>
         
         <el-form-item label="Google站点验证">
-          <el-input v-model="seoConfig.google_site_verification" placeholder="Google验证码"></el-input>
+          <el-input v-model="seoConfig.google_site_verification" placeholder='请粘贴完整标签，如：<meta name="google-site-verification" content="xxxx" />'></el-input>
         </el-form-item>
         
         <el-form-item label="Bing(必应)站点验证">
-          <el-input v-model="seoConfig.bing_site_verification" placeholder="Bing(必应)验证码"></el-input>
+          <el-input v-model="seoConfig.bing_site_verification" placeholder='请粘贴完整标签，如：<meta name="msvalidate.01" content="xxxx" />'></el-input>
         </el-form-item>
         
         <el-form-item label="Yandex站点验证">
-          <el-input v-model="seoConfig.yandex_site_verification" placeholder="Yandex验证码"></el-input>
+          <el-input v-model="seoConfig.yandex_site_verification" placeholder='请粘贴完整标签，如：<meta name="yandex-verification" content="xxxx" />'></el-input>
         </el-form-item>
         
         <el-form-item label="搜狗站点验证">
-          <el-input v-model="seoConfig.sogou_site_verification" placeholder="搜狗验证码"></el-input>
+          <el-input v-model="seoConfig.sogou_site_verification" placeholder='请粘贴完整标签，如：<meta name="sogou_site_verification" content="xxxx" />'></el-input>
         </el-form-item>
         
         <el-form-item label="神马站点验证">
-          <el-input v-model="seoConfig.shenma_site_verification" placeholder="神马验证码"></el-input>
+          <el-input v-model="seoConfig.shenma_site_verification" placeholder='请粘贴完整标签，如：<meta name="shenma-site-verification" content="xxxx" />'></el-input>
         </el-form-item>
         
         <el-form-item label="360站点验证">
-          <el-input v-model="seoConfig.so_site_verification" placeholder="360验证码"></el-input>
+          <el-input v-model="seoConfig.so_site_verification" placeholder='请粘贴完整标签，如：<meta name="360-site-verification" content="xxxx" />'></el-input>
         </el-form-item>
         
         <el-form-item label="Yahoo(雅虎)站点验证">
-          <el-input v-model="seoConfig.yahoo_site_verification" placeholder="Yahoo(雅虎)验证码"></el-input>
+          <el-input v-model="seoConfig.yahoo_site_verification" placeholder='请粘贴完整标签，如：<meta name="y_key" content="xxxx" />'></el-input>
         </el-form-item>
         
         <el-divider content-position="left">

@@ -1059,16 +1059,29 @@ function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' })
     verificationTags.forEach(tagKey => {
       if (meta[tagKey] && meta[tagKey].trim() !== '') {
         try {
-          const verificationMeta = document.createElement('meta');
-          verificationMeta.setAttribute('name', tagKey.replace('_', '-'));
-          verificationMeta.setAttribute('content', meta[tagKey].trim());
-          verificationMeta.setAttribute('data-prerender-verification', 'true');
+          const tagValue = meta[tagKey].trim();
           
           if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-            document.head.appendChild(verificationMeta);
+            // 如果值是完整的HTML标签（以<开头），则原样插入
+            if (tagValue.startsWith('<')) {
+              // 使用临时容器解析HTML标签，确保安全插入
+              const tempDiv = document.createElement('div');
+              tempDiv.innerHTML = tagValue;
+              const metaElement = tempDiv.firstElementChild;
+              if (metaElement) {
+                document.head.appendChild(metaElement);
+              }
+            } else {
+              // 向后兼容：如果只是content值，则构造meta标签
+              const verificationMeta = document.createElement('meta');
+              verificationMeta.setAttribute('name', tagKey.replace(/_/g, '-'));
+              verificationMeta.setAttribute('content', tagValue);
+              document.head.appendChild(verificationMeta);
+            }
             logger.debug('成功添加搜索引擎验证标签', { 
               platform: tagKey,
-              content: meta[tagKey].substring(0, 20) + '...'
+              isRawHtml: tagValue.startsWith('<'),
+              content: tagValue.substring(0, 50) + (tagValue.length > 50 ? '...' : '')
             });
           }
         } catch (e) {

@@ -1766,7 +1766,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Transactional(rollbackFor = Exception.class)
     private Integer saveArticleInTransaction(ArticleVO articleVO) {
         // 验证数据合法性
-        if (StringUtils.isEmpty(articleVO.getArticleTitle()) || articleVO.getArticleTitle().trim().isEmpty()) {
+        if (!StringUtils.hasText(articleVO.getArticleTitle()) || articleVO.getArticleTitle().trim().isEmpty()) {
             log.error("保存文章失败：文章标题为空");
             return null;
         }

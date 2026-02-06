@@ -15,6 +15,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -100,11 +101,11 @@ public class Ip2RegionProvider implements IpLocationProvider {
             ClassPathResource resource = new ClassPathResource(classpathLocation);
             if (resource.exists()) {
                 try (InputStream is = resource.getInputStream()) {
-                    byte[] bytes = is.readAllBytes();
-                    if (bytes.length > 1024 * 1024) {
+                    LongByteArray content = Searcher.loadContentFromInputStream(is);
+                    if (content.length() > 1024 * 1024) {
                         log.info("IP2Region 数据库从 classpath 加载成功: {} ({}MB)", classpathLocation,
-                                String.format("%.2f", bytes.length / 1024.0 / 1024.0));
-                        return new LongByteArray(bytes);
+                                String.format("%.2f", content.length() / 1024.0 / 1024.0));
+                        return content;
                     }
                 }
             }
@@ -192,7 +193,7 @@ public class Ip2RegionProvider implements IpLocationProvider {
     private boolean downloadFile(String urlStr, File destFile) {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL(urlStr);
+            URL url = URI.create(urlStr).toURL();
             connection = (HttpURLConnection) url.openConnection();
             connection.setConnectTimeout(30000);
             connection.setReadTimeout(120000);

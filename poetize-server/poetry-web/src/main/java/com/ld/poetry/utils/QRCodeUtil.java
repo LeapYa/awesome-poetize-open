@@ -18,6 +18,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
@@ -231,7 +232,7 @@ public class QRCodeUtil {
     private static BufferedImage readImageWithRedirect(String imageUrl) throws IOException {
         java.net.HttpURLConnection connection = null;
         try {
-            URL url = new URL(imageUrl);
+            URL url = URI.create(imageUrl).toURL();
             connection = (java.net.HttpURLConnection) url.openConnection();
             
             // 设置请求属性

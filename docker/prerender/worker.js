@@ -1,5 +1,4 @@
 const express = require('express');
-const bodyParser = require('body-parser');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -7,7 +6,7 @@ const MarkdownIt = require('markdown-it');
 const { decode: decodeHtmlEntities } = require('html-entities');
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
 // ===== 日志系统和监控 =====
 class Logger {
@@ -280,17 +279,6 @@ class ServiceMonitor {
         recentTaskCount: this.stats.recentTasks.length,
         ...details 
       });
-      
-      // 调试：打印任务完成信息
-      console.log('=== 任务完成 ===');
-      console.log(`任务ID: ${taskId}`);
-      console.log(`类型: ${task.type}`);
-      console.log(`耗时: ${duration}ms`);
-      console.log(`当前运行中任务数: ${this.stats.currentTasks.size}`);
-      console.log(`历史任务数: ${this.stats.recentTasks.length}`);
-      console.log(`成功渲染总数: ${this.stats.successfulRenders}`);
-      console.log('详情:', details);
-      console.log('==================');
     }
   }
 
@@ -354,7 +342,6 @@ function generateTaskId() {
 }
 
 const JAVA_BACKEND_URL = process.env.JAVA_BACKEND_URL || 'http://poetize-java:8081';
-const PYTHON_BACKEND_URL = process.env.PYTHON_BACKEND_URL || 'http://poetize-python:5000';
 
 const md = new MarkdownIt({breaks: true}).use(require('markdown-it-multimd-table'));
 
@@ -399,59 +386,6 @@ async function getSourceLanguage() {
   const defaultSourceLanguage = 'zh';
   logger.info('使用默认源语言', { sourceLanguage: defaultSourceLanguage });
   return defaultSourceLanguage;
-}
-
-// 完整版：先尝试 manifest.json，失败则解析 index.html，结果缓存 10 分钟
-const assetCache = { assets: null, lastFetch: 0 };
-async function getFrontEndAssets(host = 'nginx') {
-  const TEN_MIN = 10 * 60 * 1000;
-  if (assetCache.assets && Date.now() - assetCache.lastFetch < TEN_MIN) {
-    return assetCache.assets;
-  }
-
-  // 1. manifest.json
-  try {
-    const manifestRes = await axios.get(`http://${host}/manifest.json`, { timeout: 3000 });
-    if (manifestRes.status === 200 && manifestRes.data) {
-      const m = typeof manifestRes.data === 'string' ? JSON.parse(manifestRes.data) : manifestRes.data;
-      assetCache.assets = {
-        css: m['app.css'] || '/css/app.css',
-        js: m['app.js'] || '/js/app.js',
-        vendorJs: m['vendor.js'] || null,
-        vendorCss: m['vendor.css'] || null
-      };
-      assetCache.lastFetch = Date.now();
-      return assetCache.assets;
-    }
-  } catch (_) { /* ignore */ }
-
-  // 2. 解析首页 HTML
-  try {
-    const htmlRes = await axios.get(`http://${host}`, { timeout: 5000 });
-    const html = htmlRes.data || '';
-
-    const cssMatch = html.match(/\/(css|static\/css)\/app[^"']+\.css/);
-    const jsMatch = html.match(/\/(js|static\/js)\/app[^"']+\.js/);
-    const vendorJsMatch = html.match(/\/js\/chunk-vendors[^"']+\.js/);
-    const vendorCssMatch = html.match(/\/css\/npm[^"']+\.css/);
-
-    assetCache.assets = {
-      css: cssMatch ? cssMatch[0] : '/css/app.css',
-      js: jsMatch ? jsMatch[0] : '/js/app.js',
-      vendorJs: vendorJsMatch ? vendorJsMatch[0] : null,
-      vendorCss: vendorCssMatch ? vendorCssMatch[0] : null
-    };
-    assetCache.lastFetch = Date.now();
-  } catch (_) {
-    assetCache.assets = {
-      css: '/css/app.css',
-      js: '/js/app.js',
-      vendorJs: null,
-      vendorCss: null
-    };
-  }
-
-  return assetCache.assets;
 }
 
 // ===== 内部服务请求头配置 =====
@@ -1830,18 +1764,6 @@ async function renderArticleVariant({ taskId, OUTPUT_ROOT, seoConfig, webInfo },
     'twitter:image': ensureAbsoluteImageUrl(articleMeta['og:image'] || seoConfig.og_image || webInfo.avatar || '', baseUrl)
   };
 
-  logger.info('buildHtml前的元数据对象', {
-    taskId,
-    articleId,
-    lang,
-    metaType: typeof meta,
-    metaKeys: Object.keys(meta),
-    metaSample: Object.keys(meta).slice(0, 3).reduce((obj, key) => {
-      obj[key] = meta[key];
-      return obj;
-    }, {})
-  });
-
   const pageTitle = `${meta.title || articleTitle} - ${siteName}`;
 
   const html = buildHtml({
@@ -1911,34 +1833,11 @@ async function renderIds(ids = [], options = {}) {
       validLanguages: validLanguages
     });
 
-    const assets = await getFrontEndAssets(options.frontendHost || 'nginx');
-    logger.debug('前端资源已加载', { taskId, assets });
-
     // 获取SEO配置和网站信息，所有文章共用
     const [seoConfig, webInfo] = await Promise.all([
       fetchSeoConfig(),
       fetchWebInfo()
     ]);
-    
-    // 调试：记录获取到的webInfo数据
-    logger.debug('文章的网站信息数据', { 
-      taskId, 
-      webInfoKeys: Object.keys(webInfo),
-      webName: webInfo.webName,
-      webTitle: webInfo.webTitle,
-      avatar: webInfo.avatar
-    });
-
-    // 调试：检查CSS文件是否存在
-    const distPath = '/app/dist';
-    const staticCssPath = path.join(distPath, 'static', 'css');
-    logger.info('检查CSS文件可用性', {
-      taskId,
-      distPathExists: fs.existsSync(distPath),
-      staticCssPathExists: fs.existsSync(staticCssPath),
-      distContents: fs.existsSync(distPath) ? fs.readdirSync(distPath) : [],
-      staticCssContents: fs.existsSync(staticCssPath) ? fs.readdirSync(staticCssPath).filter(f => f.endsWith('.css')) : []
-    });
 
     let successCount = 0;
     let failCount = 0;
@@ -1951,7 +1850,7 @@ async function renderIds(ids = [], options = {}) {
         continue;
       }
 
-      const context = { taskId, OUTPUT_ROOT, assets, seoConfig, webInfo };
+      const context = { taskId, OUTPUT_ROOT, seoConfig, webInfo };
       for (const lang of validLanguages) {
         const attempt = await safeRenderArticleVariant(context, { articleId: id, article, lang });
         if (attempt.ok) {
@@ -2697,52 +2596,6 @@ app.get('/health', (req, res) => {
   }
 });
 
-app.post('/clear-cache', (req, res) => {
-  if (!requireInternalService(req, res)) return;
-  const requestId = req.requestId;
-
-  try {
-    assetCache.assets = null;
-    assetCache.lastFetch = 0;
-    res.json({
-      success: true,
-      requestId,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    logger.error('清理缓存失败', { requestId, error: error.message, stack: error.stack });
-    res.status(500).json({
-      success: false,
-      requestId,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/restart-routes', (req, res) => {
-  if (!requireInternalService(req, res)) return;
-  const requestId = req.requestId;
-
-  try {
-    assetCache.assets = null;
-    assetCache.lastFetch = 0;
-    res.json({
-      success: true,
-      requestId,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    logger.error('重启路由失败', { requestId, error: error.message, stack: error.stack });
-    res.status(500).json({
-      success: false,
-      requestId,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
 // 工具函数：清理目录
 function clearDirectory(dirPath) {
   let deletedCount = 0;
@@ -2803,7 +2656,6 @@ app.listen(PORT, () => {
     timestamp: new Date().toISOString(),
     environment: {
       JAVA_BACKEND_URL,
-      PYTHON_BACKEND_URL,
       LOG_LEVEL: process.env.LOG_LEVEL || 'info',
       PRERENDER_OUTPUT: process.env.PRERENDER_OUTPUT || 'default'
     }

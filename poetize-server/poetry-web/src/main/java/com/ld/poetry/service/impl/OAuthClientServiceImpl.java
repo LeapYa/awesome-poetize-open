@@ -53,7 +53,7 @@ public class OAuthClientServiceImpl implements OAuthClientService {
             }
             
             String authUrl = getAuthUrl(platformType);
-            UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(authUrl);
+            UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(authUrl);
             
             // 添加通用参数
             if ("twitter".equals(platformType)) {

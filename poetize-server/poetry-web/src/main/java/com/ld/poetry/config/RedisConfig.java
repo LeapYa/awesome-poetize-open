@@ -84,7 +84,6 @@ public class RedisConfig {
         template.setConnectionFactory(connectionFactory);
 
         // 使用Jackson2JsonRedisSerializer来序列化和反序列化redis的value值
-        Jackson2JsonRedisSerializer<Object> jackson2JsonRedisSerializer = new Jackson2JsonRedisSerializer<>(Object.class);
         ObjectMapper objectMapper = new ObjectMapper();
 
         // 添加Java 8时间模块支持
@@ -97,7 +96,7 @@ public class RedisConfig {
         // 禁用将日期写为时间戳
         objectMapper.disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-        jackson2JsonRedisSerializer.setObjectMapper(objectMapper);
+        Jackson2JsonRedisSerializer<Object> jackson2JsonRedisSerializer = new Jackson2JsonRedisSerializer<>(objectMapper, Object.class);
 
         // 使用StringRedisSerializer来序列化和反序列化redis的key值
         StringRedisSerializer stringRedisSerializer = new StringRedisSerializer();

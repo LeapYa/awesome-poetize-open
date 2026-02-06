@@ -75,7 +75,7 @@ public abstract class OAuth2Provider implements BaseOAuthProvider {
     public String getAuthUrl(String state) {
         String authUrl = getAuthorizationUrl();
 
-        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(authUrl)
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(authUrl)
                 .queryParam("client_id", config.getClientId())
                 .queryParam("redirect_uri", config.getRedirectUri())
                 .queryParam("state", state)

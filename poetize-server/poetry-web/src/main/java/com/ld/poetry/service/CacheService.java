@@ -1001,7 +1001,7 @@ public class CacheService {
             // 使用RedisTemplate的scan方法获取匹配的键
             redisTemplate.execute((RedisCallback<Void>) connection -> {
                 try {
-                    Cursor<byte[]> cursor = connection.scan(
+                    Cursor<byte[]> cursor = connection.keyCommands().scan(
                         ScanOptions.scanOptions()
                             .match(pattern)
                             .count(1000) // 每次扫描1000个键

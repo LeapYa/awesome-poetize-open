@@ -5,6 +5,7 @@ import org.lionsoul.ip2region.xdb.LongByteArray;
 import org.lionsoul.ip2region.xdb.Searcher;
 import org.lionsoul.ip2region.xdb.Version;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -22,7 +23,8 @@ import java.nio.file.Paths;
 /**
  * IP2Region离线库地理位置解析提供者
  * 支持 IPv4 和 IPv6 双协议并发安全查询
- * 首次使用时自动从 GitHub 下载数据库文件
+ * 优先从 classpath (resources/ip2region/) 加载数据库文件，
+ * 若 classpath 不存在则回退到磁盘目录，最后尝试从网络下载
  * 
  * @author LeapYa
  */
@@ -30,7 +32,11 @@ import java.nio.file.Paths;
 @Component
 public class Ip2RegionProvider implements IpLocationProvider {
 
-    // 数据库文件下载地址
+    // classpath 中的数据库文件路径
+    private static final String IPV4_CLASSPATH = "ip2region/ip2region_v4.xdb";
+    private static final String IPV6_CLASSPATH = "ip2region/ip2region_v6.xdb";
+
+    // 数据库文件下载地址（仅当 classpath 和磁盘都没有时才使用）
     private static final String IPV4_DB_URL = "https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v4.xdb";
     private static final String IPV6_DB_URL = "https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v6.xdb";
 
@@ -50,14 +56,13 @@ public class Ip2RegionProvider implements IpLocationProvider {
 
     @PostConstruct
     public void initIp2Region() {
-        // 初始化数据目录
+        // 初始化数据目录（用于回退场景）
         initDataDir();
 
-        // 初始化 IPv4 搜索器
+        // 初始化 IPv4 搜索器（优先 classpath → 磁盘 → 网络下载）
         try {
-            File ipv4File = ensureDbFile("ip2region_v4.xdb", IPV4_DB_URL, IPV4_DB_URL_MIRROR);
-            if (ipv4File != null && ipv4File.exists()) {
-                LongByteArray cBuff = Searcher.loadContentFromFile(ipv4File.getAbsolutePath());
+            LongByteArray cBuff = loadDbContent("ip2region_v4.xdb", IPV4_CLASSPATH, IPV4_DB_URL, IPV4_DB_URL_MIRROR);
+            if (cBuff != null) {
                 ipv4Searcher = Searcher.newWithBuffer(Version.IPv4, cBuff);
                 ipv4Available = true;
                 log.info("IP2Region IPv4 离线库初始化成功");
@@ -69,9 +74,8 @@ public class Ip2RegionProvider implements IpLocationProvider {
 
         // 初始化 IPv6 搜索器
         try {
-            File ipv6File = ensureDbFile("ip2region_v6.xdb", IPV6_DB_URL, IPV6_DB_URL_MIRROR);
-            if (ipv6File != null && ipv6File.exists()) {
-                LongByteArray cBuff = Searcher.loadContentFromFile(ipv6File.getAbsolutePath());
+            LongByteArray cBuff = loadDbContent("ip2region_v6.xdb", IPV6_CLASSPATH, IPV6_DB_URL, IPV6_DB_URL_MIRROR);
+            if (cBuff != null) {
                 ipv6Searcher = Searcher.newWithBuffer(Version.IPv6, cBuff);
                 ipv6Available = true;
                 log.info("IP2Region IPv6 离线库初始化成功");
@@ -82,9 +86,43 @@ public class Ip2RegionProvider implements IpLocationProvider {
         }
 
         if (ipv4Available || ipv6Available) {
-            log.info("IP2Region 离线库初始化完成，IPv4支持: {}, IPv6支持: {}, 数据目录: {}",
-                    ipv4Available, ipv6Available, dataDir);
+            log.info("IP2Region 离线库初始化完成，IPv4支持: {}, IPv6支持: {}",
+                    ipv4Available, ipv6Available);
         }
+    }
+
+    /**
+     * 加载数据库内容：优先 classpath → 磁盘文件 → 网络下载
+     */
+    private LongByteArray loadDbContent(String fileName, String classpathLocation, String primaryUrl, String mirrorUrl) {
+        // 1. 优先从 classpath 加载（resources/ip2region/ 目录）
+        try {
+            ClassPathResource resource = new ClassPathResource(classpathLocation);
+            if (resource.exists()) {
+                try (InputStream is = resource.getInputStream()) {
+                    byte[] bytes = is.readAllBytes();
+                    if (bytes.length > 1024 * 1024) {
+                        log.info("IP2Region 数据库从 classpath 加载成功: {} ({}MB)", classpathLocation,
+                                String.format("%.2f", bytes.length / 1024.0 / 1024.0));
+                        return new LongByteArray(bytes);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("从 classpath 加载 {} 失败: {}", classpathLocation, e.getMessage());
+        }
+
+        // 2. 回退到磁盘目录
+        File diskFile = ensureDbFile(fileName, primaryUrl, mirrorUrl);
+        if (diskFile != null && diskFile.exists()) {
+            try {
+                return Searcher.loadContentFromFile(diskFile.getAbsolutePath());
+            } catch (Exception e) {
+                log.warn("从磁盘加载 {} 失败: {}", diskFile, e.getMessage());
+            }
+        }
+
+        return null;
     }
 
     /**

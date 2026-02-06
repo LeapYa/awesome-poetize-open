@@ -7,7 +7,6 @@ import lombok.Data;
 import org.springframework.format.annotation.DateTimeFormat;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import java.time.LocalDateTime;
 
 @Data
@@ -50,10 +49,9 @@ public class ArticleVO {
 
     private String updateBy;
 
-    @NotNull(message = "文章分类不能为空")
+    // sortId 和 labelId 允许为空：当传入 sortName/labelName 时由后端自动解析创建
     private Integer sortId;
 
-    @NotNull(message = "文章标签不能为空")
     private Integer labelId;
 
     // 需要查询封装

@@ -954,16 +954,14 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 // 尝试直接通过ID获取文章
                 article = lambdaQuery().eq(Article::getId, id).one();
                 if (article != null) {
-                    ArticleVO articleVO = new ArticleVO();
-                    BeanUtils.copyProperties(article, articleVO);
+                    ArticleVO articleVO = buildArticleVO(article, true);
                     return PoetryResult.success(articleVO);
                 }
             }
             return PoetryResult.fail("文章不存在！");
         }
         
-        ArticleVO articleVO = new ArticleVO();
-        BeanUtils.copyProperties(article, articleVO);
+        ArticleVO articleVO = buildArticleVO(article, true);
         return PoetryResult.success(articleVO);
     }
 

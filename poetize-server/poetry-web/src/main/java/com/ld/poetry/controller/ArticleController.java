@@ -16,6 +16,11 @@ import com.ld.poetry.service.MailService;
 import com.ld.poetry.service.UserService;
 import com.ld.poetry.service.SeoService;
 import com.ld.poetry.entity.User;
+import com.ld.poetry.entity.Sort;
+import com.ld.poetry.entity.Label;
+import com.ld.poetry.dao.SortMapper;
+import com.ld.poetry.dao.LabelMapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import com.ld.poetry.service.TranslationService;
 import java.util.Map;
@@ -36,6 +41,8 @@ import com.ld.poetry.service.QRCodeService;
 import org.springframework.beans.factory.annotation.Qualifier;
 import java.util.concurrent.Executor;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * <p>
@@ -92,6 +99,26 @@ public class ArticleController {
     @Qualifier("asyncExecutor")
     private Executor asyncExecutor;
 
+    @Autowired
+    private SortMapper sortMapper;
+
+    @Autowired
+    private LabelMapper labelMapper;
+
+    /**
+     * 分类名称 → 锁 的映射，防止并发导入时同名分类被重复创建。
+     * key 为 sort_name（小写），value 为对应的互斥锁。
+     * 使用 ConcurrentHashMap + ReentrantLock 实现细粒度锁：
+     * 不同名称互不阻塞，同名并发只有一个线程执行 INSERT。
+     */
+    private final ConcurrentHashMap<String, ReentrantLock> sortNameLocks = new ConcurrentHashMap<>();
+
+    /**
+     * 标签名称 → 锁 的映射，防止并发导入时同名标签被重复创建。
+     * key 为 "sortId:label_name"（小写），value 为对应的互斥锁。
+     */
+    private final ConcurrentHashMap<String, ReentrantLock> labelNameLocks = new ConcurrentHashMap<>();
+
     /**
      * 保存文章（同步版本）
      */
@@ -105,6 +132,17 @@ public class ArticleController {
         // 防止空指针异常，验证输入
         if (articleVO == null) {
             return PoetryResult.fail("文章内容不能为空");
+        }
+        
+        // 如果传入了 sortName/labelName 而没有 sortId/labelId，自动解析或创建
+        resolveSortAndLabelByName(articleVO);
+        
+        // 手动校验：经过 resolveSortAndLabelByName 后 sortId/labelId 必须有值
+        if (articleVO.getSortId() == null) {
+            return PoetryResult.fail("文章分类不能为空，请指定 sortId 或 sortName");
+        }
+        if (articleVO.getLabelId() == null) {
+            return PoetryResult.fail("文章标签不能为空，请指定 labelId 或 labelName");
         }
         
         try {
@@ -197,6 +235,17 @@ public class ArticleController {
         // 防止空指针异常，验证输入
         if (articleVO == null) {
             return PoetryResult.fail("文章内容不能为空");
+        }
+        
+        // 如果传入了 sortName/labelName 而没有 sortId/labelId，自动解析或创建
+        resolveSortAndLabelByName(articleVO);
+        
+        // 手动校验：经过 resolveSortAndLabelByName 后 sortId/labelId 必须有值
+        if (articleVO.getSortId() == null) {
+            return PoetryResult.fail("文章分类不能为空，请指定 sortId 或 sortName");
+        }
+        if (articleVO.getLabelId() == null) {
+            return PoetryResult.fail("文章标签不能为空，请指定 labelId 或 labelName");
         }
         
         try {
@@ -714,6 +763,73 @@ public class ArticleController {
             return result;
         } catch (Exception e) {
             return PoetryResult.fail("启动异步更新失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 根据 sortName / labelName 自动解析或创建分类和标签，
+     * 将结果回填到 articleVO 的 sortId / labelId 字段。
+     * 供导入文章等场景使用，当前端传入名称而非 ID 时自动处理。
+     *
+     * @param articleVO 文章VO
+     */
+    private void resolveSortAndLabelByName(ArticleVO articleVO) {
+        // 处理分类名称 → sortId（并发安全：同名分类只创建一次）
+        if (articleVO.getSortId() == null && StringUtils.hasText(articleVO.getSortName())) {
+            String sortKey = articleVO.getSortName().trim().toLowerCase();
+            ReentrantLock sortLock = sortNameLocks.computeIfAbsent(sortKey, k -> new ReentrantLock());
+            sortLock.lock();
+            try {
+                // 双重检查：拿到锁后再查一次，可能其他线程已经创建了
+                Sort sort = sortMapper.selectOne(
+                        new QueryWrapper<Sort>().eq("sort_name", articleVO.getSortName()));
+                if (sort == null) {
+                    sort = new Sort();
+                    sort.setSortName(articleVO.getSortName());
+                    sort.setSortDescription("通过导入创建的分类");
+                    sort.setSortType(1);
+                    sort.setPriority(99);
+                    sortMapper.insert(sort);
+                    log.info("导入文章时自动创建分类: {}", articleVO.getSortName());
+                }
+                articleVO.setSortId(sort.getId());
+            } finally {
+                sortLock.unlock();
+                // 清理锁对象，防止长期运行后 Map 无限增长
+                // 只在无人持有时移除，避免影响正在等待的线程
+                sortNameLocks.computeIfPresent(sortKey, (k, v) -> v.isLocked() ? v : null);
+            }
+        }
+
+        // 处理标签名称 → labelId（并发安全：同名标签只创建一次）
+        if (articleVO.getLabelId() == null && StringUtils.hasText(articleVO.getLabelName())) {
+            // 标签是分类下唯一的，所以锁的 key 需要包含 sortId
+            String labelKey = (articleVO.getSortId() != null ? articleVO.getSortId() : "0") + ":" + articleVO.getLabelName().trim().toLowerCase();
+            ReentrantLock labelLock = labelNameLocks.computeIfAbsent(labelKey, k -> new ReentrantLock());
+            labelLock.lock();
+            try {
+                // 双重检查
+                Label label = labelMapper.selectOne(
+                        new QueryWrapper<Label>().eq("label_name", articleVO.getLabelName()));
+                if (label == null) {
+                    label = new Label();
+                    label.setLabelName(articleVO.getLabelName());
+                    label.setLabelDescription("通过导入创建的标签");
+                    if (articleVO.getSortId() != null) {
+                        label.setSortId(articleVO.getSortId());
+                    } else {
+                        Sort defaultSort = sortMapper.selectOne(
+                                new QueryWrapper<Sort>().orderByAsc("id").last("LIMIT 1"));
+                        label.setSortId(defaultSort != null ? defaultSort.getId() : 1);
+                    }
+                    labelMapper.insert(label);
+                    log.info("导入文章时自动创建标签: {}", articleVO.getLabelName());
+                }
+                articleVO.setLabelId(label.getId());
+            } finally {
+                labelLock.unlock();
+                labelNameLocks.computeIfPresent(labelKey, (k, v) -> v.isLocked() ? v : null);
+            }
         }
     }
 }

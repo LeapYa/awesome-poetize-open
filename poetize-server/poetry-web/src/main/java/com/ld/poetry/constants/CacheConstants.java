@@ -290,6 +290,22 @@ public class CacheConstants {
     public static final long SITEMAP_EXPIRE_TIME = 3600;
     
     /**
+     * manifest.json 缓存键
+     * 说明：PWA manifest内容缓存，网站名称修改时会立即清除
+     */
+    public static final String MANIFEST_JSON_KEY = CACHE_PREFIX + "seo:manifest";
+    
+    /**
+     * robots.txt 缓存键
+     */
+    public static final String ROBOTS_TXT_KEY = CACHE_PREFIX + "seo:robots";
+    
+    /**
+     * SEO静态文件缓存过期时间（秒）- 24小时（作为兜底，修改时会主动清除）
+     */
+    public static final long SEO_STATIC_EXPIRE_TIME = 86400;
+    
+    /**
      * 搜索引擎推送结果缓存键
      */
     public static final String SEARCH_ENGINE_PING_RESULT_KEY = CACHE_PREFIX + "seo:ping:result";

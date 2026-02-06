@@ -3,15 +3,15 @@ package com.ld.poetry.service.impl;
 import com.ld.poetry.service.SeoStaticService;
 import com.ld.poetry.service.SeoConfigService;
 import com.ld.poetry.service.CacheService;
+import com.ld.poetry.constants.CacheConstants;
+import com.ld.poetry.utils.RedisUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import jakarta.servlet.http.HttpServletRequest;
-import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * <p>
@@ -34,23 +34,17 @@ public class SeoStaticServiceImpl implements SeoStaticService {
     @Autowired
     private com.ld.poetry.utils.mail.MailUtil mailUtil;
 
-    // 静态文件缓存
-    private final Map<String, Object> staticCache = new ConcurrentHashMap<>();
-    private final Map<String, LocalDateTime> cacheTimestamps = new ConcurrentHashMap<>();
-
-    // 缓存时间（分钟）
-    private static final int CACHE_MINUTES = 60;
+    @Autowired
+    private RedisUtil redisUtil;
 
     @Override
+    @SuppressWarnings("unchecked")
     public Map<String, Object> generateManifestJson(HttpServletRequest request) {
         try {
-            // 检查缓存
-            String cacheKey = "manifest_json";
-            if (!needsUpdate(cacheKey)) {
-                Map<String, Object> cached = (Map<String, Object>) staticCache.get(cacheKey);
-                if (cached != null) {
-                    return cached;
-                }
+            // 先查 Redis 缓存
+            Object cached = redisUtil.get(CacheConstants.MANIFEST_JSON_KEY);
+            if (cached instanceof Map) {
+                return (Map<String, Object>) cached;
             }
 
             Map<String, Object> seoConfig = seoConfigService.getSeoConfigAsJson();
@@ -111,9 +105,8 @@ public class SeoStaticServiceImpl implements SeoStaticService {
             // 添加相关应用
             addRelatedApplications(manifest, seoConfig);
 
-            // 缓存结果
-            staticCache.put(cacheKey, manifest);
-            cacheTimestamps.put(cacheKey, LocalDateTime.now());
+            // 缓存到 Redis（24小时兜底过期，修改网站信息时会主动清除）
+            redisUtil.set(CacheConstants.MANIFEST_JSON_KEY, manifest, CacheConstants.SEO_STATIC_EXPIRE_TIME);
 
             return manifest;
 
@@ -128,13 +121,10 @@ public class SeoStaticServiceImpl implements SeoStaticService {
     @Override
     public String generateRobotsTxt(HttpServletRequest request) {
         try {
-            // 检查缓存
-            String cacheKey = "robots_txt";
-            if (!needsUpdate(cacheKey)) {
-                String cached = (String) staticCache.get(cacheKey);
-                if (cached != null) {
-                    return cached;
-                }
+            // 先查 Redis 缓存
+            Object cached = redisUtil.get(CacheConstants.ROBOTS_TXT_KEY);
+            if (cached instanceof String) {
+                return (String) cached;
             }
 
             Map<String, Object> seoConfig = seoConfigService.getSeoConfigAsJson();
@@ -144,9 +134,8 @@ public class SeoStaticServiceImpl implements SeoStaticService {
             String siteUrl = detectSiteUrl(request, seoConfig);
             robotsTxt = robotsTxt.replace("{site_address}", siteUrl);
 
-            // 缓存结果
-            staticCache.put(cacheKey, robotsTxt);
-            cacheTimestamps.put(cacheKey, LocalDateTime.now());
+            // 缓存到 Redis
+            redisUtil.set(CacheConstants.ROBOTS_TXT_KEY, robotsTxt, CacheConstants.SEO_STATIC_EXPIRE_TIME);
 
             return robotsTxt;
 
@@ -158,24 +147,36 @@ public class SeoStaticServiceImpl implements SeoStaticService {
 
     @Override
     public boolean needsUpdate(String fileType) {
-        LocalDateTime lastUpdate = cacheTimestamps.get(fileType);
-        if (lastUpdate == null) {
-            return true;
-        }
-        return LocalDateTime.now().isAfter(lastUpdate.plusMinutes(CACHE_MINUTES));
+        // 基于 Redis：key 不存在就需要更新
+        String redisKey = getRedisKey(fileType);
+        if (redisKey == null) return true;
+        return redisUtil.get(redisKey) == null;
     }
 
     @Override
     public void clearStaticCache(String fileType) {
         if (fileType == null) {
-            staticCache.clear();
-            cacheTimestamps.clear();
-            log.info("已清理所有静态文件缓存");
+            redisUtil.del(CacheConstants.MANIFEST_JSON_KEY, CacheConstants.ROBOTS_TXT_KEY);
+            log.info("已清理所有SEO静态文件Redis缓存（manifest.json、robots.txt）");
         } else {
-            staticCache.remove(fileType);
-            cacheTimestamps.remove(fileType);
-            log.info("已清理{}类型的静态文件缓存", fileType);
+            String redisKey = getRedisKey(fileType);
+            if (redisKey != null) {
+                redisUtil.del(redisKey);
+            }
+            log.info("已清理{}类型的SEO静态文件Redis缓存", fileType);
         }
+    }
+
+    /**
+     * 根据文件类型获取对应的 Redis 缓存键
+     */
+    private String getRedisKey(String fileType) {
+        if ("manifest_json".equals(fileType)) {
+            return CacheConstants.MANIFEST_JSON_KEY;
+        } else if ("robots_txt".equals(fileType)) {
+            return CacheConstants.ROBOTS_TXT_KEY;
+        }
+        return null;
     }
 
     // ========== 私有辅助方法 ==========

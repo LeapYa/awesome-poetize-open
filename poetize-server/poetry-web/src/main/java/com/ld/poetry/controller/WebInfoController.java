@@ -88,6 +88,9 @@ public class WebInfoController {
     @Autowired
     private com.ld.poetry.service.SysPluginService sysPluginService;
 
+    @Autowired
+    private com.ld.poetry.service.SeoStaticService seoStaticService;
+
     /**
      * 清除nginx SEO缓存
      * 在网站信息更新后调用，确保nginx不使用旧的缓存数据作为fallback
@@ -182,6 +185,12 @@ public class WebInfoController {
                     if (sitemapService != null) {
                         sitemapService.clearSitemapCache();
                         log.info("网站信息更新后已清除sitemap缓存");
+                    }
+                    
+                    // 1.5 清除manifest.json等SEO静态文件缓存（网站名称会影响PWA安装名称）
+                    if (seoStaticService != null) {
+                        seoStaticService.clearStaticCache(null);
+                        log.info("网站信息更新后已清除manifest.json等静态文件缓存");
                     }
                     
                     // 2. 异步触发清理操作和预渲染

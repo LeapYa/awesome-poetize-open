@@ -71,6 +71,16 @@ public class SysPluginController {
     }
 
     /**
+     * 获取当前激活的文章主题（公开接口）
+     * 前端网站用于获取文章标题装饰和目录样式配置
+     */
+    @GetMapping("/getActiveArticleTheme")
+    public PoetryResult<SysPlugin> getActiveArticleTheme() {
+        SysPlugin plugin = sysPluginService.getActivePlugin(SysPlugin.TYPE_ARTICLE_THEME);
+        return PoetryResult.success(plugin);
+    }
+
+    /**
      * 获取所有启用的看板娘模型（公开接口）
      * 用于前端"换人"功能，返回模型列表
      * 会将当前激活的插件排在第一位，作为默认显示

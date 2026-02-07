@@ -1,10 +1,44 @@
 /**
- * 文章页面样式超强保护
- * 防止任何编辑器样式影响文章展示
- * 使用 !important 和高权重选择器确保优先级
+ * 文章页面样式 - 唯一 CSS 来源（合并自原 markdown-highlight.css + article-style-protection.css）
+ *
+ * 结构：
+ *   1. :root CSS 变量默认值（供主题系统 useArticleTheme.js 通过 style.setProperty() 覆盖）
+ *   2. .entry-content 内所有元素样式（高权重 + !important，防编辑器污染）
+ *   3. hljs 语法高亮颜色主题
+ *   4. .table-wrapper 表格样式
+ *   5. task-list 任务列表样式
+ *
+ * 标题装饰（emoji/颜色/显隐/padding）全部通过 CSS 变量控制，支持主题动态切换
  */
 
-/* ========== 基础容器样式保护 ========== */
+/* ========== 文章主题 CSS 变量默认值 ========== */
+/* 用户视角 H1~H5 → 实际 HTML H2~H6 */
+:root {
+  --heading-h2-emoji: "📑";
+  --heading-h2-color: inherit;
+  --heading-h2-display: inline;
+  --heading-h3-emoji: "#";
+  --heading-h3-color: #ff6d6d;
+  --heading-h3-display: inline;
+  --heading-h4-emoji: "▌";
+  --heading-h4-color: #ff6d6d;
+  --heading-h4-display: inline;
+  --heading-h5-emoji: "🌷";
+  --heading-h5-color: inherit;
+  --heading-h5-display: inline;
+  --heading-h6-emoji: "";
+  --heading-h6-color: inherit;
+  --heading-h6-display: none;
+  --toc-emoji: "🏖️";
+  /* 每级标题左内边距（有装饰时留出空间，无装饰时为 0） */
+  --heading-h2-padding: 40px;
+  --heading-h3-padding: 25px;
+  --heading-h4-padding: 20px;
+  --heading-h5-padding: 28px;
+  --heading-h6-padding: 0;
+}
+
+/* ========== 基础容器样式 ========== */
 body .entry-content,
 html body .entry-content {
   font-size: 16px !important;
@@ -68,7 +102,7 @@ body .entry-content h2,
 html body .entry-content h2,
 body div.entry-content h2,
 html body div.entry-content h2 {
-  padding-left: 40px !important;
+  padding-left: var(--heading-h2-padding, 40px) !important;
   font-size: 27px !important;
   line-height: 1.25 !important;
   position: relative !important;
@@ -78,11 +112,13 @@ html body div.entry-content h2 {
 
 body .entry-content h2:before,
 html body .entry-content h2:before {
-  content: "📑" !important;
+  content: var(--heading-h2-emoji, "📑") !important;
   position: absolute !important;
   left: 0 !important;
   font-size: 1.03em !important;
   margin-top: -2px !important;
+  color: var(--heading-h2-color, inherit) !important;
+  display: var(--heading-h2-display, inline) !important;
 }
 
 /* h3 - 用户的 ## 二级标题（原h3样式） */
@@ -90,7 +126,7 @@ body .entry-content h3,
 html body .entry-content h3,
 body div.entry-content h3,
 html body div.entry-content h3 {
-  padding-left: 25px !important;
+  padding-left: var(--heading-h3-padding, 25px) !important;
   font-size: 24px !important;
   line-height: 1.25 !important;
   position: relative !important;
@@ -100,10 +136,11 @@ html body div.entry-content h3 {
 
 body .entry-content h3:before,
 html body .entry-content h3:before {
-  content: "#" !important;
+  content: var(--heading-h3-emoji, "#") !important;
   position: absolute !important;
   left: 0 !important;
-  color: #ff6d6d !important;
+  color: var(--heading-h3-color, #ff6d6d) !important;
+  display: var(--heading-h3-display, inline) !important;
 }
 
 /* h4 - 用户的 ### 三级标题（原h4样式） */
@@ -111,7 +148,7 @@ body .entry-content h4,
 html body .entry-content h4,
 body div.entry-content h4,
 html body div.entry-content h4 {
-  padding-left: 20px !important;
+  padding-left: var(--heading-h4-padding, 20px) !important;
   font-size: 21px !important;
   margin-left: 2px !important;
   line-height: 1.25 !important;
@@ -120,10 +157,11 @@ html body div.entry-content h4 {
 
 body .entry-content h4:before,
 html body .entry-content h4:before {
-  content: "▌" !important;
+  content: var(--heading-h4-emoji, "▌") !important;
   position: absolute !important;
   left: 0 !important;
-  color: #ff6d6d !important;
+  color: var(--heading-h4-color, #ff6d6d) !important;
+  display: var(--heading-h4-display, inline) !important;
 }
 
 /* h5 - 用户的 #### 四级标题（原h5样式） */
@@ -133,15 +171,17 @@ body div.entry-content h5,
 html body div.entry-content h5 {
   font-size: 18px !important;
   line-height: 1.25 !important;
-  padding-left: 28px !important;
+  padding-left: var(--heading-h5-padding, 28px) !important;
   position: relative !important;
 }
 
 body .entry-content h5:before,
 html body .entry-content h5:before {
-  content: "🌷" !important;
+  content: var(--heading-h5-emoji, "🌷") !important;
   position: absolute !important;
   left: 0 !important;
+  color: var(--heading-h5-color, inherit) !important;
+  display: var(--heading-h5-display, inline) !important;
 }
 
 /* h6 - 用户的 ##### 五级标题（与正文同大小，用加粗和颜色区分） */
@@ -156,6 +196,16 @@ html body div.entry-content h6 {
   position: relative !important;
   margin-top: 20px !important;
   margin-bottom: 15px !important;
+  padding-left: var(--heading-h6-padding, 0) !important;
+}
+
+body .entry-content h6:before,
+html body .entry-content h6:before {
+  content: var(--heading-h6-emoji, "") !important;
+  position: absolute !important;
+  left: 0 !important;
+  color: var(--heading-h6-color, inherit) !important;
+  display: var(--heading-h6-display, none) !important;
 }
 
 /* ========== 段落样式保护 ========== */
@@ -451,14 +501,48 @@ html body .entry-content ul li {
   padding: 8px 0 !important;
 }
 
-/* ========== 链接和图片样式保护 ========== */
+/* ========== 链接样式 ========== */
 body .entry-content a,
 html body .entry-content a {
-  /* 保持原有链接样式 */
-  text-decoration: inherit !important;
+  color: #e67474 !important;
+  position: relative !important;
+  text-decoration: none !important;
 }
 
-body .entry-content img,
+body .entry-content a:hover,
+html body .entry-content a:hover {
+  color: orange !important;
+}
+
+body .entry-content a:after,
+html body .entry-content a:after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  transform: scaleX(0);
+  height: 1.5px;
+  bottom: -2px;
+  left: 0;
+  background-color: orange;
+  transform-origin: bottom right;
+  transition: transform 0.25s ease-out;
+}
+
+body .entry-content a:hover:after,
+html body .entry-content a:hover:after {
+  transform: scaleX(1);
+  transform-origin: bottom left;
+}
+
+/* ========== 分割线 ========== */
+body .entry-content hr,
+html body .entry-content hr {
+  margin-top: 20px !important;
+  margin-bottom: 20px !important;
+  border: 0.5px dashed #fc625d !important;
+}
+
+/* ========== 图片样式 ========== */
 html body .entry-content img {
   max-width: 100% !important;
   border-radius: 5px !important;
@@ -539,4 +623,211 @@ html body.dark-mode .entry-content table tr:nth-child(2n) {
 body.dark-mode .entry-content table tbody>tr:hover,
 html body.dark-mode .entry-content table tbody>tr:hover {
   background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* ========== 语法高亮颜色（hljs 主题） ========== */
+.hljs-comment,
+.hljs-quote {
+    color: #888f96;
+    font-style: italic;
+}
+
+.hljs-doctag,
+.hljs-formula,
+.hljs-keyword {
+    color: #c678dd;
+}
+
+.hljs-deletion,
+.hljs-name,
+.hljs-section,
+.hljs-selector-tag,
+.hljs-subst {
+    color: #e06c75;
+}
+
+.hljs-literal {
+    color: #56b6c2;
+}
+
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta-string,
+.hljs-regexp,
+.hljs-string {
+    color: #98c379;
+}
+
+.hljs-built_in,
+.hljs-class .hljs-title {
+    color: #e6c07b;
+}
+
+.hljs-attr,
+.hljs-number,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-pseudo,
+.hljs-template-variable,
+.hljs-type,
+.hljs-variable {
+    color: #d19a66;
+}
+
+.hljs-bullet,
+.hljs-link,
+.hljs-meta,
+.hljs-selector-id,
+.hljs-symbol,
+.hljs-title {
+    color: #61aeee;
+}
+
+.hljs-emphasis {
+    font-style: italic;
+}
+
+.hljs-strong {
+    font-weight: 700;
+}
+
+.hljs-link {
+    text-decoration: underline;
+}
+
+/* JSX/TSX 特定样式 */
+.hljs-tag {
+    color: #e06c75;
+}
+
+.hljs-tag .hljs-name {
+    color: #e06c75;
+}
+
+.hljs-tag .hljs-attr {
+    color: #d19a66;
+}
+
+.hljs-tag .hljs-string {
+    color: #98c379;
+}
+
+/* React/JSX 组件名（大写开头）*/
+.hljs-tag > .hljs-name {
+    color: #61aeee;
+}
+
+/* JSX 花括号内的表达式 */
+.hljs-template-variable,
+.hljs-template-tag {
+    color: #c678dd;
+}
+
+/* ========== .table-wrapper 表格样式 ========== */
+.table-wrapper::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+}
+
+.table-wrapper > table {
+    border-collapse: collapse;
+}
+
+.table-wrapper > table th {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.table-wrapper > table tr:nth-child(2n) {
+    background-color: #f8f8f8;
+}
+
+.table-wrapper > table td,
+.table-wrapper > table th {
+    padding: 8px 16px;
+    border: 1px solid #dfe2e5;
+    line-height: 1.5;
+    font-size: 90%;
+    text-align: center;
+}
+
+.table-wrapper > table tbody > tr {
+    transition: background-color 0.28s ease;
+}
+
+.table-wrapper > table tbody > tr:hover {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+/* ========== 任务列表样式 ========== */
+.entry-content ul.task-list,
+.entry-content ol.task-list,
+.entry-content li.task-list-item {
+    list-style: none;
+}
+
+.entry-content li.task-list-item {
+    padding-left: 0;
+}
+
+.entry-content li.task-list-item input[type='checkbox'] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin: 0 8px 0 0;
+    vertical-align: middle;
+    border: 1px solid #dcdfe6;
+    border-radius: 2px;
+    background-color: #fff;
+    position: relative;
+    cursor: pointer;
+    outline: none;
+}
+
+.entry-content li.task-list-item input[type='checkbox']:checked {
+    background-color: #409eff;
+    border-color: #409eff;
+}
+
+.entry-content li.task-list-item input[type='checkbox']:checked::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.entry-content li.task-list-item input[type='checkbox'][disabled] {
+    opacity: 1;
+}
+
+.dark-mode .entry-content li.task-list-item input[type='checkbox'],
+body.dark-mode .entry-content li.task-list-item input[type='checkbox'] {
+    background-color: transparent;
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.dark-mode .entry-content li.task-list-item input[type='checkbox']:checked,
+body.dark-mode .entry-content li.task-list-item input[type='checkbox']:checked {
+    background-color: #409eff;
+    border-color: #409eff;
+}
+
+.entry-content .md-list-item.md-todo {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.entry-content .md-list-item.md-todo .md-marker {
+    opacity: 0.6;
+}
+
+.entry-content .md-list-item.md-todo.md-todo-checked {
+    text-decoration: line-through;
+    opacity: 0.85;
 }

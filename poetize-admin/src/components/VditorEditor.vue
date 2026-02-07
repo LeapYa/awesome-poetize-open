@@ -8,6 +8,7 @@
 import Vditor from 'vditor'
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils'
 import { parseEChartsOption } from '@/utils/echartsOptionParser'
+import { initEditorTheme } from '@/utils/useEditorTheme'
 // 导入公共编辑器标题样式
 import '@/assets/css/editor-heading-styles.css'
 // Vditor CSS 动态加载，只在需要时引入
@@ -85,6 +86,8 @@ export default {
     this.initEditor()
     // 监听暗色模式变化
     this.setupThemeListener()
+    // 加载文章主题到编辑器 CSS 变量
+    initEditorTheme()
   },
   beforeDestroy() {
     // 清理全屏监听器

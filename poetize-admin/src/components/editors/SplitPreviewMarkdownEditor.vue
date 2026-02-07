@@ -228,6 +228,7 @@ import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
 import { parseEChartsOption } from '@/utils/echartsOptionParser';
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
 import { handlePaste as handlePasteUtil } from '@/utils/pasteHandler';
+import { initEditorTheme } from '@/utils/useEditorTheme';
 // 导入公共编辑器标题样式
 import '@/assets/css/editor-heading-styles.css';
 import 'katex/dist/katex.min.css';
@@ -298,6 +299,8 @@ export default {
     });
     this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     this.themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    // 加载文章主题到编辑器 CSS 变量
+    initEditorTheme();
   },
   beforeDestroy() {
     if (this.renderTimer) clearTimeout(this.renderTimer);

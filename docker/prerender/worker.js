@@ -874,6 +874,15 @@ function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' })
       }
     }
 
+    // Canonical 标签：如果 meta 中没有显式提供 canonical，则从 og:url 自动生成
+    if (!meta.canonical && meta['og:url']) {
+      const canonicalUrl = meta['og:url'].toString().trim();
+      if (canonicalUrl) {
+        headTags.push(`<link rel="canonical" href="${canonicalUrl}">`);
+        logger.debug('自动从og:url生成canonical标签', { canonical: canonicalUrl });
+      }
+    }
+
     // JSON-LD 结构化数据
     if (meta.structured_data && meta.structured_data.toString().trim() !== '') {
       const jsonLdContent = typeof meta.structured_data === 'string'
@@ -1033,7 +1042,7 @@ function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' })
   const headEnd = html.indexOf('</head>');
   if (headEnd > 0) {
     let headPart = html.substring(0, headEnd);
-    const rest = html.substring(headEnd);
+    const rest = html.substring(headEnd + '</head>'.length);
 
     headPart = headPart.replace(/<meta/g, '\n  <meta');
     headPart = headPart.replace(/<link/g, '\n  <link');
@@ -1099,6 +1108,7 @@ async function renderHomePage(lang = 'zh') {
       description,
       keywords,
       author,
+      canonical: baseUrl,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1149,9 +1159,11 @@ async function renderAboutPage(lang = 'zh') {
       description,
       keywords,
       author: webInfo.author ,
+      canonical: `${baseUrl}/about`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
+      'og:url': `${baseUrl}/about`,
       'og:image': ensureAbsoluteImageUrl(webInfo.avatar || '/poetize.jpg', baseUrl),
       'og:site_name': webInfo.webTitle || webInfo.webName , // 优先使用webTitle
       'twitter:card': seoConfig.twitter_card || 'summary',
@@ -1189,6 +1201,7 @@ async function renderMessagePage(lang = 'zh') {
       description,
       keywords,
       author: webInfo.author ,
+      canonical: `${baseUrl}/message`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1230,6 +1243,7 @@ async function renderWeiYanPage(lang = 'zh') {
       description,
       keywords,
       author: webInfo.author ,
+      canonical: `${baseUrl}/weiYan`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1271,6 +1285,7 @@ async function renderLovePage(lang = 'zh') {
       description,
       keywords,
       author: webInfo.author ,
+      canonical: `${baseUrl}/love`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1312,6 +1327,7 @@ async function renderTravelPage(lang = 'zh') {
       description,
       keywords,
       author: webInfo.author ,
+      canonical: `${baseUrl}/travel`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1353,6 +1369,7 @@ async function renderPrivacyPage(lang = 'zh') {
       description,
       keywords,
       author: webInfo.author ,
+      canonical: `${baseUrl}/privacy`,
       'og:title': title,
       'og:description': description,
       'og:type': 'article',
@@ -1395,6 +1412,7 @@ async function renderLetterPage(lang = 'zh') {
       description,
       keywords,
       author: webInfo.author ,
+      canonical: `${baseUrl}/letter`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1444,6 +1462,7 @@ async function renderFriendsPage(lang = 'zh') {
       description,
       keywords,
       author,
+      canonical: `${baseUrl}/friends`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1500,6 +1519,7 @@ async function renderMusicPage(lang = 'zh') {
       description,
       keywords,
       author,
+      canonical: `${baseUrl}/music`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1553,6 +1573,7 @@ async function renderFavoritesPage(lang = 'zh') {
       description,
       keywords,
       author,
+      canonical: `${baseUrl}/favorites`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1608,6 +1629,7 @@ async function renderDefaultSortPage(lang = 'zh') {
       description,
       keywords,
       author,
+      canonical: `${baseUrl}/sort`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1670,6 +1692,7 @@ async function renderSortPage(sortId, labelId = null, lang = 'zh') {
       description,
       keywords,
       author,
+      canonical: `${baseUrl}/sort/${sortId}`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
@@ -1756,8 +1779,9 @@ async function renderArticleVariant({ taskId, OUTPUT_ROOT, seoConfig, webInfo },
     ...articleMeta,
     author: articleMeta.author || author,
     keywords: articleMeta.keywords || baseKeywords,
+    canonical: articleMeta.canonical || `${baseUrl}/article/${articleId}`,
     'og:site_name': webInfo.webTitle || webInfo.webName,
-    'og:url': articleMeta['og:url'],
+    'og:url': articleMeta['og:url'] || `${baseUrl}/article/${articleId}`,
     'og:image': ensureAbsoluteImageUrl(articleMeta['og:image'] || seoConfig.og_image || webInfo.avatar || '', baseUrl),
     'twitter:card': seoConfig.twitter_card || 'summary_large_image',
     'twitter:site': seoConfig.twitter_site || '',

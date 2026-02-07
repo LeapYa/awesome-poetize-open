@@ -38,6 +38,8 @@ import com.ld.poetry.event.ArticleSavedEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import com.ld.poetry.service.MailTemplateService;
 import com.ld.poetry.service.QRCodeService;
+import com.ld.poetry.service.SysPluginService;
+import com.ld.poetry.entity.SysPlugin;
 import org.springframework.beans.factory.annotation.Qualifier;
 import java.util.concurrent.Executor;
 import java.util.concurrent.CompletableFuture;
@@ -90,6 +92,9 @@ public class ArticleController {
 
     @Autowired
     private MailTemplateService mailTemplateService;
+
+    @Autowired
+    private SysPluginService sysPluginService;
 
     @Autowired
     @Qualifier("cpuIntensiveExecutor")
@@ -510,7 +515,19 @@ public class ArticleController {
      */
     @GetMapping("/{id:\\d+}")
     public PoetryResult<ArticleVO> getArticleByPathId(@PathVariable Integer id, @RequestParam(value = "password", required = false) String password) {
-        return articleService.getArticleById(id, password);
+        PoetryResult<ArticleVO> result = articleService.getArticleById(id, password);
+        // 附加文章主题配置
+        if (result.getCode() == 200 && result.getData() != null) {
+            try {
+                SysPlugin themePlugin = sysPluginService.getActivePlugin(SysPlugin.TYPE_ARTICLE_THEME);
+                if (themePlugin != null && StringUtils.hasText(themePlugin.getPluginConfig())) {
+                    result.getData().setArticleThemeConfig(themePlugin.getPluginConfig());
+                }
+            } catch (Exception e) {
+                log.warn("获取文章主题配置失败（不影响主流程）: {}", e.getMessage());
+            }
+        }
+        return result;
     }
 
     /**
@@ -528,23 +545,32 @@ public class ArticleController {
         // 获取文章
         PoetryResult<ArticleVO> result = articleService.getArticleById(id, password);
         
-        // 如果请求了翻译且文章获取成功，尝试附加翻译内容
-        if (result.getCode() == 200 && result.getData() != null && 
-            StringUtils.hasText(language)) {
-            
+        if (result.getCode() == 200 && result.getData() != null) {
             ArticleVO article = result.getData();
             
+            // 附加文章主题配置（与文章同时返回，前端可在渲染前应用主题，避免样式闪烁）
             try {
-                // 获取翻译（不阻塞主流程）
-                Map<String, String> translation = translationService.getArticleTranslation(id, language);
-                if (translation != null && !translation.isEmpty()) {
-                    article.setTranslatedTitle(translation.get("title"));
-                    article.setTranslatedContent(translation.get("content"));
+                SysPlugin themePlugin = sysPluginService.getActivePlugin(SysPlugin.TYPE_ARTICLE_THEME);
+                if (themePlugin != null && StringUtils.hasText(themePlugin.getPluginConfig())) {
+                    article.setArticleThemeConfig(themePlugin.getPluginConfig());
                 }
             } catch (Exception e) {
-                // 翻译获取失败不影响主流程，前端会fallback到第二次请求
-                log.warn("获取文章翻译失败（不影响主流程）: 文章ID={}, 语言={}, 错误={}", 
-                        id, language, e.getMessage());
+                log.warn("获取文章主题配置失败（不影响主流程）: {}", e.getMessage());
+            }
+            
+            // 如果请求了翻译，尝试附加翻译内容
+            if (StringUtils.hasText(language)) {
+                try {
+                    Map<String, String> translation = translationService.getArticleTranslation(id, language);
+                    if (translation != null && !translation.isEmpty()) {
+                        article.setTranslatedTitle(translation.get("title"));
+                        article.setTranslatedContent(translation.get("content"));
+                    }
+                } catch (Exception e) {
+                    // 翻译获取失败不影响主流程，前端会fallback到第二次请求
+                    log.warn("获取文章翻译失败（不影响主流程）: 文章ID={}, 语言={}, 错误={}", 
+                            id, language, e.getMessage());
+                }
             }
         }
         

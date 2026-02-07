@@ -87,4 +87,7 @@ public class ArticleVO {
     // 翻译内容（按需返回，优化性能）
     private String translatedTitle;    // 翻译后的标题
     private String translatedContent;  // 翻译后的内容
+
+    // 文章主题配置（合并到文章接口，避免额外请求导致样式闪烁）
+    private String articleThemeConfig; // JSON 字符串，来自激活的 article_theme 插件的 pluginConfig
 }

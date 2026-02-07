@@ -46,10 +46,9 @@ import './assets/css/animation.css'
 import './assets/css/index.css'
 import './assets/css/tocbot.css'
 import './assets/css/color.css'
-import './assets/css/markdown-highlight.css'
 import './assets/css/font-awesome.min.css'
 import './assets/css/centered-dialog.css'
-import './assets/css/article-style-protection.css'
+import './assets/css/article-style-protection.css' // 文章页面唯一样式来源（含主题变量、hljs颜色、表格、任务列表）
 import './assets/css/im.css'
 
 // ==================== 创建 Vue 应用 ====================

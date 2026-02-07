@@ -309,6 +309,7 @@ import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
 import { parseEChartsOption } from '@/utils/echartsOptionParser';
 import { handlePaste as handlePasteUtil } from '@/utils/pasteHandler';
+import { initEditorTheme } from '@/utils/useEditorTheme';
 // 导入公共编辑器标题样式（CSS 变量定义）
 import '@/assets/css/editor-heading-styles.css';
 
@@ -443,6 +444,8 @@ export default {
       this.resizeAllECharts();
     };
     window.addEventListener('resize', this._onWindowResize);
+    // 加载文章主题到编辑器 CSS 变量
+    initEditorTheme();
     this.$emit('ready', this);
   },
 

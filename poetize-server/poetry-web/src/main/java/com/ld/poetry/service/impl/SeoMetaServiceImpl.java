@@ -12,6 +12,7 @@ import com.ld.poetry.entity.Article;
 import com.ld.poetry.entity.ArticleTranslation;
 import com.ld.poetry.entity.Sort;
 import com.ld.poetry.entity.Label;
+import com.ld.poetry.utils.PoetryUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -93,7 +94,7 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             meta.put("description", description);
             meta.put("keywords", keywords);
             meta.put("author", StringUtils.hasText(seoConfig.get("default_author").toString()) ? 
-                seoConfig.get("default_author") : "POETIZE");
+                seoConfig.get("default_author") : getSiteTitle());
 
             // 文章特定信息
             meta.put("article_title", article.getArticleTitle());
@@ -121,6 +122,19 @@ public class SeoMetaServiceImpl implements SeoMetaService {
 
             // OpenGraph和Twitter Card
             addSocialMediaMeta(meta, seoConfig, title, description);
+
+            // Canonical URL (规范链接)
+            String siteUrl = mailUtil.getSiteUrl();
+            if (StringUtils.hasText(siteUrl)) {
+                meta.put("canonical", siteUrl + "/article/" + articleId);
+                meta.put("og:url", siteUrl + "/article/" + articleId);
+            }
+
+            // 获取文章封面图（与前端展示逻辑一致：优先用文章封面，否则用随机封面）
+            String articleImage = getArticleCoverUrl(article);
+            if (StringUtils.hasText(articleImage)) {
+                meta.put("og:image", articleImage);
+            }
 
             // 自定义头部代码
             meta.put("custom_head_code", seoConfig.get("custom_head_code"));
@@ -161,6 +175,13 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             addSocialMediaMeta(meta, seoConfig, 
                 getSiteTitle(), 
                 seoConfig.get("site_description").toString());
+
+            // Canonical URL (规范链接)
+            String siteUrl = mailUtil.getSiteUrl();
+            if (StringUtils.hasText(siteUrl)) {
+                meta.put("canonical", siteUrl);
+                meta.put("og:url", siteUrl);
+            }
 
             // PWA相关
             addPwaMeta(meta, seoConfig);
@@ -210,6 +231,13 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             // OpenGraph和Twitter Card
             addSocialMediaMeta(meta, seoConfig, title, description);
 
+            // Canonical URL (规范链接)
+            String siteUrl = mailUtil.getSiteUrl();
+            if (StringUtils.hasText(siteUrl)) {
+                meta.put("canonical", siteUrl + "/sort/" + categoryId);
+                meta.put("og:url", siteUrl + "/sort/" + categoryId);
+            }
+
             // 自定义头部代码
             meta.put("custom_head_code", seoConfig.get("custom_head_code"));
 
@@ -254,6 +282,13 @@ public class SeoMetaServiceImpl implements SeoMetaService {
 
             // OpenGraph和Twitter Card
             addSocialMediaMeta(meta, seoConfig, title, description);
+
+            // Canonical URL (规范链接)
+            String siteUrl = mailUtil.getSiteUrl();
+            if (StringUtils.hasText(siteUrl)) {
+                meta.put("canonical", siteUrl + "/tag/" + tagId);
+                meta.put("og:url", siteUrl + "/tag/" + tagId);
+            }
 
             // 自定义头部代码
             meta.put("custom_head_code", seoConfig.get("custom_head_code"));
@@ -416,6 +451,18 @@ public class SeoMetaServiceImpl implements SeoMetaService {
         meta.put("twitter:creator", seoConfig.get("twitter_creator"));
     }
 
+    /**
+     * 获取文章封面图URL（与前端buildArticleVO逻辑一致）
+     * 优先使用文章自身封面，如果为空则使用随机封面
+     */
+    private String getArticleCoverUrl(Article article) {
+        if (StringUtils.hasText(article.getArticleCover())) {
+            return article.getArticleCover();
+        }
+        // 与 ArticleServiceImpl.buildArticleVO 保持一致，使用文章ID生成随机封面
+        return PoetryUtil.getRandomCover(article.getId().toString());
+    }
+
     private void addIconMeta(Map<String, Object> meta, Map<String, Object> seoConfig) {
         meta.put("site_icon", seoConfig.get("site_icon"));
         meta.put("site_icon_192", seoConfig.get("site_icon_192"));
@@ -438,15 +485,47 @@ public class SeoMetaServiceImpl implements SeoMetaService {
         structuredData.put("headline", article.getArticleTitle());
         structuredData.put("datePublished", article.getCreateTime());
         structuredData.put("dateModified", article.getUpdateTime());
-        
+
+        // 文章封面图片 (image) 
+        String articleImage = getArticleCoverUrl(article);
+        if (StringUtils.hasText(articleImage)) {
+            structuredData.put("image", articleImage);
+        } else if (seoConfig.get("og_image") != null && StringUtils.hasText(seoConfig.get("og_image").toString())) {
+            // 最终降级使用全局默认OG图片
+            structuredData.put("image", seoConfig.get("og_image").toString());
+        }
+
+        // mainEntityOfPage - 指向文章的规范URL
+        String siteUrl = mailUtil.getSiteUrl();
+        if (StringUtils.hasText(siteUrl)) {
+            Map<String, Object> mainEntity = new HashMap<>();
+            mainEntity.put("@type", "WebPage");
+            mainEntity.put("@id", siteUrl + "/article/" + article.getId());
+            structuredData.put("mainEntityOfPage", mainEntity);
+        }
+
+        // 文章描述
+        if (StringUtils.hasText(article.getSummary())) {
+            structuredData.put("description", cleanHtmlTags(article.getSummary()));
+        }
+
         Map<String, Object> author = new HashMap<>();
         author.put("@type", "Person");
         author.put("name", seoConfig.get("default_author"));
         structuredData.put("author", author);
 
+        // Publisher - 使用与og:site_name一致的名称，保持品牌一致性
+        String siteName = getSiteTitle();
         Map<String, Object> publisher = new HashMap<>();
         publisher.put("@type", "Organization");
-        publisher.put("name", seoConfig.get("og_site_name"));
+        publisher.put("name", siteName);
+        // Publisher logo
+        if (seoConfig.get("site_logo") != null && StringUtils.hasText(seoConfig.get("site_logo").toString())) {
+            Map<String, Object> logo = new HashMap<>();
+            logo.put("@type", "ImageObject");
+            logo.put("url", seoConfig.get("site_logo").toString());
+            publisher.put("logo", logo);
+        }
         structuredData.put("publisher", publisher);
 
         return toJsonString(structuredData);
@@ -535,7 +614,7 @@ public class SeoMetaServiceImpl implements SeoMetaService {
     }
     
     /**
-     * 获取网站标题，优先使用webInfo.webTitle
+     * 获取网站标题，优先使用webInfo.webTitle，然后尝试SEO配置中的og_site_name
      */
     private String getSiteTitle() {
         try {
@@ -546,8 +625,18 @@ public class SeoMetaServiceImpl implements SeoMetaService {
                 return webInfo.getWebName();
             }
         } catch (Exception e) {
-            log.warn("获取webInfo失败，使用默认标题", e);
+            log.warn("获取webInfo失败，尝试从SEO配置获取站点名称", e);
         }
-        return "POETIZE";
+        // 尝试从SEO配置获取og_site_name作为备选
+        try {
+            Map<String, Object> seoConfig = seoConfigService.getSeoConfigAsJson();
+            Object ogSiteName = seoConfig.get("og_site_name");
+            if (ogSiteName != null && StringUtils.hasText(ogSiteName.toString())) {
+                return ogSiteName.toString();
+            }
+        } catch (Exception e) {
+            log.warn("获取SEO配置失败", e);
+        }
+        return "My Blog";
     }
 }

@@ -561,6 +561,11 @@ import {
   isKatexLoadedGlobal,
 } from '@/utils/resourceLoaders/resourceLoader'
 import { parseEChartsOption } from '@/utils/echartsOptionParser'
+import {
+  applyThemeFromArticle,
+  getTocEmoji,
+  resetTheme,
+} from '@/composables/useArticleTheme'
 
 const CommentLoading = {
   name: 'CommentLoading',
@@ -670,6 +675,7 @@ export default {
         y: 0,
         currentContainer: null,
       },
+      articleThemeConfig: null, // 文章主题配置（缓存，供 TOC 使用）
     }
   },
   head() {
@@ -850,6 +856,9 @@ export default {
   },
   unmounted() {
     window.removeEventListener('scroll', this.onScrollPage)
+
+    // 移除文章主题自定义 CSS 变量，恢复默认值
+    resetTheme()
 
     // 移除主题切换事件监听
     $off(this.$root, 'themeChanged', this.handleThemeChange)
@@ -1424,12 +1433,15 @@ export default {
                 },
               })
 
-              // 动态设置目录标题（根据当前语言）
+              // 动态设置目录标题（根据当前语言 + 文章主题 emoji）
               this.$nextTick(() => {
                 const tocElement = document.querySelector('.toc')
                 if (tocElement) {
                   const tocTitle = getTocTitle(this.currentLang || 'zh')
-                  tocElement.setAttribute('data-toc-title', `🏖️${tocTitle}`)
+                  const rawEmoji = getTocEmoji(this.articleThemeConfig)
+                  // null = 未配置主题，用默认 emoji；'' = 用户明确不要 emoji
+                  const prefix = rawEmoji === null ? '🏖️' : rawEmoji
+                  tocElement.setAttribute('data-toc-title', `${prefix}${tocTitle}`)
                 }
               })
 
@@ -1702,6 +1714,12 @@ export default {
           // 处理文章数据
           if (!this.$common.isEmpty(articleRes.data)) {
             this.article = articleRes.data
+
+            // 在渲染内容之前，先同步应用文章主题（从接口合并返回，无额外请求）
+            // 这样标题装饰在首次渲染时就是正确的，彻底避免闪烁
+            if (this.article.articleThemeConfig) {
+              this.articleThemeConfig = applyThemeFromArticle(this.article.articleThemeConfig)
+            }
 
             // 检查当前语言状态，决定显示内容
             // 确定要渲染的内容

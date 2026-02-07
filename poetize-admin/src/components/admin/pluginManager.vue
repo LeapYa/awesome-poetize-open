@@ -13,6 +13,7 @@
           <el-option label="鼠标点击效果" value="mouse_click_effect"></el-option>
           <el-option label="看板娘模型" value="waifu_model"></el-option>
           <el-option label="文章编辑器" value="editor"></el-option>
+          <el-option label="文章主题" value="article_theme"></el-option>
         </el-select>
         <el-button type="primary" icon="el-icon-plus" @click="handleCreate">新增插件</el-button>
       </div>
@@ -66,6 +67,14 @@
               class="primary-text" 
               v-if="currentPluginType === 'editor' && activePluginKey !== scope.row.pluginKey && scope.row.enabled"
               @click="handleSetActive(scope.row)">使用此编辑器</el-button>
+            
+            <!-- 文章主题插件专用：使用此主题按钮 -->
+            <el-button 
+              type="text" 
+              icon="el-icon-magic-stick" 
+              class="primary-text" 
+              v-if="currentPluginType === 'article_theme' && activePluginKey !== scope.row.pluginKey && scope.row.enabled"
+              @click="handleSetActive(scope.row)">使用此主题</el-button>
             
             <el-button type="text" icon="el-icon-edit" @click="handleEdit(scope.row)">编辑</el-button>
             <el-button 
@@ -208,7 +217,7 @@
         <el-form-item label="描述" prop="pluginDescription">
           <el-input type="textarea" v-model="form.pluginDescription"></el-input>
         </el-form-item>
-        <el-form-item label="JSON配置" prop="pluginConfig" v-if="currentPluginType !== 'waifu_model'">
+        <el-form-item label="JSON配置" prop="pluginConfig" v-if="currentPluginType !== 'waifu_model' && currentPluginType !== 'article_theme'">
            <el-input type="textarea" :rows="4" v-model="form.pluginConfig" placeholder="请输入JSON格式配置"></el-input>
            <div class="sub-title" style="font-size: 12px; color: #999; line-height: 20px;">
              用于配置插件参数，必须是合法的JSON格式。例如：{"colors": ["#FF0000", "#00FF00"]}
@@ -260,7 +269,72 @@
             <el-input type="textarea" :rows="2" v-model="waifuConfig.idleStr" placeholder="每行一句，随机选择显示"></el-input>
           </el-form-item>
         </template>
-        <el-form-item label="JS代码" prop="pluginCode" v-if="currentPluginType !== 'waifu_model'">
+
+        <!-- 文章主题专用配置 -->
+        <template v-if="currentPluginType === 'article_theme'">
+          <el-divider content-position="left">标题装饰设置</el-divider>
+          <div class="theme-config-section">
+            <div class="theme-heading-row" v-for="(level, index) in ['h1','h2','h3','h4','h5']" :key="level">
+              <span class="theme-level-label">H{{ index + 1 }}</span>
+              <el-input 
+                v-model="themeConfig.headings[level].emoji" 
+                placeholder="emoji/符号" 
+                size="small" 
+                style="width: 100px; margin-right: 10px;">
+              </el-input>
+              <el-color-picker 
+                v-model="themeConfig.headings[level].color" 
+                size="small" 
+                show-alpha 
+                style="margin-right: 10px;">
+              </el-color-picker>
+              <el-tooltip content="emoji类建议32~40px，符号类建议16~25px" placement="top" :open-delay="300">
+                <el-input 
+                  v-model="themeConfig.headings[level].paddingLeft" 
+                  placeholder="左边距" 
+                  size="small" 
+                  style="width: 100px; margin-right: 10px;">
+                </el-input>
+              </el-tooltip>
+              <el-switch 
+                v-model="themeConfig.headings[level].show" 
+                active-text="显示" 
+                inactive-text="隐藏"
+                style="margin-right: 10px;">
+              </el-switch>
+            </div>
+          </div>
+
+          <el-divider content-position="left">目录装饰</el-divider>
+          <div class="theme-config-section">
+            <div class="theme-heading-row">
+              <span class="theme-level-label">TOC</span>
+              <el-input 
+                v-model="themeConfig.toc.emoji" 
+                placeholder="emoji/符号" 
+                size="small" 
+                style="width: 100px; margin-right: 10px;">
+              </el-input>
+              <el-switch 
+                v-model="themeConfig.toc.show" 
+                active-text="显示" 
+                inactive-text="隐藏">
+              </el-switch>
+            </div>
+          </div>
+
+          <el-divider content-position="left">快速预设</el-divider>
+          <div class="theme-preset-buttons">
+            <el-button size="small" @click="applyThemePreset('default')">📑 默认</el-button>
+            <el-button size="small" @click="applyThemePreset('minimal')">📖 简约</el-button>
+            <el-button size="small" @click="applyThemePreset('plain')">📄 无装饰</el-button>
+            <el-button size="small" @click="applyThemePreset('garden')">🌿 花园</el-button>
+            <el-button size="small" @click="applyThemePreset('academic')">§ 学术</el-button>
+            <el-button size="small" @click="applyThemePreset('space')">🌟 星空</el-button>
+          </div>
+        </template>
+
+        <el-form-item label="JS代码" prop="pluginCode" v-if="currentPluginType !== 'waifu_model' && currentPluginType !== 'article_theme'">
            <el-input 
              type="textarea" 
              :rows="10" 
@@ -341,6 +415,7 @@
 
 <script>
 import UploadPicture from "../common/uploadPicture";
+import { clearEditorThemeCache, initEditorTheme } from '@/utils/useEditorTheme';
 
 export default {
   name: 'pluginManager',
@@ -351,7 +426,7 @@ export default {
     '$route.query.type': {
       handler(val) {
         const t = String(val || '');
-        if (['mouse_click_effect', 'waifu_model', 'editor'].includes(t) && t !== this.currentPluginType) {
+        if (['mouse_click_effect', 'waifu_model', 'editor', 'article_theme'].includes(t) && t !== this.currentPluginType) {
           this.currentPluginType = t;
           this.form.pluginType = t;
           this.getData();
@@ -402,6 +477,80 @@ export default {
         idleStr: '',
         thumbnailUrl: ''
       },
+      // 文章主题专用配置（可视化编辑）
+      themeConfig: {
+        headings: {
+          h1: { emoji: '📑', color: null, show: true, paddingLeft: '40px' },
+          h2: { emoji: '#', color: '#ff6d6d', show: true, paddingLeft: '25px' },
+          h3: { emoji: '▌', color: '#ff6d6d', show: true, paddingLeft: '20px' },
+          h4: { emoji: '🌷', color: null, show: true, paddingLeft: '28px' },
+          h5: { emoji: '', color: null, show: false, paddingLeft: '' }
+        },
+        toc: { emoji: '🏖️', show: true }
+      },
+      // 文章主题预设模板
+      themePresets: {
+        default: {
+          headings: {
+            h1: { emoji: '📑', color: null, show: true, paddingLeft: '40px' },
+            h2: { emoji: '#', color: '#ff6d6d', show: true, paddingLeft: '25px' },
+            h3: { emoji: '▌', color: '#ff6d6d', show: true, paddingLeft: '20px' },
+            h4: { emoji: '🌷', color: null, show: true, paddingLeft: '28px' },
+            h5: { emoji: '', color: null, show: false, paddingLeft: '' }
+          },
+          toc: { emoji: '🏖️', show: true }
+        },
+        minimal: {
+          headings: {
+            h1: { emoji: '', color: null, show: false, paddingLeft: '' },
+            h2: { emoji: '#', color: '#909399', show: true, paddingLeft: '25px' },
+            h3: { emoji: '▌', color: '#909399', show: true, paddingLeft: '20px' },
+            h4: { emoji: '', color: null, show: false, paddingLeft: '' },
+            h5: { emoji: '', color: null, show: false, paddingLeft: '' }
+          },
+          toc: { emoji: '📖', show: true }
+        },
+        plain: {
+          headings: {
+            h1: { emoji: '', color: null, show: false, paddingLeft: '' },
+            h2: { emoji: '', color: null, show: false, paddingLeft: '' },
+            h3: { emoji: '', color: null, show: false, paddingLeft: '' },
+            h4: { emoji: '', color: null, show: false, paddingLeft: '' },
+            h5: { emoji: '', color: null, show: false, paddingLeft: '' }
+          },
+          toc: { emoji: '', show: false }
+        },
+        garden: {
+          headings: {
+            h1: { emoji: '🌿', color: null, show: true, paddingLeft: '40px' },
+            h2: { emoji: '🌱', color: null, show: true, paddingLeft: '36px' },
+            h3: { emoji: '🍃', color: null, show: true, paddingLeft: '32px' },
+            h4: { emoji: '🌷', color: null, show: true, paddingLeft: '32px' },
+            h5: { emoji: '🌼', color: null, show: true, paddingLeft: '28px' }
+          },
+          toc: { emoji: '🌺', show: true }
+        },
+        academic: {
+          headings: {
+            h1: { emoji: '§', color: null, show: true, paddingLeft: '24px' },
+            h2: { emoji: '¶', color: null, show: true, paddingLeft: '20px' },
+            h3: { emoji: '▸', color: null, show: true, paddingLeft: '18px' },
+            h4: { emoji: '•', color: null, show: true, paddingLeft: '16px' },
+            h5: { emoji: '◦', color: null, show: true, paddingLeft: '16px' }
+          },
+          toc: { emoji: '📚', show: true }
+        },
+        space: {
+          headings: {
+            h1: { emoji: '🌟', color: null, show: true, paddingLeft: '40px' },
+            h2: { emoji: '⭐', color: null, show: true, paddingLeft: '33px' },
+            h3: { emoji: '💫', color: null, show: true, paddingLeft: '31px' },
+            h4: { emoji: '✨', color: null, show: true, paddingLeft: '31px' },
+            h5: { emoji: '·', color: null, show: true, paddingLeft: '16px' }
+          },
+          toc: { emoji: '🛸', show: true }
+        }
+      },
       rules: {
         pluginName: [
           { required: true, message: '请输入插件名称', trigger: 'blur' }
@@ -435,7 +584,8 @@ export default {
       const labels = {
         'mouse_click_effect': '鼠标效果管理',
         'waifu_model': '看板娘模型管理',
-        'editor': '文章编辑器管理'
+        'editor': '文章编辑器管理',
+        'article_theme': '文章主题管理'
       };
       return labels[this.currentPluginType] || '插件管理';
     },
@@ -446,7 +596,7 @@ export default {
   },
   created() {
     const t = String(this.$route?.query?.type || '');
-    if (['mouse_click_effect', 'waifu_model', 'editor'].includes(t)) {
+    if (['mouse_click_effect', 'waifu_model', 'editor', 'article_theme'].includes(t)) {
       this.currentPluginType = t;
       this.form.pluginType = t;
     }
@@ -572,6 +722,11 @@ export default {
         if (res.code === 200) {
           this.$message.success(`已切换为: ${row.pluginName}`);
           this.activePluginKey = row.pluginKey;
+          // 切换文章主题后，清除缓存并重新应用编辑器主题
+          if (this.currentPluginType === 'article_theme') {
+            clearEditorThemeCache();
+            initEditorTheme();
+          }
         } else {
           this.$message.error(res.message || '设置失败');
         }
@@ -661,6 +816,11 @@ export default {
           thumbnailUrl: ''
         };
       }
+      
+      // 重置文章主题配置
+      if (this.currentPluginType === 'article_theme') {
+        this.themeConfig = JSON.parse(JSON.stringify(this.themePresets.default));
+      }
       this.editVisible = true;
       if (this.$refs.form) {
         this.$refs.form.clearValidate();
@@ -690,6 +850,29 @@ export default {
         } catch (e) {
           console.error('解析看板娘配置失败:', e);
           this.waifuConfig = { modelPath: '', texturesStr: '', scale: 1.0, greetingStr: '', idleStr: '', thumbnailUrl: '' };
+        }
+      }
+      
+      // 如果是文章主题，解析JSON配置到可视化字段
+      if (this.currentPluginType === 'article_theme') {
+        try {
+          const config = JSON.parse(this.form.pluginConfig);
+          this.themeConfig = {
+            headings: {
+              h1: { emoji: config.headings?.h1?.emoji || '', color: config.headings?.h1?.color || null, show: config.headings?.h1?.show !== false, paddingLeft: config.headings?.h1?.paddingLeft || '' },
+              h2: { emoji: config.headings?.h2?.emoji || '', color: config.headings?.h2?.color || null, show: config.headings?.h2?.show !== false, paddingLeft: config.headings?.h2?.paddingLeft || '' },
+              h3: { emoji: config.headings?.h3?.emoji || '', color: config.headings?.h3?.color || null, show: config.headings?.h3?.show !== false, paddingLeft: config.headings?.h3?.paddingLeft || '' },
+              h4: { emoji: config.headings?.h4?.emoji || '', color: config.headings?.h4?.color || null, show: config.headings?.h4?.show !== false, paddingLeft: config.headings?.h4?.paddingLeft || '' },
+              h5: { emoji: config.headings?.h5?.emoji || '', color: config.headings?.h5?.color || null, show: config.headings?.h5?.show !== false, paddingLeft: config.headings?.h5?.paddingLeft || '' }
+            },
+            toc: {
+              emoji: config.toc?.emoji || '',
+              show: config.toc?.show !== false
+            }
+          };
+        } catch (e) {
+          console.error('解析文章主题配置失败:', e);
+          this.themeConfig = JSON.parse(JSON.stringify(this.themePresets.default));
         }
       }
       
@@ -750,6 +933,24 @@ export default {
             this.form.pluginConfig = JSON.stringify(config);
           }
           
+          // 如果是文章主题，将可视化配置序列化为JSON
+          if (this.currentPluginType === 'article_theme') {
+            const config = {
+              headings: {
+                h1: { emoji: this.themeConfig.headings.h1.emoji || '', color: this.themeConfig.headings.h1.color || null, show: this.themeConfig.headings.h1.show, paddingLeft: this.themeConfig.headings.h1.paddingLeft || '' },
+                h2: { emoji: this.themeConfig.headings.h2.emoji || '', color: this.themeConfig.headings.h2.color || null, show: this.themeConfig.headings.h2.show, paddingLeft: this.themeConfig.headings.h2.paddingLeft || '' },
+                h3: { emoji: this.themeConfig.headings.h3.emoji || '', color: this.themeConfig.headings.h3.color || null, show: this.themeConfig.headings.h3.show, paddingLeft: this.themeConfig.headings.h3.paddingLeft || '' },
+                h4: { emoji: this.themeConfig.headings.h4.emoji || '', color: this.themeConfig.headings.h4.color || null, show: this.themeConfig.headings.h4.show, paddingLeft: this.themeConfig.headings.h4.paddingLeft || '' },
+                h5: { emoji: this.themeConfig.headings.h5.emoji || '', color: this.themeConfig.headings.h5.color || null, show: this.themeConfig.headings.h5.show, paddingLeft: this.themeConfig.headings.h5.paddingLeft || '' }
+              },
+              toc: {
+                emoji: this.themeConfig.toc.emoji || '',
+                show: this.themeConfig.toc.show
+              }
+            };
+            this.form.pluginConfig = JSON.stringify(config);
+          }
+          
           const url = this.$constant.baseURL + (this.isEdit ? "/sysPlugin/updatePlugin" : "/sysPlugin/addPlugin");
           
           this.$http.post(url, this.form, true)
@@ -757,6 +958,11 @@ export default {
               this.$message.success(this.isEdit ? '修改成功' : '新增成功');
               this.editVisible = false;
               this.getData();
+              // 文章主题保存后，清除编辑器缓存，使下次打开编辑器时加载最新配置
+              if (this.currentPluginType === 'article_theme') {
+                clearEditorThemeCache();
+                initEditorTheme();
+              }
             })
             .catch((error) => {
               this.$message.error(error.message);
@@ -789,6 +995,15 @@ export default {
         return false;
       }
       return true;
+    },
+    
+    // 文章主题预设应用
+    applyThemePreset(presetKey) {
+      const preset = this.themePresets[presetKey];
+      if (preset) {
+        this.themeConfig = JSON.parse(JSON.stringify(preset));
+        this.$message.success(`已应用「${presetKey}」预设`);
+      }
     }
   }
 };
@@ -907,5 +1122,31 @@ export default {
 .thumbnail-upload-container {
   display: flex;
   align-items: center;
+}
+
+/* 文章主题配置样式 */
+.theme-config-section {
+  padding: 0 10px;
+}
+.theme-heading-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #fafafa;
+  border-radius: 6px;
+}
+.theme-level-label {
+  display: inline-block;
+  width: 40px;
+  font-weight: bold;
+  font-size: 14px;
+  color: #303133;
+}
+.theme-preset-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 10px;
 }
 </style>

@@ -17,12 +17,15 @@
     content: attr(data-toc-title);
     font-size: 24px;
     line-height: 40px;
-    margin-left: 55px;
+    display: block;
+    text-align: center;
 }
 
 /* 默认标题（如果 JavaScript 未设置 data-toc-title） */
 .toc:not([data-toc-title])::before {
-    content: '🏖️目录';
+    content: var(--toc-emoji) '目录';
+    display: block;
+    text-align: center;
 }
 
 .toc > .toc-list {

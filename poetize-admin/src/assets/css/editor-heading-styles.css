@@ -27,7 +27,7 @@
   --editor-h5-font-size: 16px;
   --editor-h6-font-size: 16px;
 
-  /* 标题装饰颜色 */
+  /* 标题装饰颜色（全局默认，可被 per-heading 变量覆盖） */
   --editor-heading-accent-color: #ff6d6d;
 
   /* 标题边距 */
@@ -45,6 +45,30 @@
   --editor-h2-icon: "#";
   --editor-h3-icon: "▌";
   --editor-h4-icon: "🌷";
+
+  /* 每级标题装饰颜色（与文章主题联动） */
+  --editor-h1-color: inherit;
+  --editor-h2-color: var(--editor-heading-accent-color);
+  --editor-h3-color: var(--editor-heading-accent-color);
+  --editor-h4-color: inherit;
+
+  /* 每级标题装饰显示/隐藏（与文章主题联动） */
+  --editor-h1-display: inline;
+  --editor-h2-display: inline;
+  --editor-h3-display: inline;
+  --editor-h4-display: inline;
+
+  /* 每级标题左内边距（有装饰时留出空间，无装饰时为 0） */
+  --editor-h1-padding: 40px;
+  --editor-h2-padding: 25px;
+  --editor-h3-padding: 20px;
+  --editor-h4-padding: 28px;
+  --editor-h5-padding: 0;
+
+  /* H5 装饰（用户的 ##### → 文章页 h6，默认无装饰） */
+  --editor-h5-icon: "";
+  --editor-h5-color: inherit;
+  --editor-h5-display: none;
 }
 
 /* 暗色模式变量 */
@@ -70,7 +94,7 @@
 
 /* ==================== H1 样式（用户的 # → 显示为文章页 h2 样式）==================== */
 .editor-heading-styles h1 {
-  padding-left: 40px !important;
+  padding-left: var(--editor-h1-padding) !important;
   font-size: var(--editor-h1-font-size) !important;
   padding-bottom: 8px !important;
   border-bottom: 1px dashed var(--editor-h1-border-color) !important;
@@ -82,11 +106,13 @@
   left: 0 !important;
   font-size: 1.03em !important;
   margin-top: -2px !important;
+  color: var(--editor-h1-color) !important;
+  display: var(--editor-h1-display) !important;
 }
 
 /* ==================== H2 样式（用户的 ## → 显示为文章页 h3 样式）==================== */
 .editor-heading-styles h2 {
-  padding-left: 25px !important;
+  padding-left: var(--editor-h2-padding) !important;
   font-size: var(--editor-h2-font-size) !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
@@ -96,14 +122,16 @@
   content: var(--editor-h2-icon) !important;
   position: absolute !important;
   left: 0 !important;
-  color: var(--editor-heading-accent-color) !important;
+  color: var(--editor-h2-color) !important;
   font-size: inherit !important;
+  display: var(--editor-h2-display) !important;
 }
 
 /* ==================== H3 样式（用户的 ### → 显示为文章页 h4 样式）==================== */
 .editor-heading-styles h3 {
-  padding-left: 20px !important;
+  padding-left: var(--editor-h3-padding) !important;
   font-size: var(--editor-h3-font-size) !important;
+  margin-left: 2px !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
 }
@@ -112,14 +140,15 @@
   content: var(--editor-h3-icon) !important;
   position: absolute !important;
   left: 0 !important;
-  color: var(--editor-heading-accent-color) !important;
+  color: var(--editor-h3-color) !important;
   font-size: inherit !important;
+  display: var(--editor-h3-display) !important;
 }
 
 /* ==================== H4 样式（用户的 #### → 显示为文章页 h5 样式）==================== */
 .editor-heading-styles h4 {
   font-size: var(--editor-h4-font-size) !important;
-  padding-left: 28px !important;
+  padding-left: var(--editor-h4-padding) !important;
   line-height: 1.25 !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
@@ -130,6 +159,8 @@
   position: absolute !important;
   left: 0 !important;
   font-size: inherit !important;
+  color: var(--editor-h4-color) !important;
+  display: var(--editor-h4-display) !important;
 }
 
 /* ==================== H5 样式（用户的 ##### → 显示为文章页 h6 样式）==================== */
@@ -138,8 +169,20 @@
   line-height: 1.25 !important;
   font-weight: 600 !important;
   color: var(--editor-h5h6-color) !important;
+  margin-top: 20px !important;
+  margin-bottom: 15px !important;
+  padding-left: var(--editor-h5-padding) !important;
+  position: relative !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
+}
+
+.editor-heading-styles h5:before {
+  content: var(--editor-h5-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  color: var(--editor-h5-color) !important;
+  display: var(--editor-h5-display) !important;
 }
 
 /* ==================== H6 样式（用户的 ###### → 基础样式）==================== */
@@ -190,7 +233,7 @@
 }
 
 .vditor-reset h1 {
-  padding-left: 40px !important;
+  padding-left: var(--editor-h1-padding) !important;
   font-size: var(--editor-h1-font-size) !important;
   padding-bottom: 8px !important;
   border-bottom: 1px dashed var(--editor-h1-border-color) !important;
@@ -202,10 +245,12 @@
   left: 0 !important;
   font-size: 1.03em !important;
   margin-top: -2px !important;
+  color: var(--editor-h1-color) !important;
+  display: var(--editor-h1-display) !important;
 }
 
 .vditor-reset h2 {
-  padding-left: 25px !important;
+  padding-left: var(--editor-h2-padding) !important;
   font-size: var(--editor-h2-font-size) !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
@@ -215,13 +260,15 @@
   content: var(--editor-h2-icon) !important;
   position: absolute !important;
   left: 0 !important;
-  color: var(--editor-heading-accent-color) !important;
+  color: var(--editor-h2-color) !important;
   font-size: inherit !important;
+  display: var(--editor-h2-display) !important;
 }
 
 .vditor-reset h3 {
-  padding-left: 20px !important;
+  padding-left: var(--editor-h3-padding) !important;
   font-size: var(--editor-h3-font-size) !important;
+  margin-left: 2px !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
 }
@@ -230,13 +277,14 @@
   content: var(--editor-h3-icon) !important;
   position: absolute !important;
   left: 0 !important;
-  color: var(--editor-heading-accent-color) !important;
+  color: var(--editor-h3-color) !important;
   font-size: inherit !important;
+  display: var(--editor-h3-display) !important;
 }
 
 .vditor-reset h4 {
   font-size: var(--editor-h4-font-size) !important;
-  padding-left: 28px !important;
+  padding-left: var(--editor-h4-padding) !important;
   line-height: 1.25 !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
@@ -247,11 +295,33 @@
   position: absolute !important;
   left: 0 !important;
   font-size: inherit !important;
+  color: var(--editor-h4-color) !important;
+  display: var(--editor-h4-display) !important;
 }
 
-.vditor-reset h5,
-.vditor-reset h6 {
+.vditor-reset h5 {
   font-size: var(--editor-h5-font-size) !important;
+  line-height: 1.25 !important;
+  font-weight: 600 !important;
+  color: var(--editor-h5h6-color) !important;
+  margin-top: 20px !important;
+  margin-bottom: 15px !important;
+  padding-left: var(--editor-h5-padding) !important;
+  position: relative !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.vditor-reset h5:before {
+  content: var(--editor-h5-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  color: var(--editor-h5-color) !important;
+  display: var(--editor-h5-display) !important;
+}
+
+.vditor-reset h6 {
+  font-size: var(--editor-h6-font-size) !important;
   line-height: 1.25 !important;
   font-weight: 600 !important;
   color: var(--editor-h5h6-color) !important;
@@ -307,7 +377,7 @@ body .split-preview-editor .entry-content h6 {
 .entry-content h1,
 body .ir-editor .entry-content h1,
 body .split-preview-editor .entry-content h1 {
-  padding-left: 40px !important;
+  padding-left: var(--editor-h1-padding) !important;
   font-size: var(--editor-h1-font-size) !important;
   padding-bottom: 8px !important;
   border-bottom: 1px dashed var(--editor-h1-border-color) !important;
@@ -321,12 +391,14 @@ body .split-preview-editor .entry-content h1:before {
   left: 0 !important;
   font-size: 1.03em !important;
   margin-top: -2px !important;
+  color: var(--editor-h1-color) !important;
+  display: var(--editor-h1-display) !important;
 }
 
 .entry-content h2,
 body .ir-editor .entry-content h2,
 body .split-preview-editor .entry-content h2 {
-  padding-left: 25px !important;
+  padding-left: var(--editor-h2-padding) !important;
   font-size: var(--editor-h2-font-size) !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
@@ -338,15 +410,17 @@ body .split-preview-editor .entry-content h2:before {
   content: var(--editor-h2-icon) !important;
   position: absolute !important;
   left: 0 !important;
-  color: var(--editor-heading-accent-color) !important;
+  color: var(--editor-h2-color) !important;
   font-size: inherit !important;
+  display: var(--editor-h2-display) !important;
 }
 
 .entry-content h3,
 body .ir-editor .entry-content h3,
 body .split-preview-editor .entry-content h3 {
-  padding-left: 20px !important;
+  padding-left: var(--editor-h3-padding) !important;
   font-size: var(--editor-h3-font-size) !important;
+  margin-left: 2px !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
 }
@@ -357,15 +431,16 @@ body .split-preview-editor .entry-content h3:before {
   content: var(--editor-h3-icon) !important;
   position: absolute !important;
   left: 0 !important;
-  color: var(--editor-heading-accent-color) !important;
+  color: var(--editor-h3-color) !important;
   font-size: inherit !important;
+  display: var(--editor-h3-display) !important;
 }
 
 .entry-content h4,
 body .ir-editor .entry-content h4,
 body .split-preview-editor .entry-content h4 {
   font-size: var(--editor-h4-font-size) !important;
-  padding-left: 28px !important;
+  padding-left: var(--editor-h4-padding) !important;
   line-height: 1.25 !important;
   padding-bottom: 0 !important;
   border-bottom: none !important;
@@ -378,15 +453,29 @@ body .split-preview-editor .entry-content h4:before {
   position: absolute !important;
   left: 0 !important;
   font-size: inherit !important;
+  color: var(--editor-h4-color) !important;
+  display: var(--editor-h4-display) !important;
 }
 
 .entry-content h5,
-.entry-content h6,
 body .ir-editor .entry-content h5,
-body .ir-editor .entry-content h6,
-body .split-preview-editor .entry-content h5,
-body .split-preview-editor .entry-content h6 {
+body .split-preview-editor .entry-content h5 {
   font-size: var(--editor-h5-font-size) !important;
+  line-height: 1.25 !important;
+  font-weight: 600 !important;
+  color: var(--editor-h5h6-color) !important;
+  margin-top: 20px !important;
+  margin-bottom: 15px !important;
+  padding-left: var(--editor-h5-padding) !important;
+  position: relative !important;
+  padding-bottom: 0 !important;
+  border-bottom: none !important;
+}
+
+.entry-content h6,
+body .ir-editor .entry-content h6,
+body .split-preview-editor .entry-content h6 {
+  font-size: var(--editor-h6-font-size) !important;
   line-height: 1.25 !important;
   font-weight: 600 !important;
   color: var(--editor-h5h6-color) !important;
@@ -397,7 +486,11 @@ body .split-preview-editor .entry-content h6 {
 .entry-content h5:before,
 body .ir-editor .entry-content h5:before,
 body .split-preview-editor .entry-content h5:before {
-  content: none !important;
+  content: var(--editor-h5-icon) !important;
+  position: absolute !important;
+  left: 0 !important;
+  color: var(--editor-h5-color) !important;
+  display: var(--editor-h5-display) !important;
 }
 
 .entry-content h1.article-main-title {

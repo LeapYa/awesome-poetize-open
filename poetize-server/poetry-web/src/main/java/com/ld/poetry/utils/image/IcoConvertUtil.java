@@ -41,9 +41,11 @@ public class IcoConvertUtil {
             if (image == null) {
                 return null;
             }
+            // 先中心裁剪为正方形，避免拉伸变形
+            BufferedImage square = cropToSquare(image);
             // 生成 16x16 和 32x32 两个尺寸，兼容不同场景
-            BufferedImage size32 = resize(image, ICO_SIZE_32, ICO_SIZE_32);
-            BufferedImage size16 = resize(image, ICO_SIZE_16, ICO_SIZE_16);
+            BufferedImage size32 = resize(square, ICO_SIZE_32, ICO_SIZE_32);
+            BufferedImage size16 = resize(square, ICO_SIZE_16, ICO_SIZE_16);
             try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
                 ICOEncoder.write(java.util.List.of(size16, size32), baos);
                 byte[] icoBytes = baos.toByteArray();
@@ -52,6 +54,43 @@ public class IcoConvertUtil {
             }
         } catch (Exception e) {
             log.warn("网站图标转 ICO 失败: {} - {}", name, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 将上传的图片转为指定尺寸的 PNG 图标
+     * 支持 PNG、JPEG、GIF、BMP；WebP 需系统已安装 dwebp 命令
+     *
+     * @param file 上传的图片文件
+     * @param size 目标尺寸（正方形）
+     * @return PNG 格式字节数组，转换失败返回 null
+     */
+    public static byte[] convertToPngIcon(MultipartFile file, int size) {
+        if (file == null || file.isEmpty() || size <= 0) {
+            return null;
+        }
+        String contentType = file.getContentType();
+        String name = file.getOriginalFilename();
+        try {
+            BufferedImage image = readImage(file, contentType, name);
+            if (image == null) {
+                return null;
+            }
+            BufferedImage square = cropToSquare(image);
+            BufferedImage resized = resize(square, size, size);
+            try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                boolean written = ImageIO.write(resized, "png", baos);
+                if (!written) {
+                    log.warn("PNG 输出失败: {}", name);
+                    return null;
+                }
+                byte[] pngBytes = baos.toByteArray();
+                log.info("SEO图标已转为 PNG，目标尺寸: {}x{}，输出大小: {} bytes", size, size, pngBytes.length);
+                return pngBytes;
+            }
+        } catch (Exception e) {
+            log.warn("SEO图标转 PNG 失败: {} - {}", name, e.getMessage());
             return null;
         }
     }
@@ -126,6 +165,31 @@ public class IcoConvertUtil {
             g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.drawImage(src, 0, 0, w, h, null);
+        } finally {
+            g.dispose();
+        }
+        return out;
+    }
+
+    /**
+     * 中心裁剪为正方形，避免缩放拉伸
+     */
+    private static BufferedImage cropToSquare(BufferedImage src) {
+        int width = src.getWidth();
+        int height = src.getHeight();
+        if (width == height) {
+            return src;
+        }
+        int size = Math.min(width, height);
+        int x = (width - size) / 2;
+        int y = (height - size) / 2;
+        BufferedImage out = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = out.createGraphics();
+        try {
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.drawImage(src, 0, 0, size, size, x, y, x + size, y + size, null);
         } finally {
             g.dispose();
         }

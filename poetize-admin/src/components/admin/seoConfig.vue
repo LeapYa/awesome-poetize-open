@@ -114,35 +114,12 @@
               </div>
             </div>
           </div>
-          <span class="tip">上传一张高清图片，自动生成并填入所有尺寸的网站图标、Logo和默认封面图</span>
+          <span class="tip">上传一张高清图片，自动生成并填入所有尺寸的网站图标和Logo</span>
         </el-form-item>
 
         <el-divider content-position="center">
           <span style="color: #909399; font-size: 13px;">如需单独调整，可使用下方配置</span>
         </el-divider>
-
-        <el-form-item label="默认封面图">
-          <div class="icon-upload-container">
-            <div style="display: flex">
-              <el-input v-model="seoConfig.og_image" placeholder="输入图片URL或点击上传"></el-input>
-              <el-image lazy class="table-td-thumb"
-                        style="margin-left: 10px"
-                        v-if="seoConfig.og_image"
-                        :preview-src-list="[seoConfig.og_image]"
-                        :src="seoConfig.og_image"
-                        fit="cover"></el-image>
-            </div>
-            <uploadPicture 
-              :isAdmin="true" 
-              :prefix="'seoOgImage'" 
-              @addPicture="addOgImage"
-              :maxSize="2" 
-              :maxNumber="1" 
-              class="upload-btn">
-            </uploadPicture>
-          </div>
-          <span class="tip">当文章无封面图时使用的默认图片，建议尺寸1200×630像素</span>
-        </el-form-item>
         
         <el-divider content-position="left">
           社交媒体设置
@@ -206,8 +183,16 @@
               配置网站在浏览器标签页、收藏夹、桌面快捷方式等场景下显示的图标
             </div>
 
+            <div class="icon-manual-toggle">
+              <el-switch
+                v-model="showManualIcons"
+                active-text="显示手动配置"
+                inactive-text="隐藏手动配置">
+              </el-switch>
+              <span class="tip">推荐使用上方“智能图标生成”，一般无需逐个填写</span>
+            </div>
 
-            
+            <template v-if="showManualIcons">
             <el-form-item label="网站标签页图标">
               <div class="icon-upload-container">
                 <div style="display: flex">
@@ -300,6 +285,7 @@
               </div>
               <span class="tip">建议尺寸：512×512像素，用于PWA应用启动屏幕和高分辨率显示</span>
             </el-form-item>
+            </template>
 
 
 
@@ -1221,6 +1207,7 @@ export default {
       currentStoreType: null, // 添加当前存储类型属性
       isMobile: false, // 移动端检测
       isTouch: false, // 触摸设备检测
+      showManualIcons: false,
       seoConfig: {
         enable: false,
         site_description: "POETIZE：作诗，有诗意地描写。个人博客，生活倒影，记录生活。",
@@ -1837,7 +1824,7 @@ export default {
         // 创建FormData
         const formData = new FormData();
         formData.append('image', this.uploadedImage);
-        formData.append('iconTypes', 'favicon,apple-touch-icon,icon-192,icon-512,logo,banner');
+        formData.append('iconTypes', 'favicon,apple-touch-icon,icon-192,icon-512,logo');
 
         // 打印调试信息
 
@@ -1927,8 +1914,7 @@ export default {
         'apple-touch-icon': 'apple_touch_icon',
         'icon-192': 'site_icon_192',
         'icon-512': 'site_icon_512',
-        'logo': 'site_logo',
-        'banner': 'og_image'
+        'logo': 'site_logo'
       };
 
 
@@ -1977,8 +1963,7 @@ export default {
             'apple-touch-icon': 'Apple Touch图标',
             'icon-192': 'PWA图标(192x192)',
             'icon-512': 'PWA图标(512x512)',
-            'logo': '网站Logo',
-            'banner': '默认封面图'
+            'logo': '网站Logo'
           };
           const successNames = successDetails.map(type => iconTypeMap[type] || type).join('、');
           
@@ -3161,6 +3146,13 @@ export default {
     color: #1d1d1f;
     line-height: 1.5;
     letter-spacing: 0.2px;
+  }
+
+  .icon-manual-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0 16px 0;
   }
 
   /* PWA配置样式 */

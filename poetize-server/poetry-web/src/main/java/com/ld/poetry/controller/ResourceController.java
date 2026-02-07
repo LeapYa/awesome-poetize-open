@@ -26,6 +26,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +43,22 @@ import org.springframework.transaction.annotation.Transactional;
 @RequestMapping("/resource")
 @Slf4j
 public class ResourceController {
+
+    private static final Set<String> SEO_ICON_TYPES = Set.of(
+            "seoSiteIcon",
+            "seoFavicon",
+            "seoAppleTouchIcon",
+            "seoSiteIcon192",
+            "seoSiteIcon512"
+    );
+
+    private static final Set<String> SEO_ICON_PATH_MARKERS = Set.of(
+            "seositeicon",
+            "seofavicon",
+            "seoappletouchicon",
+            "seositeicon192",
+            "seositeicon512"
+    );
 
     @Autowired
     private ResourceService resourceService;
@@ -133,13 +150,16 @@ public class ResourceController {
             // 尝试智能压缩（仅对图片有效）
             // 网站标签页图标：无论上传 PNG/JPEG/WebP 等，统一转为 ICO 便于浏览器兼容
             // 包含手动上传(seoSiteIcon)与智能图标生成后上传(seoFavicon)
-            boolean isSiteFavicon = "seoSiteIcon".equals(fileVO.getType()) || "seoFavicon".equals(fileVO.getType());
+            boolean isSiteFavicon = isSiteFaviconUpload(fileVO);
+            boolean isSeoIcon = isSeoIconUpload(fileVO);
             if (isSiteFavicon) {
                 byte[] icoBytes = IcoConvertUtil.convertToIco(file);
-                if (icoBytes != null && icoBytes.length > 0) {
+                if (icoBytes == null || icoBytes.length == 0) {
+                    log.warn("网站图标转 ICO 失败，将按原文件保存: {}", originalFileName);
+                } else {
                     processedFile = new CompressedMultipartFile(
                             file.getName(),
-                            originalFileName != null && originalFileName.endsWith(".ico") ? originalFileName : originalFileName != null ? originalFileName.replaceAll("\\.[^.]+$", "") + ".ico" : "favicon.ico",
+                            buildPngOrIcoFileName(originalFileName, "favicon.ico", "ico"),
                             "image/x-icon",
                             icoBytes
                     );
@@ -149,8 +169,32 @@ public class ResourceController {
                         fileVO.setRelativePath(newRelativePath);
                         log.info("网站图标已转为 ICO，路径: {} -> {}", oldRelativePath, newRelativePath);
                     }
-                } else {
-                    log.warn("网站图标转 ICO 失败，将按原文件保存: {}", originalFileName);
+                }
+            } else if (isSeoIcon) {
+                int targetSize = getSeoIconTargetSize(fileVO);
+                if (targetSize <= 0) {
+                    log.warn("未知的SEO图标类型，无法处理: type={}, path={}", fileVO.getType(), fileVO.getRelativePath());
+                    return PoetryResult.fail("不支持的SEO图标类型");
+                }
+
+                byte[] pngBytes = IcoConvertUtil.convertToPngIcon(file, targetSize);
+                if (pngBytes == null || pngBytes.length == 0) {
+                    log.warn("SEO图标转 PNG 失败: {}", originalFileName);
+                    return PoetryResult.fail("SEO图标处理失败，请上传 PNG/JPG 或确认 dwebp 已安装");
+                }
+
+                processedFile = new CompressedMultipartFile(
+                        file.getName(),
+                        buildPngOrIcoFileName(originalFileName, "icon.png", "png"),
+                        "image/png",
+                        pngBytes
+                );
+
+                String oldRelativePath = fileVO.getRelativePath();
+                String newRelativePath = updateExtension(oldRelativePath, "png");
+                if (!oldRelativePath.equals(newRelativePath)) {
+                    fileVO.setRelativePath(newRelativePath);
+                    log.info("SEO图标已转为 PNG，路径: {} -> {}", oldRelativePath, newRelativePath);
                 }
             } else {
                 try {
@@ -464,6 +508,47 @@ public class ResourceController {
         return "";
     }
 
+    private boolean isSiteFaviconUpload(FileVO fileVO) {
+        if (fileVO == null) {
+            return false;
+        }
+        String type = fileVO.getType();
+        if ("seoSiteIcon".equals(type) || "seoFavicon".equals(type)) {
+            return true;
+        }
+        String relativePath = fileVO.getRelativePath();
+        if (StringUtils.hasText(relativePath)) {
+            String lowerPath = relativePath.toLowerCase();
+            if (lowerPath.contains("seoappletouchicon")
+                    || lowerPath.contains("seositeicon192")
+                    || lowerPath.contains("seositeicon512")) {
+                return false;
+            }
+            return lowerPath.contains("seositeicon") || lowerPath.contains("seofavicon");
+        }
+        return false;
+    }
+
+    private boolean isSeoIconUpload(FileVO fileVO) {
+        if (fileVO == null) {
+            return false;
+        }
+        String type = fileVO.getType();
+        if (StringUtils.hasText(type) && SEO_ICON_TYPES.contains(type)) {
+            return true;
+        }
+        String relativePath = fileVO.getRelativePath();
+        if (StringUtils.hasText(relativePath)) {
+            String lowerPath = relativePath.toLowerCase();
+            for (String marker : SEO_ICON_PATH_MARKERS) {
+                if (lowerPath.contains(marker)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /**
      * 更新文件路径的扩展名
      */
@@ -484,6 +569,45 @@ public class ResourceController {
             // 没有扩展名，直接添加
             return filePath + "." + newExtension;
         }
+    }
+
+    private int getSeoIconTargetSize(FileVO fileVO) {
+        if (fileVO == null) {
+            return 0;
+        }
+        String type = fileVO.getType();
+        if ("seoAppleTouchIcon".equals(type)) {
+            return 180;
+        }
+        if ("seoSiteIcon192".equals(type)) {
+            return 192;
+        }
+        if ("seoSiteIcon512".equals(type)) {
+            return 512;
+        }
+        String relativePath = fileVO.getRelativePath();
+        if (StringUtils.hasText(relativePath)) {
+            String lowerPath = relativePath.toLowerCase();
+            if (lowerPath.contains("seoappletouchicon")) {
+                return 180;
+            }
+            if (lowerPath.contains("seositeicon192")) {
+                return 192;
+            }
+            if (lowerPath.contains("seositeicon512")) {
+                return 512;
+            }
+        }
+        return 0;
+    }
+
+    private String buildPngOrIcoFileName(String originalFileName, String fallbackName, String extension) {
+        if (!StringUtils.hasText(originalFileName)) {
+            return fallbackName;
+        }
+        int dotIndex = originalFileName.lastIndexOf('.');
+        String baseName = dotIndex > 0 ? originalFileName.substring(0, dotIndex) : originalFileName;
+        return baseName + "." + extension;
     }
 
     /**
@@ -545,4 +669,3 @@ public class ResourceController {
         }
     }
 }
-

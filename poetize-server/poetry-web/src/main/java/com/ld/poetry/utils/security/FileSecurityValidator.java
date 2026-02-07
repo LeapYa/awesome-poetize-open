@@ -41,7 +41,7 @@ public class FileSecurityValidator {
         IMAGE("image", 100) { // 增加到100字节以支持SVG的XML声明
             @Override
             public boolean validateMagicNumber(byte[] header) {
-                return isJpeg(header) || isPng(header) || isGif(header) || isBmp(header) || isWebp(header) || isTiff(header) || isSvg(header);
+                return isJpeg(header) || isPng(header) || isGif(header) || isBmp(header) || isWebp(header) || isTiff(header) || isSvg(header) || isIco(header);
             }
 
             @Override
@@ -89,6 +89,7 @@ public class FileSecurityValidator {
         private static final byte[] GIF_HEADER = {0x47, 0x49, 0x46, 0x38};
         private static final byte[] BMP_HEADER = {0x42, 0x4D};
         private static final byte[] WEBP_HEADER = {0x52, 0x49, 0x46, 0x46};
+        private static final byte[] ICO_HEADER = {0x00, 0x00, 0x01, 0x00};
         // SVG - 支持两种格式：直接以<svg开头，或以<?xml开头
         private static final byte[] SVG_HEADER = {0x3C, 0x73, 0x76, 0x67}; // "<svg"
         private static final byte[] SVG_XML_HEADER = {0x3C, 0x3F, 0x78, 0x6D, 0x6C}; // "<?xml"
@@ -126,6 +127,7 @@ public class FileSecurityValidator {
             return matches(header, WEBP_HEADER) && header.length >= 12 &&
                     header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50;
         }
+        private static boolean isIco(byte[] header) { return matches(header, ICO_HEADER); }
         // TIFF验证
         private static boolean isTiff(byte[] header) {
             return matches(header, TIFF_BE_HEADER) || matches(header, TIFF_LE_HEADER);
@@ -267,6 +269,7 @@ public class FileSecurityValidator {
             if (contentType.startsWith("image/gif")) return extension.equals("gif");
             if (contentType.startsWith("image/bmp")) return extension.equals("bmp");
             if (contentType.startsWith("image/webp")) return extension.equals("webp");
+            if (contentType.startsWith("image/x-icon") || contentType.startsWith("image/vnd.microsoft.icon") || contentType.startsWith("image/ico")) return extension.equals("ico");
             if (contentType.startsWith("image/tiff")) return extension.equals("tiff") || extension.equals("tif");
             if (contentType.startsWith("image/x-photoshop")) return extension.equals("psd");
             if (contentType.startsWith("image/svg+xml")) return extension.equals("svg");

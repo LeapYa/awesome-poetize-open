@@ -74,7 +74,7 @@ export default {
     },
     accept: {
       type: String,
-      default: 'image/*,.tiff,.tif,.bmp,.psd,.svg',
+      default: 'image/*,.ico,.tiff,.tif,.bmp,.psd,.svg',
     },
     maxSize: {
       type: Number,
@@ -272,7 +272,7 @@ export default {
     },
     // 上传文件之前的钩子，参数为上传的文件，若返回 false 或者返回 Promise 且被 reject，则停止上传
     beforeUpload(file) {
-      // 支持的格式：JPEG, PNG, GIF, BMP, WEBP, TIFF, PSD, SVG
+      // 支持的格式：JPEG, PNG, GIF, BMP, WEBP, TIFF, PSD, SVG, ICO
       const isImage = file.type.startsWith('image/')
       const isValidType = [
         'image/jpeg',
@@ -284,10 +284,13 @@ export default {
         'image/tiff',
         'image/x-photoshop',
         'image/svg+xml',
+        'image/x-icon',
+        'image/vnd.microsoft.icon',
+        'image/ico',
         'application/octet-stream',
       ].includes(file.type)
       const isValidExt =
-        /\.(jpg|jpeg|png|gif|bmp|webp|tiff|tif|psd|svg)$/i.test(file.name)
+        /\.(jpg|jpeg|png|gif|bmp|webp|tiff|tif|psd|svg|ico)$/i.test(file.name)
 
       if (!isImage && !isValidExt) {
         this.$message({
@@ -300,7 +303,7 @@ export default {
       if (!isValidType && !isValidExt) {
         this.$message({
           message:
-            '文件类型不被支持！支持：JPEG, PNG, GIF, BMP, WEBP, TIFF, PSD, SVG',
+            '文件类型不被支持！支持：JPEG, PNG, GIF, BMP, WEBP, TIFF, PSD, SVG, ICO',
           type: 'error',
         })
         return false

@@ -19,6 +19,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -65,6 +68,10 @@ public class SeoMetaServiceImpl implements SeoMetaService {
     // HTML标签清理的正则表达式
     private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]*>");
 
+    // ISO 8601 时区偏移量（北京时间 UTC+8）
+    private static final ZoneOffset ZONE_OFFSET = ZoneOffset.ofHours(8);
+    private static final DateTimeFormatter ISO_OFFSET_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
+
     @Override
     public Map<String, Object> generateArticleMeta(Integer articleId, String language) {
         try {
@@ -92,15 +99,18 @@ public class SeoMetaServiceImpl implements SeoMetaService {
 
             meta.put("title", title);
             meta.put("description", description);
-            meta.put("keywords", keywords);
+            // 仅在有文章相关关键词时才输出keywords，避免输出空值或无关的全站关键词
+            if (StringUtils.hasText(keywords)) {
+                meta.put("keywords", keywords);
+            }
             meta.put("author", StringUtils.hasText(seoConfig.get("default_author").toString()) ? 
                 seoConfig.get("default_author") : getSiteTitle());
 
             // 文章特定信息
             meta.put("article_title", article.getArticleTitle());
             meta.put("article_id", articleId);
-            meta.put("published_time", article.getCreateTime());
-            meta.put("modified_time", article.getUpdateTime());
+            meta.put("published_time", formatDateTimeWithTimezone(article.getCreateTime()));
+            meta.put("modified_time", formatDateTimeWithTimezone(article.getUpdateTime()));
 
             // 获取分类信息
             if (article.getSortId() != null) {
@@ -414,25 +424,49 @@ public class SeoMetaServiceImpl implements SeoMetaService {
         return description;
     }
 
+    /**
+     * 生成文章关键词（仅包含与当前文章相关的关键词，避免关键词堆砌）
+     * 
+     * 策略说明：
+     * 1. 只使用经过人工审核的结构化数据：分类名 + 标签名
+     * 2. 不对标题做自动分词——中文标题无法用简单的标点分割来提取有意义的关键词，
+     *    粗暴分割会产生"与"、"的"、"实现"等停用词，反而降低相关性
+     * 3. 不追加全站通用关键词(site_keywords)到文章页，避免关键词堆砌
+     * 4. 如果文章既无分类也无标签，返回空字符串，宁缺勿滥
+     *    （Google 2009年起已不使用 meta keywords 作为排名信号，
+     *    但保留精准的关键词对百度等引擎仍有一定参考价值）
+     */
     private String generateArticleKeywords(Article article, Map<String, Object> seoConfig) {
         StringBuilder keywords = new StringBuilder();
 
-        // 添加文章标题中的关键词
-        if (StringUtils.hasText(article.getArticleTitle())) {
-            String[] titleWords = article.getArticleTitle().split("[\\s,，、]+");
-            for (String word : titleWords) {
-                if (word.length() > 1) {
-                    keywords.append(word).append(",");
-                }
+        // 添加分类名称作为关键词
+        if (article.getSortId() != null) {
+            Sort sort = sortService.getById(article.getSortId());
+            if (sort != null && StringUtils.hasText(sort.getSortName())) {
+                keywords.append(sort.getSortName());
             }
         }
 
-        // 添加网站关键词
-        if (seoConfig.get("site_keywords") != null) {
-            keywords.append(seoConfig.get("site_keywords"));
+        // 添加标签名称作为关键词
+        if (article.getLabelId() != null) {
+            Label label = labelService.getById(article.getLabelId());
+            if (label != null && StringUtils.hasText(label.getLabelName())) {
+                if (keywords.length() > 0) {
+                    keywords.append(",");
+                }
+                keywords.append(label.getLabelName());
+            }
         }
 
-        return keywords.toString().replaceAll(",$", "");
+        // 添加文章标题作为整体关键词（不做分词，保持语义完整性）
+        if (StringUtils.hasText(article.getArticleTitle())) {
+            if (keywords.length() > 0) {
+                keywords.append(",");
+            }
+            keywords.append(article.getArticleTitle());
+        }
+
+        return keywords.toString();
     }
 
     private void addSocialMediaMeta(Map<String, Object> meta, Map<String, Object> seoConfig, String title, String description) {
@@ -454,13 +488,45 @@ public class SeoMetaServiceImpl implements SeoMetaService {
     /**
      * 获取文章封面图URL（与前端buildArticleVO逻辑一致）
      * 优先使用文章自身封面，如果为空则使用随机封面
+     * 始终返回绝对路径URL，满足Google结构化数据和OpenGraph规范要求
      */
     private String getArticleCoverUrl(Article article) {
+        String coverUrl = null;
         if (StringUtils.hasText(article.getArticleCover())) {
-            return article.getArticleCover();
+            coverUrl = article.getArticleCover();
+        } else {
+            // 与 ArticleServiceImpl.buildArticleVO 保持一致，使用文章ID生成随机封面
+            coverUrl = PoetryUtil.getRandomCover(article.getId().toString());
         }
-        // 与 ArticleServiceImpl.buildArticleVO 保持一致，使用文章ID生成随机封面
-        return PoetryUtil.getRandomCover(article.getId().toString());
+        return toAbsoluteUrl(coverUrl);
+    }
+
+    /**
+     * 将可能的相对路径URL转换为绝对路径URL
+     * 如果已经是绝对路径（以http://或https://开头），则原样返回
+     * 如果是相对路径（如/static/xxx），则拼接网站域名前缀
+     * Google结构化数据和OpenGraph规范要求图片等资源使用绝对路径
+     */
+    private String toAbsoluteUrl(String url) {
+        if (!StringUtils.hasText(url)) {
+            return url;
+        }
+        // 已经是绝对路径，直接返回
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url;
+        }
+        // 拼接网站域名前缀
+        String siteUrl = mailUtil.getSiteUrl();
+        if (StringUtils.hasText(siteUrl)) {
+            // 确保不会出现双斜杠：siteUrl末尾无/，url以/开头
+            if (url.startsWith("/")) {
+                return siteUrl + url;
+            } else {
+                return siteUrl + "/" + url;
+            }
+        }
+        // 无法获取站点URL时返回原始路径
+        return url;
     }
 
     private void addIconMeta(Map<String, Object> meta, Map<String, Object> seoConfig) {
@@ -483,16 +549,16 @@ public class SeoMetaServiceImpl implements SeoMetaService {
         structuredData.put("@context", "https://schema.org");
         structuredData.put("@type", "Article");
         structuredData.put("headline", article.getArticleTitle());
-        structuredData.put("datePublished", article.getCreateTime());
-        structuredData.put("dateModified", article.getUpdateTime());
+        structuredData.put("datePublished", formatDateTimeWithTimezone(article.getCreateTime()));
+        structuredData.put("dateModified", formatDateTimeWithTimezone(article.getUpdateTime()));
 
         // 文章封面图片 (image) 
         String articleImage = getArticleCoverUrl(article);
         if (StringUtils.hasText(articleImage)) {
             structuredData.put("image", articleImage);
         } else if (seoConfig.get("og_image") != null && StringUtils.hasText(seoConfig.get("og_image").toString())) {
-            // 最终降级使用全局默认OG图片
-            structuredData.put("image", seoConfig.get("og_image").toString());
+            // 最终降级使用全局默认OG图片，确保使用绝对路径
+            structuredData.put("image", toAbsoluteUrl(seoConfig.get("og_image").toString()));
         }
 
         // mainEntityOfPage - 指向文章的规范URL
@@ -512,6 +578,11 @@ public class SeoMetaServiceImpl implements SeoMetaService {
         Map<String, Object> author = new HashMap<>();
         author.put("@type", "Person");
         author.put("name", seoConfig.get("default_author"));
+        // 作者URL - 有助于建立作者实体 (Author Entity)，增强E-E-A-T
+        String authorUrl = mailUtil.getSiteUrl();
+        if (StringUtils.hasText(authorUrl)) {
+            author.put("url", authorUrl);
+        }
         structuredData.put("author", author);
 
         // Publisher - 使用与og:site_name一致的名称，保持品牌一致性
@@ -519,11 +590,11 @@ public class SeoMetaServiceImpl implements SeoMetaService {
         Map<String, Object> publisher = new HashMap<>();
         publisher.put("@type", "Organization");
         publisher.put("name", siteName);
-        // Publisher logo
+        // Publisher logo - 确保使用绝对路径
         if (seoConfig.get("site_logo") != null && StringUtils.hasText(seoConfig.get("site_logo").toString())) {
             Map<String, Object> logo = new HashMap<>();
             logo.put("@type", "ImageObject");
-            logo.put("url", seoConfig.get("site_logo").toString());
+            logo.put("url", toAbsoluteUrl(seoConfig.get("site_logo").toString()));
             publisher.put("logo", logo);
         }
         structuredData.put("publisher", publisher);
@@ -551,6 +622,18 @@ public class SeoMetaServiceImpl implements SeoMetaService {
         structuredData.put("description", category.getSortDescription());
 
         return toJsonString(structuredData);
+    }
+
+    /**
+     * 将LocalDateTime格式化为带时区偏移的ISO 8601字符串
+     * 例如: 2026-01-29T17:20:36+08:00
+     * Google结构化数据要求带时区信息，避免因时区差异导致文章时间显示不准确
+     */
+    private String formatDateTimeWithTimezone(LocalDateTime dateTime) {
+        if (dateTime == null) {
+            return null;
+        }
+        return dateTime.atOffset(ZONE_OFFSET).format(ISO_OFFSET_FORMATTER);
     }
 
     private String cleanHtmlTags(String htmlContent) {

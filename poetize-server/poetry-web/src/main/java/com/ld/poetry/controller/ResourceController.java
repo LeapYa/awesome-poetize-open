@@ -12,6 +12,7 @@ import com.ld.poetry.utils.storage.StoreService;
 import com.ld.poetry.utils.*;
 import com.ld.poetry.utils.storage.FileStorageService;
 import com.ld.poetry.utils.image.ImageCompressUtil;
+import com.ld.poetry.utils.image.IcoConvertUtil;
 import com.ld.poetry.utils.security.FileSecurityValidator;
 import com.ld.poetry.vo.BaseRequestVO;
 import com.ld.poetry.vo.FileVO;
@@ -130,30 +131,53 @@ public class ResourceController {
             long originalSize = file.getSize();
 
             // 尝试智能压缩（仅对图片有效）
-            try {
-                ImageCompressUtil.CompressResult compressResult = ImageCompressUtil.smartCompress(file);
-
-                // 创建压缩后的文件对象
-                processedFile = new CompressedMultipartFile(
-                        file.getName(),
-                        originalFileName,
-                        compressResult.getContentType(),
-                        compressResult.getData()
-                );
-
-                // 如果压缩后格式发生改变，更新文件路径的扩展名
-                String newExtension = getExtensionFromContentType(compressResult.getContentType());
-                if (!newExtension.isEmpty()) {
+            // 网站标签页图标：无论上传 PNG/JPEG/WebP 等，统一转为 ICO 便于浏览器兼容
+            // 包含手动上传(seoSiteIcon)与智能图标生成后上传(seoFavicon)
+            boolean isSiteFavicon = "seoSiteIcon".equals(fileVO.getType()) || "seoFavicon".equals(fileVO.getType());
+            if (isSiteFavicon) {
+                byte[] icoBytes = IcoConvertUtil.convertToIco(file);
+                if (icoBytes != null && icoBytes.length > 0) {
+                    processedFile = new CompressedMultipartFile(
+                            file.getName(),
+                            originalFileName != null && originalFileName.endsWith(".ico") ? originalFileName : originalFileName != null ? originalFileName.replaceAll("\\.[^.]+$", "") + ".ico" : "favicon.ico",
+                            "image/x-icon",
+                            icoBytes
+                    );
                     String oldRelativePath = fileVO.getRelativePath();
-                    String newRelativePath = updateExtension(oldRelativePath, newExtension);
+                    String newRelativePath = updateExtension(oldRelativePath, "ico");
                     if (!oldRelativePath.equals(newRelativePath)) {
                         fileVO.setRelativePath(newRelativePath);
-                        log.info("文件已转换格式，更新路径: {} -> {}", oldRelativePath, newRelativePath);
+                        log.info("网站图标已转为 ICO，路径: {} -> {}", oldRelativePath, newRelativePath);
                     }
+                } else {
+                    log.warn("网站图标转 ICO 失败，将按原文件保存: {}", originalFileName);
                 }
+            } else {
+                try {
+                    ImageCompressUtil.CompressResult compressResult = ImageCompressUtil.smartCompress(file);
 
-            } catch (IOException e) {
-                // 压缩失败时使用原文件（非图片文件会走到这里）
+                    // 创建压缩后的文件对象
+                    processedFile = new CompressedMultipartFile(
+                            file.getName(),
+                            originalFileName,
+                            compressResult.getContentType(),
+                            compressResult.getData()
+                    );
+
+                    // 如果压缩后格式发生改变，更新文件路径的扩展名
+                    String newExtension = getExtensionFromContentType(compressResult.getContentType());
+                    if (!newExtension.isEmpty()) {
+                        String oldRelativePath = fileVO.getRelativePath();
+                        String newRelativePath = updateExtension(oldRelativePath, newExtension);
+                        if (!oldRelativePath.equals(newRelativePath)) {
+                            fileVO.setRelativePath(newRelativePath);
+                            log.info("文件已转换格式，更新路径: {} -> {}", oldRelativePath, newRelativePath);
+                        }
+                    }
+
+                } catch (IOException e) {
+                    // 压缩失败时使用原文件（非图片文件会走到这里）
+                }
             }
 
             // 在存储前检查文件大小是否超过Integer.MAX_VALUE，防止溢出
@@ -428,6 +452,8 @@ public class ResourceController {
         }
         if (contentType.contains("webp")) {
             return "webp";
+        } else if (contentType.contains("x-icon") || contentType.contains("ico")) {
+            return "ico";
         } else if (contentType.contains("jpeg") || contentType.contains("jpg")) {
             return "jpg";
         } else if (contentType.contains("png")) {

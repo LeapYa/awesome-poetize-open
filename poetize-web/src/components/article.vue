@@ -1621,9 +1621,11 @@ export default {
     updateMetaTags() {
       if (!this.metaTags) return
 
-      // 不再设置document.title，保持网站统一标题
-      // document.title = this.metaTags.title;
-      // window.OriginTitile = this.metaTags.title;
+      // 设置文章标题，提升SEO效果
+      if (this.metaTags.title) {
+        document.title = this.metaTags.title
+        window.OriginTitile = this.metaTags.title
+      }
 
       document
         .querySelectorAll('meta[data-vue-meta="true"]')

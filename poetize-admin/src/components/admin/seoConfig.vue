@@ -225,7 +225,7 @@
                   @addPicture="addSiteIcon"
                   :maxSize="1" 
                   :maxNumber="1" 
-                  :accept="'image/ico,image/png,image/jpg,image/jpeg,image/svg+xml'"
+                  :accept="'image/ico,image/png,image/jpg,image/jpeg,image/webp,image/svg+xml'"
                   class="upload-btn">
                 </uploadPicture>
               </div>

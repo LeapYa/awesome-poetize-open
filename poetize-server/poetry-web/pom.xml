@@ -44,6 +44,12 @@
             <artifactId>imageio-batik</artifactId>
             <version>3.10.1</version>
         </dependency>
+        <!-- ICO 格式编码（网站图标转 ico，包名 net.sf.image4j） -->
+        <dependency>
+            <groupId>org.jclarion</groupId>
+            <artifactId>image4j</artifactId>
+            <version>0.7</version>
+        </dependency>
         <!-- Batik库 - 提供SVG转码器 -->
         <dependency>
             <groupId>org.apache.xmlgraphics</groupId>

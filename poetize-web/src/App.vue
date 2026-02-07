@@ -53,9 +53,10 @@ export default {
 
   watch: {
     '$route.path': function (newPath) {
-      // 所有页面都使用网站标题
-      // 添加安全检查，防止 store 未就绪时访问
-      if (this.mainStore?.webInfo?.webTitle) {
+      // 部分页面自行管理标题（如分类页、文章页），跳过全局覆盖
+      const selfManagedTitlePaths = ['/sort', '/article']
+      const isSelfManaged = selfManagedTitlePaths.some(p => newPath === p || newPath.startsWith(p + '/'))
+      if (!isSelfManaged && this.mainStore?.webInfo?.webTitle) {
         const webTitle = this.mainStore.webInfo.webTitle
         document.title = webTitle
         window.OriginTitile = webTitle

@@ -812,13 +812,34 @@ function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' })
   headTags.push(`<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">`);
 
   if (typeof meta === 'object' && meta !== null) {
-    // 图标
+    // 根据URL扩展名推断MIME type，避免"指鹿为马"（声明type与实际文件格式不匹配）
+    // Google Favicon爬虫对格式不匹配的图标可能直接丢弃
+    const getMimeTypeFromUrl = (url) => {
+      if (!url || typeof url !== 'string') return 'image/png';
+      // 去掉查询参数和hash，提取扩展名
+      const cleanUrl = url.split('?')[0].split('#')[0];
+      const ext = cleanUrl.split('.').pop().toLowerCase();
+      const mimeMap = {
+        'png': 'image/png',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'gif': 'image/gif',
+        'svg': 'image/svg+xml',
+        'ico': 'image/x-icon',
+        'webp': 'image/webp',
+        'bmp': 'image/bmp',
+        'avif': 'image/avif'
+      };
+      return mimeMap[ext] || 'image/png';
+    };
+
+    // 图标映射配置（type 不再硬编码，会根据实际URL动态推断）
     const iconMapping = {
-      'site_icon': { rel: 'icon', id: 'seo-favicon' },
-      'apple_touch_icon': { rel: 'apple-touch-icon' },
-      'site_icon_192': { rel: 'icon', type: 'image/png', sizes: '192x192' },
-      'site_icon_512': { rel: 'icon', type: 'image/png', sizes: '512x512' },
-      'site_logo': { rel: 'icon', type: 'image/png', sizes: 'any' }
+      'site_icon': { rel: 'icon', id: 'seo-favicon', sizes: '32x32', needType: true },
+      'apple_touch_icon': { rel: 'apple-touch-icon', needType: true },
+      'site_icon_192': { rel: 'icon', sizes: '192x192', needType: true },
+      'site_icon_512': { rel: 'icon', sizes: '512x512', needType: true },
+      'site_logo': { rel: 'icon', sizes: 'any', needType: true }
     };
 
     // 如果有site_icon，移除模板中默认的favicon
@@ -830,14 +851,20 @@ function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' })
 
     Object.keys(iconMapping).forEach(field => {
       if (meta[field]) {
-        const attrs = iconMapping[field];
-        let tag = `<link href="${meta[field]}"`;
+        const attrs = { ...iconMapping[field] };
+        const url = meta[field];
+        // 动态推断并设置正确的 MIME type
+        if (attrs.needType) {
+          attrs.type = getMimeTypeFromUrl(url);
+          delete attrs.needType;
+        }
+        let tag = `<link href="${url}"`;
         Object.keys(attrs).forEach(attr => {
           tag += ` ${attr}="${attrs[attr]}"`;
         });
         tag += '>';
         headTags.push(tag);
-        logger.debug(`已添加${field}图标`, { url: meta[field] });
+        logger.debug(`已添加${field}图标`, { url: url, type: attrs.type });
       }
     });
 
@@ -1646,8 +1673,18 @@ async function renderDefaultSortPage(lang = 'zh') {
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
 
-    // 构建默认分类页面内容
-    const defaultSortContent = `<div class="sort-list-prerender"><div class="sort-hero"><h1>文章分类</h1><p>探索不同主题的文章内容</p></div><div class="sort-categories">${Array.isArray(sortList) && sortList.length > 0 ? `<div class="categories-grid">${sortList.map(sort => `<div class="category-card"><a href="/sort/${sort.id}" title="${sort.sortDescription || sort.sortName}"><h3>${sort.sortName}</h3><p>${sort.sortDescription || '暂无描述'}</p><div class="category-stats"><span class="article-count">${sort.countOfSort || 0} 篇文章</span>${sort.labels && sort.labels.length > 0 ? `<span class="label-count">${sort.labels.length} 个标签</span>` : ''}</div>${sort.labels && sort.labels.length > 0 ? `<div class="category-labels">${sort.labels.slice(0, 3).map(label => `<span class="label-tag">${label.labelName}</span>`).join('')}${sort.labels.length > 3 ? '<span class="label-more">...</span>' : ''}</div>` : ''}</a></div>`).join('')}</div>` : '<p class="no-categories">暂无分类</p>'}</div><div id="dynamic-content-placeholder" style="display:none;"><script>window.PRERENDER_DATA = {type: 'sort-list',lang: '${lang}',timestamp: ${Date.now()}};</script></div></div>`;
+    // 构建默认分类页面内容（与前端 sort.vue 分类卡片结构一致）
+    const defaultSortContent = `<div class="sort-list-prerender">
+      <div class="sort-hero"><h1>文章分类</h1><p>探索不同主题的文章内容</p></div>
+      ${Array.isArray(sortList) && sortList.length > 0 ? `<div class="sort-list-warp">${sortList.map(sort => `<div class="sort-card">
+        <a href="/sort/${sort.id}" title="${sort.sortDescription || sort.sortName}">
+          <div class="sort-card-header"><h3>${sort.sortName}</h3><span class="sort-card-count">${sort.countOfSort || 0} 篇</span></div>
+          <p class="sort-card-desc">${sort.sortDescription || '暂无描述'}</p>
+          ${sort.labels && sort.labels.length > 0 ? `<div class="sort-card-labels">${sort.labels.slice(0, 5).map(label => `<span class="label-tag">${label.labelName}</span>`).join('')}${sort.labels.length > 5 ? `<span class="sort-card-more">+${sort.labels.length - 5}</span>` : ''}</div>` : ''}
+        </a>
+      </div>`).join('')}</div>` : '<p class="no-categories">暂无分类</p>'}
+      <div id="dynamic-content-placeholder" style="display:none;"><script>window.PRERENDER_DATA = {type: 'sort-list',lang: '${lang}',timestamp: ${Date.now()}};</script></div>
+    </div>`;
 
     return buildHtmlTemplate({ 
       title, 

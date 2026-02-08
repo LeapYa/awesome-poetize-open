@@ -20,6 +20,7 @@ import java.nio.file.Path;
 @Slf4j
 public class IcoConvertUtil {
 
+    private static final int ICO_SIZE_48 = 48;
     private static final int ICO_SIZE_32 = 32;
     private static final int ICO_SIZE_16 = 16;
 
@@ -43,11 +44,12 @@ public class IcoConvertUtil {
             }
             // 先中心裁剪为正方形，避免拉伸变形
             BufferedImage square = cropToSquare(image);
-            // 生成 16x16 和 32x32 两个尺寸，兼容不同场景
+            // 生成 16x16 / 32x32 / 48x48 三个尺寸，兼容不同场景
             BufferedImage size32 = resize(square, ICO_SIZE_32, ICO_SIZE_32);
             BufferedImage size16 = resize(square, ICO_SIZE_16, ICO_SIZE_16);
+            BufferedImage size48 = resize(square, ICO_SIZE_48, ICO_SIZE_48);
             try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-                ICOEncoder.write(java.util.List.of(size16, size32), baos);
+                ICOEncoder.write(java.util.List.of(size16, size32, size48), baos);
                 byte[] icoBytes = baos.toByteArray();
                 log.info("网站图标已转为 ICO，原始格式: {}, 输出大小: {} bytes", contentType, icoBytes.length);
                 return icoBytes;

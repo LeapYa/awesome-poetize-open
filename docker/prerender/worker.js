@@ -835,7 +835,7 @@ function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' })
 
     // 图标映射配置（type 不再硬编码，会根据实际URL动态推断）
     const iconMapping = {
-      'site_icon': { rel: 'icon', id: 'seo-favicon', sizes: '32x32', needType: true },
+      'site_icon': { rel: 'icon', sizes: '16x16 32x32 48x48', needType: true },
       'apple_touch_icon': { rel: 'apple-touch-icon', needType: true },
       'site_icon_192': { rel: 'icon', sizes: '192x192', needType: true },
       'site_icon_512': { rel: 'icon', sizes: '512x512', needType: true },

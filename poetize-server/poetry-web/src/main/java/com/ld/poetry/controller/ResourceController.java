@@ -49,7 +49,12 @@ public class ResourceController {
             "seoFavicon",
             "seoAppleTouchIcon",
             "seoSiteIcon192",
-            "seoSiteIcon512"
+            "seoSiteIcon512",
+            "seoApple-touch-icon",
+            "seoIcon-192",
+            "seoIcon-512",
+            "seoLogo",
+            "seoSiteLogo"
     );
 
     private static final Set<String> SEO_ICON_PATH_MARKERS = Set.of(
@@ -57,7 +62,12 @@ public class ResourceController {
             "seofavicon",
             "seoappletouchicon",
             "seositeicon192",
-            "seositeicon512"
+            "seositeicon512",
+            "seoapple-touch-icon",
+            "seoicon-192",
+            "seoicon-512",
+            "seologo",
+            "seositelogo"
     );
 
     @Autowired
@@ -579,11 +589,23 @@ public class ResourceController {
         if ("seoAppleTouchIcon".equals(type)) {
             return 180;
         }
+        if ("seoApple-touch-icon".equals(type)) {
+            return 180;
+        }
         if ("seoSiteIcon192".equals(type)) {
+            return 192;
+        }
+        if ("seoIcon-192".equals(type)) {
             return 192;
         }
         if ("seoSiteIcon512".equals(type)) {
             return 512;
+        }
+        if ("seoIcon-512".equals(type)) {
+            return 512;
+        }
+        if ("seoLogo".equals(type) || "seoSiteLogo".equals(type)) {
+            return 256;
         }
         String relativePath = fileVO.getRelativePath();
         if (StringUtils.hasText(relativePath)) {
@@ -591,11 +613,23 @@ public class ResourceController {
             if (lowerPath.contains("seoappletouchicon")) {
                 return 180;
             }
+            if (lowerPath.contains("seoapple-touch-icon")) {
+                return 180;
+            }
             if (lowerPath.contains("seositeicon192")) {
+                return 192;
+            }
+            if (lowerPath.contains("seoicon-192")) {
                 return 192;
             }
             if (lowerPath.contains("seositeicon512")) {
                 return 512;
+            }
+            if (lowerPath.contains("seoicon-512")) {
+                return 512;
+            }
+            if (lowerPath.contains("seologo") || lowerPath.contains("seositelogo")) {
+                return 256;
             }
         }
         return 0;

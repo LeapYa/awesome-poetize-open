@@ -235,6 +235,16 @@ server {
         add_header Cache-Control "no-cache";
     }
 
+    # favicon.ico 兼容根路径访问
+    location = /favicon.ico {
+        proxy_pass http://poetize-java/seo/favicon.ico;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header Cache-Control "public, max-age=3600";
+    }
+
     location = /robots.txt {
         proxy_pass http://poetize-java/seo/robots.txt;
         proxy_set_header Host $host;

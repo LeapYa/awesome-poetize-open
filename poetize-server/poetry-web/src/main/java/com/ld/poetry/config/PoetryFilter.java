@@ -53,65 +53,91 @@ public class PoetryFilter extends OncePerRequestFilter {
      * @return true表示是页面访问，需要记录访问历史
      */
     private boolean isPageVisit(HttpServletRequest request) {
+        // 只统计“文档导航”请求，避免把后台管理/API的 JSON 请求也算作访问量。
+        // 这样站长在后台维护（一次操作会触发多次 API 请求）不会把访问量刷爆。
+        if (!"GET".equalsIgnoreCase(request.getMethod())) {
+            return false;
+        }
+
         String requestURI = request.getRequestURI();
-        
-        // 排除API请求
+        if (requestURI == null) {
+            return false;
+        }
+
+        // 排除后台管理（前端管理台的 document 请求也不计入站点访问量）
+        if (requestURI.startsWith("/admin")) {
+            return false;
+        }
+
+        // 排除明确的API前缀
         if (requestURI.startsWith("/api/")) {
             return false;
         }
-        
-        // 排除具体的API接口（这些是真正的API，不是页面）
-        if (requestURI.startsWith("/imChatUserMessage") ||
-            requestURI.startsWith("/imChatGroup") ||
-            requestURI.startsWith("/imChatUserFriend") ||
-            requestURI.startsWith("/imChatGroupUser") ||
-            requestURI.startsWith("/webInfo") ||
-            requestURI.startsWith("/sysConfig") ||
-            requestURI.startsWith("/resource") ||
-            requestURI.startsWith("/imageCompress")) {
+
+        // 排除静态资源、上传下载等
+        if (isStaticOrAssetRequest(requestURI)) {
             return false;
         }
-        
-        // 排除具体的API接口（区分API和页面路由）
-        if (requestURI.matches("/user/[^/]+") ||  // /user/regist, /user/login 等API
-            requestURI.matches("/article/[^/]+") ||  // /article/saveArticle 等API
-            requestURI.matches("/weiYan/[^/]+") ||  // /weiYan/saveWeiYan 等API
-            requestURI.matches("/treeHole/[^/]+") ||  // /treeHole/saveTreeHole 等API
-            requestURI.matches("/comment/[^/]+") ||  // /comment/saveComment 等API
-            requestURI.matches("/sort/[^/]+") ||  // /sort/saveSort 等API
-            requestURI.matches("/label/[^/]+") ||  // /label/saveLabel 等API
-            requestURI.matches("/admin/[^/]+")) {  // /admin/getAdminConfig 等API
-            return false;
-        }
-        
-        // 排除静态资源
-        if (requestURI.startsWith("/static/") || 
-            requestURI.startsWith("/css/") || 
-            requestURI.startsWith("/js/") || 
-            requestURI.startsWith("/images/") ||
-            requestURI.startsWith("/favicon.ico")) {
-            return false;
-        }
-        
+
         // 排除其他服务
         if (requestURI.startsWith("/seo/") || requestURI.startsWith("/translation/")) {
             return false;
         }
-        
-        // 排除文件上传下载等
-        if (requestURI.contains("/upload/") || 
-            requestURI.contains("/download/") ||
-            requestURI.endsWith(".jpg") ||
-            requestURI.endsWith(".png") ||
-            requestURI.endsWith(".gif") ||
-            requestURI.endsWith(".ico") ||
-            requestURI.endsWith(".css") ||
-            requestURI.endsWith(".js") ||
-            requestURI.endsWith(".map")) {
-            return false;
+
+        // 仅把浏览器“导航到页面”的请求计为访问
+        return isDocumentNavigationRequest(request);
+    }
+
+    /**
+     * 是否为浏览器导航(document/navigate)请求
+     * API/Ajax 请求通常为 Sec-Fetch-Mode=cors / Sec-Fetch-Dest=empty，且 Accept 不包含 text/html。
+     */
+    private boolean isDocumentNavigationRequest(HttpServletRequest request) {
+        String secFetchDest = request.getHeader("Sec-Fetch-Dest");
+        if (secFetchDest != null && "document".equalsIgnoreCase(secFetchDest)) {
+            return true;
         }
-        
-        // 其他请求视为页面访问
-        return true;
+
+        String secFetchMode = request.getHeader("Sec-Fetch-Mode");
+        if (secFetchMode != null && "navigate".equalsIgnoreCase(secFetchMode)) {
+            return true;
+        }
+
+        String accept = request.getHeader("Accept");
+        return accept != null && accept.contains("text/html");
+    }
+
+    /**
+     * 过滤静态资源、上传下载等非页面资源
+     */
+    private boolean isStaticOrAssetRequest(String requestURI) {
+        if (requestURI.startsWith("/static/") ||
+            requestURI.startsWith("/css/") ||
+            requestURI.startsWith("/js/") ||
+            requestURI.startsWith("/images/") ||
+            requestURI.startsWith("/favicon.ico")) {
+            return true;
+        }
+
+        if (requestURI.contains("/upload/") ||
+            requestURI.contains("/download/")) {
+            return true;
+        }
+
+        String lower = requestURI.toLowerCase();
+        return lower.endsWith(".jpg") ||
+            lower.endsWith(".jpeg") ||
+            lower.endsWith(".png") ||
+            lower.endsWith(".gif") ||
+            lower.endsWith(".ico") ||
+            lower.endsWith(".css") ||
+            lower.endsWith(".js") ||
+            lower.endsWith(".map") ||
+            lower.endsWith(".svg") ||
+            lower.endsWith(".webp") ||
+            lower.endsWith(".woff") ||
+            lower.endsWith(".woff2") ||
+            lower.endsWith(".ttf") ||
+            lower.endsWith(".eot");
     }
 }

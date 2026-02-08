@@ -25,7 +25,8 @@ public class PoetryFilter extends OncePerRequestFilter {
     private FileFilter fileFilter;
 
     @Override
-    protected void doFilterInternal(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse, FilterChain filterChain) throws ServletException, IOException {
+    protected void doFilterInternal(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse,
+            FilterChain filterChain) throws ServletException, IOException {
         if (!"OPTIONS".equals(httpServletRequest.getMethod())) {
             try {
                 // 只记录真正的页面访问，不记录API和静态资源请求
@@ -39,16 +40,18 @@ public class PoetryFilter extends OncePerRequestFilter {
             if (fileFilter.doFilterFile(httpServletRequest, httpServletResponse)) {
                 httpServletResponse.setHeader("Access-Control-Allow-Origin", "*");
                 httpServletResponse.setContentType("application/json;charset=UTF-8");
-                httpServletResponse.getWriter().write(JSON.toJSONString(com.ld.poetry.config.PoetryResult.fail(CodeMsg.PARAMETER_ERROR.getCode(), CodeMsg.PARAMETER_ERROR.getMsg())));
+                httpServletResponse.getWriter().write(JSON.toJSONString(com.ld.poetry.config.PoetryResult
+                        .fail(CodeMsg.PARAMETER_ERROR.getCode(), CodeMsg.PARAMETER_ERROR.getMsg())));
                 return;
             }
         }
 
         filterChain.doFilter(httpServletRequest, httpServletResponse);
     }
-    
+
     /**
      * 判断是否为页面访问（而非API或静态资源请求）
+     * 
      * @param request HTTP请求
      * @return true表示是页面访问，需要记录访问历史
      */
@@ -79,32 +82,17 @@ public class PoetryFilter extends OncePerRequestFilter {
             return false;
         }
 
-        // 排除其他服务
-        if (requestURI.startsWith("/seo/") || requestURI.startsWith("/translation/")) {
+        // 排除其他服务 (这些请求不代表页面访问)
+        if (requestURI.startsWith("/seo/") || requestURI.startsWith("/translation/") || requestURI.startsWith("/im/")
+                || requestURI.startsWith("/webInfo/ai/")
+                || requestURI.startsWith("/python/") || requestURI.startsWith("/user/") || requestURI.startsWith("/ws/")
+                || requestURI.startsWith("/flush_seo_cache")) {
             return false;
         }
 
-        // 仅把浏览器“导航到页面”的请求计为访问
-        return isDocumentNavigationRequest(request);
-    }
-
-    /**
-     * 是否为浏览器导航(document/navigate)请求
-     * API/Ajax 请求通常为 Sec-Fetch-Mode=cors / Sec-Fetch-Dest=empty，且 Accept 不包含 text/html。
-     */
-    private boolean isDocumentNavigationRequest(HttpServletRequest request) {
-        String secFetchDest = request.getHeader("Sec-Fetch-Dest");
-        if (secFetchDest != null && "document".equalsIgnoreCase(secFetchDest)) {
-            return true;
-        }
-
-        String secFetchMode = request.getHeader("Sec-Fetch-Mode");
-        if (secFetchMode != null && "navigate".equalsIgnoreCase(secFetchMode)) {
-            return true;
-        }
-
-        String accept = request.getHeader("Accept");
-        return accept != null && accept.contains("text/html");
+        // 放宽限制：只要不是被排除的API/静态资源/后台请求，都算作访问
+        // 这可以保证 SPA 跳转和预渲染服务能被正确统计
+        return true;
     }
 
     /**
@@ -112,32 +100,32 @@ public class PoetryFilter extends OncePerRequestFilter {
      */
     private boolean isStaticOrAssetRequest(String requestURI) {
         if (requestURI.startsWith("/static/") ||
-            requestURI.startsWith("/css/") ||
-            requestURI.startsWith("/js/") ||
-            requestURI.startsWith("/images/") ||
-            requestURI.startsWith("/favicon.ico")) {
+                requestURI.startsWith("/css/") ||
+                requestURI.startsWith("/js/") ||
+                requestURI.startsWith("/images/") ||
+                requestURI.startsWith("/favicon.ico")) {
             return true;
         }
 
         if (requestURI.contains("/upload/") ||
-            requestURI.contains("/download/")) {
+                requestURI.contains("/download/")) {
             return true;
         }
 
         String lower = requestURI.toLowerCase();
         return lower.endsWith(".jpg") ||
-            lower.endsWith(".jpeg") ||
-            lower.endsWith(".png") ||
-            lower.endsWith(".gif") ||
-            lower.endsWith(".ico") ||
-            lower.endsWith(".css") ||
-            lower.endsWith(".js") ||
-            lower.endsWith(".map") ||
-            lower.endsWith(".svg") ||
-            lower.endsWith(".webp") ||
-            lower.endsWith(".woff") ||
-            lower.endsWith(".woff2") ||
-            lower.endsWith(".ttf") ||
-            lower.endsWith(".eot");
+                lower.endsWith(".jpeg") ||
+                lower.endsWith(".png") ||
+                lower.endsWith(".gif") ||
+                lower.endsWith(".ico") ||
+                lower.endsWith(".css") ||
+                lower.endsWith(".js") ||
+                lower.endsWith(".map") ||
+                lower.endsWith(".svg") ||
+                lower.endsWith(".webp") ||
+                lower.endsWith(".woff") ||
+                lower.endsWith(".woff2") ||
+                lower.endsWith(".ttf") ||
+                lower.endsWith(".eot");
     }
 }

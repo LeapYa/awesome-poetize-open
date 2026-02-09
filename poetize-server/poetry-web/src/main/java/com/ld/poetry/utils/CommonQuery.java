@@ -57,6 +57,18 @@ public class CommonQuery {
     private Ip2RegionProvider ip2RegionProvider;
 
     public void saveHistory(String ip) {
+        saveHistory(ip, null, null, null, null);
+    }
+
+    /**
+     * 记录访问历史（带用户请求元数据）
+     * @param ip 客户端IP
+     * @param pageUri 访问的页面URI
+     * @param userAgent 用户浏览器User-Agent
+     * @param referer 来源页面Referer
+     * @param acceptLanguage 用户语言偏好Accept-Language
+     */
+    public void saveHistory(String ip, String pageUri, String userAgent, String referer, String acceptLanguage) {
         try {
             // 过滤无效IP，避免记录Docker内部IP和无效地址
             if (ip == null || ip.isEmpty() || "unknown".equals(ip) || isInvalidIP(ip)) {
@@ -70,22 +82,22 @@ public class CommonQuery {
             lockManager.executeWithLock("saveHistory:" + ipUser, () -> {
                 // log.info("[saveHistory] 记录访问到Redis: {}", ipUser);
 
-                // 解析IP地理位置信息
+                // 解析IP地理位置信息（结构化：国家、省份、城市）
                 String nation = null, province = null, city = null;
                 if (ip2RegionProvider != null && ip2RegionProvider.isAvailable()) {
                     try {
-                        String location = ip2RegionProvider.resolveLocation(ip);
-                        // 简化处理：location 已经是格式化后的位置
-                        if (!"未知".equals(location)) {
-                            province = location;
-                        }
+                        String[] detail = ip2RegionProvider.resolveLocationDetail(ip);
+                        nation = detail[0];    // 国家（如 "中国"、"美国"）
+                        province = detail[1];  // 省份（如 "广东"、"加利福尼亚"）
+                        city = detail[2];      // 城市（如 "深圳"、"洛杉矶"）
                     } catch (Exception e) {
                         log.warn("[saveHistory] IP地理位置解析失败: {}, 错误: {}", ip, e.getMessage());
                     }
                 }
 
                 // 记录访问信息到Redis（不立即写数据库）
-                cacheService.recordVisitToRedis(ip, userId, nation, province, city);
+                cacheService.recordVisitToRedis(ip, userId, nation, province, city,
+                        pageUri, userAgent, referer, acceptLanguage);
 
                 // log.info("[saveHistory] 访问记录已保存到Redis缓存，等待定时同步到数据库: {}", ipUser);
             });

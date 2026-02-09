@@ -1044,6 +1044,23 @@ public class CacheService {
      * @param city 城市
      */
     public void recordVisitToRedis(String ip, Integer userId, String nation, String province, String city) {
+        recordVisitToRedis(ip, userId, nation, province, city, null, null, null, null);
+    }
+
+    /**
+     * 记录访问信息到Redis（带用户请求元数据，不立即写数据库）
+     * @param ip IP地址
+     * @param userId 用户ID（可为null）
+     * @param nation 国家
+     * @param province 省份
+     * @param city 城市
+     * @param pageUri 访问的页面URI
+     * @param userAgent 用户浏览器User-Agent
+     * @param referer 来源页面Referer
+     * @param acceptLanguage 用户语言偏好Accept-Language
+     */
+    public void recordVisitToRedis(String ip, Integer userId, String nation, String province, String city,
+                                   String pageUri, String userAgent, String referer, String acceptLanguage) {
         try {
             String today = java.time.LocalDate.now().toString();
             
@@ -1062,6 +1079,20 @@ public class CacheService {
             visitRecord.put("createTime", java.time.LocalDateTime.now().format(formatter));
             // 添加同步标记，默认未同步
             visitRecord.put("synced", false);
+
+            // 用户请求元数据（可选，用于后续分析）
+            if (pageUri != null && !pageUri.isEmpty()) {
+                visitRecord.put("pageUri", pageUri);
+            }
+            if (userAgent != null && !userAgent.isEmpty()) {
+                visitRecord.put("userAgent", userAgent);
+            }
+            if (referer != null && !referer.isEmpty()) {
+                visitRecord.put("referer", referer);
+            }
+            if (acceptLanguage != null && !acceptLanguage.isEmpty()) {
+                visitRecord.put("acceptLanguage", acceptLanguage);
+            }
             
             // 将记录序列化为JSON字符串并添加到Redis List中
             String recordJson = com.alibaba.fastjson.JSON.toJSONString(visitRecord);
@@ -1415,7 +1446,7 @@ public class CacheService {
                 .count();
             result.put("ip_count_today", ipCountToday);
             
-            // 2. 获取今日访问用户列表（统计每个用户的访问次数）
+            // 2. 获取今日访问登录用户列表（只统计登录用户，未登录的不算"用户"）
             Map<String, Long> userVisitCount = todayRecords.stream()
                 .filter(java.util.Objects::nonNull)
                 .map(record -> {
@@ -1443,7 +1474,7 @@ public class CacheService {
                     return userInfo;
                 })
                 .sorted((o1, o2) -> Long.valueOf(o2.get("visitCount").toString())
-                    .compareTo(Long.valueOf(o1.get("visitCount").toString()))) // 按访问次数降序排列
+                    .compareTo(Long.valueOf(o1.get("visitCount").toString())))
                 .collect(java.util.stream.Collectors.toList());
             result.put("username_today", usernameToday);
             

@@ -206,6 +206,27 @@ router.beforeEach(async (to, from, next) => {
   next()
 })
 
+// ===== 页面访问量统计 =====
+router.afterEach((to, from) => {
+  // 404/403 不统计
+  if (to.name === 'notFound' || to.name === 'forbidden' || to.name === 'catchAll') return
+  // 同一页面不重复统计
+  if (from.name && to.fullPath === from.fullPath) return
+
+  try {
+    const url = constant.baseURL + '/track/pageview?path=' + encodeURIComponent(to.fullPath)
+    const token = getValidToken()
+    // 使用 fetch + keepalive 代替 sendBeacon，以便携带 Authorization header 识别登录用户
+    const headers = {}
+    if (token) {
+      headers['Authorization'] = token
+    }
+    fetch(url, { method: 'POST', keepalive: true, headers }).catch(() => {})
+  } catch (e) {
+    // 统计失败不影响用户
+  }
+})
+
 /**
  * 处理OAuth临时授权码
  * 使用一次性授权码换取真正的token

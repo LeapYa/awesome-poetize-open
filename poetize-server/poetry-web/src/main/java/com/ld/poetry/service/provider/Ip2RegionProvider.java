@@ -270,6 +270,56 @@ public class Ip2RegionProvider implements IpLocationProvider {
         return ProviderType.IP2_REGION;
     }
 
+    /**
+     * 解析IP地理位置，返回结构化数据 [nation, province, city]
+     * <p>
+     * IP2Region原始格式: 国家|区域|省份|城市|ISP
+     * </p>
+     *
+     * @param ipAddress IP地址
+     * @return 长度为3的数组 [nation, province, city]，解析失败时各字段为 null
+     */
+    public String[] resolveLocationDetail(String ipAddress) {
+        String[] result = {null, null, null};
+        if (!isAvailable()) return result;
+
+        try {
+            boolean isIPv6 = isIPv6Address(ipAddress);
+            Searcher searcher = isIPv6 ? ipv6Searcher : ipv4Searcher;
+            if (searcher == null) return result;
+
+            String searchResult = searcher.search(ipAddress);
+            if (!StringUtils.hasText(searchResult)) return result;
+
+            String[] regions = searchResult.split("\\|");
+            if (regions.length < 4) return result;
+
+            String country = regions[0];
+            String province = regions[2];
+            String city = regions[3];
+
+            // 国家
+            if (StringUtils.hasText(country) && !"0".equals(country)) {
+                result[0] = country;
+            }
+
+            // 省份（如果没有具体省份，用国家名兜底，确保省份统计不为空）
+            if (StringUtils.hasText(province) && !"0".equals(province)) {
+                result[1] = province.replaceAll("省|市|自治区|特别行政区|壮族|回族|维吾尔", "");
+            } else if (result[0] != null) {
+                result[1] = result[0];
+            }
+
+            // 城市
+            if (StringUtils.hasText(city) && !"0".equals(city)) {
+                result[2] = city.replaceAll("市|地区|自治州|盟", "");
+            }
+        } catch (Exception e) {
+            log.warn("IP2Region结构化解析IP失败: {}, 错误: {}", ipAddress, e.getMessage());
+        }
+        return result;
+    }
+
     @Override
     public String resolveLocation(String ipAddress) {
         if (!isAvailable()) {

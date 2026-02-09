@@ -159,7 +159,7 @@ server {
     
     # ===== API 路由配置（优先级高于安全规则） =====
     
-    # Java后端API
+    # Java后端API（/api/前缀，去掉前缀后转发）
     location ^~ /api/ {
         proxy_pass http://poetize-java/;
         proxy_set_header Host $host;
@@ -173,6 +173,19 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 900s;
         proxy_send_timeout 900s;
+    }
+
+    # Java后端API（无/api/前缀的旧式路径，统一代理到Java后端）
+    # 这些路径如果不代理，会落入 location / 被当成 SPA 页面处理
+    location ~ ^/(webInfo|sysConfig|sysPlugin|captcha|resource|imageCompress|comment|family|qiniu|qrcode|imChat|actuator|article/[a-zA-Z]|sort/[a-zA-Z]|label/[a-zA-Z]|weiYan/[a-zA-Z]|treeHole/[a-zA-Z]|collect/) {
+        proxy_pass http://poetize-java;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
     }
     
     # Java后端用户相关API - 只匹配具体的API端点，避免拦截前端路由
@@ -365,15 +378,12 @@ server {
     # 翻译文章页静态预渲染 - 新格式 /article/lang/id
     location ~ ^/article/([a-zA-Z-]+)/([0-9]+)$ {
         root /usr/share/nginx/html/poetize;
-        # $1=语言代码, $2=文章ID
-        # 预渲染文件路径：/prerender/article/123/index-en.html
         try_files /prerender/article/$2/index-$1.html /prerender/article/$2/index.html @spa_article;
     }
     
     # 原文文章页静态预渲染 - 格式 /article/id  
     location ~ ^/article/([0-9]+)(\?.*)?$ {
         root /usr/share/nginx/html/poetize;
-        # 根据 $lang_suffix 智能选择文件：en->index-en.html，否则 index.html
         try_files /prerender/article/$1/index$lang_suffix.html /prerender/article/$1/index.html @spa_article;
     }
     location @spa_article {

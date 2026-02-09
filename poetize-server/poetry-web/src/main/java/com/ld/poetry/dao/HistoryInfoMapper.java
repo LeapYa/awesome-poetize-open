@@ -30,10 +30,10 @@ public interface HistoryInfoMapper extends BaseMapper<HistoryInfo> {
     /**
      * 访问IP最多的10个省
      */
-    @Select("select nation, province, count(distinct ip) as num" +
+    @Select("select province, count(distinct ip) as num" +
             " from history_info" +
-            " where nation is not null and province is not null" +
-            " group by nation, province" +
+            " where province is not null and province != ''" +
+            " group by province" +
             " order by num desc" +
             " limit 10")
     List<Map<String, Object>> getHistoryByProvince();

@@ -603,14 +603,14 @@ public class WebInfoController {
                 result.put("username_yest", new ArrayList<>());
             }
 
-            // 🚀 获取今日访问数据的实时统计（从Redis）
+            // 获取今日访问数据的实时统计（从Redis）
             try {
                 Map<String, Object> todayStats = cacheService.getTodayVisitStatisticsFromRedis();
                 
                 // 设置今日IP数量
                 result.put("ip_count_today", todayStats.get("ip_count_today"));
                 
-                // 处理今日用户信息（补充用户详细信息）
+                // 处理今日登录用户信息（补充用户详细信息）
                 @SuppressWarnings("unchecked")
                 List<Map<String, Object>> userInfos = (List<Map<String, Object>>) todayStats.get("username_today");
                 List<Map<String, Object>> usernameToday = userInfos.stream()
@@ -1228,4 +1228,3 @@ public class WebInfoController {
         }
     }
 }
-

@@ -40,7 +40,8 @@ public class WebInfoConfigurer implements WebMvcConfigurer {
                     "/api/sysConfig/saveOrUpdateConfig",
                     "/api/sysConfig/deleteConfig",
                     "/api/sysConfig/listConfig",
-                    "/api/webInfo/getUserIP"
+                    "/api/webInfo/getUserIP",
+                    "/api/track/**"
                 );
     }
 }

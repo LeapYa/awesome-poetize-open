@@ -13,15 +13,15 @@ class Logger {
   constructor() {
     this.logLevel = process.env.LOG_LEVEL || 'info';
     this.levels = { error: 0, warn: 1, info: 2, debug: 3 };
-    
+
     // 日志文件配置
     this.logDir = '/app/dist/logs';
     this.ensureLogDirectory();
-    
+
     // 日志清理配置
     this.logRetentionDays = parseInt(process.env.LOG_RETENTION_DAYS) || 30; // 默认保留30天
     this.cleanupInterval = 24 * 60 * 60 * 1000; // 每天清理一次
-    
+
     // 启动定时清理
     this.startLogCleanup();
   }
@@ -66,12 +66,12 @@ class Logger {
 
   log(level, message, meta = {}) {
     if (!this.shouldLog(level)) return;
-    
+
     const logEntry = this.formatLog(level, message, meta);
-    
+
     // 写入文件
     this.writeToFile(logEntry);
-    
+
     // 控制台输出
     const logString = JSON.stringify(logEntry);
     switch (level) {
@@ -110,12 +110,12 @@ class Logger {
   startLogCleanup() {
     // 立即执行一次清理
     this.cleanupOldLogs();
-    
+
     // 设置定时清理
     setInterval(() => {
       this.cleanupOldLogs();
     }, this.cleanupInterval);
-    
+
     console.log(`日志清理已启动，保留${this.logRetentionDays}天的日志文件，每天清理一次`);
   }
 
@@ -127,14 +127,14 @@ class Logger {
 
       const now = new Date();
       const cutoffDate = new Date(now.getTime() - (this.logRetentionDays * 24 * 60 * 60 * 1000));
-      
+
       let deletedCount = 0;
       let totalSize = 0;
 
       files.forEach(file => {
         const filePath = path.join(this.logDir, file);
         const stats = fs.statSync(filePath);
-        
+
         // 检查文件是否过期
         if (stats.mtime < cutoffDate) {
           try {
@@ -150,7 +150,7 @@ class Logger {
 
       if (deletedCount > 0) {
         console.log(`日志清理完成: 删除了${deletedCount}个文件，释放${(totalSize / 1024 / 1024).toFixed(1)}MB空间`);
-        
+
         // 记录清理日志
         this.log('info', '定时日志清理完成', {
           deletedFiles: deletedCount,
@@ -188,19 +188,19 @@ class ServiceMonitor {
         templateStatus: 'unknown'
       }
     };
-    
+
     // 定期更新系统信息
     setInterval(() => {
       this.updateSystemHealth();
     }, 30000); // 每30秒更新一次
-    
+
     this.updateSystemHealth();
   }
 
   updateSystemHealth() {
     this.stats.systemHealth.memoryUsage = process.memoryUsage();
     this.stats.systemHealth.uptime = process.uptime();
-    
+
     // 检查模板状态
     const templatePath = path.resolve('/app/dist/index.html');
     this.stats.systemHealth.templateStatus = fs.existsSync(templatePath) ? 'available' : 'missing';
@@ -220,12 +220,12 @@ class ServiceMonitor {
       status: 'running'
     };
     this.stats.currentTasks.set(taskId, task);
-    logger.info('渲染任务已开始', { 
-      taskId, 
-      type, 
-      params, 
+    logger.info('渲染任务已开始', {
+      taskId,
+      type,
+      params,
       currentTaskCount: this.stats.currentTasks.size,
-      totalRequests: this.stats.totalRequests 
+      totalRequests: this.stats.totalRequests
     });
   }
 
@@ -235,18 +235,18 @@ class ServiceMonitor {
       const duration = new Date() - task.startTime;
       this.stats.successfulRenders++;
       this.stats.lastRenderTime = new Date();
-      
+
       // 更新平均渲染时间
       const totalTime = this.stats.averageRenderTime * (this.stats.successfulRenders - 1) + duration;
       this.stats.averageRenderTime = Math.round(totalTime / this.stats.successfulRenders);
-      
+
       if (task.type === 'article') {
         this.stats.articlesRendered += details.count || 1;
       } else {
         // 页面渲染应该记录实际成功的页面数量
         this.stats.pagesRendered += details.count || 1;
       }
-      
+
       // 添加到任务历史
       const completedTask = {
         taskId: task.id,
@@ -258,26 +258,26 @@ class ServiceMonitor {
         params: task.params,
         details
       };
-      
+
       // 确保recentTasks数组存在
       if (!this.stats.recentTasks) {
         this.stats.recentTasks = [];
       }
       this.stats.recentTasks.push(completedTask);
-      
+
       // 只保留最近20个完成的任务
       if (this.stats.recentTasks.length > 20) {
         this.stats.recentTasks = this.stats.recentTasks.slice(-20);
       }
-      
+
       this.stats.currentTasks.delete(taskId);
-      logger.info('渲染任务成功完成', { 
-        taskId, 
-        duration: `${duration}ms`, 
+      logger.info('渲染任务成功完成', {
+        taskId,
+        duration: `${duration}ms`,
         type: task.type,
         currentTaskCount: this.stats.currentTasks.size,
         recentTaskCount: this.stats.recentTasks.length,
-        ...details 
+        ...details
       });
     }
   }
@@ -287,7 +287,7 @@ class ServiceMonitor {
     if (task) {
       const duration = new Date() - task.startTime;
       this.stats.failedRenders++;
-      
+
       const errorRecord = {
         timestamp: new Date(),
         taskId,
@@ -296,18 +296,18 @@ class ServiceMonitor {
         duration: `${duration}ms`,
         params: task.params
       };
-      
+
       // 确保errors数组存在
       if (!this.stats.errors) {
         this.stats.errors = [];
       }
       this.stats.errors.push(errorRecord);
-      
+
       // 只保留最近50个错误记录
       if (this.stats.errors.length > 50) {
         this.stats.errors = this.stats.errors.slice(-50);
       }
-      
+
       this.stats.currentTasks.delete(taskId);
       logger.error('渲染任务失败', errorRecord);
     }
@@ -343,7 +343,7 @@ function generateTaskId() {
 
 const JAVA_BACKEND_URL = process.env.JAVA_BACKEND_URL || 'http://poetize-java:8081';
 
-const md = new MarkdownIt({breaks: true}).use(require('markdown-it-multimd-table'));
+const md = new MarkdownIt({ breaks: true }).use(require('markdown-it-multimd-table'));
 
 /**
  * 获取系统配置的源语言
@@ -398,7 +398,7 @@ const INTERNAL_SERVICE_HEADERS = {
 async function fetchArticle(id) {
   try {
     logger.debug('获取文章', { id });
-    const res = await axios.get(`${JAVA_BACKEND_URL}/article/getArticleByIdNoCount`, { 
+    const res = await axios.get(`${JAVA_BACKEND_URL}/article/getArticleByIdNoCount`, {
       params: { id },
       timeout: 10000,
       headers: INTERNAL_SERVICE_HEADERS
@@ -471,43 +471,43 @@ async function fetchTranslation(id, lang) {
 async function fetchMeta(id, lang) {
   try {
     logger.debug('获取元数据', { id, lang });
-    
+
     // 并行获取文章元数据和SEO配置 - 改为调用Java端
     const [articleMetaRes, seoConfigRes] = await Promise.all([
-      axios.get(`${JAVA_BACKEND_URL}/seo/getArticleMeta`, { 
+      axios.get(`${JAVA_BACKEND_URL}/seo/getArticleMeta`, {
         params: { articleId: id, lang },
         timeout: 5000,
         headers: INTERNAL_SERVICE_HEADERS
       }),
-      axios.get(`${JAVA_BACKEND_URL}/seo/getSeoConfig/nginx`, { 
+      axios.get(`${JAVA_BACKEND_URL}/seo/getSeoConfig/nginx`, {
         timeout: 5000,
         headers: INTERNAL_SERVICE_HEADERS
       })
     ]);
-    
+
     // 获取文章元数据 - 适配Java端返回格式
     const meta = (articleMetaRes.data && articleMetaRes.data.code === 200) ? (articleMetaRes.data.data || {}) : {};
     logger.debug('元数据已获取', { id, lang, keysCount: Object.keys(meta).length });
-    
+
     // 获取SEO配置 - Java端直接返回配置对象
     const seoConfig = seoConfigRes.data || {};
-    
+
     // 使用通用函数添加图标字段
     addSeoIconFieldsToMeta(meta, seoConfig);
     addSearchEngineVerificationTags(meta, seoConfig);
-    
-    logger.debug('已添加图标字段到文章元数据', { 
-      articleId: id, 
+
+    logger.debug('已添加图标字段到文章元数据', {
+      articleId: id,
       lang,
       hasSiteIcon: !!meta.site_icon
     });
-    
+
     return meta;
   } catch (error) {
-    logger.warn('获取元数据失败，使用默认值', { 
-      id, 
-      lang, 
-      error: error.message 
+    logger.warn('获取元数据失败，使用默认值', {
+      id,
+      lang,
+      error: error.message
     });
     return {};
   }
@@ -518,14 +518,14 @@ async function fetchMeta(id, lang) {
 async function fetchWebInfo() {
   try {
     logger.debug('获取网站信息');
-    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/getWebInfo`, { 
+    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/getWebInfo`, {
       timeout: 5000,
       headers: INTERNAL_SERVICE_HEADERS
     });
     const webInfo = (res.data && res.data.data) || {};
-    
+
     // 详细记录获取到的webInfo数据
-    logger.info('网站信息获取成功', { 
+    logger.info('网站信息获取成功', {
       status: res.status,
       dataExists: !!res.data,
       webInfoExists: !!res.data?.data,
@@ -536,10 +536,10 @@ async function fetchWebInfo() {
       backgroundImage: webInfo.backgroundImage,
       footer: webInfo.footer
     });
-    
+
     return webInfo;
   } catch (error) {
-    logger.error('获取网站信息失败', { 
+    logger.error('获取网站信息失败', {
       error: error.message,
       status: error.response?.status,
       statusText: error.response?.statusText,
@@ -552,13 +552,13 @@ async function fetchWebInfo() {
 async function fetchSeoConfig() {
   try {
     logger.debug('从服务器获取SEO配置');
-    const res = await axios.get(`${JAVA_BACKEND_URL}/seo/getSeoConfig/nginx`, { 
+    const res = await axios.get(`${JAVA_BACKEND_URL}/seo/getSeoConfig/nginx`, {
       timeout: 5000,
       headers: INTERNAL_SERVICE_HEADERS
     });
     const seoConfig = res.data || {};
-    
-    logger.info('SEO配置获取成功', { 
+
+    logger.info('SEO配置获取成功', {
       status: res.status,
       responseCode: res.data?.code,
       dataExists: !!res.data?.data,
@@ -574,16 +574,16 @@ async function fetchSeoConfig() {
       custom_head_code: seoConfig.custom_head_code ? `存在(${seoConfig.custom_head_code.length}字符)` : '不存在',
       has_site_verification: !!(seoConfig.google_site_verification || seoConfig.baidu_site_verification)
     });
-    
+
     return seoConfig;
   } catch (error) {
-    logger.warn('获取SEO配置失败，使用默认值', { 
-      error: error.message, 
+    logger.warn('获取SEO配置失败，使用默认值', {
+      error: error.message,
       status: error.response?.status,
       statusText: error.response?.statusText,
       url: `${JAVA_BACKEND_URL}/seo/getSeoConfig/nginx`
     });
-    
+
     return {};
   }
 }
@@ -591,7 +591,7 @@ async function fetchSeoConfig() {
 async function fetchSortInfo() {
   try {
     logger.debug('获取分类信息');
-    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/listSortForPrerender`, { 
+    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/listSortForPrerender`, {
       timeout: 5000,
       headers: INTERNAL_SERVICE_HEADERS
     });
@@ -610,7 +610,7 @@ async function fetchRecentArticles(limit = 5) {
     const res = await axios.post(`${JAVA_BACKEND_URL}/article/listArticle`, {
       current: 1,
       size: limit
-    }, { 
+    }, {
       timeout: 8000,
       headers: INTERNAL_SERVICE_HEADERS
     });
@@ -618,9 +618,9 @@ async function fetchRecentArticles(limit = 5) {
     logger.debug('最新文章已获取', { count: articles.length, limit });
     return articles;
   } catch (error) {
-    logger.warn('获取最新文章失败，使用空数组', { 
-      limit, 
-      error: error.message 
+    logger.warn('获取最新文章失败，使用空数组', {
+      limit,
+      error: error.message
     });
     return [];
   }
@@ -633,7 +633,7 @@ async function fetchRecommendArticles(limit = 5) {
       current: 1,
       size: limit,
       recommendStatus: true
-    }, { 
+    }, {
       timeout: 8000,
       headers: INTERNAL_SERVICE_HEADERS
     });
@@ -641,9 +641,9 @@ async function fetchRecommendArticles(limit = 5) {
     logger.debug('推荐文章已获取', { count: articles.length, limit });
     return articles;
   } catch (error) {
-    logger.warn('获取推荐文章失败，使用空数组', { 
-      limit, 
-      error: error.message 
+    logger.warn('获取推荐文章失败，使用空数组', {
+      limit,
+      error: error.message
     });
     return [];
   }
@@ -652,7 +652,7 @@ async function fetchRecommendArticles(limit = 5) {
 async function fetchCollects() {
   try {
     logger.debug('获取收藏信息');
-    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/listCollect`, { 
+    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/listCollect`, {
       timeout: 5000,
       headers: INTERNAL_SERVICE_HEADERS
     });
@@ -668,7 +668,7 @@ async function fetchCollects() {
 async function fetchFriends() {
   try {
     logger.debug('获取友链信息');
-    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/listFriend`, { 
+    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/listFriend`, {
       timeout: 5000,
       headers: INTERNAL_SERVICE_HEADERS
     });
@@ -684,13 +684,13 @@ async function fetchFriends() {
 async function fetchSiteInfo() {
   try {
     logger.debug('从资源聚合获取站点信息');
-    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/getSiteInfo`, { 
+    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/getSiteInfo`, {
       timeout: 5000,
       headers: INTERNAL_SERVICE_HEADERS
     });
     const siteInfo = (res.data && res.data.data) || {};
-    
-    logger.info('Site info fetched successfully', { 
+
+    logger.info('Site info fetched successfully', {
       status: res.status,
       dataExists: !!res.data?.data,
       title: siteInfo.title,
@@ -699,10 +699,10 @@ async function fetchSiteInfo() {
       introduction: siteInfo.introduction,
       remark: siteInfo.remark
     });
-    
+
     return siteInfo;
   } catch (error) {
-    logger.warn('Failed to fetch site info from resource aggregation, using defaults', { 
+    logger.warn('Failed to fetch site info from resource aggregation, using defaults', {
       error: error.message,
       status: error.response?.status,
       statusText: error.response?.statusText,
@@ -716,15 +716,15 @@ async function fetchSortById(sortId) {
   try {
     logger.debug('根据ID获取分类', { sortId });
     // 修改为使用现有的API: /webInfo/getSortInfo 或 /webInfo/listSortForPrerender
-    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/listSortForPrerender`, { 
+    const res = await axios.get(`${JAVA_BACKEND_URL}/webInfo/listSortForPrerender`, {
       timeout: 5000,
       headers: INTERNAL_SERVICE_HEADERS
     });
-    
+
     // 从返回的分类列表中找到指定ID的分类
     const sortList = (res.data && res.data.data) || [];
     const sort = Array.isArray(sortList) ? sortList.find(s => s.id === parseInt(sortId)) : null;
-    
+
     logger.debug('根据ID获取分类完成', { sortId, found: !!sort, totalSorts: sortList.length });
     return sort;
   } catch (error) {
@@ -738,25 +738,25 @@ async function fetchArticlesBySort(sortId, labelId = null, limit = 10) {
     logger.debug('根据分类获取文章', { sortId, labelId, limit });
     const params = { current: 1, size: limit, sortId };
     if (labelId) params.labelId = labelId;
-    
-    const res = await axios.post(`${JAVA_BACKEND_URL}/article/listArticle`, params, { 
+
+    const res = await axios.post(`${JAVA_BACKEND_URL}/article/listArticle`, params, {
       timeout: 8000,
       headers: INTERNAL_SERVICE_HEADERS
     });
     const articles = (res.data && res.data.data && res.data.data.records) || [];
-    logger.debug('Articles fetched by sort', { 
-      sortId, 
-      labelId, 
-      limit, 
-      count: articles.length 
+    logger.debug('Articles fetched by sort', {
+      sortId,
+      labelId,
+      limit,
+      count: articles.length
     });
     return articles;
   } catch (error) {
-    logger.warn('Failed to fetch articles by sort, using empty array', { 
-      sortId, 
-      labelId, 
-      limit, 
-      error: error.message 
+    logger.warn('Failed to fetch articles by sort, using empty array', {
+      sortId,
+      labelId,
+      limit,
+      error: error.message
     });
     return [];
   }
@@ -766,7 +766,7 @@ async function fetchArticlesBySort(sortId, labelId = null, limit = 10) {
 function buildHtmlTemplate({ title, meta, content, lang, pageType = 'article' }) {
   const templatePath = path.resolve('/app/dist/index.html');
   let html;
-  
+
   if (!fs.existsSync(templatePath)) {
     const fallbackPath = path.resolve(__dirname, './dist/index.html');
     if (!fs.existsSync(fallbackPath)) {
@@ -1088,7 +1088,7 @@ function buildHtml({ title, articleTitle, meta, content, lang }) {
 
   // 确保meta是一个有效的对象
   const safeMeta = (typeof meta === 'object' && meta !== null) ? meta : {};
-  
+
   // 记录是否包含图标字段
   logger.debug('文章元数据包含图标字段:', {
     hasSiteIcon: !!safeMeta.site_icon,
@@ -1096,19 +1096,19 @@ function buildHtml({ title, articleTitle, meta, content, lang }) {
     hasSiteIcon192: !!safeMeta.site_icon_192,
     hasSiteIcon512: !!safeMeta.site_icon_512
   });
-  
+
   // SEO优化：在内容前添加文章标题作为唯一的H1标签
   // title: 用于 <title> 标签（文章标题 - 网站名）
   // articleTitle: 用于 <h1> 标签（仅文章标题）
   const h1Title = articleTitle || title;  // 如果没有单独的 articleTitle，使用完整 title
   const contentWithTitle = `<h1 class="article-main-title">${h1Title}</h1>\n${content}`;
-  
-  return buildHtmlTemplate({ 
+
+  return buildHtmlTemplate({
     title: title,  // <title> 标签：文章标题 - 网站名
-    meta: safeMeta, 
+    meta: safeMeta,
     content: contentWithTitle,  // <h1> 标签：文章标题
-    lang: lang || 'zh', 
-    pageType: 'article' 
+    lang: lang || 'zh',
+    pageType: 'article'
   });
 }
 
@@ -1118,19 +1118,19 @@ async function renderHomePage(lang = 'zh') {
     const [webInfo, seoConfig, sortInfo, recentArticles, recommendArticles] = await Promise.all([
       fetchWebInfo(),
       fetchSeoConfig(),
-      fetchSortInfo(), 
+      fetchSortInfo(),
       fetchRecentArticles(8),
       fetchRecommendArticles(5)
     ]);
 
     // 直接使用webInfo的标题数据，简化逻辑
-    const title = webInfo.webTitle || webInfo.webName ;
+    const title = webInfo.webTitle || webInfo.webName;
     const description = seoConfig.site_description || `${webInfo.webName} - 个人博客网站，分享技术文章、生活感悟。`;
     const keywords = seoConfig.site_keywords || '博客,个人网站,技术分享';
     const author = seoConfig.default_author || webInfo.webName || 'Admin';
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
     const ogImage = ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl);
-    
+
     const meta = {
       description,
       keywords,
@@ -1141,13 +1141,13 @@ async function renderHomePage(lang = 'zh') {
       'og:type': 'website',
       'og:url': baseUrl,
       'og:image': ogImage,
-      'og:site_name': webInfo.webTitle || webInfo.webName , // 优先使用webTitle
+      'og:site_name': webInfo.webTitle || webInfo.webName, // 优先使用webTitle
       'twitter:card': seoConfig.twitter_card || 'summary_large_image',
       'twitter:title': title,
       'twitter:description': description,
       'twitter:image': ogImage
     };
-    
+
     // 使用通用函数添加图标字段
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
@@ -1155,12 +1155,12 @@ async function renderHomePage(lang = 'zh') {
     // 构建首页内容（压缩格式，避免产生文本节点导致Vue水合失败）
     const homeContent = `<div class="home-prerender"><div class="home-hero"><h1>${webInfo.webName || webInfo.webTitle}</h1><p>${description}</p></div><div class="home-categories"><h2>文章分类</h2><ul>${sortInfo.map(sort => `<li><a href="/sort/${sort.id}" title="${sort.sortDescription || sort.sortName}">${sort.sortName}</a></li>`).join('')}</ul></div>${recommendArticles.length > 0 ? `<div class="home-recommend-articles"><h2>🔥推荐文章</h2><ul>${recommendArticles.map(article => `<li><a href="/article/${article.id}" title="${article.articleTitle}">${article.articleCover ? `<img src="${article.articleCover}" alt="${article.articleTitle}" width="120" height="80" loading="lazy">` : ''}<div class="article-info"><h3>${article.articleTitle}</h3>${article.summary ? `<p>${article.summary}</p>` : ''}<time>${article.createTime}</time></div></a></li>`).join('')}</ul></div>` : ''}<div class="home-recent-articles"><h2>最新文章</h2><ul>${recentArticles.map(article => `<li><a href="/article/${article.id}" title="${article.articleTitle}"><h3>${article.articleTitle}</h3>${article.summary ? `<p>${article.summary}</p>` : ''}<time>${article.createTime}</time></a></li>`).join('')}</ul></div></div>`;
 
-    return buildHtmlTemplate({ 
-      title, 
-      meta, 
-      content: homeContent, 
-      lang, 
-      pageType: 'home' 
+    return buildHtmlTemplate({
+      title,
+      meta,
+      content: homeContent,
+      lang,
+      pageType: 'home'
     });
   } catch (error) {
     console.error('渲染首页失败:', error);
@@ -1172,38 +1172,38 @@ async function renderHomePage(lang = 'zh') {
 async function renderAboutPage(lang = 'zh') {
   try {
     logger.info('开始渲染关于页面', { lang });
-    
+
     // 获取网站基本信息
     const webInfo = await fetchWebInfo();
     const seoConfig = await fetchSeoConfig();
-    
-    const title = `关于我们 - ${webInfo.webTitle || webInfo.webName }`;
+
+    const title = `关于我们 - ${webInfo.webTitle || webInfo.webName}`;
     const description = webInfo.about || '了解更多关于我们的信息';
-    const keywords = `关于,${webInfo.webName },博客,个人简介`;
+    const keywords = `关于,${webInfo.webName},博客,个人简介`;
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
-    
+
     const meta = {
       description,
       keywords,
-      author: webInfo.author ,
+      author: webInfo.author,
       canonical: `${baseUrl}/about`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
       'og:url': `${baseUrl}/about`,
       'og:image': ensureAbsoluteImageUrl(webInfo.avatar || '/poetize.jpg', baseUrl),
-      'og:site_name': webInfo.webTitle || webInfo.webName , // 优先使用webTitle
+      'og:site_name': webInfo.webTitle || webInfo.webName, // 优先使用webTitle
       'twitter:card': seoConfig.twitter_card || 'summary',
       'twitter:title': title,
       'twitter:description': description,
       'twitter:image': ensureAbsoluteImageUrl(webInfo.avatar || '/poetize.jpg', baseUrl)
     };
-    
+
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
-    
-    const aboutContent = `<div class="about-prerender"><div class="about-hero"><h1>关于${ webInfo.webName || webInfo.webTitle }</h1><p>${description}</p></div><div class="about-content"><div class="about-info">${webInfo.about ? `<div class="about-text">${webInfo.about}</div>` : ''}<div class="contact-info"><h3>联系方式</h3><p>邮箱: ${webInfo.email || '暂未提供'}</p></div></div></div></div>`;
-    
+
+    const aboutContent = `<div class="about-prerender"><div class="about-hero"><h1>关于${webInfo.webName || webInfo.webTitle}</h1><p>${description}</p></div><div class="about-content"><div class="about-info">${webInfo.about ? `<div class="about-text">${webInfo.about}</div>` : ''}<div class="contact-info"><h3>联系方式</h3><p>邮箱: ${webInfo.email || '暂未提供'}</p></div></div></div></div>`;
+
     return buildHtmlTemplate({ title, meta, content: aboutContent, lang, pageType: 'about' });
   } catch (error) {
     logger.error('渲染关于页面失败:', error);
@@ -1215,37 +1215,37 @@ async function renderAboutPage(lang = 'zh') {
 async function renderMessagePage(lang = 'zh') {
   try {
     logger.info('开始渲染留言板页面', { lang });
-    
+
     const webInfo = await fetchWebInfo();
     const seoConfig = await fetchSeoConfig();
-    
-    const title = `留言板 - ${webInfo.webTitle || webInfo.webName }`;
+
+    const title = `留言板 - ${webInfo.webTitle || webInfo.webName}`;
     const description = '欢迎在这里留下您的宝贵意见和建议';
-    const keywords = `留言,反馈,建议,${webInfo.webName }`;
+    const keywords = `留言,反馈,建议,${webInfo.webName}`;
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
-    
+
     const meta = {
       description,
       keywords,
-      author: webInfo.author ,
+      author: webInfo.author,
       canonical: `${baseUrl}/message`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
       'og:url': `${baseUrl}/message`,
       'og:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl),
-      'og:site_name': webInfo.webTitle || webInfo.webName ,
+      'og:site_name': webInfo.webTitle || webInfo.webName,
       'twitter:card': seoConfig.twitter_card || 'summary',
       'twitter:title': title,
       'twitter:description': description,
       'twitter:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl)
     };
-    
+
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
-    
+
     const messageContent = `<div class="message-prerender"><div class="message-hero"><h1>留言板</h1><p>${description}</p></div><div class="message-form-placeholder"><p>留言功能将在页面加载完成后可用</p></div></div>`;
-    
+
     return buildHtmlTemplate({ title, meta, content: messageContent, lang, pageType: 'message' });
   } catch (error) {
     logger.error('渲染留言板页面失败:', error);
@@ -1257,37 +1257,37 @@ async function renderMessagePage(lang = 'zh') {
 async function renderWeiYanPage(lang = 'zh') {
   try {
     logger.info('开始渲染微言页面', { lang });
-    
+
     const webInfo = await fetchWebInfo();
     const seoConfig = await fetchSeoConfig();
-    
-    const title = `微言 - ${webInfo.webTitle || webInfo.webName }`;
+
+    const title = `微言 - ${webInfo.webTitle || webInfo.webName}`;
     const description = '记录生活点滴，分享心情随笔';
-    const keywords = `微言,动态,心情,随笔,${webInfo.webName }`;
+    const keywords = `微言,动态,心情,随笔,${webInfo.webName}`;
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
-    
+
     const meta = {
       description,
       keywords,
-      author: webInfo.author ,
+      author: webInfo.author,
       canonical: `${baseUrl}/weiYan`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
       'og:url': `${baseUrl}/weiYan`,
       'og:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl),
-      'og:site_name': webInfo.webTitle || webInfo.webName ,
+      'og:site_name': webInfo.webTitle || webInfo.webName,
       'twitter:card': seoConfig.twitter_card || 'summary',
       'twitter:title': title,
       'twitter:description': description,
       'twitter:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl)
     };
-    
+
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
-    
+
     const weiYanContent = `<div class="weiyan-prerender"><div class="weiyan-hero"><h1>微言</h1><p>${description}</p></div><div class="weiyan-list-placeholder"><p>动态内容将在页面加载完成后显示</p></div></div>`;
-    
+
     return buildHtmlTemplate({ title, meta, content: weiYanContent, lang, pageType: 'weiyan' });
   } catch (error) {
     logger.error('渲染微言页面失败:', error);
@@ -1299,37 +1299,37 @@ async function renderWeiYanPage(lang = 'zh') {
 async function renderLovePage(lang = 'zh') {
   try {
     logger.info('开始渲染恋爱记录页面', { lang });
-    
+
     const webInfo = await fetchWebInfo();
     const seoConfig = await fetchSeoConfig();
-    
-    const title = `恋爱记录 - ${webInfo.webTitle || webInfo.webName }`;
+
+    const title = `恋爱记录 - ${webInfo.webTitle || webInfo.webName}`;
     const description = '记录美好的爱情时光';
-    const keywords = `恋爱,爱情,记录,${webInfo.webName }`;
+    const keywords = `恋爱,爱情,记录,${webInfo.webName}`;
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
-    
+
     const meta = {
       description,
       keywords,
-      author: webInfo.author ,
+      author: webInfo.author,
       canonical: `${baseUrl}/love`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
       'og:url': `${baseUrl}/love`,
       'og:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl),
-      'og:site_name': webInfo.webTitle || webInfo.webName ,
+      'og:site_name': webInfo.webTitle || webInfo.webName,
       'twitter:card': seoConfig.twitter_card || 'summary',
       'twitter:title': title,
       'twitter:description': description,
       'twitter:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl)
     };
-    
+
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
-    
+
     const loveContent = `<div class="love-prerender"><div class="love-hero"><h1>恋爱记录</h1><p>${description}</p></div><div class="love-timeline-placeholder"><p>爱情时光轴将在页面加载完成后显示</p></div></div>`;
-    
+
     return buildHtmlTemplate({ title, meta, content: loveContent, lang, pageType: 'love' });
   } catch (error) {
     logger.error('渲染恋爱记录页面失败:', error);
@@ -1341,37 +1341,37 @@ async function renderLovePage(lang = 'zh') {
 async function renderTravelPage(lang = 'zh') {
   try {
     logger.info('开始渲染旅行日记页面', { lang });
-    
+
     const webInfo = await fetchWebInfo();
     const seoConfig = await fetchSeoConfig();
-    
-    const title = `旅行日记 - ${webInfo.webTitle || webInfo.webName }`;
+
+    const title = `旅行日记 - ${webInfo.webTitle || webInfo.webName}`;
     const description = '记录旅途中的美好时光和所见所闻';
-    const keywords = `旅行,日记,游记,${webInfo.webName }`;
+    const keywords = `旅行,日记,游记,${webInfo.webName}`;
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
-    
+
     const meta = {
       description,
       keywords,
-      author: webInfo.author ,
+      author: webInfo.author,
       canonical: `${baseUrl}/travel`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
       'og:url': `${baseUrl}/travel`,
       'og:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl),
-      'og:site_name': webInfo.webTitle || webInfo.webName ,
+      'og:site_name': webInfo.webTitle || webInfo.webName,
       'twitter:card': seoConfig.twitter_card || 'summary',
       'twitter:title': title,
       'twitter:description': description,
       'twitter:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl)
     };
-    
+
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
-    
+
     const travelContent = `<div class="travel-prerender"><div class="travel-hero"><h1>旅行日记</h1><p>${description}</p></div><div class="travel-list-placeholder"><p>旅行记录将在页面加载完成后显示</p></div></div>`;
-    
+
     return buildHtmlTemplate({ title, meta, content: travelContent, lang, pageType: 'travel' });
   } catch (error) {
     logger.error('渲染旅行日记页面失败:', error);
@@ -1383,37 +1383,37 @@ async function renderTravelPage(lang = 'zh') {
 async function renderPrivacyPage(lang = 'zh') {
   try {
     logger.info('开始渲染隐私政策页面', { lang });
-    
+
     const webInfo = await fetchWebInfo();
     const seoConfig = await fetchSeoConfig();
-    
-    const title = `隐私政策 - ${webInfo.webTitle || webInfo.webName }`;
+
+    const title = `隐私政策 - ${webInfo.webTitle || webInfo.webName}`;
     const description = '了解我们如何保护您的个人隐私信息';
-    const keywords = `隐私政策,隐私保护,个人信息,${webInfo.webName }`;
+    const keywords = `隐私政策,隐私保护,个人信息,${webInfo.webName}`;
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
-    
+
     const meta = {
       description,
       keywords,
-      author: webInfo.author ,
+      author: webInfo.author,
       canonical: `${baseUrl}/privacy`,
       'og:title': title,
       'og:description': description,
       'og:type': 'article',
       'og:url': `${baseUrl}/privacy`,
       'og:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl),
-      'og:site_name': webInfo.webTitle || webInfo.webName ,
+      'og:site_name': webInfo.webTitle || webInfo.webName,
       'twitter:card': seoConfig.twitter_card || 'summary',
       'twitter:title': title,
       'twitter:description': description,
       'twitter:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl)
     };
-    
+
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
-    
+
     const privacyContent = `<div class="privacy-prerender"><div class="privacy-hero"><h1>隐私政策</h1><p>${description}</p></div><div class="privacy-content"><p>我们重视您的隐私，并致力于保护您的个人信息安全。</p><p>详细的隐私政策内容将在页面加载完成后显示。</p></div></div>`;
-    
+
     return buildHtmlTemplate({ title, meta, content: privacyContent, lang, pageType: 'privacy' });
   } catch (error) {
     logger.error('渲染隐私政策页面失败:', error);
@@ -1426,37 +1426,37 @@ async function renderPrivacyPage(lang = 'zh') {
 async function renderLetterPage(lang = 'zh') {
   try {
     logger.info('开始渲染信件页面', { lang });
-    
+
     const webInfo = await fetchWebInfo();
     const seoConfig = await fetchSeoConfig();
-    
-    const title = `信件 - ${webInfo.webTitle || webInfo.webName }`;
+
+    const title = `信件 - ${webInfo.webTitle || webInfo.webName}`;
     const description = '查看和管理您的信件';
-    const keywords = `信件,私信,消息,${webInfo.webName }`;
+    const keywords = `信件,私信,消息,${webInfo.webName}`;
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
-    
+
     const meta = {
       description,
       keywords,
-      author: webInfo.author ,
+      author: webInfo.author,
       canonical: `${baseUrl}/letter`,
       'og:title': title,
       'og:description': description,
       'og:type': 'website',
       'og:url': `${baseUrl}/letter`,
       'og:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl),
-      'og:site_name': webInfo.webTitle || webInfo.webName ,
+      'og:site_name': webInfo.webTitle || webInfo.webName,
       'twitter:card': seoConfig.twitter_card || 'summary',
       'twitter:title': title,
       'twitter:description': description,
       'twitter:image': ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl)
     };
-    
+
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
-    
+
     const letterContent = `<div class="letter-prerender"><div class="letter-hero"><h1>信件</h1><p>${description}</p></div><div class="letter-list-placeholder"><p>信件内容将在页面加载完成后显示</p></div></div>`;
-    
+
     return buildHtmlTemplate({ title, meta, content: letterContent, lang, pageType: 'letter' });
   } catch (error) {
     logger.error('渲染信件页面失败:', error);
@@ -1481,10 +1481,10 @@ async function renderFriendsPage(lang = 'zh') {
     const author = webInfo.webName || seoConfig.default_author || 'Admin';
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
     const ogImage = ensureAbsoluteImageUrl(webInfo.avatar || seoConfig.og_image || '', baseUrl);
-    
+
     const baseKeywords = seoConfig.site_keywords || '博客,个人网站,技术分享';
     const keywords = `${baseKeywords},友人帐,友链,朋友,网站交换`;
-    
+
     const meta = {
       description,
       keywords,
@@ -1501,22 +1501,22 @@ async function renderFriendsPage(lang = 'zh') {
       'twitter:description': description,
       'twitter:image': ogImage
     };
-    
+
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
 
     // 友链分类的标准key映射（兼容旧的emoji和新的emoji）
     const eliteFriendsKey = friends['🌟青出于蓝'] ? '🌟青出于蓝' : (friends['♥️青出于蓝'] || null);
     const regularFriendsKey = friends['🥇友情链接'] ? '🥇友情链接' : null;
-    
+
     const friendsContent = `<div class="friends-prerender"><h1>友人帐</h1><p>留下你的网站吧，让我们建立友谊的桥梁</p>${eliteFriendsKey && friends[eliteFriendsKey] && friends[eliteFriendsKey].length > 0 ? `<h2>🌟青出于蓝</h2><ul>${friends[eliteFriendsKey].map(friend => `<li><a href="${friend.url}" target="_blank" rel="noopener" title="${friend.introduction}">${friend.title} - ${friend.introduction}</a></li>`).join('')}</ul>` : ''}${regularFriendsKey && friends[regularFriendsKey] && friends[regularFriendsKey].length > 0 ? `<h2>🥇友情链接</h2><ul>${friends[regularFriendsKey].map(friend => `<li><a href="${friend.url}" target="_blank" rel="noopener" title="${friend.introduction}">${friend.title} - ${friend.introduction}</a></li>`).join('')}</ul>` : ''}<h2>✉️ 申请方式</h2><div><p>1. 添加本站链接</p><p>首先将本站链接添加至您的网站，信息如下：</p><p>网站名称：${siteInfo.title || webInfo.webName}</p><p>网站地址：${baseUrl}</p><p>网站描述：${siteInfo.introduction || webInfo.webTitle}</p><p>网站封面：${siteInfo.remark || ''}</p></div><div><p>2. 提交申请</p><p>点击下方信封 📮 填写您的网站信息提交申请</p></div><div><p>3. 等待审核</p><p>审核通过后将会添加至该页面中，请耐心等待</p></div><h2>⚠️ 温馨提示</h2><ul><li>不会添加带有广告营销和没有实质性内容的友链</li><li>申请之前请将本网站添加为您的友链</li><li>审核时间一般在一周内，请耐心等待</li></ul>${!eliteFriendsKey && !regularFriendsKey ? '<p>暂无友链，欢迎交换友链</p>' : ''}<div id="dynamic-content-placeholder" style="display:none;"><script>window.PRERENDER_DATA = {type: 'friends',lang: '${lang}',timestamp: ${Date.now()}};</script></div></div>`;
 
-    return buildHtmlTemplate({ 
-      title, 
-      meta, 
-      content: friendsContent, 
-      lang, 
-      pageType: 'friends' 
+    return buildHtmlTemplate({
+      title,
+      meta,
+      content: friendsContent,
+      lang,
+      pageType: 'friends'
     });
   } catch (error) {
     console.error('渲染友人帐页面失败:', error);
@@ -1538,10 +1538,10 @@ async function renderMusicPage(lang = 'zh') {
     const author = webInfo.webName || seoConfig.default_author || 'Admin';
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
     const ogImage = ensureAbsoluteImageUrl(webInfo.avatar || seoConfig.og_image || '', baseUrl);
-    
+
     const baseKeywords = seoConfig.site_keywords || '博客,个人网站,技术分享';
     const keywords = `${baseKeywords},曲乐,音乐,娱乐,音频`;
-    
+
     const meta = {
       description,
       keywords,
@@ -1558,18 +1558,18 @@ async function renderMusicPage(lang = 'zh') {
       'twitter:description': description,
       'twitter:image': ogImage
     };
-    
+
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
 
     const musicContent = `<div class="music-prerender"><div class="music-hero"><h1>曲乐</h1><p>一曲肝肠断，天涯何处觅知音</p></div><div class="music-main"><div class="music-placeholder"><p>音乐内容将在页面加载完成后显示</p></div></div><div id="dynamic-content-placeholder" style="display:none;"><script>window.PRERENDER_DATA = {type: 'music',lang: '${lang}',timestamp: ${Date.now()}};</script></div></div>`;
 
-    return buildHtmlTemplate({ 
-      title, 
-      meta, 
-      content: musicContent, 
-      lang, 
-      pageType: 'music' 
+    return buildHtmlTemplate({
+      title,
+      meta,
+      content: musicContent,
+      lang,
+      pageType: 'music'
     });
   } catch (error) {
     console.error('渲染曲乐页面失败:', error);
@@ -1592,10 +1592,10 @@ async function renderFavoritesPage(lang = 'zh') {
     const author = webInfo.webName || seoConfig.default_author || 'Admin';
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
     const ogImage = ensureAbsoluteImageUrl(webInfo.avatar || seoConfig.og_image || '', baseUrl);
-    
+
     const baseKeywords = seoConfig.site_keywords || '博客,个人网站,技术分享';
     const keywords = `${baseKeywords},收藏夹,书签,网站收藏,精选网站`;
-    
+
     const meta = {
       description,
       keywords,
@@ -1612,18 +1612,18 @@ async function renderFavoritesPage(lang = 'zh') {
       'twitter:description': description,
       'twitter:image': ogImage
     };
-    
+
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
 
     const favoritesContent = `<div class="favorites-prerender"><div class="favorites-hero"><h1>收藏夹</h1><p>将本网站添加到您的收藏夹吧，发现更多精彩内容</p></div><div class="favorites-main">${Object.keys(collects).length > 0 ? Object.keys(collects).map(category => `<div class="collect-category"><h3>${category}</h3><ul>${collects[category].map(item => `<li><a href="${item.url}" target="_blank" rel="noopener" title="${item.introduction}"><img src="${item.cover}" alt="${item.title}" width="32" height="32" loading="lazy"><span>${item.title}</span><small>${item.introduction}</small></a></li>`).join('')}</ul></div>`).join('') : '<p>暂无收藏夹</p>'}</div><div id="dynamic-content-placeholder" style="display:none;"><script>window.PRERENDER_DATA = {type: 'favorites',lang: '${lang}',timestamp: ${Date.now()}};</script></div></div>`;
 
-    return buildHtmlTemplate({ 
-      title, 
-      meta, 
-      content: favoritesContent, 
-      lang, 
-      pageType: 'favorites' 
+    return buildHtmlTemplate({
+      title,
+      meta,
+      content: favoritesContent,
+      lang,
+      pageType: 'favorites'
     });
   } catch (error) {
     console.error('渲染收藏夹页面失败:', error);
@@ -1647,11 +1647,11 @@ async function renderDefaultSortPage(lang = 'zh') {
     const author = seoConfig.default_author || webInfo.webName || 'Admin';
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
     const ogImage = ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl);
-    
+
     // 在基础关键词基础上添加页面特定关键词
     const baseKeywords = seoConfig.site_keywords || '博客,个人网站,技术分享';
     const keywords = `${baseKeywords},文章分类,分类列表,内容导航`;
-    
+
     const meta = {
       description,
       keywords,
@@ -1668,7 +1668,7 @@ async function renderDefaultSortPage(lang = 'zh') {
       'twitter:description': description,
       'twitter:image': ogImage
     };
-    
+
     // 使用通用函数添加图标字段
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
@@ -1686,12 +1686,12 @@ async function renderDefaultSortPage(lang = 'zh') {
       <div id="dynamic-content-placeholder" style="display:none;"><script>window.PRERENDER_DATA = {type: 'sort-list',lang: '${lang}',timestamp: ${Date.now()}};</script></div>
     </div>`;
 
-    return buildHtmlTemplate({ 
-      title, 
-      meta, 
-      content: defaultSortContent, 
-      lang, 
-      pageType: 'sort-list' 
+    return buildHtmlTemplate({
+      title,
+      meta,
+      content: defaultSortContent,
+      lang,
+      pageType: 'sort-list'
     });
   } catch (error) {
     console.error('渲染默认分类页失败:', error);
@@ -1714,17 +1714,17 @@ async function renderSortPage(sortId, labelId = null, lang = 'zh') {
       throw new Error(`分类${sortId}未找到`);
     }
 
-    const siteName = webInfo.webTitle || webInfo.webName ;
+    const siteName = webInfo.webTitle || webInfo.webName;
     const title = `${sortData.sortName} - ${siteName}`;
     const description = sortData.sortDescription || `${sortData.sortName}分类下的所有文章`;
     const author = seoConfig.default_author || webInfo.webName || 'Admin';
     const baseUrl = webInfo.siteAddress || process.env.SITE_URL || 'http://localhost';
     const ogImage = ensureAbsoluteImageUrl(seoConfig.og_image || webInfo.avatar || '', baseUrl);
-    
+
     // 在基础关键词基础上添加分类特定关键词
     const baseKeywords = seoConfig.site_keywords || '博客,个人网站,技术分享';
     const keywords = `${baseKeywords},${sortData.sortName},文章分类,博客`;
-    
+
     const meta = {
       description,
       keywords,
@@ -1735,13 +1735,13 @@ async function renderSortPage(sortId, labelId = null, lang = 'zh') {
       'og:type': 'website',
       'og:url': `${baseUrl}/sort/${sortId}${labelId ? `?labelId=${labelId}` : ''}`,
       'og:image': ogImage,
-      'og:site_name': webInfo.webTitle || webInfo.webName , // 优先使用webTitle
+      'og:site_name': webInfo.webTitle || webInfo.webName, // 优先使用webTitle
       'twitter:card': seoConfig.twitter_card || 'summary',
       'twitter:title': title,
       'twitter:description': description,
       'twitter:image': ogImage
     };
-    
+
     // 使用通用函数添加图标字段
     addSeoIconFieldsToMeta(meta, seoConfig, baseUrl);
     addSearchEngineVerificationTags(meta, seoConfig);
@@ -1749,12 +1749,12 @@ async function renderSortPage(sortId, labelId = null, lang = 'zh') {
     // 构建分类页面内容
     const sortContent = `<div class="sort-prerender"><div class="sort-hero"><h1>${sortData.sortName}</h1><p>${sortData.sortDescription || ''}</p></div><div class="sort-articles"><h2>文章列表</h2>${articles.length > 0 ? `<ul class="article-list">${articles.map(article => `<li class="article-item"><a href="/article/${article.id}" title="${article.articleTitle}">${article.articleCover ? `<img src="${article.articleCover}" alt="${article.articleTitle}" loading="lazy">` : ''}<div class="article-info"><h3>${article.articleTitle}</h3>${article.summary ? `<p>${article.summary}</p>` : ''}<div class="article-meta"><time>${article.createTime}</time><span class="view-count">阅读 ${article.viewCount || 0}</span>${article.label ? `<span class="label">${article.label.labelName}</span>` : ''}</div></div></a></li>`).join('')}</ul>` : '<p>暂无文章</p>'}</div>${sortData.labels && sortData.labels.length > 0 ? `<div class="sort-labels"><h3>标签筛选</h3><ul>${sortData.labels.map(label => `<li><a href="/sort/${sortId}?labelId=${label.id}" title="${label.labelDescription || label.labelName}">${label.labelName} (${label.countOfLabel || 0})</a></li>`).join('')}</ul></div>` : ''}<div id="dynamic-content-placeholder" style="display:none;"><script>window.PRERENDER_DATA = {type: 'sort',sortId: ${sortId},labelId: ${labelId || 'null'},lang: '${lang}',timestamp: ${Date.now()}};</script></div></div>`;
 
-    return buildHtmlTemplate({ 
-      title, 
-      meta, 
-      content: sortContent, 
-      lang, 
-      pageType: 'sort' 
+    return buildHtmlTemplate({
+      title,
+      meta,
+      content: sortContent,
+      lang,
+      pageType: 'sort'
     });
   } catch (error) {
     console.error(`渲染分类页${sortId}失败:`, error);
@@ -1825,11 +1825,12 @@ async function renderArticleVariant({ taskId, OUTPUT_ROOT, seoConfig, webInfo },
     'twitter:image': ensureAbsoluteImageUrl(articleMeta['og:image'] || seoConfig.og_image || webInfo.avatar || '', baseUrl)
   };
 
-  const pageTitle = `${meta.title || articleTitle} - ${siteName}`;
+  // 翻译后的 articleTitle 优先于 meta.title（Java端修复后两者一致，这里做防御性保护）
+  const pageTitle = `${articleTitle || meta.title} - ${siteName}`;
 
   const html = buildHtml({
     title: pageTitle,
-    articleTitle: meta.title || articleTitle,
+    articleTitle: articleTitle || meta.title,
     meta,
     content: contentHtml,
     lang
@@ -1956,21 +1957,21 @@ async function renderSingleSortPage(sortId, parentTaskId = null) {
   const OUTPUT_ROOT = process.env.PRERENDER_OUTPUT || path.resolve(__dirname, './dist/prerender');
   // 分类页面只生成中文版
   const langs = ['zh'];
-  
+
   for (const lang of langs) {
     const html = await renderSortPage(sortId, null, lang);
-    
+
     const outputPath = path.join(OUTPUT_ROOT, 'sort', sortId.toString());
     fs.mkdirSync(outputPath, { recursive: true });
-    
+
     const filename = lang === 'zh' ? 'index.html' : `index-${lang}.html`;
     const filePath = path.join(outputPath, filename);
     fs.writeFileSync(filePath, html, 'utf8');
-    
-    logger.debug('分类页面已渲染', { 
-      parentTaskId, 
-      sortId, 
-      lang, 
+
+    logger.debug('分类页面已渲染', {
+      parentTaskId,
+      sortId,
+      lang,
       filePath: `${outputPath}/${filename}`,
       size: `${(html.length / 1024).toFixed(1)}KB`
     });
@@ -2040,7 +2041,7 @@ async function renderPages(type, params = {}) {
   const OUTPUT_ROOT = resolveOutputRoot();
   // 只有文章页面需要多语言，其他页面只生成中文版
   const langs = ['zh'];
-  
+
   try {
     logger.info('开始页面渲染', { taskId, type, params, langs });
 
@@ -2062,20 +2063,20 @@ async function renderPages(type, params = {}) {
       throw new Error(`类型${type}的所有页面渲染都失败了`);
     }
 
-    monitor.recordRenderSuccess(taskId, { 
-      type, 
-      params, 
-      successCount, 
+    monitor.recordRenderSuccess(taskId, {
+      type,
+      params,
+      successCount,
       failCount,
       results,
       count: successCount // 页面渲染应该记录实际成功的页面数量
     });
 
-    logger.info('Page rendering completed', { 
-      taskId, 
-      type, 
+    logger.info('Page rendering completed', {
+      taskId,
+      type,
       params,
-      successCount, 
+      successCount,
       failCount,
       results
     });
@@ -2092,15 +2093,15 @@ async function renderPages(type, params = {}) {
 app.use((req, res, next) => {
   const requestId = generateTaskId();
   req.requestId = requestId;
-  
+
   // 监控API前缀 - 仅保留health
   const monitoringPrefixes = ['/health'];
   const isMonitoringRequest = monitoringPrefixes.some(prefix => req.path.startsWith(prefix));
-  
+
   if (!isMonitoringRequest) {
     monitor.recordRequest(req.method + ' ' + req.path);
   }
-  
+
   // 只记录非监控API的请求，避免自动刷新产生大量日志
   if (!isMonitoringRequest) {
     logger.info('API request received', {
@@ -2118,7 +2119,7 @@ app.use((req, res, next) => {
       path: req.path
     });
   }
-  
+
   next();
 });
 
@@ -2398,14 +2399,14 @@ async function renderAllSortPages(sortIds) {
 app.post('/render/pages', async (req, res) => {
   const requestId = req.requestId;
   const { type, params = {} } = req.body;
-  
+
   logger.info('收到页面渲染请求', { requestId, type, params });
 
   const supportedTypes = ['home', 'friends', 'music', 'favorites', 'sort', 'allSorts', 'about', 'message', 'weiYan', 'love', 'travel', 'privacy', 'letter', 'verify', '403', '404', 'oauth-callback'];
-  
+
   if (!type) {
     logger.warn('无效的页面渲染请求 - 需要type参数', { requestId, body: req.body });
-    return res.status(400).json({ 
+    return res.status(400).json({
       message: '需要type参数',
       requestId,
       supportedTypes: ['home', 'favorite', 'sort'],
@@ -2415,7 +2416,7 @@ app.post('/render/pages', async (req, res) => {
 
   if (!supportedTypes.includes(type)) {
     logger.warn('无效的页面类型', { requestId, type });
-    return res.status(400).json({ 
+    return res.status(400).json({
       message: '无效的页面类型',
       requestId,
       received: type,
@@ -2426,48 +2427,48 @@ app.post('/render/pages', async (req, res) => {
 
   try {
     const startTime = Date.now();
-    
+
     if (type === 'allSorts') {
       const { sortIds } = params;
       if (!Array.isArray(sortIds) || sortIds.length === 0) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: 'allSorts类型需要sortIds数组',
-          requestId 
+          requestId
         });
       }
-      
+
       logger.info('渲染所有分类页面', { requestId, sortIds });
       await renderAllSortPages(sortIds);
     } else {
       await renderPages(type, params);
     }
-    
+
     const duration = Date.now() - startTime;
-    
-    logger.info('页面渲染请求成功完成', { 
-      requestId, 
-      type, 
-      params, 
-      duration: `${duration}ms` 
+
+    logger.info('页面渲染请求成功完成', {
+      requestId,
+      type,
+      params,
+      duration: `${duration}ms`
     });
-    
-    res.json({ 
-      status: 'ok', 
-      type, 
+
+    res.json({
+      status: 'ok',
+      type,
       params,
       requestId,
       duration: `${duration}ms`,
       timestamp: new Date().toISOString()
     });
   } catch (e) {
-    logger.error('页面渲染请求失败', { 
-      requestId, 
-      type, 
+    logger.error('页面渲染请求失败', {
+      requestId,
+      type,
       params,
-      error: e.message, 
-      stack: e.stack 
+      error: e.message,
+      stack: e.stack
     });
-    res.status(500).json({ 
+    res.status(500).json({
       message: e.message,
       requestId,
       type,
@@ -2584,7 +2585,7 @@ app.delete('/render/pages/:type', (req, res) => {
 // 新增：服务状态监控API
 app.get('/status', (req, res) => {
   const requestId = req.requestId;
-  
+
   // 仅保留基础运行状态，移除monitor.getStats调用
   res.json({
     service: 'prerender-worker',
@@ -2598,23 +2599,23 @@ app.get('/status', (req, res) => {
 // 新增：详细的健康检查API
 app.get('/health', (req, res) => {
   const requestId = req.requestId;
-  
+
   try {
     // 检查模板文件
     const templatePath = path.resolve('/app/dist/index.html');
     const templateExists = fs.existsSync(templatePath);
-    
+
     // 检查输出目录
     const outputPath = process.env.PRERENDER_OUTPUT || path.resolve(__dirname, './dist/prerender');
     const outputDirExists = fs.existsSync(outputPath);
-    
+
     // 内存使用检查
     const memUsage = process.memoryUsage();
     const memoryHealthy = memUsage.heapUsed < 500 * 1024 * 1024; // 500MB
-    
+
     // 运行时间检查
     const uptime = process.uptime();
-    
+
     const health = {
       status: templateExists && outputDirExists && memoryHealthy ? 'healthy' : 'unhealthy',
       requestId,
@@ -2640,12 +2641,12 @@ app.get('/health', (req, res) => {
         runningTasks: monitor.stats.currentTasks.size
       }
     };
-    
+
     // 移除健康检查完成日志，避免刷屏
-    
+
     const statusCode = health.status === 'healthy' ? 200 : 503;
     res.status(statusCode).json(health);
-    
+
   } catch (error) {
     logger.error('健康检查失败', { requestId, error: error.message });
     res.status(500).json({
@@ -2660,18 +2661,18 @@ app.get('/health', (req, res) => {
 // 工具函数：清理目录
 function clearDirectory(dirPath) {
   let deletedCount = 0;
-  
+
   if (!fs.existsSync(dirPath)) {
     return deletedCount;
   }
-  
+
   function deleteRecursive(dir) {
     const files = fs.readdirSync(dir);
-    
+
     files.forEach(file => {
       const filePath = path.join(dir, file);
       const stat = fs.statSync(filePath);
-      
+
       if (stat.isDirectory()) {
         deleteRecursive(filePath);
         fs.rmdirSync(filePath);
@@ -2681,7 +2682,7 @@ function clearDirectory(dirPath) {
       }
     });
   }
-  
+
   try {
     deleteRecursive(dirPath);
     return deletedCount;
@@ -2710,7 +2711,7 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   // Initialize output directory on startup
   initializeOutputDirectory();
-  
+
   logger.info('Prerender worker 启动', {
     port: PORT,
     nodeVersion: process.version,
@@ -2727,18 +2728,18 @@ app.listen(PORT, () => {
 // 添加一个通用函数来确保图片URL是绝对路径
 function ensureAbsoluteImageUrl(url, baseUrl) {
   if (!url) return url;
-  
+
   // 如果已经是绝对URL（包含协议），直接返回
   if (/^https?:\/\//.test(url)) {
     return url;
   }
-  
+
   // 如果是相对路径，转换为绝对路径
   if (url.startsWith('/')) {
     const cleanBaseUrl = baseUrl ? baseUrl.replace(/\/$/, '') : '';
     return cleanBaseUrl ? `${cleanBaseUrl}${url}` : url;
   }
-  
+
   // 如果是相对路径但不以/开头，添加/
   const cleanBaseUrl = baseUrl ? baseUrl.replace(/\/$/, '') : '';
   return cleanBaseUrl ? `${cleanBaseUrl}/${url}` : `/${url}`;
@@ -2747,7 +2748,7 @@ function ensureAbsoluteImageUrl(url, baseUrl) {
 // 添加一个通用函数，用于将SEO配置中的图标字段添加到meta对象中
 function addSeoIconFieldsToMeta(meta, seoConfig, baseUrl = '') {
   if (!meta || !seoConfig) return meta;
-  
+
   // 定义需要从SEO配置中复制到meta的图标字段
   const iconFields = [
     'site_icon',
@@ -2756,14 +2757,14 @@ function addSeoIconFieldsToMeta(meta, seoConfig, baseUrl = '') {
     'site_icon_512',
     'site_logo'
   ];
-  
+
   // 复制字段，确保图片URL是绝对路径
   iconFields.forEach(field => {
     if (seoConfig[field] && !meta[field]) {
       meta[field] = ensureAbsoluteImageUrl(seoConfig[field], baseUrl);
     }
   });
-  
+
   return meta;
 }
 
@@ -2774,7 +2775,7 @@ function addSearchEngineVerificationTags(meta, seoConfig) {
   // 搜索引擎验证标签字段（基于Java接口返回的完整字段）
   const verificationFields = [
     'google_site_verification',
-    'baidu_site_verification', 
+    'baidu_site_verification',
     'bing_site_verification',
     'yandex_site_verification',
     'sogou_site_verification',
@@ -2795,21 +2796,21 @@ function addSearchEngineVerificationTags(meta, seoConfig) {
   // 添加社交媒体字段（高价值SEO字段）
   const socialMediaFields = [
     // Twitter相关
-    'twitter_site', 
+    'twitter_site',
     'twitter_creator',
-    
+
     // Facebook相关
     'fb_app_id',
     'fb_page_url',
-    
-    
+
+
     // LinkedIn支持
     'linkedin_company_id',
-    
+
     // Pinterest增强
     'pinterest_verification',
     'pinterest_description',
-    
+
     // 小程序支持
     'wechat_miniprogram_id',
     'wechat_miniprogram_path',
@@ -2837,7 +2838,7 @@ function addSearchEngineVerificationTags(meta, seoConfig) {
   // 添加其他基础SEO字段
   const basicSeoFields = [
     'default_author',
-    'site_short_name', 
+    'site_short_name',
     'site_address',
     'site_description',
     'site_keywords'
@@ -2850,7 +2851,7 @@ function addSearchEngineVerificationTags(meta, seoConfig) {
   });
 
   if (addedCount > 0) {
-    console.debug('已添加SEO相关标签到meta对象', { 
+    console.debug('已添加SEO相关标签到meta对象', {
       verificationTagsCount: addedCount,
       hasRobots: !!meta.robots,
       hasCustomHeadCode: !!meta.custom_head_code

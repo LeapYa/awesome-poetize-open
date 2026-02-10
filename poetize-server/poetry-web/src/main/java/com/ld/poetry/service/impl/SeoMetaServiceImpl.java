@@ -49,19 +49,19 @@ public class SeoMetaServiceImpl implements SeoMetaService {
 
     @Autowired
     private LabelService labelService;
-    
+
     @Autowired
     private CacheService cacheService;
-    
+
     @Autowired
     private ArticleTranslationMapper articleTranslationMapper;
-    
+
     @Autowired
     private com.ld.poetry.service.SysAiConfigService sysAiConfigService;
 
     @Autowired
     private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
-    
+
     @Autowired
     private com.ld.poetry.utils.mail.MailUtil mailUtil;
 
@@ -70,7 +70,8 @@ public class SeoMetaServiceImpl implements SeoMetaService {
 
     // ISO 8601 时区偏移量（北京时间 UTC+8）
     private static final ZoneOffset ZONE_OFFSET = ZoneOffset.ofHours(8);
-    private static final DateTimeFormatter ISO_OFFSET_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
+    private static final DateTimeFormatter ISO_OFFSET_FORMATTER = DateTimeFormatter
+            .ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
 
     @Override
     public Map<String, Object> generateArticleMeta(Integer articleId, String language) {
@@ -89,10 +90,10 @@ public class SeoMetaServiceImpl implements SeoMetaService {
                 return createNotFoundMeta();
             }
 
-            // 基础元数据
-            String title = StringUtils.hasText(article.getArticleTitle()) ? 
-                article.getArticleTitle() : getSiteTitle();
-            
+            // 基础元数据（支持多语言标题）
+            String sourceLanguage = getSourceLanguage();
+            String title = resolveArticleTitle(article, language, sourceLanguage);
+
             // 生成描述时传入语言参数，使用对应语言的摘要
             String description = generateArticleDescription(article, seoConfig, language);
             String keywords = generateArticleKeywords(article, seoConfig);
@@ -103,8 +104,9 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             if (StringUtils.hasText(keywords)) {
                 meta.put("keywords", keywords);
             }
-            meta.put("author", StringUtils.hasText(seoConfig.get("default_author").toString()) ? 
-                seoConfig.get("default_author") : getSiteTitle());
+            meta.put("author",
+                    StringUtils.hasText(seoConfig.get("default_author").toString()) ? seoConfig.get("default_author")
+                            : getSiteTitle());
 
             // 文章特定信息
             meta.put("article_title", article.getArticleTitle());
@@ -133,11 +135,12 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             // OpenGraph和Twitter Card
             addSocialMediaMeta(meta, seoConfig, title, description);
 
-            // Canonical URL (规范链接)
+            // Canonical URL (规范链接) - 翻译文章使用 /article/{lang}/{id}
             String siteUrl = mailUtil.getSiteUrl();
             if (StringUtils.hasText(siteUrl)) {
-                meta.put("canonical", siteUrl + "/article/" + articleId);
-                meta.put("og:url", siteUrl + "/article/" + articleId);
+                String articleUrl = buildArticleUrl(siteUrl, articleId, language, sourceLanguage);
+                meta.put("canonical", articleUrl);
+                meta.put("og:url", articleUrl);
             }
 
             // 获取文章封面图（与前端展示逻辑一致：优先用文章封面，否则用随机封面）
@@ -149,8 +152,8 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             // 自定义头部代码
             meta.put("custom_head_code", seoConfig.get("custom_head_code"));
 
-            // 结构化数据
-            meta.put("structured_data", generateArticleStructuredData(article, seoConfig));
+            // 结构化数据（传入语言参数，使JSON-LD中的headline/description也使用翻译内容）
+            meta.put("structured_data", generateArticleStructuredData(article, seoConfig, language, sourceLanguage));
 
             return meta;
 
@@ -182,9 +185,9 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             addIconMeta(meta, seoConfig);
 
             // OpenGraph和Twitter Card
-            addSocialMediaMeta(meta, seoConfig, 
-                getSiteTitle(), 
-                seoConfig.get("site_description").toString());
+            addSocialMediaMeta(meta, seoConfig,
+                    getSiteTitle(),
+                    seoConfig.get("site_description").toString());
 
             // Canonical URL (规范链接)
             String siteUrl = mailUtil.getSiteUrl();
@@ -228,9 +231,8 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             }
 
             String title = category.getSortName() + " - " + getSiteTitle();
-            String description = StringUtils.hasText(category.getSortDescription()) ?
-                category.getSortDescription() : 
-                "查看 " + category.getSortName() + " 分类下的所有文章 - " + seoConfig.get("site_description");
+            String description = StringUtils.hasText(category.getSortDescription()) ? category.getSortDescription()
+                    : "查看 " + category.getSortName() + " 分类下的所有文章 - " + seoConfig.get("site_description");
 
             meta.put("title", title);
             meta.put("description", description);
@@ -280,9 +282,8 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             }
 
             String title = tag.getLabelName() + " - " + getSiteTitle();
-            String description = StringUtils.hasText(tag.getLabelDescription()) ?
-                tag.getLabelDescription() : 
-                "查看标签 " + tag.getLabelName() + " 下的所有文章 - " + seoConfig.get("site_description");
+            String description = StringUtils.hasText(tag.getLabelDescription()) ? tag.getLabelDescription()
+                    : "查看标签 " + tag.getLabelName() + " 下的所有文章 - " + seoConfig.get("site_description");
 
             meta.put("title", title);
             meta.put("description", description);
@@ -348,7 +349,7 @@ public class SeoMetaServiceImpl implements SeoMetaService {
         try {
             // 从请求头检测URL
             String detectedUrl = detectUrlFromRequest(request);
-            
+
             Map<String, Object> result = new HashMap<>();
             result.put("detected_url", detectedUrl);
             result.put("fallback_url", "http://localhost");
@@ -370,32 +371,87 @@ public class SeoMetaServiceImpl implements SeoMetaService {
     // ========== 私有辅助方法 ==========
 
     /**
+     * 获取系统配置的源语言
+     * 
+     * @return 源语言代码，默认为 "zh"
+     */
+    private String getSourceLanguage() {
+        try {
+            Map<String, Object> defaultLangs = sysAiConfigService.getDefaultLanguages();
+            return defaultLangs != null ? (String) defaultLangs.getOrDefault("default_source_lang", "zh") : "zh";
+        } catch (Exception e) {
+            log.warn("获取源语言配置失败，使用默认值 zh: {}", e.getMessage());
+            return "zh";
+        }
+    }
+
+    /**
+     * 解析文章标题（支持多语言）
+     * 当请求语言非源语言时，从翻译表获取翻译后的标题
+     * 
+     * @param article        文章对象
+     * @param language       目标语言代码
+     * @param sourceLanguage 源语言代码
+     * @return 对应语言的文章标题
+     */
+    private String resolveArticleTitle(Article article, String language, String sourceLanguage) {
+        // 如果指定了非源语言，尝试从翻译表获取翻译后的标题
+        if (StringUtils.hasText(language) && !language.equals(sourceLanguage)) {
+            try {
+                ArticleTranslation translation = articleTranslationMapper.selectOne(
+                        new LambdaQueryWrapper<ArticleTranslation>()
+                                .eq(ArticleTranslation::getArticleId, article.getId())
+                                .eq(ArticleTranslation::getLanguage, language));
+                if (translation != null && StringUtils.hasText(translation.getTitle())) {
+                    return translation.getTitle();
+                }
+            } catch (Exception e) {
+                log.warn("获取翻译标题失败，使用原文标题: articleId={}, lang={}, error={}",
+                        article.getId(), language, e.getMessage());
+            }
+        }
+        // 回退到中文原文标题
+        return StringUtils.hasText(article.getArticleTitle()) ? article.getArticleTitle() : getSiteTitle();
+    }
+
+    /**
+     * 构建文章URL（支持翻译文章路径）
+     * 翻译文章使用 /article/{lang}/{id} 格式，源语言文章使用 /article/{id}
+     */
+    private String buildArticleUrl(String siteUrl, Integer articleId, String language, String sourceLanguage) {
+        if (StringUtils.hasText(language) && !language.equals(sourceLanguage)) {
+            return siteUrl + "/article/" + language + "/" + articleId;
+        }
+        return siteUrl + "/article/" + articleId;
+    }
+
+    /**
      * 生成文章描述（支持多语言）
      * 
-     * @param article 文章对象
+     * @param article   文章对象
      * @param seoConfig SEO配置
-     * @param language 语言代码，如果为null则使用源语言
+     * @param language  语言代码，如果为null则使用源语言
      * @return 文章描述
      */
     private String generateArticleDescription(Article article, Map<String, Object> seoConfig, String language) {
         String description = "";
-        
+
         // 如果指定了语言参数，尝试从翻译表获取对应语言的摘要
         if (StringUtils.hasText(language)) {
             try {
                 // 获取默认源语言
                 Map<String, Object> defaultLangs = sysAiConfigService.getDefaultLanguages();
-                String sourceLanguage = defaultLangs != null ? 
-                    (String) defaultLangs.getOrDefault("default_source_lang", "zh") : "zh";
-                
+                String sourceLanguage = defaultLangs != null
+                        ? (String) defaultLangs.getOrDefault("default_source_lang", "zh")
+                        : "zh";
+
                 // 如果不是源语言，从翻译表获取摘要
                 if (!language.equals(sourceLanguage)) {
                     ArticleTranslation translation = articleTranslationMapper.selectOne(
-                        new LambdaQueryWrapper<ArticleTranslation>()
-                            .eq(ArticleTranslation::getArticleId, article.getId())
-                            .eq(ArticleTranslation::getLanguage, language)
-                    );
-                    
+                            new LambdaQueryWrapper<ArticleTranslation>()
+                                    .eq(ArticleTranslation::getArticleId, article.getId())
+                                    .eq(ArticleTranslation::getLanguage, language));
+
                     if (translation != null && StringUtils.hasText(translation.getSummary())) {
                         description = cleanHtmlTags(translation.getSummary());
                         return description;
@@ -406,7 +462,7 @@ public class SeoMetaServiceImpl implements SeoMetaService {
                 log.warn("获取翻译摘要失败，使用原文摘要: {}", e.getMessage());
             }
         }
-        
+
         // 使用源语言摘要或内容
         if (StringUtils.hasText(article.getSummary())) {
             description = cleanHtmlTags(article.getSummary());
@@ -430,11 +486,11 @@ public class SeoMetaServiceImpl implements SeoMetaService {
      * 策略说明：
      * 1. 只使用经过人工审核的结构化数据：分类名 + 标签名
      * 2. 不对标题做自动分词——中文标题无法用简单的标点分割来提取有意义的关键词，
-     *    粗暴分割会产生"与"、"的"、"实现"等停用词，反而降低相关性
+     * 粗暴分割会产生"与"、"的"、"实现"等停用词，反而降低相关性
      * 3. 不追加全站通用关键词(site_keywords)到文章页，避免关键词堆砌
      * 4. 如果文章既无分类也无标签，返回空字符串，宁缺勿滥
-     *    （Google 2009年起已不使用 meta keywords 作为排名信号，
-     *    但保留精准的关键词对百度等引擎仍有一定参考价值）
+     * （Google 2009年起已不使用 meta keywords 作为排名信号，
+     * 但保留精准的关键词对百度等引擎仍有一定参考价值）
      */
     private String generateArticleKeywords(Article article, Map<String, Object> seoConfig) {
         StringBuilder keywords = new StringBuilder();
@@ -469,7 +525,8 @@ public class SeoMetaServiceImpl implements SeoMetaService {
         return keywords.toString();
     }
 
-    private void addSocialMediaMeta(Map<String, Object> meta, Map<String, Object> seoConfig, String title, String description) {
+    private void addSocialMediaMeta(Map<String, Object> meta, Map<String, Object> seoConfig, String title,
+            String description) {
         // OpenGraph
         meta.put("og:type", seoConfig.get("og_type"));
         meta.put("og:title", title);
@@ -543,16 +600,18 @@ public class SeoMetaServiceImpl implements SeoMetaService {
         meta.put("pwa_display", seoConfig.get("pwa_display"));
     }
 
-    private String generateArticleStructuredData(Article article, Map<String, Object> seoConfig) {
+    private String generateArticleStructuredData(Article article, Map<String, Object> seoConfig, String language,
+            String sourceLanguage) {
         // 生成JSON-LD结构化数据
         Map<String, Object> structuredData = new HashMap<>();
         structuredData.put("@context", "https://schema.org");
         structuredData.put("@type", "Article");
-        structuredData.put("headline", article.getArticleTitle());
+        // headline 使用翻译后的标题（与 <title> 保持一致）
+        structuredData.put("headline", resolveArticleTitle(article, language, sourceLanguage));
         structuredData.put("datePublished", formatDateTimeWithTimezone(article.getCreateTime()));
         structuredData.put("dateModified", formatDateTimeWithTimezone(article.getUpdateTime()));
 
-        // 文章封面图片 (image) 
+        // 文章封面图片 (image)
         String articleImage = getArticleCoverUrl(article);
         if (StringUtils.hasText(articleImage)) {
             structuredData.put("image", articleImage);
@@ -561,18 +620,19 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             structuredData.put("image", toAbsoluteUrl(seoConfig.get("og_image").toString()));
         }
 
-        // mainEntityOfPage - 指向文章的规范URL
+        // mainEntityOfPage - 指向文章的规范URL（翻译文章使用翻译版URL）
         String siteUrl = mailUtil.getSiteUrl();
         if (StringUtils.hasText(siteUrl)) {
             Map<String, Object> mainEntity = new HashMap<>();
             mainEntity.put("@type", "WebPage");
-            mainEntity.put("@id", siteUrl + "/article/" + article.getId());
+            mainEntity.put("@id", buildArticleUrl(siteUrl, article.getId(), language, sourceLanguage));
             structuredData.put("mainEntityOfPage", mainEntity);
         }
 
-        // 文章描述
-        if (StringUtils.hasText(article.getSummary())) {
-            structuredData.put("description", cleanHtmlTags(article.getSummary()));
+        // 文章描述（使用翻译后的描述）
+        String description = generateArticleDescription(article, seoConfig, language);
+        if (StringUtils.hasText(description)) {
+            structuredData.put("description", description);
         }
 
         Map<String, Object> author = new HashMap<>();
@@ -598,6 +658,11 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             publisher.put("logo", logo);
         }
         structuredData.put("publisher", publisher);
+
+        // 如果是翻译文章，添加 inLanguage 字段
+        if (StringUtils.hasText(language)) {
+            structuredData.put("inLanguage", language);
+        }
 
         return toJsonString(structuredData);
     }
@@ -695,7 +760,7 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             return "{}";
         }
     }
-    
+
     /**
      * 获取网站标题，优先使用webInfo.webTitle，然后尝试SEO配置中的og_site_name
      */

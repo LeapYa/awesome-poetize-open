@@ -22,7 +22,8 @@ public class HomeController {
      * 处理前端路由请求，避免刷新404
      * 注意：排除 /api/ 开头的路径，避免拦截API请求
      */
-    @GetMapping({"/home", "/user/**", "/admin/**", "/sort/**", "/label/**", "/comment/**", "/tree/**", "/weiyan/**", "/music/**", "/picture/**", "/video/**", "/love/**", "/funny/**", "/favorites/**", "/im/**"})
+    @GetMapping({ "/home", "/user/**", "/admin/**", "/sort/**", "/label/**", "/comment/**", "/tree/**", "/weiyan/**",
+            "/music/**", "/picture/**", "/video/**", "/love/**", "/funny/**", "/favorites/**", "/im/**" })
     public String forwardToIndex() {
         return "forward:/index.html";
     }
@@ -35,4 +36,4 @@ public class HomeController {
     public String forwardArticleToIndex() {
         return "forward:/index.html";
     }
-} 
+}

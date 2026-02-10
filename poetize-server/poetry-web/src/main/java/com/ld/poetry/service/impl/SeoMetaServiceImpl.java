@@ -97,7 +97,7 @@ public class SeoMetaServiceImpl implements SeoMetaService {
 
             // 生成描述时传入语言参数，使用对应语言的摘要
             String description = generateArticleDescription(article, seoConfig, language);
-            String keywords = generateArticleKeywords(article, seoConfig);
+            String keywords = generateArticleKeywords(article, seoConfig, language, sourceLanguage);
 
             meta.put("title", title);
             meta.put("description", description);
@@ -110,7 +110,7 @@ public class SeoMetaServiceImpl implements SeoMetaService {
                             : getSiteTitle());
 
             // 文章特定信息
-            meta.put("article_title", article.getArticleTitle());
+            meta.put("article_title", title);
             meta.put("article_id", articleId);
             meta.put("published_time", formatDateTimeWithTimezone(article.getCreateTime()));
             meta.put("modified_time", formatDateTimeWithTimezone(article.getUpdateTime()));
@@ -531,7 +531,7 @@ public class SeoMetaServiceImpl implements SeoMetaService {
     }
 
     /**
-     * 生成文章关键词（仅包含与当前文章相关的关键词，避免关键词堆砌）
+     * 生成文章关键词（仅包含与当前文章相关的关键词，避免关键词堆砌，支持多语言）
      * 
      * 策略说明：
      * 1. 只使用经过人工审核的结构化数据：分类名 + 标签名
@@ -541,8 +541,14 @@ public class SeoMetaServiceImpl implements SeoMetaService {
      * 4. 如果文章既无分类也无标签，返回空字符串，宁缺勿滥
      * （Google 2009年起已不使用 meta keywords 作为排名信号，
      * 但保留精准的关键词对百度等引擎仍有一定参考价值）
+     *
+     * @param article        文章对象
+     * @param seoConfig      SEO配置
+     * @param language       目标语言代码
+     * @param sourceLanguage 源语言代码
      */
-    private String generateArticleKeywords(Article article, Map<String, Object> seoConfig) {
+    private String generateArticleKeywords(Article article, Map<String, Object> seoConfig, String language,
+            String sourceLanguage) {
         StringBuilder keywords = new StringBuilder();
 
         // 添加分类名称作为关键词
@@ -564,12 +570,13 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             }
         }
 
-        // 添加文章标题作为整体关键词（不做分词，保持语义完整性）
-        if (StringUtils.hasText(article.getArticleTitle())) {
+        // 添加文章标题作为整体关键词（支持多语言：翻译文章使用翻译标题）
+        String articleTitle = resolveArticleTitle(article, language, sourceLanguage);
+        if (StringUtils.hasText(articleTitle)) {
             if (keywords.length() > 0) {
                 keywords.append(",");
             }
-            keywords.append(article.getArticleTitle());
+            keywords.append(articleTitle);
         }
 
         return keywords.toString();

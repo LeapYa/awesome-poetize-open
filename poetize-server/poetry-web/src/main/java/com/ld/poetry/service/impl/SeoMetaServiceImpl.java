@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -141,6 +142,9 @@ public class SeoMetaServiceImpl implements SeoMetaService {
                 String articleUrl = buildArticleUrl(siteUrl, articleId, language, sourceLanguage);
                 meta.put("canonical", articleUrl);
                 meta.put("og:url", articleUrl);
+
+                // hreflang 标签 — 标识所有语言版本的关系
+                addHreflangTags(meta, siteUrl, articleId, sourceLanguage);
             }
 
             // 获取文章封面图（与前端展示逻辑一致：优先用文章封面，否则用随机封面）
@@ -423,6 +427,52 @@ public class SeoMetaServiceImpl implements SeoMetaService {
             return siteUrl + "/article/" + language + "/" + articleId;
         }
         return siteUrl + "/article/" + articleId;
+    }
+
+    /**
+     * 添加 hreflang 标签到 meta 中
+     * 查询文章的所有翻译版本，生成对应的 alternate 链接
+     * 用于告诉搜索引擎各语言版本之间的关系
+     *
+     * @param meta           meta map，hreflang 标签以 hreflang_ 前缀存入
+     * @param siteUrl        网站根URL
+     * @param articleId      文章ID
+     * @param sourceLanguage 源语言代码
+     */
+    private void addHreflangTags(Map<String, Object> meta, String siteUrl, Integer articleId, String sourceLanguage) {
+        try {
+            // 查询该文章的所有翻译版本（只查 language 字段即可）
+            List<ArticleTranslation> translations = articleTranslationMapper.selectList(
+                    new LambdaQueryWrapper<ArticleTranslation>()
+                            .eq(ArticleTranslation::getArticleId, articleId)
+                            .select(ArticleTranslation::getLanguage));
+
+            if (translations == null || translations.isEmpty()) {
+                // 没有翻译版本，无需 hreflang
+                return;
+            }
+
+            // 源语言版本 — 始终包含
+            String sourceUrl = siteUrl + "/article/" + articleId;
+            meta.put("hreflang_" + sourceLanguage,
+                    "<link rel=\"alternate\" hreflang=\"" + sourceLanguage + "\" href=\"" + sourceUrl + "\">");
+
+            // x-default 指向源语言版本
+            meta.put("hreflang_x-default",
+                    "<link rel=\"alternate\" hreflang=\"x-default\" href=\"" + sourceUrl + "\">");
+
+            // 各翻译版本
+            for (ArticleTranslation t : translations) {
+                String lang = t.getLanguage();
+                if (StringUtils.hasText(lang) && !lang.equals(sourceLanguage)) {
+                    String translatedUrl = siteUrl + "/article/" + lang + "/" + articleId;
+                    meta.put("hreflang_" + lang,
+                            "<link rel=\"alternate\" hreflang=\"" + lang + "\" href=\"" + translatedUrl + "\">");
+                }
+            }
+        } catch (Exception e) {
+            log.warn("生成hreflang标签失败: articleId={}, error={}", articleId, e.getMessage());
+        }
     }
 
     /**

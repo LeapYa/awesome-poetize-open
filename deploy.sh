@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-01-31
+## 修改时间: 2026-02-12
 ## 描述: 部署 POETIZE 博客系统安装脚本
-## 版本: 1.15.2
+## 版本: 1.15.3
 
 # 定义颜色
 RED='\033[0;31m'
@@ -195,6 +195,13 @@ create_global_poetize_command() {
 # 判断逻辑：如果 db_migrations 表为空，说明是新安装；否则是升级，跳过标记
 mark_all_migrations_as_executed() {
   info "检查是否需要标记迁移脚本..."
+  
+  # 如果是更新模式（由 poetize -update 设置），跳过标记
+  # 更新流程会通过 execute_additional_sql_scripts 正确处理迁移
+  if [ "${POETIZE_UPDATE_MODE:-false}" = "true" ]; then
+    info "检测到更新模式，跳过迁移脚本标记（将由 poetize -update 流程处理）"
+    return 0
+  fi
   
   # 获取数据库密码
   local db_root_password=""

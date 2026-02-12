@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-02-04
+## 修改时间: 2026-02-12
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.9.2
+## 版本: 1.9.3
 
 # 定义颜色
 RED='\033[0;31m'
@@ -1396,7 +1396,7 @@ execute_additional_sql_scripts() {
         
         # 检查 db_migrations 表是否存在
         local has_migrations_table=false
-        if sudo docker exec -i "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1" 2>/dev/null | grep -q "1"; then
+        if sudo docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1" 2>/dev/null | grep -q "1"; then
             has_migrations_table=true
             info "检测到版本跟踪表，将只执行未记录的脚本"
         fi
@@ -1425,7 +1425,7 @@ execute_additional_sql_scripts() {
             
             # 如果有版本跟踪表，检查是否已执行
             if [ "$has_migrations_table" = true ]; then
-                local already_executed=$(sudo docker exec -i "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT COUNT(*) FROM db_migrations WHERE version='$version' AND success=1" 2>/dev/null | tr -d '[:space:]')
+                local already_executed=$(sudo docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT COUNT(*) FROM db_migrations WHERE version='$version' AND success=1" 2>/dev/null | tr -d '[:space:]')
                 if [ "$already_executed" = "1" ]; then
                     skip_count=$((skip_count + 1))
                     continue
@@ -1442,7 +1442,7 @@ execute_additional_sql_scripts() {
                 
                 # 如果刚执行的是版本表初始化脚本，重新检查表是否存在
                 if [ "$version" = "000000000000" ] && [ "$has_migrations_table" = false ]; then
-                    if sudo docker exec -i "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1" 2>/dev/null | grep -q "1"; then
+                    if sudo docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1" 2>/dev/null | grep -q "1"; then
                         has_migrations_table=true
                         info "版本跟踪表已创建，后续脚本执行将被记录"
                     fi
@@ -1450,7 +1450,7 @@ execute_additional_sql_scripts() {
                 
                 # 记录到版本表（如果表存在）
                 if [ "$has_migrations_table" = true ]; then
-                    sudo docker exec -i "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -e \
+                    sudo docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -e \
                         "INSERT IGNORE INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '自动执行', $exec_time, 1)" 2>/dev/null
                 fi
                 
@@ -1459,7 +1459,7 @@ execute_additional_sql_scripts() {
             else
                 # 记录失败（如果表存在）
                 if [ "$has_migrations_table" = true ]; then
-                    sudo docker exec -i "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -e \
+                    sudo docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -e \
                         "INSERT IGNORE INTO db_migrations (version, description, success) VALUES ('$version', '执行失败', 0)" 2>/dev/null
                 fi
                 
@@ -1538,6 +1538,9 @@ reinstall_latest_system() {
     else
         info "未找到域名配置，将使用交互式域名输入"
     fi
+    
+    # 设置更新模式标志，防止 deploy.sh 中的 mark_all_migrations_as_executed 误标记迁移脚本
+    export POETIZE_UPDATE_MODE=true
     
     # 执行安装命令
     eval "$deploy_cmd"

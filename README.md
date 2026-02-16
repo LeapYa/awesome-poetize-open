@@ -100,11 +100,11 @@
 ## 🚀 快速开始
 
 ```bash
-# 你只需要输入域名邮箱即可
+# 你只需要输入域名即可
 bash <(curl -sL install.leapya.com)
 ```
 
-脚本将自动完成所有配置，包括Docker安装、数据库初始化和HTTPS配置。
+脚本将自动完成所有配置，包括代理配置、Docker安装、数据库初始化和HTTPS配置。
 
 ## 📋 部署文档
 
@@ -320,7 +320,7 @@ poetize -qy
 项目在部署时可能因任何原因（网络波动、资源不足等）导致部署失败，在1核1G服务器较常见，如果部署失败，可执行以下命令清理并重新部署：
 
 ```bash
-sudo docker system prune -af && rm -rf Awesome-poetize-open && bash <(curl -sL install.leapya.com)
+sudo docker system prune -af && cd .. && sudo rm -rf Awesome-poetize-open && bash <(curl -sL install.leapya.com)
 ```
 
 更多详见[排障指南](#-排障指南)

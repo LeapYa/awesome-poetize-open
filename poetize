@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-02-12
+## 修改时间: 2026-02-17
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.9.3
+## 版本: 1.9.4
 
 # 定义颜色
 RED='\033[0;31m'
@@ -594,48 +594,6 @@ run_deployment() {
         esac
     fi
     
-    # 询问安装位置
-    printf "${CYAN}请选择POETIZE博客系统的安装位置：${NC}\n"
-    printf "\n"
-    printf "当前目录: $(pwd)\n"
-    printf "\n"
-    
-    # 默认安装目录建议
-    local default_install_dir="$HOME/poetize-blog"
-    
-    printf "请输入安装目录路径\n"
-    printf "${YELLOW}提示: 直接回车使用默认路径 ($default_install_dir)${NC}\n"
-    read -rp "安装目录: " install_dir
-    
-    # 使用默认目录或用户指定目录
-    if [ -z "$install_dir" ]; then
-        install_dir="$default_install_dir"
-    fi
-    
-    # 展开波浪号
-    install_dir=$(eval echo "$install_dir")
-    
-    # 验证目录路径
-    if [ -d "$install_dir" ] && [ "$(ls -A "$install_dir" 2>/dev/null)" ]; then
-        warning "目录 $install_dir 已存在且不为空"
-        printf "\n"
-        read -rp "是否继续在此目录安装？这可能会覆盖现有文件 (y/N): " continue_install
-        case "$continue_install" in
-            [Yy]|[Yy][Ee][Ss])
-                info "继续在指定目录安装..."
-                ;;
-            *)
-                info "安装已取消"
-                exit 0
-                ;;
-        esac
-    fi
-    
-    # 创建安装目录
-    info "准备安装目录: $install_dir"
-    mkdir -p "$install_dir"
-    cd "$install_dir"
-    
     # 显示安装信息
     printf "\n"
     printf "${GREEN}===========================================${NC}\n"
@@ -646,7 +604,11 @@ run_deployment() {
     printf "\n"
     
     # 执行一键部署脚本
-    bash <(curl -sL deploy.leapya.com)
+    if is_china_environment; then
+        bash <(curl -fsSL https://gitee.com/leapya/poetize/raw/main/deploy.sh)
+    else
+        bash <(curl -fsSL https://raw.githubusercontent.com/leapya/Awesome-poetize-open/main/deploy.sh)
+    fi
 }
 
 # 显示系统信息
@@ -1504,7 +1466,7 @@ reinstall_latest_system() {
     fi
     
     # 构建安装命令
-    local deploy_cmd="bash <(curl -sL deploy.leapya.com)"
+    local deploy_cmd="sudo chmod +x deploy.sh && sudo ./deploy.sh"
     
     if [ -n "$domains" ]; then
         info "使用域名进行自动安装..."

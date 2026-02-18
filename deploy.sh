@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-02-12
+## 修改时间: 2026-02-18
 ## 描述: 部署 POETIZE 博客系统安装脚本
-## 版本: 1.15.3
+## 版本: 1.15.4
 
 # 定义颜色
 RED='\033[0;31m'
@@ -3744,11 +3744,30 @@ install_docker_china() {
 install_docker() {
   info "安装Docker..."
   
-  # 先检查Docker是否已安装
+  # 先检查Docker是否已安装且可用
     if command -v docker &>/dev/null; then
-      info "Docker命令已可用，跳过安装"
-      success "Docker已安装"
-    return 0
+      # Docker命令存在，验证守护进程是否正常工作
+      if docker info &>/dev/null 2>&1 || sudo docker info &>/dev/null 2>&1; then
+        info "Docker命令已可用，跳过安装"
+        success "Docker已安装"
+        return 0
+      fi
+      
+      # Docker命令存在但守护进程不可用，尝试启动服务
+      if command -v systemctl &>/dev/null; then
+        info "Docker命令存在但守护进程未运行，尝试启动服务..."
+        sudo systemctl start docker 2>/dev/null || true
+        sudo systemctl enable docker 2>/dev/null || true
+        sleep 2
+        if docker info &>/dev/null 2>&1 || sudo docker info &>/dev/null 2>&1; then
+          info "Docker服务已启动"
+          success "Docker已安装"
+          return 0
+        fi
+      fi
+      
+      # 命令存在但服务无法启动，可能安装已损坏，继续重新安装
+      warning "Docker命令存在但服务无法启动，将重新安装..."
     fi
     
     # 检查是否存在离线安装包
@@ -8884,7 +8903,23 @@ main() {
   
   # 检查Docker环境
   info "检查Docker环境..."
-  if ! docker info &>/dev/null; then
+  if ! docker info &>/dev/null 2>&1 && ! sudo docker info &>/dev/null 2>&1; then
+    # Docker不可用，可能是未安装，也可能是已安装但服务未启动
+    # 先尝试启动Docker服务（CentOS等系统安装Docker后服务可能未自动启动）
+    if command -v docker &>/dev/null && command -v systemctl &>/dev/null; then
+      info "Docker命令存在但守护进程未运行，尝试启动Docker服务..."
+      sudo systemctl start docker 2>/dev/null || true
+      sudo systemctl enable docker 2>/dev/null || true
+      sleep 2
+      
+      if sudo docker info &>/dev/null 2>&1; then
+        success "Docker服务已成功启动"
+      fi
+    fi
+  fi
+  
+  # 再次检查Docker是否可用（可能已通过上面的启动逻辑恢复）
+  if ! docker info &>/dev/null 2>&1 && ! sudo docker info &>/dev/null 2>&1; then
     if grep -q Microsoft /proc/version 2>/dev/null; then
       warning "Docker在WSL中不可用"
       echo ""
@@ -8915,7 +8950,47 @@ main() {
       success "Docker安装成功"
     fi
   else
-    info "Docker已安装，无需执行安装程序"
+    # Docker可用，但需要检查Engine版本是否太旧（如CentOS预装的旧版Docker）
+    local docker_server_version=""
+    docker_server_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null || sudo docker version --format '{{.Server.Version}}' 2>/dev/null || echo "")
+    local docker_major_version=""
+    if [ -n "$docker_server_version" ]; then
+      docker_major_version=$(echo "$docker_server_version" | cut -d. -f1)
+    fi
+    
+    # Docker Engine 20.x 是支持现代API和Compose V2的最低版本
+    # CentOS预装的旧版Docker（如1.13.x）会导致 "client version is too new" 错误
+    if [ -n "$docker_major_version" ] && [ "$docker_major_version" -lt 20 ] 2>/dev/null; then
+      warning "检测到旧版 Docker Engine (版本: $docker_server_version)"
+      warning "当前版本过旧，可能导致构建失败（API版本不兼容）"
+      info "需要升级到 Docker CE 20.x 或更高版本"
+      
+      # 停止旧版Docker服务，为升级做准备
+      info "停止旧版Docker服务..."
+      sudo systemctl stop docker 2>/dev/null || true
+      sudo systemctl stop docker.socket 2>/dev/null || true
+      
+      # 直接调用安装流程升级Docker（安装函数内部会处理旧版包的移除）
+      if is_china_environment; then
+        info "使用国内镜像源升级Docker..."
+        install_docker_china
+      else
+        info "使用官方脚本升级Docker..."
+        if curl -fsSL https://get.docker.com -o get-docker.sh; then
+          sh get-docker.sh
+          rm -f get-docker.sh
+        else
+          warning "官方脚本下载失败，回退到国内镜像源..."
+          install_docker_china
+        fi
+      fi
+      
+      # 验证升级后的版本
+      local new_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null || sudo docker version --format '{{.Server.Version}}' 2>/dev/null || echo "未知")
+      success "Docker已升级 (版本: $new_version)"
+    else
+      info "Docker已安装 (版本: ${docker_server_version:-未知})，无需执行安装程序"
+    fi
 
     if is_china_environment; then
       choose_docker_registry_mirror

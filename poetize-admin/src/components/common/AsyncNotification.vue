@@ -5,8 +5,8 @@
       <div
         v-for="notification in notifications"
         :key="notification.id"
-        :class="['notification-item', notification.type]"
-        @click="removeNotification(notification.id)"
+        :class="['notification-item', notification.type, notification.onClick ? 'clickable' : '']"
+        @click="handleNotificationClick(notification)"
       >
         <div class="notification-content">
           <div class="notification-icon">
@@ -66,6 +66,7 @@ export default {
         type: notification.type || 'info',
         duration: notification.duration !== undefined ? notification.duration : 3000,
         taskId: notification.taskId,
+        onClick: notification.onClick || null,
         progress: 0,
         createTime: Date.now()
       };
@@ -82,6 +83,16 @@ export default {
       return id;
     },
     
+    /**
+     * 处理通知点击
+     */
+    handleNotificationClick(notification) {
+      if (notification.onClick && typeof notification.onClick === 'function') {
+        notification.onClick();
+      }
+      this.removeNotification(notification.id);
+    },
+
     /**
      * 更新通知
      */

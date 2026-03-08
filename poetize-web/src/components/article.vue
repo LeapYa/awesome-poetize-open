@@ -226,6 +226,55 @@
             class="entry-content"
             :lang="currentLang"
           ></div>
+
+          <!-- 付费墙提示 -->
+          <div v-if="article.paywalled" class="paywall-block">
+            <div class="paywall-fade"></div>
+            <div class="paywall-card">
+              <div class="paywall-badge">
+                <span v-if="article.payType === 2">VIP专享</span>
+                <span v-else>付费解锁</span>
+              </div>
+              <div class="paywall-hidden-prompt">
+                <svg viewBox="0 0 1024 1024" width="16" height="16" style="vertical-align: -2px; margin-right: 6px;">
+                  <path d="M512 42.666667A469.333333 469.333333 0 1 0 981.333333 512 469.333333 469.333333 0 0 0 512 42.666667z m0 768a53.333333 53.333333 0 1 1 53.333333-53.333334 53.333333 53.333333 0 0 1-53.333333 53.333334z m53.333333-234.666667a53.333333 53.333333 0 0 1-106.666666 0v-256a53.333333 53.333333 0 0 1 106.666666 0z" fill="#ff4d79"></path>
+                </svg>
+                此处内容已隐藏
+              </div>
+              <div class="paywall-desc" v-if="article.payType === 1">
+                支付 <strong>¥{{ article.payAmount }}</strong> 即可解锁全文
+              </div>
+              <div class="paywall-desc" v-else-if="article.payType === 2">
+                本文为会员专属内容，成为会员即可阅读
+              </div>
+              <div class="paywall-desc" v-else-if="article.payType === 3">
+                赞赏 <strong>¥{{ article.payAmount }}</strong> 后可解锁全文
+              </div>
+              <div class="paywall-desc" v-else-if="article.payType === 4">
+                支付 <strong>¥{{ article.payAmount }}</strong> 即可解锁全文
+              </div>
+              <div class="paywall-actions">
+                <el-button
+                  type="primary"
+                  size="large"
+                  round
+                  @click="handlePayment"
+                  :loading="paymentLoading"
+                >
+                  {{ article.payType === 2 ? '成为会员' : '立即解锁' }}
+                </el-button>
+              </div>
+              <div class="paywall-meta" v-if="article.paidCount > 0">
+                已有 {{ article.paidCount }} 人解锁
+              </div>
+              <div class="paywall-verify">
+                <a href="javascript:void(0)" @click="verifyPayment" :class="{ checking: verifyingPayment }">
+                  {{ verifyingPayment ? '验证中...' : '已支付？点击刷新状态' }}
+                </a>
+              </div>
+            </div>
+          </div>
+
           <!-- 最后更新时间 -->
           <div class="article-update-time">
             <span>文章最后更新于 {{ article.updateTime }}</span>
@@ -566,6 +615,7 @@ import {
   getTocEmoji,
   resetTheme,
 } from '@/composables/useArticleTheme'
+import { emitPluginHook } from '@/composables/usePluginLoader'
 
 const CommentLoading = {
   name: 'CommentLoading',
@@ -676,6 +726,8 @@ export default {
         currentContainer: null,
       },
       articleThemeConfig: null, // 文章主题配置（缓存，供 TOC 使用）
+      paymentLoading: false, // 付费按钮加载状态
+      verifyingPayment: false, // 验证支付状态
     }
   },
   head() {
@@ -1133,6 +1185,82 @@ export default {
       this.translatedContent = ''
     },
 
+    async verifyPayment() {
+      if (this.$common.isEmpty(this.mainStore.currentUser)) {
+        this.$message.warning('请先登录')
+        return
+      }
+      this.verifyingPayment = true
+      try {
+        const res = await this.$http.get(
+          this.$constant.baseURL + '/payment/checkPayment',
+          { articleId: this.article.id }
+        )
+        if (res.code === 200 && res.data === true) {
+          this.$message.success('验证成功！正在刷新文章...')
+          this.getArticle()
+        } else {
+          this.$message.info('暂未查到支付记录，如已支付请稍后再试')
+        }
+      } catch (e) {
+        this.$message.error('验证失败，请稍后重试')
+      } finally {
+        this.verifyingPayment = false
+      }
+    },
+
+    async handlePayment() {
+      if (this.$common.isEmpty(this.mainStore.currentUser)) {
+        this.$message.warning('请先登录后再进行付费操作')
+        return
+      }
+      this.paymentLoading = true
+      try {
+        // 会员专属文章传 articleId=0，其他传实际文章ID
+        const payArticleId = this.article.payType === 2 ? 0 : this.article.id
+        const res = await this.$http.get(
+          this.$constant.baseURL + '/payment/getPaymentUrl',
+          { articleId: payArticleId }
+        )
+        if (res.code === 200 && res.data) {
+          window.open(res.data, '_blank')
+          // 轮询检查支付状态
+          this.$message({
+            message: '请在新窗口完成支付，支付后将自动刷新',
+            type: 'info',
+            duration: 10000
+          })
+          let checkCount = 0
+          const checkInterval = setInterval(async () => {
+            checkCount++
+            if (checkCount > 60) { // 5分钟超时
+              clearInterval(checkInterval)
+              return
+            }
+            try {
+              const checkRes = await this.$http.get(
+                this.$constant.baseURL + '/payment/checkPayment',
+                { articleId: this.article.id }
+              )
+              if (checkRes.code === 200 && checkRes.data === true) {
+                clearInterval(checkInterval)
+                this.$message.success('支付成功！正在刷新文章...')
+                this.getArticle()
+              }
+            } catch (e) {
+              // 静默忽略检查错误
+            }
+          }, 5000)
+        } else {
+          this.$message.error(res.message || '获取支付链接失败，请稍后重试')
+        }
+      } catch (error) {
+        this.$message.error('网络错误，请稍后重试')
+      } finally {
+        this.paymentLoading = false
+      }
+    },
+
     subscribeLabel() {
       // 首先显示确认订阅对话框
       const confirmMessage = this.subscribe
@@ -1443,6 +1571,15 @@ export default {
                   const prefix = rawEmoji === null ? '🏖️' : rawEmoji
                   tocElement.setAttribute('data-toc-title', `${prefix}${tocTitle}`)
                 }
+              })
+
+              // 触发插件钩子：文章内容渲染完成
+              this.$nextTick(() => {
+                emitPluginHook('onArticleRender', {
+                  articleId: this.article.id,
+                  title: this.article.articleTitle,
+                  element: document.querySelector('.entry-content'),
+                })
               })
 
               // 强制重排并刷新
@@ -4310,6 +4447,130 @@ export default {
   position: relative;
   z-index: 1;
 }
+.paywall-block {
+  position: relative;
+  margin-top: -80px;
+  padding-top: 0;
+  z-index: 2;
+}
+
+.paywall-fade {
+  height: 120px;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.85) 60%,
+    rgba(255, 255, 255, 1) 100%
+  );
+  pointer-events: none;
+}
+
+body.dark-mode .paywall-fade {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--background) 100%
+  );
+}
+
+.paywall-card {
+  position: relative;
+  text-align: center;
+  padding: 40px 30px;
+  border-radius: 8px;
+  background: white;
+  border: 2px dashed #ff4d79;
+  margin-top: 30px;
+  box-shadow: 0 4px 16px rgba(255, 77, 121, 0.08);
+}
+
+.paywall-badge {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: #ff4d79;
+  color: white;
+  width: 200px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 30px;
+  font-size: 18px;
+  font-weight: bold;
+  box-shadow: 0 4px 10px rgba(255, 77, 121, 0.3);
+  letter-spacing: 2px;
+}
+
+.paywall-hidden-prompt {
+  color: #ff4d79;
+  font-size: 16px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.paywall-desc {
+  font-size: 15px;
+  color: var(--greyFont, #666);
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.paywall-desc strong {
+  color: #ff4d79;
+  font-size: 22px;
+}
+
+.paywall-actions {
+  margin-bottom: 16px;
+}
+
+.paywall-actions .el-button {
+  padding: 14px 48px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  background-color: #ff4d79;
+  border-color: #ff4d79;
+}
+
+.paywall-actions .el-button:hover,
+.paywall-actions .el-button:focus {
+  background-color: #ff6b8e;
+  border-color: #ff6b8e;
+  color: white;
+}
+
+.paywall-meta {
+  font-size: 13px;
+  color: var(--greyFont, #999);
+}
+
+.paywall-verify {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.paywall-verify a {
+  color: var(--greyFont, #aaa);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.paywall-verify a:hover {
+  color: #409EFF;
+}
+
+.paywall-verify a.checking {
+  color: #409EFF;
+  pointer-events: none;
+}
+
 .article-update-time {
   color: var(--greyFont);
   font-size: 12px;

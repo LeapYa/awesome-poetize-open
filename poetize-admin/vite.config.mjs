@@ -4,9 +4,23 @@ import path from 'path';
 import viteCompression from 'vite-plugin-compression';
 import envCompatible from 'vite-plugin-env-compatible';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// 开发环境自动从 git 获取版本号（生产环境由 deploy.sh 注入 VITE_APP_VERSION）
+function getGitVersion() {
+    try {
+        return execSync('git describe --tags --abbrev=0', { cwd: path.resolve(__dirname, '..'), encoding: 'utf-8' }).trim();
+    } catch {
+        try {
+            return execSync('git tag --sort=-version:refname', { cwd: path.resolve(__dirname, '..'), encoding: 'utf-8' }).trim().split('\n')[0];
+        } catch {
+            return 'dev';
+        }
+    }
+}
 
 export default defineConfig({
     base: '/admin/',
@@ -48,10 +62,6 @@ export default defineConfig({
                 target: 'http://localhost:5173', // 主站前端开发服务器
                 changeOrigin: true,
             },
-            '/libs': {
-                target: 'http://localhost:5173', // 主站前端开发服务器
-                changeOrigin: true,
-            },
             '/assets': {
                 target: 'http://localhost:5173', // 主站前端开发服务器
                 changeOrigin: true,
@@ -59,7 +69,8 @@ export default defineConfig({
         },
     },
     define: {
-        'process.env': {}
+        'process.env': {},
+        '__APP_VERSION__': JSON.stringify(process.env.VITE_APP_VERSION || getGitVersion()),
     },
     build: {
         sourcemap: false, // 禁用 source map 以减少内存消耗
@@ -113,5 +124,5 @@ export default defineConfig({
                 },
             },
         },
-    },
+    }
 });

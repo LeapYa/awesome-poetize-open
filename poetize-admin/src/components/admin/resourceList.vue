@@ -1,6 +1,10 @@
 <template>
   <div>
     <div>
+      <div v-if="routeSearchDisplayKeyword" style="margin-bottom: 12px; padding: 10px 14px; border-radius: 8px; background: #f4f8ff; color: #606266; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+        <span>当前显示的是全局搜索结果：{{ routeSearchDisplayKeyword }}</span>
+        <el-button type="text" @click="clearGlobalSearchFilter">清除全局筛选</el-button>
+      </div>
       <div class="handle-box">
         <el-select clearable v-model="pagination.resourceType" placeholder="资源类型" class="handle-select mrb10">
           <el-option key="21" label="Video.Article" value="video/article"></el-option>
@@ -28,7 +32,7 @@
         <el-button type="primary" icon="el-icon-search" @click="search()">搜索</el-button>
         <el-button type="primary" @click="addResources()">新增资源</el-button>
       </div>
-      <el-table :data="resources" border class="table" header-cell-class-name="table-header">
+      <el-table :data="displayedResources" border class="table" header-cell-class-name="table-header">
         <el-table-column prop="id" label="ID" width="55" align="center"></el-table-column>
         <el-table-column prop="originalName" label="名称" align="center"></el-table-column>
         <el-table-column prop="userId" label="用户ID" align="center"></el-table-column>
@@ -80,7 +84,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="pagination">
+      <div v-if="!routeSearchDisplayKeyword" class="pagination">
         <el-pagination background layout="total, prev, pager, next"
                        :current-page="pagination.current"
                        :page-size="pagination.size"
@@ -190,274 +194,305 @@
 </template>
 
 <script>
+import { useMainStore } from '@/stores/main';
 
-    import { useMainStore } from '@/stores/main';
+const uploadPicture = () => import('../common/uploadPicture');
 
-const uploadPicture = () => import( "../common/uploadPicture");
+function normalizeSearchText(value) {
+  return ((value || '') + '').toLowerCase().replace(/\s+/g, '').trim();
+}
 
-  export default {
-    components: {
-      uploadPicture
+export default {
+  components: {
+    uploadPicture
+  },
+  data() {
+    return {
+      pagination: {
+        current: 1,
+        size: 10,
+        total: 0,
+        resourceType: '',
+        searchKey: ''
+      },
+      resources: [],
+      resourceDialog: false,
+      storeTypes: [
+        { label: '服务器', value: 'local' },
+        { label: '七牛云', value: 'qiniu' },
+        { label: '兰空图床', value: 'lsky' },
+        { label: '简单图床', value: 'easyimage' }
+      ],
+      storeType: 'local',
+      previewMediaUrl: '',
+      previewMediaType: '',
+      previewFileName: '',
+      previewVisible: false,
+      fontLoaded: false,
+      loadedFontName: '',
+      fontPreviewTexts: [
+        { label: '英文大写', content: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' },
+        { label: '英文小写', content: 'abcdefghijklmnopqrstuvwxyz' },
+        { label: '数字', content: '0123456789' },
+        { label: '中文示例', content: '床前明月光，疑是地上霜。举头望明月，低头思故乡。' },
+        { label: '符号', content: '!@#$%^&*()_+-=[]{}|;:,.<>?' },
+        { label: '英文句子', content: 'The quick brown fox jumps over the lazy dog.' }
+      ],
+      fontSizes: [14, 18, 24, 32, 48]
+    };
+  },
+
+  computed: {
+    mainStore() {
+      return useMainStore();
     },
-    data() {
-      return {
-        pagination: {
-          current: 1,
-          size: 10,
-          total: 0,
-          resourceType: ""
-        },
-        resources: [],
-        resourceDialog: false,
-        storeTypes: [
-          {label: "服务器", value: "local"},
-          {label: "七牛云", value: "qiniu"},
-          {label: "兰空图床", value: "lsky"},
-          {label: "简单图床", value: "easyimage"}
-        ],
-        // 修复：延迟初始化storeType，避免在mainStore未初始化时访问sysConfig
-        storeType: 'local',
-        previewMediaUrl: "",
-        previewMediaType: "",
-        previewFileName: "",
-        previewVisible: false,
-        fontLoaded: false,
-        loadedFontName: "",
-        fontPreviewTexts: [
-          { label: '英文大写', content: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' },
-          { label: '英文小写', content: 'abcdefghijklmnopqrstuvwxyz' },
-          { label: '数字', content: '0123456789' },
-          { label: '中文示例', content: '床前明月光，疑是地上霜。举头望明月，低头思故乡。' },
-          { label: '符号', content: '!@#$%^&*()_+-=[]{}|;:,.<>?' },
-          { label: '英文句子', content: 'The quick brown fox jumps over the lazy dog.' }
-        ],
-        fontSizes: [14, 18, 24, 32, 48]
+    routeSearchDisplayKeyword() {
+      return ((this.$route.query.search || '') + '').trim();
+    },
+    routeSearchKeyword() {
+      return normalizeSearchText(this.routeSearchDisplayKeyword);
+    },
+    filteredResources() {
+      if (!this.routeSearchKeyword) {
+        return this.resources;
       }
+      return this.filterResourcesByKeyword(this.resources, this.routeSearchKeyword);
     },
+    displayedResources() {
+      return this.routeSearchKeyword ? this.filteredResources : this.resources;
+    }
+  },
 
-    computed: {
-      mainStore() {
-        return useMainStore();
-      },},
-
-    watch: {},
-
-    created() {
-      // 在created钩子中初始化storeType，确保mainStore已经可用
-      if (this.mainStore && this.mainStore.sysConfig && this.mainStore.sysConfig['store.type']) {
-        this.storeType = this.mainStore.sysConfig['store.type'];
-      }
-      this.getResources();
-    },
-
-    mounted() {
-    },
-
-    beforeDestroy() {
-      // 组件销毁前清理字体
-      this.cleanupFont();
-    },
-
-    methods: {
-      handleDelete(item) {
-        this.$confirm('确认删除资源？', '提示', {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
-          type: 'success',
-          center: true,
-          customClass: 'mobile-responsive-confirm'
-        }).then(() => {
-          this.$http.post(this.$constant.baseURL + "/resource/deleteResource", {path: item.path}, true, false)
-            .then((res) => {
-              this.pagination.current = 1;
-              this.getResources();
-              this.$message({
-                message: "删除成功！",
-                type: "success"
-              });
-            })
-            .catch((error) => {
-              this.$message({
-                message: error.message,
-                type: "error"
-              });
-            });
-        }).catch(() => {
-          this.$message({
-            type: 'success',
-            message: '已取消删除!'
-          });
-        });
-      },
-
-      addFile(res) {
-      },
-
-      addResources() {
-        if (this.$common.isEmpty(this.pagination.resourceType)) {
-          this.$message({
-            message: "请选择资源类型！",
-            type: "error"
-          });
-          return;
-        }
-        this.resourceDialog = true;
-      },
-      search() {
-        this.pagination.total = 0;
-        this.pagination.current = 1;
+  watch: {
+    '$route.query': {
+      immediate: true,
+      handler() {
+        this.applyRouteQuery();
         this.getResources();
-      },
-      getResources() {
-        this.$http.post(this.$constant.baseURL + "/resource/listResource", this.pagination, true)
-          .then((res) => {
-            if (!this.$common.isEmpty(res.data)) {
-              this.resources = res.data.records;
-              this.pagination.total = res.data.total;
-            }
-          })
-          .catch((error) => {
-            this.$message({
-              message: error.message,
-              type: "error"
-            });
-          });
-      },
-      changeStatus(item) {
-        this.$http.get(this.$constant.baseURL + "/resource/changeResourceStatus", {
-          id: item.id,
-          flag: item.status
-        }, true)
-          .then((res) => {
-            this.$message({
-              message: "修改成功！",
-              type: "success"
-            });
-          })
-          .catch((error) => {
-            this.$message({
-              message: error.message,
-              type: "error"
-            });
-          });
-      },
-      handlePageChange(val) {
-        this.pagination.current = val;
-        this.getResources();
-      },
-      previewMedia(mediaPath, mimeType, fileName) {
-        this.previewMediaUrl = mediaPath;
-        this.previewMediaType = mimeType;
-        this.previewFileName = fileName || "";
-        
-        // 如果是字体文件，需要加载字体
-        if (this.isFont(mimeType)) {
-          this.loadFont(mediaPath, fileName);
-        } else {
-          this.fontLoaded = false;
-        }
-        
-        this.previewVisible = true;
-      },
-      
-      isFont(mimeType) {
-        const fontMimeTypes = [
-          'font/woff', 'font/woff2', 'font/ttf', 'font/otf',
-          'application/font-woff', 'application/font-woff2', 
-          'application/x-font-ttf', 'application/x-font-otf',
-          'application/font-sfnt', 'font/opentype'
-        ];
-        return fontMimeTypes.some(type => mimeType.includes(type)) || 
-               /\.(woff|woff2|ttf|otf|eot)$/i.test(this.previewFileName);
-      },
-      
-      loadFont(fontUrl, fileName) {
-        // 清理之前的字体
-        this.cleanupFont();
-        
-        // 生成唯一的字体名称
-        this.loadedFontName = 'preview-font-' + Date.now();
-        
-        // 创建字体样式
-        const style = document.createElement('style');
-        style.id = 'font-preview-style';
-        style.innerHTML = `
-          @font-face {
-            font-family: '${this.loadedFontName}';
-            src: url('${fontUrl}');
-          }
-        `;
-        
-        // 安全地添加style元素到head
-        if (style && style.nodeType === Node.ELEMENT_NODE && document.head && typeof document.head.appendChild === 'function') {
-          try {
-            document.head.appendChild(style);
-          } catch (e) {
-          }
-        }
-        
-        // 预加载字体
-        const testDiv = document.createElement('div');
-        testDiv.style.fontFamily = this.loadedFontName;
-        testDiv.style.position = 'absolute';
-        testDiv.style.left = '-9999px';
-        testDiv.innerHTML = 'Test';
-        // 安全地添加testDiv元素到body
-        if (testDiv && testDiv.nodeType === Node.ELEMENT_NODE && document.body && typeof document.body.appendChild === 'function') {
-          try {
-            document.body.appendChild(testDiv);
-          } catch (e) {
-          }
-        }
-        
-        // 延迟显示，确保字体加载完成
-        setTimeout(() => {
-          this.fontLoaded = true;
-          document.body.removeChild(testDiv);
-        }, 100);
-      },
-      
-      cleanupFont() {
-        // 清理之前加载的字体样式
-        const existingStyle = document.getElementById('font-preview-style');
-        if (existingStyle) {
-          existingStyle.remove();
-        }
-        this.fontLoaded = false;
-        this.loadedFontName = "";
-      },
-      
-      getPreviewTitle() {
-        if (this.previewMediaType.includes('image')) {
-          return '图片预览（点击图片可放大）';
-        } else if (this.previewMediaType.includes('video')) {
-          return '视频预览';
-        } else if (this.isFont(this.previewMediaType)) {
-          return '字体预览';
-        } else {
-          return '文件预览';
-        }
-      },
-      
-      handlePreviewClose(done) {
-        // 对话框关闭时清理字体
-        this.cleanupFont();
-        done();
-      },
-      
-      formatDateTime(dateTime) {
-        if (!dateTime) return '-';
-        const date = new Date(dateTime);
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        const seconds = String(date.getSeconds()).padStart(2, '0');
-        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
       }
     }
+  },
+
+  created() {
+    if (this.mainStore && this.mainStore.sysConfig && this.mainStore.sysConfig['store.type']) {
+      this.storeType = this.mainStore.sysConfig['store.type'];
+    }
+  },
+
+  beforeDestroy() {
+    this.cleanupFont();
+  },
+
+  methods: {
+    applyRouteQuery() {
+      const query = this.$route.query || {};
+      this.pagination.resourceType = query.resourceType || '';
+      this.pagination.searchKey = ((query.search || '') + '').trim();
+      this.pagination.current = 1;
+    },
+    filterResourcesByKeyword(resources, keyword) {
+      if (!keyword) {
+        return resources || [];
+      }
+      return (resources || []).filter((item) => {
+        return [item.originalName, item.type, item.path, item.mimeType, item.storeType, String(item.id || ''), String(item.userId || '')]
+          .some((value) => normalizeSearchText(value).includes(keyword));
+      });
+    },
+    clearGlobalSearchFilter() {
+      const nextQuery = { ...this.$route.query };
+      delete nextQuery.search;
+      delete nextQuery.resourceType;
+      this.$router.replace({ path: this.$route.path, query: nextQuery });
+    },
+    handleDelete(item) {
+      this.$confirm('确认删除资源？', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'success',
+        center: true,
+        customClass: 'mobile-responsive-confirm'
+      }).then(() => {
+        this.$http.post(this.$constant.baseURL + '/resource/deleteResource', { path: item.path }, true, false)
+          .then(() => {
+            this.pagination.current = 1;
+            this.getResources();
+            this.$message({
+              message: '删除成功！',
+              type: 'success'
+            });
+          })
+          .catch((error) => {
+            this.$message({
+              message: error.message,
+              type: 'error'
+            });
+          });
+      }).catch(() => {
+        this.$message({
+          type: 'success',
+          message: '已取消删除!'
+        });
+      });
+    },
+    addFile() {
+    },
+    addResources() {
+      if (this.$common.isEmpty(this.pagination.resourceType)) {
+        this.$message({
+          message: '请选择资源类型！',
+          type: 'error'
+        });
+        return;
+      }
+      this.resourceDialog = true;
+    },
+    search() {
+      this.pagination.total = 0;
+      this.pagination.current = 1;
+      this.getResources();
+    },
+    getResources() {
+      const requestPagination = {
+        current: this.routeSearchKeyword ? 1 : this.pagination.current,
+        size: this.routeSearchKeyword ? 500 : this.pagination.size,
+        resourceType: this.pagination.resourceType,
+        searchKey: ''
+      };
+
+      this.$http.post(this.$constant.baseURL + '/resource/listResource', requestPagination, true)
+        .then((res) => {
+          if (!this.$common.isEmpty(res.data)) {
+            const records = res.data.records || [];
+            this.resources = records;
+            this.pagination.total = this.routeSearchKeyword
+              ? this.filterResourcesByKeyword(records, this.routeSearchKeyword).length
+              : res.data.total;
+          }
+        })
+        .catch((error) => {
+          this.$message({
+            message: error.message,
+            type: 'error'
+          });
+        });
+    },
+    changeStatus(item) {
+      this.$http.get(this.$constant.baseURL + '/resource/changeResourceStatus', {
+        id: item.id,
+        flag: item.status
+      }, true)
+        .then(() => {
+          this.$message({
+            message: '修改成功！',
+            type: 'success'
+          });
+        })
+        .catch((error) => {
+          this.$message({
+            message: error.message,
+            type: 'error'
+          });
+        });
+    },
+    handlePageChange(val) {
+      this.pagination.current = val;
+      this.getResources();
+    },
+    previewMedia(mediaPath, mimeType, fileName) {
+      this.previewMediaUrl = mediaPath;
+      this.previewMediaType = mimeType;
+      this.previewFileName = fileName || '';
+
+      if (this.isFont(mimeType)) {
+        this.loadFont(mediaPath);
+      } else {
+        this.fontLoaded = false;
+      }
+
+      this.previewVisible = true;
+    },
+    isFont(mimeType) {
+      const fontMimeTypes = [
+        'font/woff', 'font/woff2', 'font/ttf', 'font/otf',
+        'application/font-woff', 'application/font-woff2',
+        'application/x-font-ttf', 'application/x-font-otf',
+        'application/font-sfnt', 'font/opentype'
+      ];
+      return fontMimeTypes.some(type => mimeType.includes(type)) ||
+        /\.(woff|woff2|ttf|otf|eot)$/i.test(this.previewFileName);
+    },
+    loadFont(fontUrl) {
+      this.cleanupFont();
+      this.loadedFontName = 'preview-font-' + Date.now();
+
+      const style = document.createElement('style');
+      style.id = 'font-preview-style';
+      style.innerHTML = "\n          @font-face {\n            font-family: '" + this.loadedFontName + "';\n            src: url('" + fontUrl + "');\n          }\n        ";
+
+      if (style && style.nodeType === Node.ELEMENT_NODE && document.head && typeof document.head.appendChild === 'function') {
+        try {
+          document.head.appendChild(style);
+        } catch (e) {
+        }
+      }
+
+      const testDiv = document.createElement('div');
+      testDiv.style.fontFamily = this.loadedFontName;
+      testDiv.style.position = 'absolute';
+      testDiv.style.left = '-9999px';
+      testDiv.innerHTML = 'Test';
+      if (testDiv && testDiv.nodeType === Node.ELEMENT_NODE && document.body && typeof document.body.appendChild === 'function') {
+        try {
+          document.body.appendChild(testDiv);
+        } catch (e) {
+        }
+      }
+
+      setTimeout(() => {
+        this.fontLoaded = true;
+        if (document.body.contains(testDiv)) {
+          document.body.removeChild(testDiv);
+        }
+      }, 100);
+    },
+    cleanupFont() {
+      const existingStyle = document.getElementById('font-preview-style');
+      if (existingStyle) {
+        existingStyle.remove();
+      }
+      this.fontLoaded = false;
+      this.loadedFontName = '';
+    },
+    getPreviewTitle() {
+      if (this.previewMediaType.includes('image')) {
+        return '图片预览（点击图片可放大）';
+      }
+      if (this.previewMediaType.includes('video')) {
+        return '视频预览';
+      }
+      if (this.isFont(this.previewMediaType)) {
+        return '字体预览';
+      }
+      return '文件预览';
+    },
+    handlePreviewClose(done) {
+      this.cleanupFont();
+      done();
+    },
+    formatDateTime(dateTime) {
+      if (!dateTime) return '-';
+      const date = new Date(dateTime);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const seconds = String(date.getSeconds()).padStart(2, '0');
+      return year + '-' + month + '-' + day + ' ' + hours + ':' + minutes + ':' + seconds;
+    }
   }
+};
 </script>
 
 <style scoped>
@@ -615,3 +650,6 @@ const uploadPicture = () => import( "../common/uploadPicture");
     }
   }
 </style>
+
+
+

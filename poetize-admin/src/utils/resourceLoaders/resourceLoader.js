@@ -138,35 +138,13 @@ export async function loadLive2DResources(live2dPath) {
 
 /**
  * 加载Markdown渲染所需资源
+ * 注意：markdown-it 现在通过 npm 包动态导入，不再使用外部 JS 文件
  */
 export async function loadMarkdownResources() {
-  const resources = []
-
-  // KaTeX
-  if (!isKatexLoaded()) {
-    resources.push(
-      { url: '/libs/css/katex.min.css', type: 'css' },
-      { url: '/libs/js/katex.min.js', type: 'js' }
-    )
+  if (!isKatexLoadedGlobal()) {
+    await loadKatexResources()
   }
-
-  // Markdown-it
-  if (!isMarkdownItLoaded()) {
-    resources.push(
-      { url: '/libs/js/markdown-it.min.js', type: 'js' }
-    )
-  }
-
-  if (resources.length === 0) {
-    return true
-  }
-
-  try {
-    await loadResources(resources)
-    return true
-  } catch (error) {
-    return false
-  }
+  return true
 }
 
 /**
@@ -244,6 +222,7 @@ export function isKatexLoadedGlobal() {
 
 /**
  * 加载KaTeX数学公式库
+ * 使用 npm 包动态导入，支持 Tree Shaking
  */
 export async function loadKatexResources() {
   if (isKatexLoadedGlobal()) {
@@ -251,14 +230,16 @@ export async function loadKatexResources() {
   }
 
   try {
-    const resources = [
-      { url: '/libs/css/katex.min.css', type: 'css' },
-      { url: '/libs/js/katex.min.js', type: 'js' }
-    ]
+    // 动态导入 KaTeX
+    const katex = await import('katex')
+    window.katex = katex.default || katex
 
-    await loadResources(resources)
+    // 动态加载 KaTeX CSS
+    await loadExternalResource('/libs/css/katex.min.css', 'css')
+
     return true
   } catch (error) {
+    console.error('KaTeX 加载失败:', error)
     return false
   }
 }
@@ -295,6 +276,7 @@ export function isMarkdownItLoadedGlobal() {
 
 /**
  * 加载Markdown-it库
+ * 现在使用动态导入 npm 包，而不是外部 JS 文件
  */
 export async function loadMarkdownItResources() {
   if (isMarkdownItLoadedGlobal()) {
@@ -302,9 +284,11 @@ export async function loadMarkdownItResources() {
   }
 
   try {
-    await loadExternalResource('/libs/js/markdown-it.min.js', 'js')
+    const { loadMarkdownIt } = await import('@/utils/markdownItLoader.js')
+    await loadMarkdownIt()
     return true
   } catch (error) {
+    console.warn('Failed to load markdown-it:', error)
     return false
   }
 }

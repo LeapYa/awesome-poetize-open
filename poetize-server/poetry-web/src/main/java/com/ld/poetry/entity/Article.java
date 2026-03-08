@@ -5,6 +5,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -137,11 +138,28 @@ public class Article implements Serializable {
     private String updateBy;
 
     /**
+     * 付费类型 [0:免费, 1:按文章付费, 2:会员专属, 3:赞赏解锁, 4:固定金额解锁]
+     */
+    @TableField("pay_type")
+    private Integer payType;
+
+    /**
+     * 付费金额(元)
+     */
+    @TableField("pay_amount")
+    private BigDecimal payAmount;
+
+    /**
+     * 免费预览百分比(0-100)
+     */
+    @TableField("free_percent")
+    private Integer freePercent;
+
+    /**
      * 是否启用[0:未删除，1:已删除]
      */
     @TableField("deleted")
     @TableLogic
     private Boolean deleted;
-
 
 }

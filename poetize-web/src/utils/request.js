@@ -2,10 +2,14 @@ import axios from 'axios'
 import constant from './constant'
 //处理url参数
 import cryptoUtil from './crypto'
-import { getBrowserFingerprint } from './fingerprintUtil'
 
 import router from '../router'
 import { handleTokenExpire } from './tokenExpireHandler'
+
+function getCurrentRoutePath() {
+  const routeValue = router.currentRoute?.value || router.currentRoute
+  return routeValue?.fullPath || '/'
+}
 
 // 缓存浏览器指纹，避免每次请求都重新计算
 let cachedFingerprint = null
@@ -21,7 +25,8 @@ async function getCachedFingerprint() {
   }
 
   if (!fingerprintPromise) {
-    fingerprintPromise = getBrowserFingerprint()
+    fingerprintPromise = import('./fingerprintUtil')
+      .then(({ getBrowserFingerprint }) => getBrowserFingerprint())
       .then((fp) => {
         cachedFingerprint = fp
         return fp
@@ -40,6 +45,38 @@ async function getCachedFingerprint() {
 let cachedTranslationConfig = null
 let configCacheTime = 0
 const CACHE_DURATION = 5 * 60 * 1000 // 5分钟缓存
+const FINGERPRINT_URL_PATTERNS = [
+  '/user/regist',
+  '/user/login',
+  '/user/thirdLogin',
+  '/user/getCodeForBind',
+  '/user/getCodeForForgetPassword',
+  '/user/updateForForgetPassword',
+  '/captcha/verify-checkbox',
+  '/captcha/verify-slide',
+  '/captcha/verify-token',
+]
+
+function getRequestPath(url) {
+  if (!url) return ''
+
+  try {
+    if (/^https?:\/\//.test(url)) {
+      return new URL(url).pathname
+    }
+
+    return new URL(url, constant.baseURL).pathname
+  } catch (error) {
+    return String(url).split('?')[0]
+  }
+}
+
+function shouldAttachFingerprint(config) {
+  const requestPath = getRequestPath(config?.url)
+  return FINGERPRINT_URL_PATTERNS.some((pattern) =>
+    requestPath.endsWith(pattern)
+  )
+}
 
 // 获取翻译配置中的超时时间
 async function getTranslationTimeout() {
@@ -66,7 +103,7 @@ async function getTranslationTimeout() {
     }
 
     const response = await axios.get(
-      constant.pythonBaseURL + '/api/translation/config',
+      constant.baseURL + '/api/translation/config',
       {
         timeout: 10000,
         headers: headers,
@@ -166,14 +203,16 @@ axios.interceptors.request.use(
     }
 
     // 添加浏览器指纹到请求头（用于限流）
-    try {
-      const fingerprint = await getCachedFingerprint()
-      if (fingerprint) {
-        config.headers['X-Fingerprint'] = fingerprint
+    if (shouldAttachFingerprint(config)) {
+      try {
+        const fingerprint = await getCachedFingerprint()
+        if (fingerprint) {
+          config.headers['X-Fingerprint'] = fingerprint
+        }
+      } catch (err) {
+        // 指纹获取失败不阻塞请求
+        console.debug('添加指纹到请求头失败:', err)
       }
-    } catch (err) {
-      // 指纹获取失败不阻塞请求
-      console.debug('添加指纹到请求头失败:', err)
     }
 
     // 如果是验证码相关的请求，不需要token
@@ -286,7 +325,7 @@ axios.interceptors.response.use(
       if (response.data.code === 300 || response.data.code === 401) {
         // token失效，使用统一的token过期处理逻辑
         const isAdminRequest = response.config.isAdmin || false
-        handleTokenExpire(isAdminRequest, router.currentRoute.fullPath, {
+        handleTokenExpire(isAdminRequest, getCurrentRoutePath(), {
           showMessage: true,
         })
       }
@@ -400,7 +439,7 @@ axios.interceptors.response.use(
       if (error.response.status === 401 || error.response.status === 403) {
         // token相关错误，使用统一的token过期处理逻辑
         const isAdminRequest = (error.config && error.config.isAdmin) || false
-        handleTokenExpire(isAdminRequest, router.currentRoute.fullPath, {
+        handleTokenExpire(isAdminRequest, getCurrentRoutePath(), {
           showMessage: true,
         })
       }

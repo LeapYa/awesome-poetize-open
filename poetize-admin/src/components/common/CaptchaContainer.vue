@@ -1,24 +1,28 @@
 <template>
   <div class="global-captcha-container" v-if="visible">
-    <captcha-wrapper
+    <component
+      :is="captchaWrapperComponent"
+      v-if="captchaWrapperComponent"
       :visible="visible"
       :action="captchaAction"
       :is-reply-comment="isReplyComment"
       @success="onCaptchaSuccess"
       @fail="onCaptchaFail"
       @close="onCaptchaClose"
-    ></captcha-wrapper>
+    ></component>
   </div>
 </template>
 
 <script>
-import CaptchaWrapper from './CaptchaWrapper.vue';
 import { useMainStore } from '@/stores/main';
 
 export default {
   name: 'CaptchaContainer',
-  components: {
-    CaptchaWrapper
+  data() {
+    return {
+      captchaWrapperComponent: null,
+      captchaWrapperLoadingPromise: null
+    };
   },
   computed: {
     mainStore() {
@@ -37,7 +41,37 @@ export default {
       return this.mainStore.captcha.isReplyComment;
     }
   },
+  watch: {
+    visible(newVal) {
+      if (newVal) {
+        this.ensureCaptchaWrapperLoaded();
+      }
+    }
+  },
+  mounted() {
+    if (this.visible) {
+      this.ensureCaptchaWrapperLoaded();
+    }
+  },
   methods: {
+    ensureCaptchaWrapperLoaded() {
+      if (this.captchaWrapperComponent) {
+        return Promise.resolve(this.captchaWrapperComponent);
+      }
+
+      if (!this.captchaWrapperLoadingPromise) {
+        this.captchaWrapperLoadingPromise = import('./CaptchaWrapper.vue')
+          .then(module => {
+            this.captchaWrapperComponent = module.default || module;
+            return this.captchaWrapperComponent;
+          })
+          .finally(() => {
+            this.captchaWrapperLoadingPromise = null;
+          });
+      }
+
+      return this.captchaWrapperLoadingPromise;
+    },
     // 验证码成功回调
     onCaptchaSuccess(token) {
       this.mainStore.executeCaptchaCallback(token);

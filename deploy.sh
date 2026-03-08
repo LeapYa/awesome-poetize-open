@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-02-18
+## 修改时间: 2026-03-07
 ## 描述: 部署 POETIZE 博客系统安装脚本
-## 版本: 1.15.4
+## 版本: 1.15.5
 
 # 定义颜色
 RED='\033[0;31m'
@@ -7603,6 +7603,12 @@ DEPLOY_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 DEPLOY_SOURCE=$([ -n "$target_version" ] && echo "tag" || echo "main")
 EOF
   info "版本信息已保存到 .config/version.txt"
+
+  # 同步版本号到 .env 文件（供 Docker 构建注入前端）
+  if [ -f "lib/config.sh" ]; then
+    source "lib/config.sh" 2>/dev/null || true
+    update_env_var "APP_VERSION" "${target_version:-dev}" 2>/dev/null || true
+  fi
 
   # 如果保留了Git仓库，显示相关信息
   if [ "$keep_git" = "true" ] && [ -d "$extract_dir/.git" ]; then

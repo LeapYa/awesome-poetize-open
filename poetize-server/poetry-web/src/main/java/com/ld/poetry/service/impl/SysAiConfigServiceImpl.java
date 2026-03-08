@@ -13,7 +13,8 @@ import com.ld.poetry.service.SysAiConfigService;
 import com.ld.poetry.utils.AESCryptoUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -44,8 +45,9 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
     private final AESCryptoUtil aesCryptoUtil;
     private final RestTemplate restTemplate;
 
-    @Value("${python.service.url:http://localhost:5000}")
-    private String pythonServiceUrl;
+    @Autowired
+    @Lazy
+    private com.ld.poetry.service.ai.LlmTranslationService llmTranslationService;
 
     // ========== 配置查询方法 ==========
 
@@ -56,7 +58,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
         }
 
         SysAiConfig config = sysAiConfigMapper.selectByTypeAndName(configType, configName);
-        
+
         // 解密敏感字段并脱敏显示
         if (config != null) {
             decryptAndMaskConfig(config);
@@ -73,11 +75,11 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
     @Override
     public Map<String, Object> getStreamingConfig(String configName) {
         Map<String, Object> result = new HashMap<>();
-        
+
         try {
             // 获取配置（已脱敏）
             SysAiConfig config = getAiChatConfig(configName);
-            
+
             if (config == null || !Boolean.TRUE.equals(config.getEnabled())) {
                 // 返回默认配置
                 result.put("enabled", false);
@@ -91,28 +93,29 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                 result.put("rate_limit", 20);
                 return result;
             }
-            
+
             // 基础配置
             result.put("enabled", config.getEnabled());
             result.put("streaming_enabled", Boolean.TRUE.equals(config.getEnableStreaming()));
-            result.put("configured", StringUtils.hasText(config.getProvider()) 
-                    && StringUtils.hasText(config.getApiKey()) 
+            result.put("configured", StringUtils.hasText(config.getProvider())
+                    && StringUtils.hasText(config.getApiKey())
                     && StringUtils.hasText(config.getModel()));
-            
+
             // 聊天配置
             result.put("require_login", Boolean.TRUE.equals(config.getRequireLogin()));
             result.put("chat_name", StringUtils.hasText(config.getChatName()) ? config.getChatName() : "AI助手");
-            result.put("welcome_message", StringUtils.hasText(config.getWelcomeMessage()) 
-                    ? config.getWelcomeMessage() : "你好！我是你的AI助手，有什么可以帮助你的吗？");
+            result.put("welcome_message", StringUtils.hasText(config.getWelcomeMessage())
+                    ? config.getWelcomeMessage()
+                    : "你好！我是你的AI助手，有什么可以帮助你的吗？");
             result.put("theme_color", StringUtils.hasText(config.getThemeColor()) ? config.getThemeColor() : "#4facfe");
             result.put("max_message_length", config.getMaxMessageLength() != null ? config.getMaxMessageLength() : 500);
             result.put("rate_limit", config.getRateLimit() != null ? config.getRateLimit() : 20);
             result.put("enable_content_filter", Boolean.TRUE.equals(config.getEnableContentFilter()));
-            
+
             // 显示配置
             result.put("enable_typing_indicator", Boolean.TRUE.equals(config.getEnableTypingIndicator()));
             result.put("enable_chat_history", Boolean.TRUE.equals(config.getEnableChatHistory()));
-            
+
         } catch (Exception e) {
             log.error("获取流式响应配置失败: {}", e.getMessage(), e);
             // 返回默认配置
@@ -126,7 +129,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
             result.put("max_message_length", 500);
             result.put("rate_limit", 20);
         }
-        
+
         return result;
     }
 
@@ -202,23 +205,26 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
     @Override
     public boolean saveArticleAiConfig(SysAiConfig config) {
         config.setConfigType("article_ai");
-        
+
         // 业务逻辑验证：如果系统中已有文章，不允许修改源语言
-        SysAiConfig existingConfig = sysAiConfigMapper.selectByTypeAndName("article_ai", config.getConfigName() != null ? config.getConfigName() : "default");
+        SysAiConfig existingConfig = sysAiConfigMapper.selectByTypeAndName("article_ai",
+                config.getConfigName() != null ? config.getConfigName() : "default");
         if (existingConfig != null && existingConfig.getDefaultSourceLang() != null) {
             // 检查是否修改了源语言
-            if (config.getDefaultSourceLang() != null && !config.getDefaultSourceLang().equals(existingConfig.getDefaultSourceLang())) {
+            if (config.getDefaultSourceLang() != null
+                    && !config.getDefaultSourceLang().equals(existingConfig.getDefaultSourceLang())) {
                 // 检查系统中是否已有文章
                 if (hasArticles()) {
-                    log.warn("系统中已有文章数据，不允许修改源语言从 {} 到 {}", existingConfig.getDefaultSourceLang(), config.getDefaultSourceLang());
+                    log.warn("系统中已有文章数据，不允许修改源语言从 {} 到 {}", existingConfig.getDefaultSourceLang(),
+                            config.getDefaultSourceLang());
                     throw new RuntimeException("系统中已有文章数据，不允许修改源语言配置。修改源语言会导致现有文章的语言标识混乱，影响SEO和翻译关系。");
                 }
             }
         }
-        
+
         return saveOrUpdateConfig(config);
     }
-    
+
     /**
      * 检查系统中是否已有文章数据
      */
@@ -346,19 +352,21 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
     @Override
     public Map<String, Object> getDefaultLanguages() {
         Map<String, Object> result = new HashMap<>();
-        
-        // 从数据库读取配置的默认语言
-        SysAiConfig config = getArticleAiConfig("default");
-        
+
+        // 只需要语言配置，直接查询数据库，无需解密敏感字段
+        SysAiConfig config = sysAiConfigMapper.selectByTypeAndName("article_ai", "default");
+
         if (config != null) {
-            result.put("default_source_lang", config.getDefaultSourceLang() != null ? config.getDefaultSourceLang() : "zh");
-            result.put("default_target_lang", config.getDefaultTargetLang() != null ? config.getDefaultTargetLang() : "en");
+            result.put("default_source_lang",
+                    config.getDefaultSourceLang() != null ? config.getDefaultSourceLang() : "zh");
+            result.put("default_target_lang",
+                    config.getDefaultTargetLang() != null ? config.getDefaultTargetLang() : "en");
         } else {
             // 配置不存在，返回默认值
             result.put("default_source_lang", "zh");
             result.put("default_target_lang", "en");
         }
-        
+
         return result;
     }
 
@@ -436,7 +444,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
     private void encryptJsonFields(SysAiConfig config) {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
-            
+
             // 1. 加密百度翻译配置中的app_secret
             if (StringUtils.hasText(config.getBaiduConfig())) {
                 JsonNode baiduNode = objectMapper.readTree(config.getBaiduConfig());
@@ -448,12 +456,12 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                     }
                 }
             }
-            
+
             // 2. 加密自定义API配置中的api_key和app_secret
             if (StringUtils.hasText(config.getCustomConfig())) {
                 JsonNode customNode = objectMapper.readTree(config.getCustomConfig());
                 boolean modified = false;
-                
+
                 if (customNode.has("api_key")) {
                     String apiKey = customNode.get("api_key").asText();
                     if (StringUtils.hasText(apiKey) && !apiKey.startsWith("ENC(")) {
@@ -461,7 +469,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                         modified = true;
                     }
                 }
-                
+
                 if (customNode.has("app_secret")) {
                     String appSecret = customNode.get("app_secret").asText();
                     if (StringUtils.hasText(appSecret) && !appSecret.startsWith("ENC(")) {
@@ -469,12 +477,12 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                         modified = true;
                     }
                 }
-                
+
                 if (modified) {
                     config.setCustomConfig(objectMapper.writeValueAsString(customNode));
                 }
             }
-            
+
             // 3. 加密LLM配置中的api_key
             if (StringUtils.hasText(config.getLlmConfig())) {
                 JsonNode llmNode = objectMapper.readTree(config.getLlmConfig());
@@ -486,14 +494,14 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                     }
                 }
             }
-            
+
             // 4. 加密摘要配置中的dedicated_llm.api_key
             if (StringUtils.hasText(config.getSummaryConfig())) {
                 JsonNode summaryNode = objectMapper.readTree(config.getSummaryConfig());
-                
+
                 if (summaryNode.has("dedicated_llm")) {
                     JsonNode dedicatedLlmNode = summaryNode.get("dedicated_llm");
-                    
+
                     if (dedicatedLlmNode.has("api_key")) {
                         String apiKey = dedicatedLlmNode.get("api_key").asText();
                         if (StringUtils.hasText(apiKey) && !apiKey.startsWith("ENC(")) {
@@ -503,7 +511,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                     }
                 }
             }
-            
+
         } catch (Exception e) {
             log.error("加密JSON字段失败: {}", e.getMessage(), e);
             throw new RuntimeException("加密配置失败: " + e.getMessage());
@@ -542,7 +550,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
     private void decryptAndMaskJsonFields(SysAiConfig config) {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
-            
+
             // 1. 解密并脱敏百度配置
             if (StringUtils.hasText(config.getBaiduConfig())) {
                 JsonNode baiduNode = objectMapper.readTree(config.getBaiduConfig());
@@ -558,12 +566,12 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                     }
                 }
             }
-            
+
             // 2. 解密并脱敏自定义API配置
             if (StringUtils.hasText(config.getCustomConfig())) {
                 JsonNode customNode = objectMapper.readTree(config.getCustomConfig());
                 boolean modified = false;
-                
+
                 if (customNode.has("api_key")) {
                     String encrypted = customNode.get("api_key").asText();
                     if (StringUtils.hasText(encrypted)) {
@@ -574,7 +582,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                         }
                     }
                 }
-                
+
                 if (customNode.has("app_secret")) {
                     String encrypted = customNode.get("app_secret").asText();
                     if (StringUtils.hasText(encrypted)) {
@@ -585,12 +593,12 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                         }
                     }
                 }
-                
+
                 if (modified) {
                     config.setCustomConfig(objectMapper.writeValueAsString(customNode));
                 }
             }
-            
+
             // 3. 解密并脱敏LLM配置
             if (StringUtils.hasText(config.getLlmConfig())) {
                 JsonNode llmNode = objectMapper.readTree(config.getLlmConfig());
@@ -605,14 +613,14 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                     }
                 }
             }
-            
+
             // 4. 解密并脱敏摘要配置中的dedicated_llm
             if (StringUtils.hasText(config.getSummaryConfig())) {
                 JsonNode summaryNode = objectMapper.readTree(config.getSummaryConfig());
-                
+
                 if (summaryNode.has("dedicated_llm")) {
                     JsonNode dedicatedLlmNode = summaryNode.get("dedicated_llm");
-                    
+
                     if (dedicatedLlmNode.has("api_key")) {
                         String encrypted = dedicatedLlmNode.get("api_key").asText();
                         if (StringUtils.hasText(encrypted)) {
@@ -625,7 +633,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                     }
                 }
             }
-            
+
         } catch (Exception e) {
             log.error("解密并脱敏JSON字段失败: {}", e.getMessage(), e);
             // 不抛异常，避免影响配置读取
@@ -641,7 +649,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
      */
     private SysAiConfig getDecryptedConfig(String configType, String configName) {
         SysAiConfig config = sysAiConfigMapper.selectByTypeAndName(configType, configName);
-        
+
         if (config != null) {
             // 仅解密，不脱敏（用于内部调用）
             if (StringUtils.hasText(config.getApiKey())) {
@@ -653,7 +661,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                 String decrypted = aesCryptoUtil.decrypt(config.getMem0ApiKey());
                 config.setMem0ApiKey(decrypted);
             }
-            
+
             // 解密JSON字段（不脱敏，供Python服务使用）
             decryptJsonFieldsForInternal(config);
         }
@@ -667,7 +675,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
     private void decryptJsonFieldsForInternal(SysAiConfig config) {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
-            
+
             // 1. 解密百度配置
             if (StringUtils.hasText(config.getBaiduConfig())) {
                 JsonNode baiduNode = objectMapper.readTree(config.getBaiduConfig());
@@ -682,12 +690,12 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                     }
                 }
             }
-            
+
             // 2. 解密自定义API配置
             if (StringUtils.hasText(config.getCustomConfig())) {
                 JsonNode customNode = objectMapper.readTree(config.getCustomConfig());
                 boolean modified = false;
-                
+
                 if (customNode.has("api_key")) {
                     String encrypted = customNode.get("api_key").asText();
                     if (StringUtils.hasText(encrypted)) {
@@ -698,7 +706,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                         }
                     }
                 }
-                
+
                 if (customNode.has("app_secret")) {
                     String encrypted = customNode.get("app_secret").asText();
                     if (StringUtils.hasText(encrypted)) {
@@ -709,12 +717,12 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                         }
                     }
                 }
-                
+
                 if (modified) {
                     config.setCustomConfig(objectMapper.writeValueAsString(customNode));
                 }
             }
-            
+
             // 3. 解密LLM配置
             if (StringUtils.hasText(config.getLlmConfig())) {
                 JsonNode llmNode = objectMapper.readTree(config.getLlmConfig());
@@ -729,14 +737,14 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                     }
                 }
             }
-            
+
             // 4. 解密摘要配置中的dedicated_llm
             if (StringUtils.hasText(config.getSummaryConfig())) {
                 JsonNode summaryNode = objectMapper.readTree(config.getSummaryConfig());
-                
+
                 if (summaryNode.has("dedicated_llm")) {
                     JsonNode dedicatedLlmNode = summaryNode.get("dedicated_llm");
-                    
+
                     if (dedicatedLlmNode.has("api_key")) {
                         String encrypted = dedicatedLlmNode.get("api_key").asText();
                         if (StringUtils.hasText(encrypted)) {
@@ -749,7 +757,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                     }
                 }
             }
-            
+
         } catch (Exception e) {
             log.error("解密JSON字段失败: {}", e.getMessage(), e);
             // 不抛异常，避免影响配置读取
@@ -813,50 +821,38 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
         Map<String, Object> result = new HashMap<>();
 
         try {
-            // 调用Python服务进行测试
-            String testUrl = pythonServiceUrl + "/api/translation/test";
-            
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("text", "Hello");
-            requestBody.put("config", config);
+            // 直接使用 Java 翻译服务进行测试
+            String testText = "Hello";
+            String translated = llmTranslationService.translateText(testText, "en", "zh");
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("Content-Type", "application/json");
-
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-
-            @SuppressWarnings("rawtypes")
-            ResponseEntity<Map> response = restTemplate.exchange(
-                    testUrl, HttpMethod.POST, entity, Map.class);
-
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> body = (Map<String, Object>) response.getBody();
-                result.putAll(body);
+            if (translated != null && !translated.isBlank()) {
+                result.put("success", true);
+                result.put("message", "翻译连接测试成功");
+                result.put("testResult", translated);
             } else {
                 result.put("success", false);
-                result.put("message", "测试失败");
+                result.put("message", "翻译测试返回空结果，请检查AI配置");
             }
 
         } catch (Exception e) {
             result.put("success", false);
-            result.put("message", "测试连接失败: " + e.getMessage());
+            result.put("message", "翻译测试失败: " + e.getMessage());
         }
 
         return result;
     }
-    
+
     @Override
     public Map<String, Object> convertConfigToMap(SysAiConfig config) {
         Map<String, Object> result = new HashMap<>();
-        
+
         if (config == null) {
             return result;
         }
-        
+
         try {
             ObjectMapper objectMapper = new ObjectMapper();
-            
+
             // 基本字段
             result.put("id", config.getId());
             result.put("configType", config.getConfigType());
@@ -865,45 +861,44 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
             result.put("translationType", config.getTranslationType());
             result.put("defaultSourceLang", config.getDefaultSourceLang());
             result.put("defaultTargetLang", config.getDefaultTargetLang());
-            
+
             // 将JSON字符串字段解析为对象
             if (StringUtils.hasText(config.getBaiduConfig())) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> baiduConfig = objectMapper.readValue(config.getBaiduConfig(), Map.class);
                 result.put("baiduConfig", baiduConfig);
             }
-            
+
             if (StringUtils.hasText(config.getCustomConfig())) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> customConfig = objectMapper.readValue(config.getCustomConfig(), Map.class);
                 result.put("customConfig", customConfig);
             }
-            
+
             if (StringUtils.hasText(config.getLlmConfig())) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> llmConfig = objectMapper.readValue(config.getLlmConfig(), Map.class);
                 result.put("llmConfig", llmConfig);
             }
-            
+
             if (StringUtils.hasText(config.getTranslationLlmConfig())) {
                 @SuppressWarnings("unchecked")
-                Map<String, Object> translationLlmConfig = objectMapper.readValue(config.getTranslationLlmConfig(), Map.class);
+                Map<String, Object> translationLlmConfig = objectMapper.readValue(config.getTranslationLlmConfig(),
+                        Map.class);
                 result.put("translationLlmConfig", translationLlmConfig);
             }
-            
+
             if (StringUtils.hasText(config.getSummaryConfig())) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> summaryConfig = objectMapper.readValue(config.getSummaryConfig(), Map.class);
                 result.put("summaryConfig", summaryConfig);
             }
-            
-            
+
         } catch (Exception e) {
             log.error("转换配置为Map失败: {}", e.getMessage(), e);
             // 出错时至少返回基本字段
         }
-        
+
         return result;
     }
 }
-

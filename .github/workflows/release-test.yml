@@ -27,7 +27,10 @@ jobs:
           
           # 获取所有 tag 并排序，找到前一个版本
           cd current-release
-          git fetch --tags
+          # 当前工作流由 tag 触发，actions/checkout 可能已创建同名本地 tag/ref。
+          # 对 annotated tag 再执行普通 fetch --tags 时，Git 可能报
+          # "would clobber existing tag"，因此这里强制同步远端 tag。
+          git fetch --force --tags
           PREV_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p')
           
           if [ -z "$PREV_TAG" ]; then
@@ -167,7 +170,7 @@ jobs:
             sleep 2
           done
           
-          echo "Importing poetry_old.sql schema (InnoDB engine)..."
+          echo "Importing current poetry_old.sql schema..."
           mysql -h 127.0.0.1 -u poetize -ppassword poetize < poetize-server/sql/poetry_old.sql
           echo "✓ Database schema imported successfully"
           

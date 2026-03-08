@@ -1,6 +1,10 @@
 <template>
   <div>
     <div>
+      <div v-if="routeSearchKeyword" style="margin-bottom: 12px; padding: 10px 14px; border-radius: 8px; background: #f4f8ff; color: #606266; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+        <span>当前显示的是全局搜索结果：{{ routeSearchKeyword }}</span>
+        <el-button type="text" @click="clearGlobalSearchFilter">清除全局筛选</el-button>
+      </div>
       <div class="handle-box">
         <el-select clearable v-model="pagination.status" placeholder="状态" class="handle-select mrb10">
           <el-option key="1" label="启用" :value="true"></el-option>
@@ -8,7 +12,7 @@
         </el-select>
         <el-button type="primary" icon="el-icon-search" @click="search()">搜索</el-button>
       </div>
-      <el-table :data="loves" border class="table" header-cell-class-name="table-header">
+      <el-table :data="filteredLoves" border class="table" header-cell-class-name="table-header">
         <el-table-column prop="id" label="ID" width="55" align="center"></el-table-column>
         <el-table-column prop="userId" label="用户ID" align="center"></el-table-column>
 
@@ -95,11 +99,35 @@
       }
     },
 
-    computed: {},
+    computed: {
+      routeSearchKeyword() {
+        return ((this.$route.query.search || '') + '').toLowerCase().replace(/\s+/g, '').trim();
+      },
+      filteredLoves() {
+        if (!this.routeSearchKeyword) {
+          return this.loves;
+        }
 
-    watch: {},
+        return this.loves.filter((item) => {
+          return [item.manName, item.womanName, item.countdownTitle, item.familyInfo, String(item.id || ''), String(item.userId || '')].some((value) => {
+            return ((value || '') + '').toLowerCase().replace(/\s+/g, '').includes(this.routeSearchKeyword);
+          });
+        });
+      }
+    },
+
+    watch: {
+      '$route.query': {
+        handler() {
+          this.applyRouteQuery();
+          this.getLoves();
+        },
+        deep: true
+      }
+    },
 
     created() {
+      this.applyRouteQuery();
       this.getLoves();
     },
 
@@ -136,6 +164,16 @@
             message: '已取消删除!'
           });
         });
+      },
+      applyRouteQuery() {
+        const query = this.$route.query || {};
+        this.pagination.current = 1;
+        this.pagination.size = query.search ? 500 : 10;
+      },
+      clearGlobalSearchFilter() {
+        const nextQuery = { ...this.$route.query };
+        delete nextQuery.search;
+        this.$router.replace({ path: this.$route.path, query: nextQuery });
       },
       search() {
         this.pagination.total = 0;
@@ -329,3 +367,12 @@
     }
   }
 </style>
+
+
+
+
+
+
+
+
+

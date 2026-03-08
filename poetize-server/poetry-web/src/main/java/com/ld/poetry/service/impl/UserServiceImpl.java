@@ -65,6 +65,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private WeiYanService weiYanService;
 
     @Autowired
+    private com.ld.poetry.plugin.PluginHookManager pluginHookManager;
+
+    @Autowired
     private ImChatGroupUserMapper imChatGroupUserMapper;
 
     @Autowired
@@ -616,6 +619,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             log.warn("无法获取站长用户信息，新用户 {} 未能自动添加站长为好友", one.getId());
         }
 
+        // 触发插件钩子：新用户注册完成
+        pluginHookManager.onUserRegister(Long.valueOf(one.getId()), one.getUsername());
+
         return PoetryResult.success(userVO);
     }
 
@@ -805,7 +811,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             }
         }
 
-        if ((flag == 1 || flag == 2) && !StringUtils.hasText(code)) {
+        if ((flag == 1 || flag == 2 || flag == 3) && !StringUtils.hasText(code)) {
             return PoetryResult.fail("请输入验证码！");
         }
 
@@ -880,6 +886,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 return PoetryResult.fail("新密码不能为空！");
             }
 
+            // 验证收到的邮箱验证码
+            String cacheKey = CacheConstants.buildUserCodeKey(PoetryUtil.getUserId(), user.getEmail(),
+                    String.valueOf(2));
+            Object cachedCode = cacheService.get(cacheKey);
+            if (cachedCode != null && cachedCode.toString().equals(code)) {
+                cacheService.deleteKey(cacheKey);
+            } else {
+                return PoetryResult.fail("验证码错误！");
+            }
+
             // 使用BCrypt加密新密码
             updateUser.setPassword(passwordService.encodeBCrypt(decryptedPassword));
             log.info("修改密码成功 - 用户ID: {}", user.getId());
@@ -902,7 +918,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
-    public PoetryResult getCodeForForgetPassword(String place, Integer flag) {
+    public PoetryResult getCodeForForgetPassword(String username, String place, Integer flag) {
         // XSS过滤处理（仅对非邮箱地址进行过滤）
         String filteredPlace = null;
         if (StringUtils.hasText(place)) {
@@ -929,6 +945,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return PoetryResult.fail("暂不支持手机号验证码，请使用邮箱验证码");
         } else if (flag == 2) {
 
+            // 强化双重校验：确保邮箱和用户名属于同一已注册账户
+            Long count = lambdaQuery().eq(User::getEmail, filteredPlace).eq(User::getUsername, username).count();
+            if (count == 0) {
+                return PoetryResult.fail("账户信息不匹配或未注册！");
+            }
+
             List<String> mail = new ArrayList<>();
             mail.add(filteredPlace);
             String text = getCodeMail(i);
@@ -941,12 +963,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
             String countKey = CacheConstants.buildCodeMailCountKey(mail.get(0));
             Object countObj = cacheService.get(countKey);
-            Integer count = countObj != null ? (Integer) countObj : 0;
+            Integer mailCount = countObj != null ? (Integer) countObj : 0;
 
-            if (count < CommonConst.CODE_MAIL_COUNT) {
+            if (mailCount < CommonConst.CODE_MAIL_COUNT) {
                 mailUtil.sendMailMessage(mail, "您有一封来自" + (webInfo == null ? "POETIZE" : webInfo.getWebName()) + "的回执！",
                         text);
-                cacheService.set(countKey, count + 1, CommonConst.CODE_EXPIRE);
+                cacheService.set(countKey, mailCount + 1, CommonConst.CODE_EXPIRE);
             } else {
                 return PoetryResult.fail("验证码发送次数过多，请明天再试！");
             }
@@ -963,7 +985,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
-    public PoetryResult updateForForgetPassword(String place, Integer flag, String code, String password) {
+    public PoetryResult updateForForgetPassword(String username, String place, Integer flag, String code,
+            String password) {
         // XSS过滤处理（仅对非邮箱地址进行过滤）
         String filteredPlace = null;
         if (StringUtils.hasText(place)) {
@@ -1010,9 +1033,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         String encodedPassword = passwordService.encodeBCrypt(decryptedPassword);
 
         if (flag == 1) {
-            User user = lambdaQuery().eq(User::getPhoneNumber, filteredPlace).one();
+            User user = lambdaQuery().eq(User::getPhoneNumber, filteredPlace).eq(User::getUsername, username).one();
             if (user == null) {
-                return PoetryResult.fail("该手机号未绑定账号！");
+                return PoetryResult.fail("该手机号与用户名未匹配或未绑定！");
             }
 
             if (!user.getUserStatus()) {
@@ -1024,9 +1047,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             cacheService.evictAllUserTokens(user.getId()); // 清理所有token，强制重新登录
             log.info("通过手机号重置密码成功 - 用户ID: {}", user.getId());
         } else if (flag == 2) {
-            User user = lambdaQuery().eq(User::getEmail, filteredPlace).one();
+            User user = lambdaQuery().eq(User::getEmail, filteredPlace).eq(User::getUsername, username).one();
             if (user == null) {
-                return PoetryResult.fail("该邮箱未绑定账号！");
+                return PoetryResult.fail("该邮箱与用户名未匹配或未绑定！");
             }
 
             if (!user.getUserStatus()) {
@@ -1336,6 +1359,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
             existUser = newUser;
             log.info("第三方账号注册成功 - 平台: {}, 用户ID: {}", provider, newUser.getId());
+            pluginHookManager.onUserRegister(Long.valueOf(newUser.getId()), newUser.getUsername());
         } else {
             // 🔧 已存在用户的邮箱更新逻辑
             boolean userHasEmailInDB = StringUtils.hasText(existUser.getEmail());

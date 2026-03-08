@@ -12,7 +12,7 @@
 </template>
 
 <script>
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, computed, nextTick } from 'vue'
 import { useLive2DStore } from '@/stores/live2d'
 import { useDrag } from './composables/useDrag'
 import constant from '@/utils/constant'
@@ -152,9 +152,9 @@ export default {
     // 组件挂载
     onMounted(() => {
       // 延迟加载，确保DOM已渲染
-      setTimeout(() => {
+      nextTick(() => {
         loadModel()
-      }, 500)
+      })
     })
 
     return {

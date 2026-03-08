@@ -237,7 +237,7 @@ show_status() {
     printf "${CYAN}=== 服务健康状态 ===${NC}\n"
     
     # 检查主要服务（支持多实例）
-    local base_services=("poetize-nginx" "poetize-java" "poetize-python" "poetize-mariadb" "poetize-prerender")
+    local base_services=("poetize-nginx" "poetize-java" "poetize-mariadb" "poetize-prerender")
     
     # 获取所有运行中的poetize相关容器
     local running_containers=$(sudo docker ps --format "{{.Names}}" | grep "^poetize-" | sort)
@@ -702,7 +702,6 @@ get_project_info() {
                 poetize-prerender
                 poetize-certbot
                 poetize-nginx
-                poetize-python
                 poetize-java
                 poetize-mariadb
                 poetize-redis

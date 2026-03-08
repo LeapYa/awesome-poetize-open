@@ -1,9 +1,16 @@
 <template>
   <div>
-    <div style="margin-bottom: 20px">
+    <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 16px;">
       <el-button type="primary" @click="configDialog = true">新增配置</el-button>
+      <el-input
+        v-model="searchQuery"
+        placeholder="搜索 ID、名称、键名、键值"
+        prefix-icon="el-icon-search"
+        clearable
+        style="width: 300px;"
+      ></el-input>
     </div>
-    <el-table :data="configList" height="75vh" border class="table" header-cell-class-name="table-header">
+    <el-table :data="filteredConfigList" height="75vh" border class="table" header-cell-class-name="table-header">
       <el-table-column prop="id" label="ID" width="55" align="center"></el-table-column>
       <el-table-column prop="configName" label="名称" align="center"></el-table-column>
       <el-table-column prop="configKey" label="键名" align="center"></el-table-column>
@@ -62,29 +69,51 @@
 </template>
 
 <script>
-  import { useMainStore } from '@/stores/main';
+import { useMainStore } from '@/stores/main';
 
 export default {
   data() {
     return {
+      searchQuery: '',
       configDialog: false,
       configList: [],
       config: {
         id: null,
-        configName: "",
-        configKey: "",
-        configValue: "",
-        configType: ""
+        configName: '',
+        configKey: '',
+        configValue: '',
+        configType: ''
       }
     }
   },
 
   computed: {
-      mainStore() {
-        return useMainStore();
-      },},
+    mainStore() {
+      return useMainStore();
+    },
+    filteredConfigList() {
+      if (!this.searchQuery || !this.searchQuery.trim()) {
+        return this.configList;
+      }
+      const query = this.searchQuery.trim().toLowerCase();
+      return this.configList.filter(item => {
+        const id = item.id != null ? String(item.id).toLowerCase() : '';
+        const name = (item.configName || '').toLowerCase();
+        const key = (item.configKey || '').toLowerCase();
+        const value = (item.configValue || '').toLowerCase();
+        return id.includes(query) || name.includes(query) || key.includes(query) || value.includes(query);
+      });
+    }
+  },
 
-  watch: {},
+  watch: {
+    '$route.query.search': {
+      immediate: true,
+      handler(value) {
+        this.searchQuery = (value || '').toString().trim();
+      }
+    }
+  },
 
   created() {
     this.getConfigInfo();
@@ -103,22 +132,21 @@ export default {
         center: true,
         customClass: 'mobile-responsive-confirm'
       }).then(() => {
-        this.$http.get(this.$constant.baseURL + "/sysConfig/deleteConfig", {id: id}, true)
-          .then((res) => {
+        this.$http.get(this.$constant.baseURL + '/sysConfig/deleteConfig', {id: id}, true)
+          .then(() => {
             this.$message({
-              message: "删除成功！",
-              type: "success"
+              message: '删除成功！',
+              type: 'success'
             });
             this.getConfigInfo();
             this.handleClose();
-            
-            // 主动刷新系统配置，确保前端使用最新配置
+
             this.refreshSysConfig();
           })
           .catch((error) => {
             this.$message({
               message: error.message,
-              type: "error"
+              type: 'error'
             });
           });
       }).catch(() => {
@@ -133,28 +161,27 @@ export default {
         this.$common.isEmpty(this.config.configKey) ||
         this.$common.isEmpty(this.config.configType)) {
         this.$message({
-          message: "请完善所有配置信息！",
-          type: "error"
+          message: '请完善所有配置信息！',
+          type: 'error'
         });
         return;
       }
 
-      this.$http.post(this.$constant.baseURL + "/sysConfig/saveOrUpdateConfig", this.config, true)
-        .then((res) => {
+      this.$http.post(this.$constant.baseURL + '/sysConfig/saveOrUpdateConfig', this.config, true)
+        .then(() => {
           this.$message({
-            message: "保存成功！",
-            type: "success"
+            message: '保存成功！',
+            type: 'success'
           });
           this.getConfigInfo();
           this.handleClose();
-          
-          // 主动刷新系统配置，确保前端使用最新配置
+
           this.refreshSysConfig();
         })
         .catch((error) => {
           this.$message({
             message: error.message,
-            type: "error"
+            type: 'error'
           });
         });
     },
@@ -169,15 +196,15 @@ export default {
     handleClose() {
       this.config = {
         id: null,
-        configName: "",
-        configKey: "",
-        configValue: "",
-        configType: ""
+        configName: '',
+        configKey: '',
+        configValue: '',
+        configType: ''
       };
       this.configDialog = false;
     },
     getConfigInfo() {
-      this.$http.get(this.$constant.baseURL + "/sysConfig/listConfig", {}, true)
+      this.$http.get(this.$constant.baseURL + '/sysConfig/listConfig', {}, true)
         .then((res) => {
           if (!this.$common.isEmpty(res.data)) {
             this.configList = res.data;
@@ -186,25 +213,20 @@ export default {
         .catch((error) => {
           this.$message({
             message: error.message,
-            type: "error"
+            type: 'error'
           });
         });
     },
-    
-    // 新增刷新系统配置方法
     refreshSysConfig() {
-      this.$http.get(this.$constant.baseURL + "/sysConfig/listSysConfig")
+      this.$http.get(this.$constant.baseURL + '/sysConfig/listSysConfig')
         .then((res) => {
           if (!this.$common.isEmpty(res.data)) {
-            // 更新Vuex中的系统配置
-            this.mainStore.loadSysConfig( res.data);
-            
-            // 触发全局事件，通知其他组件系统配置已更新
+            this.mainStore.loadSysConfig(res.data);
             this.$bus.$emit('sysConfigUpdated', res.data);
           }
         })
         .catch((error) => {
-          console.error("刷新系统配置失败:", error);
+          console.error('刷新系统配置失败:', error);
         });
     }
   }

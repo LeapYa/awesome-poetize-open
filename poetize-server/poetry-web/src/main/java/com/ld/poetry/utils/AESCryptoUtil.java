@@ -101,11 +101,18 @@ public class AESCryptoUtil {
             if (padding > 0) {
                 urlSafeEncoded += "===".substring(0, 4 - padding);
             }
-            byte[] combined = Base64.getDecoder().decode(urlSafeEncoded);
 
-            // 验证数据长度
-            if (combined.length < GCM_IV_LENGTH) {
-                log.error("数据长度不足，无法解密: 长度={}", combined.length);
+            byte[] combined;
+            try {
+                combined = Base64.getDecoder().decode(urlSafeEncoded);
+            } catch (IllegalArgumentException e) {
+                log.warn("数据非Base64格式，跳过解密: {}", encryptedData.substring(0, Math.min(encryptedData.length(), 10)) + "...");
+                return null;
+            }
+
+            // 验证数据长度（至少需要IV 12字节 + GCM Tag 16字节 + 1字节密文）
+            if (combined.length < GCM_IV_LENGTH + 17) {
+                log.warn("数据长度不足，可能未加密: 长度={}", combined.length);
                 return null;
             }
 
@@ -125,8 +132,11 @@ public class AESCryptoUtil {
             byte[] decryptedBytes = cipher.doFinal(ciphertext);
             return new String(decryptedBytes, StandardCharsets.UTF_8);
 
+        } catch (javax.crypto.AEADBadTagException e) {
+            log.warn("数据解密失败(Tag不匹配)，可能数据未加密或密钥不一致: {}", encryptedData.substring(0, Math.min(encryptedData.length(), 10)) + "...");
+            return null;
         } catch (Exception e) {
-            log.error("数据解密失败: {}", e.getMessage(), e);
+            log.warn("数据解密失败: {}", e.getMessage());
             return null;
         }
     }

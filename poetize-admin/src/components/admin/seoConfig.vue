@@ -35,17 +35,17 @@
         
         <div :class="{'disabled-section': !seoConfig.enable}">
         
-        <el-form-item label="网站描述">
+        <el-form-item id="field-seo-description" label="网站描述">
           <el-input v-model="seoConfig.site_description" type="textarea" :rows="2" maxlength="200"></el-input>
           <span class="tip">描述应当简明扼要，不超过200字符。<b class="warning-tip">注意：为保持一致性，请优先在"网站设置"中修改网站描述，该处的设置将覆盖此处配置。</b></span>
         </el-form-item>
         
-        <el-form-item label="网站关键词">
+        <el-form-item id="field-seo-keywords" label="网站关键词">
           <el-input v-model="seoConfig.site_keywords" placeholder="多个关键词用逗号分隔" maxlength="100"></el-input>
           <span class="tip">关键词应当与网站内容相关，用逗号分隔，不超过10个。<b class="warning-tip">注意：为保持一致性，请优先在"网站设置"中修改网站关键词，该处的设置将覆盖此处配置。</b></span>
         </el-form-item>
         
-        <el-form-item label="默认作者">
+        <el-form-item id="field-seo-author" label="默认作者">
           <el-input v-model="seoConfig.default_author" maxlength="30"></el-input>
         </el-form-item>
         
@@ -131,7 +131,7 @@
         
         <el-tabs type="border-card">
           <el-tab-pane label="通用设置">
-            <el-form-item label="默认分享图片">
+            <el-form-item id="field-seo-share-image" label="默认分享图片">
               <div class="icon-upload-container">
                 <div style="display: flex">
                   <el-input v-model="seoConfig.og_image" placeholder="输入图片URL或点击上传"></el-input>
@@ -154,7 +154,7 @@
               <span class="tip">当文章无封面图时使用的默认图片，建议尺寸1200×630像素</span>
             </el-form-item>
             
-            <el-form-item label="网站Logo">
+            <el-form-item id="field-seo-logo" label="网站Logo">
               <div class="icon-upload-container">
                 <div style="display: flex">
                   <el-input v-model="seoConfig.site_logo" placeholder="输入Logo URL或点击上传"></el-input>
@@ -193,7 +193,7 @@
             </div>
 
             <template v-if="showManualIcons">
-            <el-form-item label="网站标签页图标">
+            <el-form-item id="field-favicon" label="网站标签页图标">
               <div class="icon-upload-container">
                 <div style="display: flex">
                   <el-input v-model="seoConfig.site_icon" placeholder="输入图标URL或点击上传"></el-input>
@@ -323,7 +323,7 @@
                 配置Progressive Web App (PWA)功能，让网站可以像原生应用一样安装到用户设备
               </div>
               
-              <el-form-item label="应用短名称">
+              <el-form-item id="field-pwa" label="应用短名称">
                 <el-input v-model="seoConfig.site_short_name" placeholder="应用的短名称，用于设备主屏幕显示">
                   <template slot="prepend">PWA</template>
                 </el-input>
@@ -368,7 +368,7 @@
                 <span class="tip">大多数博客和内容类应用推荐使用竖屏模式</span>
               </el-form-item>
 
-              <el-form-item label="桌面端截图">
+              <el-form-item id="field-pwa-screenshot" label="桌面端截图">
                 <div class="icon-upload-container">
                   <div style="display: flex">
                     <el-input v-model="seoConfig.pwa_screenshot_desktop" placeholder="输入桌面端截图URL或点击上传">
@@ -465,7 +465,7 @@
             </el-tab-pane>
             
             <el-tab-pane label="Facebook/Meta">
-            <el-form-item label="Facebook App ID">
+            <el-form-item id="field-social-meta" label="Facebook App ID">
               <el-input v-model="seoConfig.fb_app_id" placeholder="输入App ID"></el-input>
               <span class="tip">关联Facebook应用，启用分享统计和深度链接功能</span>
             </el-form-item>
@@ -564,7 +564,7 @@
           </el-tooltip>
         </el-divider>
         
-        <el-form-item label="百度站点验证">
+        <el-form-item id="field-verify" label="百度站点验证">
           <el-input v-model="seoConfig.baidu_site_verification" placeholder='请粘贴完整标签，如：<meta name="baidu-site-verification" content="codeva-xxxx" />'></el-input>
         </el-form-item>
         
@@ -604,7 +604,7 @@
           </el-tooltip>
         </el-divider>
         
-        <el-form-item label="启用百度推送">
+        <el-form-item id="field-search-push" label="启用百度推送">
           <el-switch v-model="seoConfig.baidu_push_enabled"></el-switch>
           <span class="tip">自动将新文章URL推送至百度搜索引擎</span>
         </el-form-item>
@@ -720,7 +720,7 @@
           </el-tooltip>
         </el-divider>
         
-        <el-form-item label="生成网站地图">
+        <el-form-item id="field-sitemap" label="生成网站地图">
           <el-switch v-model="seoConfig.generate_sitemap"></el-switch>
         </el-form-item>
         
@@ -1674,7 +1674,7 @@ export default {
         this.updateCustomHeaders();
       }
       
-      this.$http.post(this.$constant.pythonBaseURL + '/seo/saveAiApiConfig', configToSave, true)
+      this.$http.post(this.$constant.baseURL + '/seo/saveAiApiConfig', configToSave, true)
         .then((res) => {
           this.apiConfigLoading = false;
           if (res && res.code === 200) {

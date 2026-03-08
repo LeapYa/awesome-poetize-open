@@ -70,6 +70,9 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     @Autowired
     private UserService userService;
 
+    @Autowired
+    private com.ld.poetry.plugin.PluginHookManager pluginHookManager;
+
     @Override
     public PoetryResult saveComment(CommentVO commentVO) {
         if (CommentTypeEnum.getEnumByCode(commentVO.getType()) == null) {
@@ -78,7 +81,8 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         Article one = null;
         if (CommentTypeEnum.COMMENT_TYPE_ARTICLE.getCode().equals(commentVO.getType())) {
             LambdaQueryChainWrapper<Article> articleWrapper = new LambdaQueryChainWrapper<>(articleMapper);
-            one = articleWrapper.eq(Article::getId, commentVO.getSource()).select(Article::getUserId, Article::getArticleTitle, Article::getCommentStatus).one();
+            one = articleWrapper.eq(Article::getId, commentVO.getSource())
+                    .select(Article::getUserId, Article::getArticleTitle, Article::getCommentStatus).one();
 
             if (one == null) {
                 return PoetryResult.fail("文章不存在");
@@ -89,18 +93,17 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
             }
         }
 
-
         Comment comment = new Comment();
         comment.setSource(commentVO.getSource());
         comment.setType(commentVO.getType());
-        
+
         // XSS过滤和输入验证
         String filteredCommentContent = XssFilterUtil.clean(commentVO.getCommentContent());
         if (!StringUtils.hasText(filteredCommentContent)) {
             return PoetryResult.fail("评论内容不能为空或包含不安全内容！");
         }
         comment.setCommentContent(filteredCommentContent);
-        
+
         comment.setParentCommentId(commentVO.getParentCommentId());
 
         Integer floorCommentId = calculateFloorCommentId(commentVO.getParentCommentId(), commentVO.getFloorCommentId());
@@ -124,6 +127,13 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
         save(comment);
 
+        // 触发插件钩子：评论发布
+        pluginHookManager.onCommentPublish(
+                Long.valueOf(comment.getId()),
+                comment.getSource() != null ? Long.valueOf(comment.getSource()) : null,
+                Long.valueOf(comment.getUserId()),
+                comment.getCommentContent());
+
         try {
             mailSendUtil.sendCommentMail(commentVO, one, this);
         } catch (Exception e) {
@@ -138,7 +148,8 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
     /**
      * 🔧 新方法：正确计算floorCommentId
-     * @param parentCommentId 父评论ID
+     * 
+     * @param parentCommentId        父评论ID
      * @param frontendFloorCommentId 前端传递的floorCommentId（用于验证）
      * @return 正确的floorCommentId
      */
@@ -162,6 +173,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
     /**
      * 🔧 递归查找指定评论的楼层ID（一级评论ID）
+     * 
      * @param commentId 评论ID
      * @return 楼层ID（一级评论ID）
      */
@@ -208,7 +220,8 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
         if (CommentTypeEnum.COMMENT_TYPE_ARTICLE.getCode().equals(baseRequestVO.getCommentType())) {
             LambdaQueryChainWrapper<Article> articleWrapper = new LambdaQueryChainWrapper<>(articleMapper);
-            Article one = articleWrapper.eq(Article::getId, baseRequestVO.getSource()).select(Article::getCommentStatus).one();
+            Article one = articleWrapper.eq(Article::getId, baseRequestVO.getSource()).select(Article::getCommentStatus)
+                    .one();
 
             if (one != null && !one.getCommentStatus()) {
                 return PoetryResult.fail("评论功能已关闭！");
@@ -225,15 +238,15 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
             // 🚀 优化：分页查询一级评论，只查询必要字段
             Page<Comment> mainCommentsPage = lambdaQuery()
-                .select(Comment::getId, Comment::getSource, Comment::getType,
-                       Comment::getParentCommentId, Comment::getParentUserId,
-                       Comment::getUserId, Comment::getLikeCount, Comment::getCommentContent,
-                       Comment::getCommentInfo, Comment::getIpAddress, Comment::getLocation,
-                       Comment::getFloorCommentId, Comment::getCreateTime) // 只查询必要字段
-                .eq(Comment::getSource, baseRequestVO.getSource())
-                .eq(Comment::getType, baseRequestVO.getCommentType())
-                .eq(Comment::getParentCommentId, CommonConst.FIRST_COMMENT)
-                .page(page);
+                    .select(Comment::getId, Comment::getSource, Comment::getType,
+                            Comment::getParentCommentId, Comment::getParentUserId,
+                            Comment::getUserId, Comment::getLikeCount, Comment::getCommentContent,
+                            Comment::getCommentInfo, Comment::getIpAddress, Comment::getLocation,
+                            Comment::getFloorCommentId, Comment::getCreateTime) // 只查询必要字段
+                    .eq(Comment::getSource, baseRequestVO.getSource())
+                    .eq(Comment::getType, baseRequestVO.getCommentType())
+                    .eq(Comment::getParentCommentId, CommonConst.FIRST_COMMENT)
+                    .page(page);
 
             long queryEndTime = System.currentTimeMillis();
 
@@ -245,10 +258,9 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
             // 性能优化：使用批量查询构建主评论VO，解决N+1查询问题
             List<CommentVO> commentVOs = buildMainCommentVOsWithBatchStats(
-                mainCommentsPage.getRecords(),
-                baseRequestVO.getSource(),
-                baseRequestVO.getCommentType()
-            );
+                    mainCommentsPage.getRecords(),
+                    baseRequestVO.getSource(),
+                    baseRequestVO.getCommentType());
 
             baseRequestVO.setRecords(commentVOs);
             baseRequestVO.setTotal((int) mainCommentsPage.getTotal()); // 使用分页查询的总数
@@ -258,10 +270,10 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
             page.addOrder(OrderItem.asc("create_time"));
 
             Page<Comment> resultPage = lambdaQuery()
-                .eq(Comment::getSource, baseRequestVO.getSource())
-                .eq(Comment::getType, baseRequestVO.getCommentType())
-                .eq(Comment::getFloorCommentId, baseRequestVO.getFloorCommentId())  // 查询该楼层的所有回复
-                .page(page);
+                    .eq(Comment::getSource, baseRequestVO.getSource())
+                    .eq(Comment::getType, baseRequestVO.getCommentType())
+                    .eq(Comment::getFloorCommentId, baseRequestVO.getFloorCommentId()) // 查询该楼层的所有回复
+                    .page(page);
 
             List<Comment> childComments = resultPage.getRecords();
             if (CollectionUtils.isEmpty(childComments)) {
@@ -272,8 +284,8 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
             // 修复：为每个楼层回复也构建childComments字段，最大深度为4（确保加载所有深层评论）
             List<CommentVO> ccVO = childComments.stream()
-                .map(cc -> buildCommentVOWithChildren(cc, baseRequestVO, 4))
-                .collect(Collectors.toList());
+                    .map(cc -> buildCommentVOWithChildren(cc, baseRequestVO, 4))
+                    .collect(Collectors.toList());
 
             baseRequestVO.setRecords(ccVO);
             baseRequestVO.setTotal(resultPage.getTotal());
@@ -303,9 +315,11 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
                 baseRequestVO.setRecords(new ArrayList());
             } else {
                 if (baseRequestVO.getSource() != null) {
-                    wrapper.eq(Comment::getSource, baseRequestVO.getSource()).eq(Comment::getType, CommentTypeEnum.COMMENT_TYPE_ARTICLE.getCode());
+                    wrapper.eq(Comment::getSource, baseRequestVO.getSource()).eq(Comment::getType,
+                            CommentTypeEnum.COMMENT_TYPE_ARTICLE.getCode());
                 } else {
-                    wrapper.eq(Comment::getType, CommentTypeEnum.COMMENT_TYPE_ARTICLE.getCode()).in(Comment::getSource, userArticleIds);
+                    wrapper.eq(Comment::getType, CommentTypeEnum.COMMENT_TYPE_ARTICLE.getCode()).in(Comment::getSource,
+                            userArticleIds);
                 }
                 Page<Comment> page = new Page<>(baseRequestVO.getCurrent(), baseRequestVO.getSize());
                 wrapper.orderByDesc(Comment::getCreateTime).page(page);
@@ -323,18 +337,16 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         // 并行获取用户信息和父用户信息
         try (var scope = StructuredTaskScope.open()) {
             // Fork 当前用户信息查询
-            Subtask<User> userTask = scope.fork(() -> 
-                commonQuery.getUser(commentVO.getUserId())
-            );
-            
+            Subtask<User> userTask = scope.fork(() -> commonQuery.getUser(commentVO.getUserId()));
+
             // Fork 父用户信息查询（如果存在）
-            Subtask<User> parentUserTask = (commentVO.getParentUserId() != null) 
-                ? scope.fork(() -> commonQuery.getUser(commentVO.getParentUserId()))
-                : null;
-            
+            Subtask<User> parentUserTask = (commentVO.getParentUserId() != null)
+                    ? scope.fork(() -> commonQuery.getUser(commentVO.getParentUserId()))
+                    : null;
+
             // 等待查询完成
             scope.join();
-            
+
             // 处理当前用户信息
             if (userTask.state() == Subtask.State.SUCCESS) {
                 User user = userTask.get();
@@ -358,12 +370,12 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
                 } else {
                 }
             }
-            
+
             if (commentVO.getParentUserId() != null && !StringUtils.hasText(commentVO.getParentUsername())) {
                 String randomParentName = PoetryUtil.getRandomName(commentVO.getParentUserId().toString());
                 commentVO.setParentUsername(randomParentName);
             }
-            
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             if (!StringUtils.hasText(commentVO.getUsername())) {
@@ -382,8 +394,8 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
      * 批量构建主评论VO列表，解决N+1查询问题
      *
      * @param mainComments 主评论列表
-     * @param source 评论来源
-     * @param type 评论类型
+     * @param source       评论来源
+     * @param type         评论类型
      * @return 构建完成的CommentVO列表
      */
     private List<CommentVO> buildMainCommentVOsWithBatchStats(List<Comment> mainComments, Integer source, String type) {
@@ -459,9 +471,9 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
             if (!uncachedUserIds.isEmpty()) {
                 // 使用MyBatis-Plus的in查询，只查询必要字段
                 List<User> users = userService.lambdaQuery()
-                    .select(User::getId, User::getUsername, User::getAvatar)
-                    .in(User::getId, uncachedUserIds)
-                    .list();
+                        .select(User::getId, User::getUsername, User::getAvatar)
+                        .in(User::getId, uncachedUserIds)
+                        .list();
 
                 // 批量缓存新查询的用户
                 for (User user : users) {
@@ -542,14 +554,12 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         return page;
     }
 
-
-
     /**
      * 批量统计多个主评论的嵌套子评论数量
      *
      * @param mainCommentIds 主评论ID列表
-     * @param source 评论来源
-     * @param type 评论类型
+     * @param source         评论来源
+     * @param type           评论类型
      * @return Map<主评论ID, 嵌套子评论总数>
      */
     private Map<Integer, Long> batchCountNestedChildren(List<Integer> mainCommentIds, Integer source, String type) {
@@ -559,12 +569,12 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
         // 只查询必要字段，减少数据传输量
         List<Comment> allChildComments = lambdaQuery()
-            .select(Comment::getFloorCommentId)
-            .eq(Comment::getSource, source)
-            .eq(Comment::getType, type)
-            .in(Comment::getFloorCommentId, mainCommentIds)
-            .ne(Comment::getParentCommentId, CommonConst.FIRST_COMMENT)
-            .list();
+                .select(Comment::getFloorCommentId)
+                .eq(Comment::getSource, source)
+                .eq(Comment::getType, type)
+                .in(Comment::getFloorCommentId, mainCommentIds)
+                .ne(Comment::getParentCommentId, CommonConst.FIRST_COMMENT)
+                .list();
 
         // 使用高效的分组统计
         Map<Integer, Long> countMap = new HashMap<>();
@@ -582,13 +592,12 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         return result;
     }
 
-
-
     /**
      * 修复后的方法：递归获取指定评论的所有嵌套子评论（深度优先遍历）
      * 确保子评论紧跟在其父评论下方显示，保持对话连贯性
+     * 
      * @param parentCommentId 父评论ID
-     * @param baseRequestVO 请求参数
+     * @param baseRequestVO   请求参数
      * @return 按层级结构排序的所有嵌套子评论列表
      */
     private List<Comment> getAllNestedComments(Integer parentCommentId, BaseRequestVO baseRequestVO) {
@@ -596,12 +605,11 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
         // 查询直接子评论，按创建时间升序排列
         List<Comment> directChildren = lambdaQuery()
-            .eq(Comment::getSource, baseRequestVO.getSource())
-            .eq(Comment::getType, baseRequestVO.getCommentType())
-            .eq(Comment::getParentCommentId, parentCommentId)
-            .orderByAsc(Comment::getCreateTime)
-            .list();
-
+                .eq(Comment::getSource, baseRequestVO.getSource())
+                .eq(Comment::getType, baseRequestVO.getCommentType())
+                .eq(Comment::getParentCommentId, parentCommentId)
+                .orderByAsc(Comment::getCreateTime)
+                .list();
 
         // 使用深度优先遍历，确保每个子评论的回复紧跟在其后面
         for (Comment child : directChildren) {
@@ -621,12 +629,13 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
      * 支持分页加载某个评论的子评论
      *
      * @param parentCommentId 父评论ID
-     * @param baseRequestVO 基础请求参数（包含source、type等）
-     * @param current 当前页码
-     * @param size 每页大小（默认10）
+     * @param baseRequestVO   基础请求参数（包含source、type等）
+     * @param current         当前页码
+     * @param size            每页大小（默认10）
      * @return 分页的子评论列表
      */
-    public PoetryResult<Page<CommentVO>> listChildComments(Integer parentCommentId, BaseRequestVO baseRequestVO, Integer current, Integer size) {
+    public PoetryResult<Page<CommentVO>> listChildComments(Integer parentCommentId, BaseRequestVO baseRequestVO,
+            Integer current, Integer size) {
         // 参数验证
         if (parentCommentId == null) {
             log.error("parentCommentId为null");
@@ -648,21 +657,17 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
             return PoetryResult.fail(CodeMsg.PARAMETER_ERROR);
         }
 
-
         // 设置默认分页参数
         int pageNum = current != null ? current : 1;
         int pageSize = size != null ? size : 10;
 
-
         // 查询所有嵌套子评论并平铺显示
         List<Comment> allNestedComments = getAllNestedComments(parentCommentId, baseRequestVO);
-
 
         // 应用分页
         int startIndex = (pageNum - 1) * pageSize;
         int endIndex = Math.min(startIndex + pageSize, allNestedComments.size());
         List<Comment> pagedComments = allNestedComments.subList(startIndex, endIndex);
-
 
         List<CommentVO> childCommentVOs = new ArrayList<>();
         for (Comment comment : pagedComments) {
@@ -679,15 +684,15 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         result.setRecords(childCommentVOs);
         result.setTotal(allNestedComments.size());
 
-
         return PoetryResult.success(result);
     }
 
     /**
      * 构建CommentVO并递归加载其直接回复
-     * @param c 评论实体
+     * 
+     * @param c             评论实体
      * @param baseRequestVO 请求参数
-     * @param maxDepth 最大递归深度，防止无限递归
+     * @param maxDepth      最大递归深度，防止无限递归
      * @return CommentVO
      */
     private CommentVO buildCommentVOWithChildren(Comment c, BaseRequestVO baseRequestVO, int maxDepth) {
@@ -697,14 +702,14 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (maxDepth <= 0) {
             // 仍然需要计算回复数量用于显示统计
             Long childCount = lambdaQuery()
-                .eq(Comment::getSource, baseRequestVO.getSource())
-                .eq(Comment::getType, baseRequestVO.getCommentType())
-                .eq(Comment::getParentCommentId, c.getId())
-                .count();
+                    .eq(Comment::getSource, baseRequestVO.getSource())
+                    .eq(Comment::getType, baseRequestVO.getCommentType())
+                    .eq(Comment::getParentCommentId, c.getId())
+                    .count();
 
             Page<CommentVO> emptyPage = new Page<>(1, 5);
             emptyPage.setRecords(new ArrayList<>());
-            emptyPage.setTotal(childCount);  // 设置正确的统计数量
+            emptyPage.setTotal(childCount); // 设置正确的统计数量
             commentVO.setChildComments(emptyPage);
             return commentVO;
         }
@@ -712,11 +717,11 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         Page<Comment> childPage = new Page<>(1, 100); // 增加到100条，实际使用list()查询所有
 
         List<Comment> allChildComments = lambdaQuery()
-            .eq(Comment::getSource, baseRequestVO.getSource())
-            .eq(Comment::getType, baseRequestVO.getCommentType())
-            .eq(Comment::getParentCommentId, c.getId())  // 查询直接回复
-            .orderByAsc(Comment::getCreateTime)
-            .list();
+                .eq(Comment::getSource, baseRequestVO.getSource())
+                .eq(Comment::getType, baseRequestVO.getCommentType())
+                .eq(Comment::getParentCommentId, c.getId()) // 查询直接回复
+                .orderByAsc(Comment::getCreateTime)
+                .list();
 
         // 创建一个包含所有子评论的分页对象，用于保持接口兼容性
         Page<Comment> childResultPage = new Page<>(1, allChildComments.size());
@@ -727,8 +732,8 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (childComments != null && !childComments.isEmpty()) {
             // 递归构建子评论的VO，深度减1
             List<CommentVO> childCommentVOs = childComments.stream()
-                .map(cc -> buildCommentVOWithChildren(cc, baseRequestVO, maxDepth - 1))
-                .collect(Collectors.toList());
+                    .map(cc -> buildCommentVOWithChildren(cc, baseRequestVO, maxDepth - 1))
+                    .collect(Collectors.toList());
 
             Page<CommentVO> childCommentsPage = new Page<>(childPage.getCurrent(), childPage.getSize());
             childCommentsPage.setRecords(childCommentVOs);

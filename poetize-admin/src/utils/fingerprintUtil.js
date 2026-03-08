@@ -3,16 +3,25 @@
  * 使用 FingerprintJS 开源版生成浏览器指纹
  */
 
-import FingerprintJS from '@fingerprintjs/fingerprintjs'
-
 let fpPromise = null
+let fingerprintJsLoadPromise = null
+
+function loadFingerprintJs() {
+  if (!fingerprintJsLoadPromise) {
+    fingerprintJsLoadPromise = import('@fingerprintjs/fingerprintjs').then(
+      module => module.default
+    )
+  }
+
+  return fingerprintJsLoadPromise
+}
 
 /**
  * 初始化FingerprintJS
  */
 function initFingerprint() {
   if (!fpPromise) {
-    fpPromise = FingerprintJS.load()
+    fpPromise = loadFingerprintJs().then(FingerprintJS => FingerprintJS.load())
   }
   return fpPromise
 }

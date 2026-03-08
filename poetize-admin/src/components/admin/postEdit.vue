@@ -15,7 +15,7 @@
       </svg>
       文章信息
     </el-tag>
-    <el-form :model="article" :rules="rules" ref="ruleForm" label-width="150px"
+    <el-form :model="article" :rules="rules" ref="ruleForm" label-width="120px"
              class="demo-ruleForm mobile-responsive-form">
       <el-form-item label="标题" prop="articleTitle">
         <el-input v-model="article.articleTitle" maxlength="500" show-word-limit></el-input>
@@ -148,7 +148,7 @@
           </el-image>
         </div>
         <uploadPicture :isAdmin="true" :prefix="'articleCover'" class="cover-upload" @addPicture="addArticleCover"
-                       :maxSize="2"
+                       :maxSize="5"
                        :maxNumber="1"></uploadPicture>
       </el-form-item>
       <el-form-item label="分类" prop="sortId">
@@ -184,6 +184,60 @@
           </el-option>
         </el-select>
       </el-form-item>
+
+      <!-- 文章付费设置 -->
+      <template v-if="paymentPluginActive">
+        <el-divider content-position="left">
+          <span style="font-size: 14px; color: #606266;">
+            <i class="el-icon-money"></i> 文章付费设置
+          </span>
+        </el-divider>
+
+        <el-form-item label="付费类型">
+          <el-select v-model="article.payType" placeholder="请选择付费类型">
+            <el-option :value="0" label="免费"></el-option>
+            <el-option :value="1" label="按文章付费"></el-option>
+            <el-option :value="2" label="会员专属"></el-option>
+            <el-option :value="3" label="赞赏解锁"></el-option>
+            <el-option :value="4" label="固定金额解锁"></el-option>
+          </el-select>
+          <div class="tip-text">
+            <i class="el-icon-info"></i>
+            当前已启用付费插件：{{ paymentPluginName }}
+          </div>
+        </el-form-item>
+
+        <el-form-item v-if="article.payType === 4" label="付费金额（元）">
+          <el-input-number
+            v-model="article.payAmount"
+            :min="0.01"
+            :max="99999"
+            :precision="2"
+            :step="1"
+            placeholder="请输入金额">
+          </el-input-number>
+        </el-form-item>
+
+        <el-form-item v-if="article.payType && article.payType !== 0" label="免费预览比例(%)">
+          <el-slider
+            v-model="article.freePercent"
+            :min="0"
+            :max="100"
+            :step="5"
+            show-input
+            style="max-width: 500px;">
+          </el-slider>
+          <div class="tip-text">
+            <i class="el-icon-info"></i>
+            读者可免费阅读文章前 {{ article.freePercent || 30 }}% 的内容，其余部分需付费解锁。也可在文章内容中插入 <code>&lt;!--paywall--&gt;</code> 标记来精确控制截断位置。
+          </div>
+        </el-form-item>
+      </template>
+
+      <div v-else class="payment-not-enabled-tip" style="margin: 10px 0 20px 120px; color: #909399; font-size: 12px;">
+        <i class="el-icon-info"></i>
+        如需设置文章付费，请先在 <b>插件管理 → 文章付费</b> 中启用并配置付费插件。
+      </div>
     </el-form>
     <div class="myCenter" style="margin-bottom: 22px">
       <el-button type="primary" @click="submitForm('ruleForm')">保存并等待</el-button>
@@ -347,8 +401,14 @@ const uploadPicture = () => import("../common/uploadPicture");
           articleCover: "",
           videoUrl: "",
           sortId: null,
-          labelId: null
+          labelId: null,
+          payType: 0,
+          payAmount: null,
+          freePercent: 30
         },
+        // 付费插件状态
+        paymentPluginActive: false,
+        paymentPluginName: '',
         sorts: [],
         labels: [],
         labelsTemp: [],
@@ -510,6 +570,7 @@ const uploadPicture = () => import("../common/uploadPicture");
         try {
           // 先加载分类和标签数据
           await this.getSortAndLabel();
+          this.checkPaymentPlugin();
           this.dataLoaded = true;
           
           // 延迟渲染编辑器，避免阻塞页面
@@ -525,6 +586,24 @@ const uploadPicture = () => import("../common/uploadPicture");
         }
       },
       
+      // 检查是否有已启用的付费插件
+      checkPaymentPlugin() {
+        this.$http.get(this.$constant.baseURL + "/sysPlugin/getActivePlugin", { pluginType: 'payment' }, true)
+          .then((res) => {
+            if (res.data && res.data.enabled) {
+              this.paymentPluginActive = true;
+              this.paymentPluginName = res.data.pluginName || res.data.pluginKey || '未知';
+            } else {
+              this.paymentPluginActive = false;
+              this.paymentPluginName = '';
+            }
+          })
+          .catch(() => {
+            this.paymentPluginActive = false;
+            this.paymentPluginName = '';
+          });
+      },
+
       // 主编辑器就绪回调
       onMainEditorReady(editor) {
         this.mainEditor = editor;
@@ -1169,7 +1248,11 @@ const uploadPicture = () => import("../common/uploadPicture");
             fullUrl = this.$constant.baseURL + url;
           }
         }
-        const markdown = `![${filename || '图片'}](${fullUrl})\n`;
+        
+        // 过滤文件名中的括号，防止破坏Markdown语法
+        const safeFilename = (filename || '图片').replace(/[\[\]\(\)]/g, '');
+        const markdown = `![${safeFilename}](${fullUrl})\n`;
+        
         if (this.$refs.md) {
           this.$refs.md.insertValue(markdown);
         }

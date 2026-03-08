@@ -3,6 +3,7 @@ package com.ld.poetry.handle;
 import com.alibaba.fastjson.JSON;
 import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.enums.CodeMsg;
+import com.ld.poetry.service.ai.SseRequestUtils;
 import com.ld.poetry.utils.PoetryUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -18,6 +19,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.io.IOException;
 
 /**
  * 全局异常处理器
@@ -90,8 +92,20 @@ public class PoetryExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     @ResponseBody
-    public PoetryResult handleException(Exception ex) {
-        String requestUrl = PoetryUtil.getRequest().getRequestURL().toString();
+    public Object handleException(Exception ex) {
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        HttpServletRequest request = attributes != null ? attributes.getRequest() : PoetryUtil.getRequest();
+        HttpServletResponse response = attributes != null ? attributes.getResponse() : null;
+        String requestUrl = request != null ? request.getRequestURL().toString() : "unknown";
+
+        if (SseRequestUtils.isSseRequest(request, response)) {
+            if (SseRequestUtils.isClientCancellation(ex) || ex instanceof IOException) {
+                log.info("SSE连接已主动断开 - URL: {}, 原因: {}", requestUrl, ex.getMessage());
+            } else {
+                log.error("SSE请求异常 - URL: {}", requestUrl, ex);
+            }
+            return null;
+        }
 
         // 登录异常：属于正常业务场景，仅记录警告日志
         if (ex instanceof PoetryLoginException) {

@@ -35,10 +35,7 @@ import lombok.extern.slf4j.Slf4j;
 import com.ld.poetry.service.TranslationService;
 import java.util.Map;
 import java.util.HashMap;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.web.client.RestTemplate;
+import com.ld.poetry.service.ai.LlmTranslationService;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -90,12 +87,12 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     @Autowired
     private TranslationService translationService;
-    
+
     @Autowired
     private SummaryService summaryService;
 
     @Autowired
-    private RestTemplate restTemplate;
+    private LlmTranslationService llmTranslationService;
 
     @Autowired
     private SeoService seoService;
@@ -108,25 +105,33 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     @Autowired
     private ApplicationEventPublisher eventPublisher;
-    
+
     @Autowired
     private LockManager lockManager;
+
+    @Autowired
+    private com.ld.poetry.service.payment.PaymentService paymentService;
+
+    @Autowired
+    private com.ld.poetry.plugin.PluginHookManager pluginHookManager;
 
     @Override
     public PoetryResult saveArticle(ArticleVO articleVO) {
         // 调用重载方法，使用默认参数（不跳过AI翻译，无暂存翻译）
         return saveArticle(articleVO, false, null);
     }
-    
+
     @Override
-    public PoetryResult saveArticle(ArticleVO articleVO, boolean skipAiTranslation, Map<String, String> pendingTranslation) {
+    public PoetryResult saveArticle(ArticleVO articleVO, boolean skipAiTranslation,
+            Map<String, String> pendingTranslation) {
         log.info("开始保存文章");
-        
+
         // 参数验证
-        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus() && !StringUtils.hasText(articleVO.getPassword())) {
+        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus()
+                && !StringUtils.hasText(articleVO.getPassword())) {
             return PoetryResult.fail("请设置文章密码！");
         }
-        
+
         // ========== 步骤1：在短事务中保存文章原文 ==========
         Integer savedArticleId = saveArticleInTransaction(articleVO);
         if (savedArticleId == null) {
@@ -134,39 +139,37 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             return PoetryResult.fail("保存文章失败");
         }
         log.info("文章原文保存成功，文章ID: {}，事务已提交，数据库连接已释放", savedArticleId);
-        
+
         // 将文章ID回填到VO对象
         articleVO.setId(savedArticleId);
-        
+
         // ========== 步骤2：事务外执行AI翻译（串行等待，但不占用数据库连接）==========
         Map<String, String> translationResult;
         try {
             translationResult = translationService.translateArticleOnly(
-                articleVO.getArticleTitle(),
-                articleVO.getArticleContent(),
-                skipAiTranslation,
-                pendingTranslation
-            );
+                    articleVO.getArticleTitle(),
+                    articleVO.getArticleContent(),
+                    skipAiTranslation,
+                    pendingTranslation);
         } catch (Exception e) {
             log.warn("翻译任务失败（继续后续流程）", e);
             translationResult = null;
         }
-        
+
         // ========== 步骤3：在新事务中保存翻译结果 ==========
         if (translationResult != null && !translationResult.isEmpty()) {
             try {
                 saveTranslationInNewTransaction(
-                    savedArticleId,
-                    translationResult.get("title"),
-                    translationResult.get("content"),
-                    translationResult.get("language")
-                );
+                        savedArticleId,
+                        translationResult.get("title"),
+                        translationResult.get("content"),
+                        translationResult.get("language"));
                 log.info("翻译结果保存成功，新事务已提交");
             } catch (Exception e) {
                 log.error("翻译结果保存失败（继续执行后续流程）", e);
             }
         }
-        
+
         try {
             // ========== 步骤4：生成多语言摘要（基于原文+翻译）==========
             // 生成摘要
@@ -176,7 +179,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 log.error("摘要生成失败，预渲染将使用文章开头作为降级方案", e);
                 // 摘要生成失败不影响主流程，继续执行
             }
-            
+
             // 异步发送订阅邮件
             if (articleVO.getViewStatus()) {
                 final Integer finalLabelId = articleVO.getLabelId();
@@ -190,33 +193,39 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     }
                 });
             }
-            
+
             // 清除缓存
             try {
                 cacheService.evictSortArticleList();
             } catch (Exception e) {
                 log.error("清除缓存失败: {}", e.getMessage(), e);
             }
-            
+
             // ========== 步骤5：发布文章保存事件 ==========
             try {
                 if (eventPublisher == null) {
                     log.error("eventPublisher为空，无法发布事件");
                 } else {
-                    eventPublisher.publishEvent(new ArticleSavedEvent(savedArticleId, articleVO.getSortId(), 
-                                                                    articleVO.getViewStatus(), "CREATE", 
-                                                                    articleVO.getSubmitToSearchEngine()));
+                    eventPublisher.publishEvent(new ArticleSavedEvent(savedArticleId, articleVO.getSortId(),
+                            articleVO.getViewStatus(), "CREATE",
+                            articleVO.getSubmitToSearchEngine()));
                     log.info("已发布文章保存事件，文章ID: {}, 可见: {}", savedArticleId, articleVO.getViewStatus());
                 }
             } catch (Exception e) {
                 log.error("发布文章保存事件失败: {}", e.getMessage(), e);
             }
-            
+
             log.info("文章保存流程全部完成，文章ID: {}", savedArticleId);
-            
+
+            // 触发插件钩子：文章保存完成
+            pluginHookManager.onArticleSave(
+                    Long.valueOf(savedArticleId),
+                    articleVO.getArticleTitle(),
+                    Long.valueOf(PoetryUtil.getUserId()));
+
             // 核心任务完成后立即返回
             return PoetryResult.success(savedArticleId);
-            
+
         } catch (Exception e) {
             log.error("后台任务执行失败，文章ID: {}", savedArticleId, e);
             return PoetryResult.fail("部分操作失败：" + e.getMessage() + "，但文章已保存，文章ID: " + savedArticleId);
@@ -236,20 +245,22 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
      * 异步保存文章（快速响应版本，支持翻译参数）
      */
     @Override
-    public PoetryResult<String> saveArticleAsync(ArticleVO articleVO, boolean skipAiTranslation, Map<String, String> pendingTranslation) {
+    public PoetryResult<String> saveArticleAsync(ArticleVO articleVO, boolean skipAiTranslation,
+            Map<String, String> pendingTranslation) {
         // 生成任务ID
-        String taskId = "article_save_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 1000);
-        
+        String taskId = "article_save_" + System.currentTimeMillis() + "_" + (int) (Math.random() * 1000);
+
         // 基础验证
-        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus() && !StringUtils.hasText(articleVO.getPassword())) {
+        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus()
+                && !StringUtils.hasText(articleVO.getPassword())) {
             return PoetryResult.fail("请设置文章密码！");
         }
-        
+
         Integer userId = PoetryUtil.getUserId();
         if (userId == null) {
             return PoetryResult.fail("无法确定文章作者，请重新登录后再试");
         }
-        
+
         // 在主线程中获取用户信息，避免异步线程中无法访问RequestContext
         String currentUsername = null;
         try {
@@ -259,22 +270,22 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             currentUsername = "System";
         }
         final String finalUsername = currentUsername;
-        
+
         // 初始化保存状态
         ArticleSaveStatus initialStatus = new ArticleSaveStatus(taskId, "processing", "正在保存文章...", null);
         ARTICLE_SAVE_STATUS.put(taskId, initialStatus);
         log.info("初始化异步保存任务，任务ID: {}", taskId);
-        
+
         // 使用虚拟线程异步执行保存
         Thread.ofVirtual().name("article-save-" + taskId).start(() -> {
             try {
-                
+
                 // 设置用户ID（虚拟线程中无法访问RequestContext）
                 articleVO.setUserId(userId);
-                
+
                 // 更新状态：正在保存到数据库
                 updateSaveStatus(taskId, "processing", "正在保存到数据库...");
-                
+
                 // ========== 步骤1：使用短事务方法保存文章 ==========
                 Integer savedArticleId = saveArticleInTransaction(articleVO);
                 if (savedArticleId == null) {
@@ -283,17 +294,16 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     return;
                 }
                 log.info("文章保存成功，任务ID: {}, 文章ID: {}，短事务已提交", taskId, savedArticleId);
-                
+
                 // ========== 步骤2：事务外执行AI翻译（串行执行）==========
                 updateSaveStatus(taskId, "processing", "文章已保存，正在进行AI翻译...");
                 Map<String, String> translationResult;
                 try {
                     translationResult = translationService.translateArticleOnly(
-                        articleVO.getArticleTitle(),
-                        articleVO.getArticleContent(),
-                        skipAiTranslation,
-                        pendingTranslation
-                    );
+                            articleVO.getArticleTitle(),
+                            articleVO.getArticleContent(),
+                            skipAiTranslation,
+                            pendingTranslation);
                 } catch (Exception e) {
                     log.warn("翻译任务失败，任务ID: {}", taskId, e);
                     translationResult = null;
@@ -304,17 +314,16 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     updateSaveStatus(taskId, "processing", "文章已保存，正在保存翻译结果...");
                     try {
                         saveTranslationInNewTransaction(
-                            savedArticleId,
-                            translationResult.get("title"),
-                            translationResult.get("content"),
-                            translationResult.get("language")
-                        );
+                                savedArticleId,
+                                translationResult.get("title"),
+                                translationResult.get("content"),
+                                translationResult.get("language"));
                         log.info("翻译结果保存成功，任务ID: {}，新事务已提交", taskId);
                     } catch (Exception e) {
                         log.error("翻译结果保存失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
                     }
                 }
-                
+
                 // ========== 步骤4：生成多语言摘要（基于原文+翻译）==========
                 updateSaveStatus(taskId, "processing", "文章已保存，正在生成多语言AI摘要...");
                 try {
@@ -322,14 +331,14 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 } catch (Exception e) {
                     log.error("摘要生成失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
                 }
-                
+
                 // 清除缓存
                 try {
                     cacheService.evictSortArticleList();
                 } catch (Exception e) {
                     log.error("清除缓存失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
                 }
-                
+
                 // 异步发送订阅邮件
                 if (articleVO.getViewStatus()) {
                     final Integer finalLabelId = articleVO.getLabelId();
@@ -344,68 +353,67 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                         }
                     });
                 }
-                
+
                 // ========== 步骤5：发布文章保存事件 ==========
                 try {
                     if (eventPublisher == null) {
                         log.error("eventPublisher为空，无法发布事件，任务ID: {}", taskId);
                     } else {
-                        eventPublisher.publishEvent(new ArticleSavedEvent(savedArticleId, articleVO.getSortId(), 
-                                                                        articleVO.getViewStatus(), "CREATE", 
-                                                                        articleVO.getSubmitToSearchEngine()));
-                        log.info("已发布文章保存事件，任务ID: {}, 文章ID: {}, 可见: {}", taskId, savedArticleId, articleVO.getViewStatus());
+                        eventPublisher.publishEvent(new ArticleSavedEvent(savedArticleId, articleVO.getSortId(),
+                                articleVO.getViewStatus(), "CREATE",
+                                articleVO.getSubmitToSearchEngine()));
+                        log.info("已发布文章保存事件，任务ID: {}, 文章ID: {}, 可见: {}", taskId, savedArticleId,
+                                articleVO.getViewStatus());
                     }
                 } catch (Exception e) {
                     log.error("发布文章保存事件失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
                 }
-                
+
                 // 最终成功状态（SEO推送将在预渲染完成后自动执行）
                 updateSaveStatus(taskId, "success", "文章保存成功！AI摘要已生成", savedArticleId);
                 log.info("异步文章保存流程全部完成，任务ID: {}, 文章ID: {}", taskId, savedArticleId);
-                
+
             } catch (Exception e) {
                 log.error("文章保存失败，任务ID: {}", taskId, e);
                 updateSaveStatus(taskId, "failed", "保存失败：" + e.getMessage());
             }
         });
-        
+
         return PoetryResult.success(taskId);
     }
-    
+
     /**
      * 查询文章保存状态
      */
     @Override
     public PoetryResult<ArticleSaveStatus> getArticleSaveStatus(String taskId) {
-        
+
         ArticleSaveStatus status = ARTICLE_SAVE_STATUS.get(taskId);
         if (status == null) {
             log.warn("任务不存在，任务ID: {}", taskId);
             return PoetryResult.fail("任务不存在或已过期");
         }
-        
+
         // 如果任务完成（成功或失败），10分钟后自动清理
-        if (("success".equals(status.getStatus()) || "failed".equals(status.getStatus())) 
-            && System.currentTimeMillis() - status.getLastUpdateTime() > 10 * 60 * 1000) {
+        if (("success".equals(status.getStatus()) || "failed".equals(status.getStatus()))
+                && System.currentTimeMillis() - status.getLastUpdateTime() > 10 * 60 * 1000) {
             ARTICLE_SAVE_STATUS.remove(taskId);
             return PoetryResult.fail("任务已过期");
         }
-        
+
         return PoetryResult.success(status);
     }
-    
 
-    
     // 文章保存状态缓存（内存级别，重启后清空）
     private static final Map<String, ArticleSaveStatus> ARTICLE_SAVE_STATUS = new ConcurrentHashMap<>();
-    
+
     /**
      * 更新保存状态
      */
     private void updateSaveStatus(String taskId, String status, String message) {
         updateSaveStatus(taskId, status, message, null);
     }
-    
+
     private void updateSaveStatus(String taskId, String status, String message, Integer articleId) {
         ArticleSaveStatus saveStatus = ARTICLE_SAVE_STATUS.get(taskId);
         if (saveStatus != null) {
@@ -417,13 +425,14 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             log.warn("状态更新失败 - 任务ID不存在: {}, 尝试更新状态: {}, 消息: {}", taskId, status, message);
         }
     }
-    
+
     /**
      * 发送订阅邮件（从原方法提取）
      */
     private void sendSubscriptionEmails(Integer labelId, String articleTitle) {
         try {
-            List<User> users = userService.lambdaQuery().select(User::getEmail, User::getSubscribe).eq(User::getUserStatus, PoetryEnum.STATUS_ENABLE.getCode()).list();
+            List<User> users = userService.lambdaQuery().select(User::getEmail, User::getSubscribe)
+                    .eq(User::getUserStatus, PoetryEnum.STATUS_ENABLE.getCode()).list();
             List<String> emails = users.stream().filter(u -> {
                 List<Integer> sub = JSON.parseArray(u.getSubscribe(), Integer.class);
                 return !CollectionUtils.isEmpty(sub) && sub.contains(labelId);
@@ -434,14 +443,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 Label label = wrapper.select(Label::getLabelName).eq(Label::getId, labelId).one();
                 String text = getSubscribeMail(label.getLabelName(), articleTitle);
                 WebInfo webInfo = cacheService.getCachedWebInfo();
-                mailUtil.sendMailMessage(emails, "您有一封来自" + (webInfo == null ? "POETIZE" : webInfo.getWebName()) + "的回执！", text);
+                mailUtil.sendMailMessage(emails,
+                        "您有一封来自" + (webInfo == null ? "POETIZE" : webInfo.getWebName()) + "的回执！", text);
                 log.info("订阅邮件发送完成，发送给{}个用户", emails.size());
             }
         } catch (Exception e) {
             log.error("订阅邮件发送失败", e);
         }
     }
-    
+
     /**
      * 文章保存状态类
      */
@@ -451,7 +461,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         private String message;
         private Integer articleId;
         private long lastUpdateTime;
-        
+
         public ArticleSaveStatus(String taskId, String status, String message, Integer articleId) {
             this.taskId = taskId;
             this.status = status;
@@ -459,28 +469,53 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             this.articleId = articleId;
             this.lastUpdateTime = System.currentTimeMillis();
         }
-        
+
         // getters and setters
-        public String getTaskId() { return taskId; }
-        public void setTaskId(String taskId) { this.taskId = taskId; }
-        
-        public String getStatus() { return status; }
-        public void setStatus(String status) { this.status = status; }
-        
-        public String getMessage() { return message; }
-        public void setMessage(String message) { this.message = message; }
-        
-        public Integer getArticleId() { return articleId; }
-        public void setArticleId(Integer articleId) { this.articleId = articleId; }
-        
-        public long getLastUpdateTime() { return lastUpdateTime; }
-        public void setLastUpdateTime(long lastUpdateTime) { this.lastUpdateTime = lastUpdateTime; }
+        public String getTaskId() {
+            return taskId;
+        }
+
+        public void setTaskId(String taskId) {
+            this.taskId = taskId;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+
+        public void setMessage(String message) {
+            this.message = message;
+        }
+
+        public Integer getArticleId() {
+            return articleId;
+        }
+
+        public void setArticleId(Integer articleId) {
+            this.articleId = articleId;
+        }
+
+        public long getLastUpdateTime() {
+            return lastUpdateTime;
+        }
+
+        public void setLastUpdateTime(long lastUpdateTime) {
+            this.lastUpdateTime = lastUpdateTime;
+        }
     }
 
     private String getSubscribeMail(String labelName, String articleTitle) {
         WebInfo webInfo = cacheService.getCachedWebInfo();
         String webName = (webInfo == null ? "POETIZE" : webInfo.getWebName());
-        
+
         // 从数据库获取订阅模板
         String subscribeTemplate = sysConfigService.getConfigValueByKey("user.subscribe.format");
         if (subscribeTemplate == null || subscribeTemplate.trim().isEmpty()) {
@@ -488,12 +523,12 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             subscribeTemplate = "【POETIZE】您订阅的专栏【%s】新增一篇文章：%s。";
             log.warn("数据库中未找到订阅模板配置，使用默认模板");
         }
-        
+
         log.info("使用订阅邮件模板: {}", subscribeTemplate); // 添加日志记录使用的模板
-        
+
         User adminUser = PoetryUtil.getAdminUser();
         String adminUsername = adminUser != null ? adminUser.getUsername() : "站长";
-        
+
         return String.format(mailUtil.getMailText(),
                 webName,
                 String.format(MailUtil.notificationMail, adminUsername),
@@ -507,19 +542,19 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Transactional(rollbackFor = Exception.class)
     public PoetryResult deleteArticle(Integer id) {
         Integer userId = PoetryUtil.getUserId();
-        
+
         // 检查文章是否存在
         Article article = lambdaQuery().eq(Article::getId, id).one();
         if (article == null) {
             return PoetryResult.fail("文章不存在！");
         }
-        
+
         // 如果是文章作者或管理员，允许删除
         boolean canDelete = article.getUserId().equals(userId) || PoetryUtil.isBoss();
         if (!canDelete) {
             return PoetryResult.fail("没有权限删除此文章！");
         }
-        
+
         // 删除文章（事务保护）
         removeById(id);
 
@@ -534,25 +569,27 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         // 调用重载方法，使用默认参数（不跳过AI翻译，无暂存翻译）
         return updateArticle(articleVO, false, null);
     }
-    
+
     @Override
-    public PoetryResult updateArticle(ArticleVO articleVO, boolean skipAiTranslation, Map<String, String> pendingTranslation) {
+    public PoetryResult updateArticle(ArticleVO articleVO, boolean skipAiTranslation,
+            Map<String, String> pendingTranslation) {
         log.info("开始更新文章，ID: {}", articleVO.getId());
-        
+
         // 验证数据合法性
         if (StringUtils.hasText(articleVO.getArticleTitle()) && articleVO.getArticleTitle().trim().isEmpty()) {
             return PoetryResult.fail("文章标题为空");
         }
-        
+
         // 参数验证
-        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus() && !StringUtils.hasText(articleVO.getPassword())) {
+        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus()
+                && !StringUtils.hasText(articleVO.getPassword())) {
             return PoetryResult.fail("请设置文章密码！");
         }
 
         Integer userId = PoetryUtil.getUserId();
         final Integer updatedArticleId = articleVO.getId();
         final String updatedContent = articleVO.getArticleContent();
-        
+
         // 构建更新链式包装器
         LambdaUpdateChainWrapper<Article> updateChainWrapper = lambdaUpdate()
                 .eq(Article::getId, articleVO.getId())
@@ -562,8 +599,12 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 .set(Article::getArticleTitle, articleVO.getArticleTitle())
                 .set(Article::getUpdateBy, PoetryUtil.getUsername())
                 .set(Article::getUpdateTime, LocalDateTime.now())
-                .set(Article::getVideoUrl, StringUtils.hasText(articleVO.getVideoUrl()) ? articleVO.getVideoUrl() : null)
-                .set(Article::getArticleContent, articleVO.getArticleContent());
+                .set(Article::getVideoUrl,
+                        StringUtils.hasText(articleVO.getVideoUrl()) ? articleVO.getVideoUrl() : null)
+                .set(Article::getArticleContent, articleVO.getArticleContent())
+                .set(Article::getPayType, articleVO.getPayType())
+                .set(Article::getPayAmount, articleVO.getPayAmount())
+                .set(Article::getFreePercent, articleVO.getFreePercent());
 
         if (StringUtils.hasText(articleVO.getArticleCover())) {
             updateChainWrapper.set(Article::getArticleCover, articleVO.getArticleCover());
@@ -574,7 +615,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (articleVO.getRecommendStatus() != null) {
             updateChainWrapper.set(Article::getRecommendStatus, articleVO.getRecommendStatus());
         }
-        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus() && StringUtils.hasText(articleVO.getPassword())) {
+        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus()
+                && StringUtils.hasText(articleVO.getPassword())) {
             updateChainWrapper.set(Article::getPassword, articleVO.getPassword());
             updateChainWrapper.set(StringUtils.hasText(articleVO.getTips()), Article::getTips, articleVO.getTips());
         }
@@ -584,7 +626,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (articleVO.getSubmitToSearchEngine() != null) {
             updateChainWrapper.set(Article::getSubmitToSearchEngine, articleVO.getSubmitToSearchEngine());
         }
-        
+
         // ========== 步骤1：在短事务中更新文章 ==========
         boolean updateResult = updateArticleInTransaction(updateChainWrapper);
         if (!updateResult) {
@@ -592,36 +634,34 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             return PoetryResult.fail("更新文章失败");
         }
         log.info("文章更新成功，文章ID: {}，事务已提交，数据库连接已释放", updatedArticleId);
-        
+
         // ========== 步骤2：事务外执行AI翻译（串行等待，但不占用数据库连接）==========
         Map<String, String> translationResult;
         try {
             translationResult = translationService.translateArticleOnly(
-                articleVO.getArticleTitle(),
-                articleVO.getArticleContent(),
-                skipAiTranslation,
-                pendingTranslation
-            );
+                    articleVO.getArticleTitle(),
+                    articleVO.getArticleContent(),
+                    skipAiTranslation,
+                    pendingTranslation);
         } catch (Exception e) {
             log.warn("翻译任务失败（继续后续流程）", e);
             translationResult = null;
         }
-        
+
         // ========== 步骤3：在新事务中保存翻译结果 ==========
         if (translationResult != null && !translationResult.isEmpty()) {
             try {
                 saveTranslationInNewTransaction(
-                    updatedArticleId,
-                    translationResult.get("title"),
-                    translationResult.get("content"),
-                    translationResult.get("language")
-                );
+                        updatedArticleId,
+                        translationResult.get("title"),
+                        translationResult.get("content"),
+                        translationResult.get("language"));
                 log.info("翻译结果保存成功，新事务已提交");
             } catch (Exception e) {
                 log.error("翻译结果保存失败（继续执行后续流程）", e);
             }
         }
-        
+
         try {
             // ========== 步骤4：更新多语言摘要（基于原文+翻译）==========
             // 更新摘要
@@ -633,7 +673,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     // 摘要更新失败不影响主流程，继续执行
                 }
             }
-            
+
             // 清除缓存
             try {
                 cacheService.evictSortArticleList();
@@ -643,18 +683,18 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
             // ========== 步骤5：发布文章更新事件 ==========
             try {
-                eventPublisher.publishEvent(new ArticleSavedEvent(updatedArticleId, articleVO.getSortId(), 
-                                                                articleVO.getViewStatus(), "UPDATE", 
-                                                                articleVO.getSubmitToSearchEngine()));
+                eventPublisher.publishEvent(new ArticleSavedEvent(updatedArticleId, articleVO.getSortId(),
+                        articleVO.getViewStatus(), "UPDATE",
+                        articleVO.getSubmitToSearchEngine()));
             } catch (Exception e) {
                 log.error("发布文章更新事件失败: {}", e.getMessage(), e);
             }
-            
+
             log.info("文章更新流程全部完成，文章ID: {}", updatedArticleId);
 
             // 核心任务完成后立即返回
             return PoetryResult.success();
-            
+
         } catch (Exception e) {
             log.error("后台任务执行失败，文章ID: {}", updatedArticleId, e);
             return PoetryResult.fail("部分操作失败：" + e.getMessage() + "，但文章已更新");
@@ -676,9 +716,11 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
         LambdaQueryChainWrapper<Article> lambdaQuery = lambdaQuery();
         lambdaQuery.in(!CollectionUtils.isEmpty(ids), Article::getId, ids);
-        lambdaQuery.like(StringUtils.hasText(baseRequestVO.getSearchKey()), Article::getArticleTitle, baseRequestVO.getSearchKey());
-        lambdaQuery.eq(baseRequestVO.getRecommendStatus() != null && baseRequestVO.getRecommendStatus(), Article::getRecommendStatus, PoetryEnum.STATUS_ENABLE.getCode());
-        
+        lambdaQuery.like(StringUtils.hasText(baseRequestVO.getSearchKey()), Article::getArticleTitle,
+                baseRequestVO.getSearchKey());
+        lambdaQuery.eq(baseRequestVO.getRecommendStatus() != null && baseRequestVO.getRecommendStatus(),
+                Article::getRecommendStatus, PoetryEnum.STATUS_ENABLE.getCode());
+
         // 添加对可见文章的过滤，确保预渲染和前端只获取可见的文章
         lambdaQuery.eq(Article::getViewStatus, true);
 
@@ -703,110 +745,122 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 // 保存原始内容用于显示前的高亮处理
                 String originalContent = article.getArticleContent();
                 String originalTitle = article.getArticleTitle();
-                
+
                 ArticleVO articleVO = buildArticleVO(article, false);
-                
+
                 // 直接使用数据库中存储的摘要（仅在非搜索场景下设置）
-                if (!StringUtils.hasText(baseRequestVO.getArticleSearch()) && StringUtils.hasText(article.getSummary())) {
+                if (!StringUtils.hasText(baseRequestVO.getArticleSearch())
+                        && StringUtils.hasText(article.getSummary())) {
                     articleVO.setSummary(article.getSummary());
                 }
-                
+
                 articleVO.setHasVideo(StringUtils.hasText(articleVO.getVideoUrl()));
                 articleVO.setPassword(null);
                 articleVO.setVideoUrl(null);
-                
+
                 // 如果是搜索结果，进行高亮处理
                 if (StringUtils.hasText(baseRequestVO.getArticleSearch())) {
                     String searchText = baseRequestVO.getArticleSearch();
-                    
+
                     // 检测是否为正则表达式搜索
-                    boolean isRegexSearch = searchText.startsWith("/") && searchText.endsWith("/") && searchText.length() > 2;
-                    String actualSearchText = isRegexSearch ? searchText.substring(1, searchText.length() - 1) : searchText;
-                    
+                    boolean isRegexSearch = searchText.startsWith("/") && searchText.endsWith("/")
+                            && searchText.length() > 2;
+                    String actualSearchText = isRegexSearch ? searchText.substring(1, searchText.length() - 1)
+                            : searchText;
+
                     // 使用高亮标签进行处理
                     String highlightStart = "<span class='search-highlight' style='color: var(--lightGreen); font-weight: bold;'>";
                     String highlightEnd = "</span>";
-                    
+
                     // 检查原文是否匹配
                     boolean originalTitleMatches = false;
                     boolean originalContentMatches = false;
-                    
+
                     if (isRegexSearch) {
                         Pattern pattern = Pattern.compile(actualSearchText, Pattern.CASE_INSENSITIVE);
                         originalTitleMatches = originalTitle != null && pattern.matcher(originalTitle).find();
                         originalContentMatches = originalContent != null && pattern.matcher(originalContent).find();
                     } else {
-                        originalTitleMatches = originalTitle != null && originalTitle.toLowerCase().contains(searchText.toLowerCase());
-                        originalContentMatches = originalContent != null && originalContent.toLowerCase().contains(searchText.toLowerCase());
+                        originalTitleMatches = originalTitle != null
+                                && originalTitle.toLowerCase().contains(searchText.toLowerCase());
+                        originalContentMatches = originalContent != null
+                                && originalContent.toLowerCase().contains(searchText.toLowerCase());
                     }
-                    
+
                     boolean originalMatches = originalTitleMatches || originalContentMatches;
-                    
+
                     // 检查翻译是否匹配
                     String matchedLanguage = commonQuery.getMatchedTranslationLanguage(articleVO.getId(), searchText);
                     boolean translationMatches = matchedLanguage != null;
-                    
+
                     if (originalMatches && translationMatches) {
                         // 原文和翻译都匹配：优先显示原文，但标记翻译也匹配
                         articleVO.setIsTranslationMatch(false); // 优先显示原文
                         articleVO.setMatchedLanguage(matchedLanguage); // 保存匹配的翻译语言信息
-                        
+
                         // 可以添加一个字段标识翻译也匹配了
                         articleVO.setHasTranslationMatch(true);
-                        
-                        
+
                     } else if (originalMatches) {
                         // 只有原文匹配
                         articleVO.setIsTranslationMatch(false);
-                        
+
                     } else if (translationMatches) {
                         // 只有翻译匹配
-                        Map<String, String> matchedTranslation = commonQuery.getMatchedTranslation(articleVO.getId(), searchText, matchedLanguage);
+                        Map<String, String> matchedTranslation = commonQuery.getMatchedTranslation(articleVO.getId(),
+                                searchText, matchedLanguage);
                         if (matchedTranslation != null) {
                             articleVO.setIsTranslationMatch(true);
                             articleVO.setMatchedLanguage(matchedLanguage);
-                            
+
                             // 高亮翻译标题和内容，并替换原文显示
                             String translatedTitle = matchedTranslation.get("title");
                             String translatedContent = matchedTranslation.get("content");
-                            
+
                             if (translatedTitle != null) {
                                 String highlightedTitle;
                                 if (isRegexSearch) {
-                                    highlightedTitle = StringUtil.highlightTextWithRegex(translatedTitle, actualSearchText, highlightStart, highlightEnd);
+                                    highlightedTitle = StringUtil.highlightTextWithRegex(translatedTitle,
+                                            actualSearchText, highlightStart, highlightEnd);
                                 } else {
-                                    highlightedTitle = StringUtil.highlightText(translatedTitle, searchText, highlightStart, highlightEnd);
+                                    highlightedTitle = StringUtil.highlightText(translatedTitle, searchText,
+                                            highlightStart, highlightEnd);
                                 }
                                 articleVO.setArticleTitle(highlightedTitle); // 替换显示的标题
                             }
                             if (translatedContent != null) {
                                 // 智能截取包含搜索关键词的内容片段
-                                String contentSnippet = getContentSnippetWithKeyword(translatedContent, searchText, CommonConst.SUMMARY);
+                                String contentSnippet = getContentSnippetWithKeyword(translatedContent, searchText,
+                                        CommonConst.SUMMARY);
                                 String highlightedContent;
                                 if (isRegexSearch) {
-                                    highlightedContent = StringUtil.highlightTextWithRegex(contentSnippet, actualSearchText, highlightStart, highlightEnd);
+                                    highlightedContent = StringUtil.highlightTextWithRegex(contentSnippet,
+                                            actualSearchText, highlightStart, highlightEnd);
                                 } else {
-                                    highlightedContent = StringUtil.highlightText(contentSnippet, searchText, highlightStart, highlightEnd);
+                                    highlightedContent = StringUtil.highlightText(contentSnippet, searchText,
+                                            highlightStart, highlightEnd);
                                 }
                                 articleVO.setArticleContent(highlightedContent); // 替换显示的内容
                             }
-                            
+
                         }
                     } else {
                         // 原文和翻译都不匹配（理论上不应该出现）
                         articleVO.setIsTranslationMatch(false);
                         log.warn("文章ID {} 在搜索结果中但原文和翻译都不匹配搜索词: {}", articleVO.getId(), searchText);
                     }
-                    
+
                     // 对标题和内容进行高亮处理（原有逻辑）
                     if (idList.get(0).contains(articleVO.getId())) {
                         // 标题匹配的文章
                         if (!Boolean.TRUE.equals(articleVO.getIsTranslationMatch())) {
                             String highlightedTitle;
                             if (isRegexSearch) {
-                                highlightedTitle = StringUtil.highlightTextWithRegex(originalTitle, actualSearchText, highlightStart, highlightEnd);
+                                highlightedTitle = StringUtil.highlightTextWithRegex(originalTitle, actualSearchText,
+                                        highlightStart, highlightEnd);
                             } else {
-                                highlightedTitle = StringUtil.highlightText(originalTitle, searchText, highlightStart, highlightEnd);
+                                highlightedTitle = StringUtil.highlightText(originalTitle, searchText, highlightStart,
+                                        highlightEnd);
                             }
                             articleVO.setArticleTitle(highlightedTitle);
                         }
@@ -815,12 +869,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                         // 内容匹配的文章
                         if (!Boolean.TRUE.equals(articleVO.getIsTranslationMatch())) {
                             // 智能截取包含搜索关键词的原文内容片段（使用原始内容）
-                            String contentSnippet = getContentSnippetWithKeyword(originalContent, searchText, CommonConst.SUMMARY);
+                            String contentSnippet = getContentSnippetWithKeyword(originalContent, searchText,
+                                    CommonConst.SUMMARY);
                             String highlightedContent;
                             if (isRegexSearch) {
-                                highlightedContent = StringUtil.highlightTextWithRegex(contentSnippet, actualSearchText, highlightStart, highlightEnd);
+                                highlightedContent = StringUtil.highlightTextWithRegex(contentSnippet, actualSearchText,
+                                        highlightStart, highlightEnd);
                             } else {
-                                highlightedContent = StringUtil.highlightText(contentSnippet, searchText, highlightStart, highlightEnd);
+                                highlightedContent = StringUtil.highlightText(contentSnippet, searchText,
+                                        highlightStart, highlightEnd);
                             }
                             articleVO.setArticleContent(highlightedContent);
                         }
@@ -833,12 +890,12 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     // 非搜索情况下，对内容进行默认截断处理
                     if (originalContent.length() > CommonConst.SUMMARY) {
                         String truncatedContent = originalContent.substring(0, CommonConst.SUMMARY)
-                            .replace("`", "").replace("#", "").replace(">", "") + "...";
+                                .replace("`", "").replace("#", "").replace(">", "") + "...";
                         articleVO.setArticleContent(truncatedContent);
                     }
                     articles.add(articleVO);
                 }
-                
+
                 // 搜索场景下，确保summary为空，强制前端使用articleContent
                 if (StringUtils.hasText(baseRequestVO.getArticleSearch())) {
                     articleVO.setSummary(null);
@@ -859,11 +916,12 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     public PoetryResult<ArticleVO> getArticleById(Integer id, String password) {
         return getArticleById(id, password, true);
     }
-    
+
     /**
      * 获取文章详情，可以选择是否增加浏览量
-     * @param id 文章ID
-     * @param password 密码
+     * 
+     * @param id                 文章ID
+     * @param password           密码
      * @param incrementViewCount 是否增加浏览量
      * @return 文章详情
      */
@@ -876,27 +934,113 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             return PoetryResult.success();
         }
         if (!article.getViewStatus() && (!StringUtils.hasText(password) || !password.equals(article.getPassword()))) {
-            return PoetryResult.fail("密码错误" + (StringUtils.hasText(article.getTips()) ? article.getTips() : "请联系作者获取密码"));
+            return PoetryResult
+                    .fail("密码错误" + (StringUtils.hasText(article.getTips()) ? article.getTips() : "请联系作者获取密码"));
         }
-        
+
         // 只有当需要增加浏览量时才调用updateViewCount
         if (incrementViewCount) {
             articleMapper.updateViewCount(id);
         }
-        
+
         article.setPassword(null);
         if (StringUtils.hasText(article.getVideoUrl())) {
             article.setVideoUrl(CryptoUtil.encrypt(article.getVideoUrl()));
         }
-        
+
         ArticleVO articleVO = buildArticleVO(article, false);
-        
+
         // 直接使用数据库中存储的摘要
         if (StringUtils.hasText(article.getSummary())) {
             articleVO.setSummary(article.getSummary());
         }
-        
+
+        // ========== 付费墙截断逻辑 ==========
+        applyPaywall(article, articleVO);
+
         return PoetryResult.success(articleVO);
+    }
+
+    /**
+     * 应用付费墙截断逻辑
+     * <p>
+     * 混合模式：优先查找 <!--paywall--> 标记截断；未找到则按 freePercent 百分比在段落边界截断。
+     * 已登录且已付费/文章作者/管理员 不截断。
+     * </p>
+     */
+    private void applyPaywall(Article article, ArticleVO articleVO) {
+        Integer payType = article.getPayType();
+        // payType 为 null 或 0 表示免费文章
+        if (payType == null || payType == 0) {
+            articleVO.setPaywalled(false);
+            return;
+        }
+
+        // 填充付费信息
+        articleVO.setPayType(payType);
+        articleVO.setPayAmount(article.getPayAmount());
+        articleVO.setFreePercent(article.getFreePercent());
+        articleVO.setPaidCount(paymentService.getPaidCount(article.getId()));
+
+        // 检查当前用户是否有权查看全文
+        Integer currentUserId = PoetryUtil.getUserId();
+        if (currentUserId != null) {
+            // 文章作者可以看到全文
+            if (currentUserId.equals(article.getUserId())) {
+                articleVO.setPaywalled(false);
+                return;
+            }
+            // 管理员可以看到全文
+            if (PoetryUtil.isBoss()) {
+                articleVO.setPaywalled(false);
+                return;
+            }
+            // 已付费可以看到全文
+            if (paymentService.hasPaid(currentUserId, article.getId())) {
+                articleVO.setPaywalled(false);
+                return;
+            }
+            // 会员专属文章，检查会员状态
+            if (payType == 2 && paymentService.isMember(currentUserId)) {
+                articleVO.setPaywalled(false);
+                return;
+            }
+        }
+
+        // 需要截断
+        articleVO.setPaywalled(true);
+        String content = articleVO.getArticleContent();
+        if (content == null || content.isEmpty()) {
+            return;
+        }
+
+        // 优先使用 <!--paywall--> 标记
+        String paywallMarker = "<!--paywall-->";
+        int markerIndex = content.indexOf(paywallMarker);
+        if (markerIndex >= 0) {
+            articleVO.setArticleContent(content.substring(0, markerIndex));
+            return;
+        }
+
+        // 回退到百分比截断（在段落边界）
+        int freePercent = article.getFreePercent() != null ? article.getFreePercent() : 30;
+        int targetLength = (int) (content.length() * freePercent / 100.0);
+
+        // 在目标长度附近寻找段落边界（\n\n 或 \n）
+        int cutPoint = targetLength;
+        // 向前搜索最近的段落分隔
+        int paragraphBreak = content.lastIndexOf("\n\n", targetLength);
+        if (paragraphBreak > targetLength * 0.5) {
+            cutPoint = paragraphBreak;
+        } else {
+            // 退而求其次，找单独换行
+            int lineBreak = content.lastIndexOf("\n", targetLength);
+            if (lineBreak > targetLength * 0.5) {
+                cutPoint = lineBreak;
+            }
+        }
+
+        articleVO.setArticleContent(content.substring(0, cutPoint));
     }
 
     @Override
@@ -946,7 +1090,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         LambdaQueryChainWrapper<Article> lambdaQuery = lambdaQuery();
         lambdaQuery.eq(Article::getId, id).eq(Article::getUserId, PoetryUtil.getUserId());
         Article article = lambdaQuery.one();
-        
+
         // 如果当前用户不是文章创建者，检查是否为管理员访问API创建的文章
         if (article == null) {
             // 检查当前用户是否有权限(Boss角色)
@@ -960,7 +1104,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             }
             return PoetryResult.fail("文章不存在！");
         }
-        
+
         ArticleVO articleVO = buildArticleVO(article, true);
         return PoetryResult.success(articleVO);
     }
@@ -1007,7 +1151,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 for (Sort sort : sorts) {
                     LambdaQueryChainWrapper<Article> lambdaQuery = lambdaQuery()
                             .eq(Article::getSortId, sort.getId())
-                            .eq(Article::getViewStatus, true)  // 添加对可见文章的过滤
+                            .eq(Article::getViewStatus, true) // 添加对可见文章的过滤
                             .orderByDesc(Article::getCreateTime)
                             .last("limit 6");
                     List<Article> articleList = lambdaQuery.list();
@@ -1021,7 +1165,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                         BeanUtils.copyProperties(article, processedArticle);
                         // 如果内容太长，截取用于缓存
                         if (processedArticle.getArticleContent().length() > CommonConst.SUMMARY) {
-                            processedArticle.setArticleContent(processedArticle.getArticleContent().substring(0, CommonConst.SUMMARY).replace("`", "").replace("#", "").replace(">", "") + "...");
+                            processedArticle.setArticleContent(
+                                    processedArticle.getArticleContent().substring(0, CommonConst.SUMMARY)
+                                            .replace("`", "").replace("#", "").replace(">", "") + "...");
                         }
                         return processedArticle;
                     }).collect(Collectors.toList());
@@ -1096,23 +1242,20 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         // 并行获取关联数据（用户信息、评论数、分类信息）
         try (var scope = StructuredTaskScope.open()) {
             // Fork 用户信息查询
-            Subtask<User> userTask = scope.fork(() -> 
-                commonQuery.getUser(articleVO.getUserId())
-            );
-            
+            Subtask<User> userTask = scope.fork(() -> commonQuery.getUser(articleVO.getUserId()));
+
             // Fork 评论数查询（仅当评论开启时）
-            Subtask<Integer> commentCountTask = articleVO.getCommentStatus() 
-                ? scope.fork(() -> commonQuery.getCommentCount(articleVO.getId(), CommentTypeEnum.COMMENT_TYPE_ARTICLE.getCode()))
-                : null;
-            
+            Subtask<Integer> commentCountTask = articleVO.getCommentStatus()
+                    ? scope.fork(() -> commonQuery.getCommentCount(articleVO.getId(),
+                            CommentTypeEnum.COMMENT_TYPE_ARTICLE.getCode()))
+                    : null;
+
             // Fork 分类信息查询
-            Subtask<List<Sort>> sortInfoTask = scope.fork(() -> 
-                commonQuery.getSortInfo()
-            );
-            
+            Subtask<List<Sort>> sortInfoTask = scope.fork(() -> commonQuery.getSortInfo());
+
             // 等待所有查询完成
             scope.join();
-            
+
             // 处理用户信息
             if (userTask.state() == Subtask.State.SUCCESS) {
                 User user = userTask.get();
@@ -1124,14 +1267,14 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             } else if (!isAdmin) {
                 articleVO.setUsername(PoetryUtil.getRandomName(articleVO.getUserId().toString()));
             }
-            
+
             // 处理评论数
             if (commentCountTask != null && commentCountTask.state() == Subtask.State.SUCCESS) {
                 articleVO.setCommentCount(commentCountTask.get());
             } else {
                 articleVO.setCommentCount(0);
             }
-            
+
             // 处理分类和标签信息
             if (sortInfoTask.state() == Subtask.State.SUCCESS) {
                 List<Sort> sortInfo = sortInfoTask.get();
@@ -1162,7 +1305,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     }
                 }
             }
-            
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("构建文章VO时并行查询被中断，使用降级数据", e);
@@ -1179,7 +1322,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             }
             articleVO.setCommentCount(0);
         }
-        
+
         return articleVO;
     }
 
@@ -1192,25 +1335,26 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             if (!StringUtils.hasText(content)) {
                 return PoetryResult.fail("内容不能为空");
             }
-            
+
             int targetLength = (maxLength != null && maxLength > 0) ? maxLength : 150;
             String summary = SmartSummaryGenerator.generateAdvancedSummary(content, targetLength);
-            
+
             if (StringUtils.hasText(summary)) {
                 return PoetryResult.success(summary);
             } else {
                 return PoetryResult.fail("摘要生成失败");
             }
-            
+
         } catch (Exception e) {
             log.error("摘要生成失败", e);
             return PoetryResult.fail("摘要生成异常: " + e.getMessage());
         }
     }
-    
+
     /**
      * 安全地将对象转换为Integer类型
      * 处理Redis序列化导致的类型转换问题
+     * 
      * @param obj 要转换的对象
      * @return 转换后的Integer，转换失败返回null
      */
@@ -1242,6 +1386,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     /**
      * 智能摘要生成（优先AI，回退TextRank）
+     * 
      * @param content 文章内容
      * @return 生成的摘要
      */
@@ -1249,10 +1394,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (!StringUtils.hasText(content)) {
             return "";
         }
-        
+
+        // 1. 尝试使用 LLM AI 生成摘要
         try {
-            // 尝试调用Python端的AI摘要服务
-            String aiSummary = callPythonAiSummary(content);
+            String aiSummary = llmTranslationService.generateSummary(content, 150);
             if (StringUtils.hasText(aiSummary)) {
                 log.info("使用AI生成文章摘要成功，长度: {}", aiSummary.length());
                 return aiSummary;
@@ -1260,8 +1405,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         } catch (Exception e) {
             log.warn("AI摘要生成失败，回退到TextRank算法: {}", e.getMessage());
         }
-        
-        // 回退到TextRank算法
+
+        // 2. 回退到TextRank算法
         try {
             String textRankSummary = SmartSummaryGenerator.generateAdvancedSummary(content, 150);
             if (StringUtils.hasText(textRankSummary)) {
@@ -1271,58 +1416,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         } catch (Exception e) {
             log.error("TextRank摘要生成也失败: {}", e.getMessage());
         }
-        
-        // 最后的回退：简单截取
+
+        // 3. 最后的回退：简单截取
         log.warn("所有摘要生成方法都失败，使用简单截取");
         return content.length() > 100 ? content.substring(0, 100) + "..." : content;
-    }
-    
-    /**
-     * 调用Python端的AI摘要生成服务
-     * @param content 文章内容
-     * @return AI生成的摘要，失败时返回null
-     */
-    private String callPythonAiSummary(String content) {
-        try {
-            String pythonServerUrl = System.getenv().getOrDefault("PYTHON_SERVICE_URL", "http://localhost:5000");
-            String pythonApiUrl = pythonServerUrl + "/api/translation/generate-summary";
-            
-            // 构建请求体
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("content", content);
-            requestBody.put("max_length", 150);
-            requestBody.put("style", "concise");
-            
-            // 设置请求头
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("X-Internal-Service", "poetize-java");
-            headers.set("X-Admin-Request", "true");
-            
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-            
-            // 发送请求
-            @SuppressWarnings("unchecked")
-            Map<String, Object> response = restTemplate.postForObject(pythonApiUrl, request, Map.class);
-            
-            if (response != null && "200".equals(String.valueOf(response.get("code")))) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> data = (Map<String, Object>) response.get("data");
-                if (data != null && data.get("summary") != null) {
-                    String summary = data.get("summary").toString();
-                    String method = data.get("method") != null ? data.get("method").toString() : "unknown";
-                    log.info("AI摘要生成成功，使用方法: {}, 摘要长度: {}", method, summary.length());
-                    return summary;
-                }
-            } else {
-                String message = response != null ? String.valueOf(response.get("message")) : "Unknown error";
-                log.warn("Python AI摘要服务返回错误: {}", message);
-            }
-        } catch (Exception e) {
-            log.warn("调用Python AI摘要服务失败: {}", e.getMessage());
-        }
-        
-        return null;
     }
 
     @Override
@@ -1330,13 +1427,13 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         try {
             // 查询可见的文章，获取所有需要计算热度的字段
             LambdaQueryChainWrapper<Article> lambdaQuery = lambdaQuery()
-                    .select(Article::getId, Article::getUserId, Article::getSortId, Article::getLabelId, 
+                    .select(Article::getId, Article::getUserId, Article::getSortId, Article::getLabelId,
                             Article::getArticleCover, Article::getArticleTitle, Article::getArticleContent,
-                            Article::getSummary, Article::getViewCount, 
+                            Article::getSummary, Article::getViewCount,
                             Article::getCommentStatus, Article::getRecommendStatus, Article::getViewStatus,
                             Article::getCreateTime, Article::getUpdateTime, Article::getVideoUrl)
-                    .eq(Article::getViewStatus, true)  // 只查询可见的文章
-                    .orderByDesc(Article::getCreateTime);  // 先按时间排序，后面会重新排序
+                    .eq(Article::getViewStatus, true) // 只查询可见的文章
+                    .orderByDesc(Article::getCreateTime); // 先按时间排序，后面会重新排序
 
             List<Article> articles = lambdaQuery.list();
 
@@ -1347,25 +1444,26 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             // 使用并行流转换为ArticleVO（利用虚拟线程的优势）
             List<ArticleVO> articleVOList = articles.parallelStream().map(article -> {
                 // 如果内容太长，截取用于显示
-                if (StringUtils.hasText(article.getArticleContent()) && article.getArticleContent().length() > CommonConst.SUMMARY) {
+                if (StringUtils.hasText(article.getArticleContent())
+                        && article.getArticleContent().length() > CommonConst.SUMMARY) {
                     article.setArticleContent(article.getArticleContent().substring(0, CommonConst.SUMMARY)
                             .replace("`", "").replace("#", "").replace(">", "") + "...");
                 }
 
                 ArticleVO articleVO = buildArticleVO(article, false);
-                
+
                 // 使用数据库中存储的摘要
                 if (StringUtils.hasText(article.getSummary())) {
                     articleVO.setSummary(article.getSummary());
                 }
-                
+
                 // 设置视频标识
                 articleVO.setHasVideo(StringUtils.hasText(article.getVideoUrl()));
-                
+
                 // 清空敏感信息
                 articleVO.setPassword(null);
                 articleVO.setVideoUrl(null);
-                
+
                 return articleVO;
             }).collect(Collectors.toList());
 
@@ -1374,9 +1472,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     .sorted((a1, a2) -> {
                         double score1 = calculateHotScore(a1);
                         double score2 = calculateHotScore(a2);
-                        return Double.compare(score2, score1);  // 降序排列
+                        return Double.compare(score2, score1); // 降序排列
                     })
-                    .limit(10)  // 限制返回前10篇
+                    .limit(10) // 限制返回前10篇
                     .collect(Collectors.toList());
 
             log.info("获取热门文章成功，返回{}篇文章", articleVOList.size());
@@ -1400,18 +1498,18 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         int viewCount = articleVO.getViewCount() != null ? articleVO.getViewCount() : 0;
         int commentCount = articleVO.getCommentCount() != null ? articleVO.getCommentCount() : 0;
         LocalDateTime createTime = articleVO.getCreateTime();
-        
+
         // 1. 浏览量权重 (60%) - 标准化处理，权重提升
         double viewScore = Math.log10(Math.max(viewCount, 1)) * 60;
-        
+
         // 2. 评论数权重 (30%) - 评论表示深度参与，权重提升
         double commentScore = Math.log10(Math.max(commentCount, 1)) * 30 * 6; // 评论权重更高
-        
+
         // 3. 时间衰减因子 (10%) - 新文章有加成，但不会完全压倒旧的热门文章
         double timeScore = 0;
         if (createTime != null) {
             long daysSinceCreation = java.time.Duration.between(createTime, LocalDateTime.now()).toDays();
-            
+
             // 使用指数衰减，但设置一个底线
             if (daysSinceCreation <= 7) {
                 // 一周内的文章有时间加成
@@ -1424,29 +1522,29 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 timeScore = 1;
             }
         }
-        
+
         // 4. 互动比率加成 - 评论率高的文章额外加分
         double engagementBonus = 0;
         if (viewCount > 0) {
             double commentRate = (double) commentCount / viewCount;
-            
+
             // 评论率超过0.5%的文章加分
             if (commentRate > 0.005) {
                 engagementBonus += Math.min(commentRate * 2000, 20); // 最多加20分
             }
         }
-        
+
         // 5. 推荐文章额外加分
         double recommendBonus = 0;
         if (Boolean.TRUE.equals(articleVO.getRecommendStatus())) {
             recommendBonus = 25; // 被推荐的文章额外加25分
         }
-        
+
         // 计算最终热度分数
         double finalScore = viewScore + commentScore + timeScore + engagementBonus + recommendBonus;
-        
+
         // 调试日志
-        
+
         return finalScore;
     }
 
@@ -1463,23 +1561,25 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
      * 异步更新文章（快速响应版本，支持翻译参数）
      */
     @Override
-    public PoetryResult<String> updateArticleAsync(ArticleVO articleVO, boolean skipAiTranslation, Map<String, String> pendingTranslation) {
+    public PoetryResult<String> updateArticleAsync(ArticleVO articleVO, boolean skipAiTranslation,
+            Map<String, String> pendingTranslation) {
         // 生成任务ID
-        String taskId = "article_update_" + System.currentTimeMillis() + "_" + (int)(Math.random() * 1000);
-        
+        String taskId = "article_update_" + System.currentTimeMillis() + "_" + (int) (Math.random() * 1000);
+
         // 基础验证
         if (articleVO.getId() == null) {
             return PoetryResult.fail("文章ID不能为空！");
         }
-        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus() && !StringUtils.hasText(articleVO.getPassword())) {
+        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus()
+                && !StringUtils.hasText(articleVO.getPassword())) {
             return PoetryResult.fail("请设置文章密码！");
         }
-        
+
         Integer userId = PoetryUtil.getUserId();
         if (userId == null) {
             return PoetryResult.fail("无法确定文章作者，请重新登录后再试");
         }
-        
+
         // 在主线程中获取用户信息，避免异步线程中无法访问RequestContext
         String currentUsername = null;
         try {
@@ -1489,16 +1589,16 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             currentUsername = "System";
         }
         final String finalUsername = currentUsername;
-        
+
         // 初始化更新状态
         ArticleSaveStatus initialStatus = new ArticleSaveStatus(taskId, "processing", "正在更新文章...", articleVO.getId());
         ARTICLE_SAVE_STATUS.put(taskId, initialStatus);
         log.info("初始化异步更新任务，任务ID: {}, 文章ID: {}", taskId, articleVO.getId());
-        
+
         // 使用虚拟线程异步执行更新
         Thread.ofVirtual().name("article-update-" + taskId).start(() -> {
             try {
-                
+
                 // 构建更新条件
                 LambdaUpdateChainWrapper<Article> updateChainWrapper = lambdaUpdate()
                         .eq(Article::getId, articleVO.getId())
@@ -1508,8 +1608,12 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                         .set(Article::getArticleTitle, articleVO.getArticleTitle())
                         .set(Article::getUpdateBy, finalUsername)
                         .set(Article::getUpdateTime, LocalDateTime.now())
-                        .set(Article::getVideoUrl, StringUtils.hasText(articleVO.getVideoUrl()) ? articleVO.getVideoUrl() : null)
-                        .set(Article::getArticleContent, articleVO.getArticleContent());
+                        .set(Article::getVideoUrl,
+                                StringUtils.hasText(articleVO.getVideoUrl()) ? articleVO.getVideoUrl() : null)
+                        .set(Article::getArticleContent, articleVO.getArticleContent())
+                        .set(Article::getPayType, articleVO.getPayType())
+                        .set(Article::getPayAmount, articleVO.getPayAmount())
+                        .set(Article::getFreePercent, articleVO.getFreePercent());
 
                 if (StringUtils.hasText(articleVO.getArticleCover())) {
                     updateChainWrapper.set(Article::getArticleCover, articleVO.getArticleCover());
@@ -1520,9 +1624,11 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 if (articleVO.getRecommendStatus() != null) {
                     updateChainWrapper.set(Article::getRecommendStatus, articleVO.getRecommendStatus());
                 }
-                if (articleVO.getViewStatus() != null && !articleVO.getViewStatus() && StringUtils.hasText(articleVO.getPassword())) {
+                if (articleVO.getViewStatus() != null && !articleVO.getViewStatus()
+                        && StringUtils.hasText(articleVO.getPassword())) {
                     updateChainWrapper.set(Article::getPassword, articleVO.getPassword());
-                    updateChainWrapper.set(StringUtils.hasText(articleVO.getTips()), Article::getTips, articleVO.getTips());
+                    updateChainWrapper.set(StringUtils.hasText(articleVO.getTips()), Article::getTips,
+                            articleVO.getTips());
                 }
                 if (articleVO.getViewStatus() != null) {
                     updateChainWrapper.set(Article::getViewStatus, articleVO.getViewStatus());
@@ -1530,10 +1636,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 if (articleVO.getSubmitToSearchEngine() != null) {
                     updateChainWrapper.set(Article::getSubmitToSearchEngine, articleVO.getSubmitToSearchEngine());
                 }
-                
+
                 // 更新状态：正在更新数据库
                 updateSaveStatus(taskId, "processing", "正在更新数据库...");
-                
+
                 // ========== 步骤1：使用短事务方法更新文章 ==========
                 boolean updateResult = updateArticleInTransaction(updateChainWrapper);
                 if (!updateResult) {
@@ -1542,17 +1648,16 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     return;
                 }
                 log.info("文章更新成功，任务ID: {}, 文章ID: {}，短事务已提交", taskId, articleVO.getId());
-                
+
                 // ========== 步骤2：事务外执行AI翻译（串行执行）==========
                 updateSaveStatus(taskId, "processing", "文章已更新，正在进行AI翻译...");
                 Map<String, String> translationResult;
                 try {
                     translationResult = translationService.translateArticleOnly(
-                        articleVO.getArticleTitle(),
-                        articleVO.getArticleContent(),
-                        skipAiTranslation,
-                        pendingTranslation
-                    );
+                            articleVO.getArticleTitle(),
+                            articleVO.getArticleContent(),
+                            skipAiTranslation,
+                            pendingTranslation);
                 } catch (Exception e) {
                     log.warn("翻译任务失败，任务ID: {}", taskId, e);
                     translationResult = null;
@@ -1563,17 +1668,16 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     updateSaveStatus(taskId, "processing", "文章已更新，正在保存翻译结果...");
                     try {
                         saveTranslationInNewTransaction(
-                            articleVO.getId(),
-                            translationResult.get("title"),
-                            translationResult.get("content"),
-                            translationResult.get("language")
-                        );
+                                articleVO.getId(),
+                                translationResult.get("title"),
+                                translationResult.get("content"),
+                                translationResult.get("language"));
                         log.info("翻译结果保存成功，任务ID: {}，新事务已提交", taskId);
                     } catch (Exception e) {
                         log.error("翻译结果保存失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
                     }
                 }
-                
+
                 // ========== 步骤4：更新多语言摘要（基于原文+翻译）==========
                 if (StringUtils.hasText(articleVO.getArticleContent())) {
                     updateSaveStatus(taskId, "processing", "文章已更新，正在生成多语言AI摘要...");
@@ -1583,53 +1687,53 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                         log.error("摘要更新失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
                     }
                 }
-                
+
                 // 清除缓存
                 try {
                     cacheService.evictSortArticleList();
                 } catch (Exception e) {
                     log.error("清除缓存失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
                 }
-                
+
                 // ========== 步骤5：发布文章更新事件 ==========
                 try {
-                    eventPublisher.publishEvent(new ArticleSavedEvent(articleVO.getId(), articleVO.getSortId(), 
-                                                                    articleVO.getViewStatus(), "UPDATE", 
-                                                                    articleVO.getSubmitToSearchEngine()));
+                    eventPublisher.publishEvent(new ArticleSavedEvent(articleVO.getId(), articleVO.getSortId(),
+                            articleVO.getViewStatus(), "UPDATE",
+                            articleVO.getSubmitToSearchEngine()));
                 } catch (Exception e) {
                     log.error("发布文章更新事件失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
                 }
-                
+
                 // 最终成功状态（SEO推送将在预渲染完成后自动执行）
                 updateSaveStatus(taskId, "success", "文章更新成功！AI摘要已生成", articleVO.getId());
                 log.info("异步文章更新流程全部完成，任务ID: {}, 文章ID: {}", taskId, articleVO.getId());
-                
+
             } catch (Exception e) {
                 log.error("文章更新失败，任务ID: {}, 文章ID: {}, 错误: {}", taskId, articleVO.getId(), e.getMessage(), e);
                 updateSaveStatus(taskId, "failed", "更新失败：" + e.getMessage());
             }
         });
-        
+
         return PoetryResult.success(taskId);
     }
 
     /**
      * 智能截取包含搜索关键词的内容片段
-     * @param content 原始内容
-     * @param keyword 搜索关键词
+     * 
+     * @param content   原始内容
+     * @param keyword   搜索关键词
      * @param maxLength 最大长度
      * @return 包含关键词的内容片段
      */
     private String getContentSnippetWithKeyword(String content, String keyword, int maxLength) {
         if (content == null || keyword == null || content.length() <= maxLength) {
             // 如果内容不长，直接返回并添加省略号（如果需要）
-            return content != null && content.length() > maxLength ? 
-                   content.substring(0, maxLength) + "..." : content;
+            return content != null && content.length() > maxLength ? content.substring(0, maxLength) + "..." : content;
         }
 
         // 查找关键词位置（忽略大小写）
         int keywordIndex = content.toLowerCase().indexOf(keyword.toLowerCase());
-        
+
         if (keywordIndex == -1) {
             // 如果没找到关键词，返回开头部分
             return content.substring(0, maxLength) + "...";
@@ -1638,17 +1742,17 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         // 计算截取的起始位置，尽量让关键词居中
         int keywordLength = keyword.length();
         int halfLength = (maxLength - keywordLength) / 2;
-        
+
         int startIndex = Math.max(0, keywordIndex - halfLength);
         int endIndex = Math.min(content.length(), startIndex + maxLength);
-        
+
         // 如果从中间开始，调整起始位置确保不超过最大长度
         if (endIndex - startIndex < maxLength && startIndex > 0) {
             startIndex = Math.max(0, endIndex - maxLength);
         }
 
         String snippet = content.substring(startIndex, endIndex);
-        
+
         // 添加省略号
         if (startIndex > 0) {
             snippet = "..." + snippet;
@@ -1677,7 +1781,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 }
                 language = availableLanguages.get(0);
             }
-            
+
             // 获取翻译内容
             Map<String, String> translation = translationService.getArticleTranslation(id, language);
             if (translation == null || translation.isEmpty()) {
@@ -1696,21 +1800,25 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 // 检测是否为正则表达式搜索
                 boolean isRegexSearch = searchKey.startsWith("/") && searchKey.endsWith("/") && searchKey.length() > 2;
                 String actualSearchText = isRegexSearch ? searchKey.substring(1, searchKey.length() - 1) : searchKey;
-                
+
                 // 使用高亮标签进行处理
                 String highlightStart = "<span class='search-highlight' style='color: var(--lightGreen); font-weight: bold;'>";
                 String highlightEnd = "</span>";
-                
+
                 if (isRegexSearch) {
-                    translatedTitle = StringUtil.highlightTextWithRegex(translatedTitle, actualSearchText, highlightStart, highlightEnd);
+                    translatedTitle = StringUtil.highlightTextWithRegex(translatedTitle, actualSearchText,
+                            highlightStart, highlightEnd);
                     // 对翻译内容进行智能截取和正则高亮
                     translatedContent = getContentSnippetWithKeyword(translatedContent, actualSearchText, 80);
-                    translatedContent = StringUtil.highlightTextWithRegex(translatedContent, actualSearchText, highlightStart, highlightEnd);
+                    translatedContent = StringUtil.highlightTextWithRegex(translatedContent, actualSearchText,
+                            highlightStart, highlightEnd);
                 } else {
-                    translatedTitle = StringUtil.highlightText(translatedTitle, searchKey, highlightStart, highlightEnd);
+                    translatedTitle = StringUtil.highlightText(translatedTitle, searchKey, highlightStart,
+                            highlightEnd);
                     // 对翻译内容进行智能截取和高亮
                     translatedContent = getContentSnippetWithKeyword(translatedContent, searchKey, 80);
-                    translatedContent = StringUtil.highlightText(translatedContent, searchKey, highlightStart, highlightEnd);
+                    translatedContent = StringUtil.highlightText(translatedContent, searchKey, highlightStart,
+                            highlightEnd);
                 }
             } else {
                 // 如果没有搜索关键词，也要进行内容截取（显示前80个字符）
@@ -1736,24 +1844,23 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (content == null || content.length() <= maxLength) {
             return content;
         }
-        
+
         // 移除HTML标签进行长度计算
         String plainText = content.replaceAll("<[^>]*>", "");
         if (plainText.length() <= maxLength) {
             return content;
         }
-        
+
         // 截取到指定长度，尽量在句号、感叹号、问号处截断
         String truncated = plainText.substring(0, maxLength);
         int lastSentenceEnd = Math.max(
-            Math.max(truncated.lastIndexOf('。'), truncated.lastIndexOf('！')),
-            Math.max(truncated.lastIndexOf('？'), truncated.lastIndexOf('.'))
-        );
-        
+                Math.max(truncated.lastIndexOf('。'), truncated.lastIndexOf('！')),
+                Math.max(truncated.lastIndexOf('？'), truncated.lastIndexOf('.')));
+
         if (lastSentenceEnd > maxLength * 0.7) {
             truncated = plainText.substring(0, lastSentenceEnd + 1);
         }
-        
+
         return truncated + "...";
     }
 
@@ -1770,30 +1877,31 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             log.error("保存文章失败：文章标题为空");
             return null;
         }
-        
+
         Article article = new Article();
-        
+
         if (StringUtils.hasText(articleVO.getArticleCover())) {
             article.setArticleCover(articleVO.getArticleCover());
         }
         if (StringUtils.hasText(articleVO.getVideoUrl())) {
             article.setVideoUrl(articleVO.getVideoUrl());
         }
-        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus() && StringUtils.hasText(articleVO.getPassword())) {
+        if (articleVO.getViewStatus() != null && !articleVO.getViewStatus()
+                && StringUtils.hasText(articleVO.getPassword())) {
             article.setPassword(articleVO.getPassword());
             article.setTips(articleVO.getTips());
         }
-        
+
         article.setViewStatus(articleVO.getViewStatus());
         article.setCommentStatus(articleVO.getCommentStatus());
         article.setRecommendStatus(articleVO.getRecommendStatus());
         article.setSubmitToSearchEngine(articleVO.getSubmitToSearchEngine());
         article.setArticleTitle(articleVO.getArticleTitle());
         article.setArticleContent(articleVO.getArticleContent());
-        article.setSummary("");  // 先设置空摘要，保存后会同步生成多语言AI摘要
+        article.setSummary(""); // 先设置空摘要，保存后会同步生成多语言AI摘要
         article.setSortId(articleVO.getSortId());
         article.setLabelId(articleVO.getLabelId());
-        
+
         // 设置用户ID
         Integer userId = null;
         if (articleVO.getUserId() != null) {
@@ -1806,14 +1914,19 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             }
         }
         article.setUserId(userId);
-        
+
+        // 设置付费字段
+        article.setPayType(articleVO.getPayType() != null ? articleVO.getPayType() : 0);
+        article.setPayAmount(articleVO.getPayAmount());
+        article.setFreePercent(articleVO.getFreePercent() != null ? articleVO.getFreePercent() : 30);
+
         // 保存到数据库
         boolean result = save(article);
         if (!result) {
             log.error("数据库保存失败");
             return null;
         }
-        
+
         return article.getId();
     }
 
@@ -1821,9 +1934,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
      * 在新事务中保存翻译结果
      * 
      * @param articleId 文章ID
-     * @param title 翻译后的标题
-     * @param content 翻译后的内容
-     * @param language 目标语言
+     * @param title     翻译后的标题
+     * @param content   翻译后的内容
+     * @param language  目标语言
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     private void saveTranslationInNewTransaction(Integer articleId, String title, String content, String language) {
@@ -1831,7 +1944,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             translationService.saveTranslationResult(articleId, title, content, language);
         } catch (Exception e) {
             log.error("翻译结果保存失败，文章ID: {}, 语言: {}", articleId, language, e);
-            throw e;  // 抛出异常以触发事务回滚
+            throw e; // 抛出异常以触发事务回滚
         }
     }
 

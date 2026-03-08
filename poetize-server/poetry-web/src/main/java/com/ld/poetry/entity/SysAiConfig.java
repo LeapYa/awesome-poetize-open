@@ -11,6 +11,12 @@ import java.time.LocalDateTime;
  * AI配置统一管理实体类
  * 支持三种配置类型：ai_chat(AI聊天)、ai_api(AI接口)、article_ai(文章AI助手)
  * 
+ * TODO [架构问题] ai_chat vs article_ai 的模型配置存储方式不一致：
+ * - ai_chat: 使用顶层字段 provider/apiKey/apiBase/model 存储
+ * - article_ai: 使用 llmConfig JSON 字段 {model, api_url, api_key, ...} 存储
+ * 迁移到 Spring AI 时需统一为一种方式，否则 DynamicChatClientFactory 需要处理两套逻辑。
+ * 建议统一使用顶层字段，article_ai 的 llmConfig 仅用于翻译专用 LLM 等场景。
+ * 
  * @author LeapYa
  * @since 2025-10-18
  */
@@ -223,7 +229,8 @@ public class SysAiConfig implements Serializable {
     // ========== 文章AI助手配置字段 ==========
 
     /**
-     * 翻译实现方式 (none:不翻译 baidu:百度翻译 custom:自定义API llm:使用全局AI模型 dedicated_llm:使用翻译独立AI模型)
+     * 翻译实现方式 (none:不翻译 baidu:百度翻译 custom:自定义API llm:使用全局AI模型
+     * dedicated_llm:使用翻译独立AI模型)
      */
     private String translationType;
 
@@ -259,6 +266,10 @@ public class SysAiConfig implements Serializable {
 
     /**
      * LLM配置 {model, api_url, api_key, prompt, interface_type, timeout}
+     * 
+     * TODO [架构问题] article_ai 类型使用此 JSON 字段存储模型配置，
+     * 而 ai_chat 类型使用顶层 provider/apiKey/apiBase/model 字段。
+     * Spring AI 迁移时需统一，避免 DynamicChatClientFactory 需要两套解析逻辑。
      */
     private String llmConfig;
 
@@ -271,7 +282,8 @@ public class SysAiConfig implements Serializable {
     /**
      * 摘要生成配置 {summaryMode, style, max_length, prompt, dedicated_llm}
      * summaryMode: global(使用全局AI) | dedicated(使用独立AI) | textrank(使用TextRank算法)
-     * dedicated_llm: {model, api_url, api_key, interface_type, timeout} (仅summaryMode=dedicated时存在)
+     * dedicated_llm: {model, api_url, api_key, interface_type, timeout}
+     * (仅summaryMode=dedicated时存在)
      */
     private String summaryConfig;
 
@@ -299,4 +311,3 @@ public class SysAiConfig implements Serializable {
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 }
-

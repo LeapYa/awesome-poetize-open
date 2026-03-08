@@ -1,8 +1,6 @@
 <template>
   <div class="message" :class="messageClass">
-    <!-- 用户消息的行容器（编辑按钮+消息内容） -->
     <div v-if="isUser" class="message-row">
-      <!-- 编辑按钮（用户消息左侧，悬停显示） -->
       <button class="message-edit-btn" @click="handleEdit" title="编辑消息">
         <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
           <path
@@ -12,7 +10,6 @@
       </button>
 
       <div class="message-content" :style="{ background: themeColor }">
-        <!-- 附加页面标识 -->
         <div v-if="message.attachedPage" class="attached-page-badge">
           <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
             <path
@@ -27,22 +24,126 @@
       </div>
     </div>
 
-    <!-- AI消息的内容 -->
     <div
       v-else
       class="message-content"
       :style="!isUser ? { '--link-color': themeColor } : {}"
     >
-      <!-- Markdown渲染 -->
-      <MarkdownRenderer
-        v-if="isAssistant"
-        :content="message.content"
-        :streaming="message.streaming || false"
-        :enable-typewriter="message.isNew !== false"
-        @rendered="handleRendered"
-      />
+      <template v-if="isAssistant">
+        <template v-for="segment in assistantSegments" :key="segment.id">
+          <div v-if="segment.type === 'tool'" class="tool-pill-row">
+            <div
+              class="tool-pill"
+              :class="[`tool-pill-${segment.status || 'completed'}`]"
+            >
+              <span
+                v-if="segment.status === 'executing'"
+                class="tool-pill-icon tool-pill-funnel"
+                aria-hidden="true"
+              >
+                <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="24" cy="24" r="18.1" fill="#d7efff"></circle>
+                  <path
+                    fill="none"
+                    stroke="#18193f"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M18,9.5h12"
+                  ></path>
+                  <path
+                    fill="none"
+                    stroke="#18193f"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M18,38.5h12"
+                  ></path>
+                  <path
+                    fill="none"
+                    stroke="#18193f"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M19.5,10.5c0,6,4,7.6,6.3,9.5c-2.3,1.9-6.3,3.5-6.3,9.5"
+                  ></path>
+                  <path
+                    fill="none"
+                    stroke="#18193f"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M28.5,10.5c0,6-4,7.6-6.3,9.5c2.3,1.9,6.3,3.5,6.3,9.5"
+                  ></path>
+                  <path
+                    fill="none"
+                    stroke="#18193f"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M20.5,14.5h7"
+                  ></path>
+                  <path
+                    fill="none"
+                    stroke="#18193f"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M20.5,33.5h7"
+                  ></path>
+                </svg>
+              </span>
+              <span
+                v-else-if="segment.status === 'failed'"
+                class="tool-pill-icon tool-pill-error"
+                aria-hidden="true"
+              >!</span>
+              <span
+                v-else
+                class="tool-pill-icon tool-pill-check"
+                aria-hidden="true"
+              >
+                <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="28" cy="28" r="18.1" fill="#a5d6a7"></circle>
+                  <path
+                    fill="none"
+                    stroke="#18193f"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M34.3,39.4c-2.9,2-6.5,3.1-10.3,3.1C13.8,42.5,5.5,34.2,5.5,24c0-4.4,1.6-8.5,4.1-11.7"
+                  ></path>
+                  <path
+                    fill="none"
+                    stroke="#18193f"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M20.1,5.9c1.3-0.3,2.6-0.4,3.9-0.4c10.2,0,18.5,8.3,18.5,18.5c0,2.9-0.7,5.6-1.8,8"
+                  ></path>
+                  <polyline
+                    fill="none"
+                    stroke="#18193f"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    points="16.5,24.5 21.5,29.5 31.5,19.5"
+                  ></polyline>
+                </svg>
+              </span>
+              <span class="tool-pill-text">{{ formatToolEventLabel(segment) }}</span>
+            </div>
+          </div>
+          <MarkdownRenderer
+            v-else
+            :content="segment.content"
+            :streaming="message.streaming || false"
+            :enable-typewriter="message.isNew !== false"
+            @rendered="handleRendered"
+          />
+        </template>
+      </template>
 
-      <!-- 系统消息纯文本 -->
       <div v-else class="message-text" v-text="message.content" />
     </div>
 
@@ -70,7 +171,7 @@
 </template>
 
 <script>
-import { computed, ref, onMounted, nextTick } from 'vue'
+import { computed, onMounted, nextTick } from 'vue'
 import { useAIChatStore } from '@/stores/aiChat'
 import { useLive2DStore } from '@/stores/live2d'
 import MarkdownRenderer from './MarkdownRenderer.vue'
@@ -95,26 +196,59 @@ export default {
     const aiChatStore = useAIChatStore()
     const live2dStore = useLive2DStore()
 
-    // 消息类型
     const isUser = computed(() => props.message.role === 'user')
     const isAssistant = computed(() => props.message.role === 'assistant')
     const isSystem = computed(() => props.message.role === 'system')
 
-    // 主题颜色
+    const assistantSegments = computed(() => {
+      if (!isAssistant.value) {
+        return []
+      }
+
+      const normalizeSegments = (segments) =>
+        segments.filter((segment) => {
+          if (segment.type !== 'text') {
+            return true
+          }
+          return Boolean(segment.content && segment.content.trim())
+        })
+
+      if (Array.isArray(props.message.segments) && props.message.segments.length) {
+        return normalizeSegments(props.message.segments)
+      }
+      if (props.message.content) {
+        return normalizeSegments([
+          {
+            id: `${props.message.id}-text`,
+            type: 'text',
+            content: props.message.content,
+          },
+        ])
+      }
+      return []
+    })
+
     const themeColor = computed(
       () => aiChatStore.config?.theme_color || '#4facfe'
     )
 
-    /**
-     * 复制消息内容
-     */
+    const formatToolEventLabel = (segment) => {
+      const toolName = segment.tool || '未知工具'
+      if (segment.status === 'executing') {
+        return `正在调用 ${toolName}`
+      }
+      if (segment.status === 'failed') {
+        return `${toolName} 调用失败`
+      }
+      return `${toolName} 已完成`
+    }
+
     const handleCopy = async () => {
       try {
         await navigator.clipboard.writeText(props.message.content)
         live2dStore.showMessage('复制成功！', 3000, 9)
       } catch (error) {
         console.error('复制失败:', error)
-        // 降级方案：使用传统方法
         try {
           const textarea = document.createElement('textarea')
           textarea.value = props.message.content
@@ -131,41 +265,29 @@ export default {
       }
     }
 
-    /**
-     * 编辑消息
-     */
     const handleEdit = () => {
-      // 触发编辑事件，传递消息ID和内容
       aiChatStore.startEditMessage(props.message.id, props.message.content)
       live2dStore.showMessage('编辑消息中...', 2000, 9)
     }
 
-    /**
-     * Markdown渲染完成
-     */
     const handleRendered = () => {
-      // 向父组件传递渲染完成事件
       emit('rendered')
     }
 
-    // 对于用户消息和系统消息（不经过 MarkdownRenderer），挂载后立即触发 rendered
     onMounted(() => {
       if (!isAssistant.value) {
-        // 用户消息或系统消息，纯文本显示
         nextTick(() => {
           emit('rendered')
         })
       }
     })
 
-    // 样式类
     const messageClass = computed(() => ({
       'message-user': isUser.value,
       'message-assistant': isAssistant.value,
       'message-system': isSystem.value,
     }))
 
-    // 格式化时间
     const formattedTime = computed(() => {
       if (!props.message.timestamp) return ''
 
@@ -173,25 +295,18 @@ export default {
       const now = new Date()
       const diff = now - date
 
-      // 1分钟内
       if (diff < 60000) {
         return '刚刚'
       }
-
-      // 1小时内
       if (diff < 3600000) {
         return `${Math.floor(diff / 60000)}分钟前`
       }
-
-      // 今天
       if (date.toDateString() === now.toDateString()) {
         return date.toLocaleTimeString('zh-CN', {
           hour: '2-digit',
           minute: '2-digit',
         })
       }
-
-      // 其他
       return date.toLocaleString('zh-CN', {
         month: '2-digit',
         day: '2-digit',
@@ -204,9 +319,11 @@ export default {
       isUser,
       isAssistant,
       isSystem,
+      assistantSegments,
       messageClass,
       formattedTime,
       themeColor,
+      formatToolEventLabel,
       handleCopy,
       handleEdit,
       handleRendered,
@@ -367,13 +484,84 @@ export default {
   transform: scale(0.95);
 }
 .message-edit-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   fill: #999;
   transition: fill 0.2s;
 }
 .message-edit-btn:hover svg {
   fill: #667eea;
+}
+.tool-pill-row {
+  margin: 4px 0;
+}
+.tool-pill-row + .tool-pill-row {
+  margin-top: 2px;
+}
+.tool-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(248, 250, 252, 0.96);
+  font-size: 12px;
+  line-height: 30px;
+  color: #475569;
+}
+.tool-pill-executing {
+  background: rgba(14, 165, 233, 0.1);
+  border-color: rgba(14, 165, 233, 0.24);
+  color: #0369a1;
+}
+.tool-pill-completed {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.24);
+  color: #15803d;
+}
+.tool-pill-failed {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.24);
+  color: #b91c1c;
+}
+.tool-pill-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.tool-pill-funnel {
+  animation: toolSpin 1s linear infinite;
+}
+.tool-pill-funnel svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+.tool-pill-check,
+.tool-pill-error {
+  font-weight: 700;
+  font-size: 12px;
+}
+.tool-pill-check svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+.tool-pill-text {
+  white-space: nowrap;
+}
+@keyframes toolSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 .message-text {
   white-space: pre-wrap;
@@ -393,6 +581,26 @@ export default {
 .dark-mode .message-system .message-content {
   background: #1e3a5f;
   color: #64b5f6;
+}
+.dark-mode .tool-pill {
+  background: rgba(30, 41, 59, 0.9);
+  border-color: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+.dark-mode .tool-pill-executing {
+  background: rgba(3, 105, 161, 0.22);
+  border-color: rgba(56, 189, 248, 0.24);
+  color: #7dd3fc;
+}
+.dark-mode .tool-pill-completed {
+  background: rgba(21, 128, 61, 0.24);
+  border-color: rgba(74, 222, 128, 0.24);
+  color: #86efac;
+}
+.dark-mode .tool-pill-failed {
+  background: rgba(127, 29, 29, 0.24);
+  border-color: rgba(248, 113, 113, 0.24);
+  color: #fca5a5;
 }
 .dark-mode .message-time {
   color: #8e8ea0;

@@ -405,10 +405,9 @@ check_prerequisites() {
         info "检测到外部Redis模式"
     fi
     
-    # 检查py/data目录
-    if [ ! -d "py/data" ]; then
-        error "配置目录 py/data 不存在"
-        exit 1
+    # 检查py/data目录（可选，新版本已移除 Python 后端）
+    if [ -d "py/data" ]; then
+        info "检测到 py/data 配置目录（旧版本兼容）"
     fi
     
     # 如果不是外部数据库模式，检查docker-compose是否运行

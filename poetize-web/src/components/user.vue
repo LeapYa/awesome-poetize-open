@@ -205,6 +205,7 @@
               <div>用户名：</div>
               <div>手机号：</div>
               <div>邮箱：</div>
+              <div v-if="!isThirdPartyUser">密码：</div>
               <div>性别：</div>
               <div>简介：</div>
             </div>
@@ -238,6 +239,14 @@
                 <div v-else>
                   <span class="changeInfo" @click="changeDialog('绑定邮箱')"
                     >绑定邮箱</span
+                  >
+                </div>
+              </div>
+              <div v-if="!isThirdPartyUser">
+                <div>
+                  <span>******</span>
+                  <span class="changeInfo" @click="changeDialog('修改密码')" style="margin-left: 10px;"
+                    >修改</span
                   >
                 </div>
               </div>
@@ -290,9 +299,9 @@
             v-if="dialogTitle === '修改手机号' || dialogTitle === '绑定手机号'"
           >
             <div style="margin-bottom: 5px">手机号：</div>
-            <el-input v-model="phoneNumber"></el-input>
+            <el-input v-model="phoneNumber" placeholder="请输入手机号"></el-input>
             <div style="margin-top: 10px; margin-bottom: 5px">验证码：</div>
-            <el-input v-model="code"></el-input>
+            <el-input v-model="code" placeholder="请输入验证码"></el-input>
             <!-- 只有普通注册用户才需要输入密码，第三方登录用户没有密码 -->
             <div v-if="!isThirdPartyUser">
               <div style="margin-top: 10px; margin-bottom: 5px">密码：</div>
@@ -300,6 +309,7 @@
                 type="password"
                 v-model="password"
                 show-password
+                placeholder="请输入当前密码"
               ></el-input>
             </div>
           </div>
@@ -307,9 +317,9 @@
             v-else-if="dialogTitle === '修改邮箱' || dialogTitle === '绑定邮箱'"
           >
             <div style="margin-bottom: 5px">邮箱：</div>
-            <el-input v-model="email"></el-input>
+            <el-input v-model="email" placeholder="请输入邮箱"></el-input>
             <div style="margin-top: 10px; margin-bottom: 5px">验证码：</div>
-            <el-input v-model="code"></el-input>
+            <el-input v-model="code" placeholder="请输入验证码"></el-input>
             <!-- 只有普通注册用户才需要输入密码，第三方登录用户没有密码 -->
             <div v-if="!isThirdPartyUser">
               <div style="margin-top: 10px; margin-bottom: 5px">密码：</div>
@@ -317,8 +327,34 @@
                 type="password"
                 v-model="password"
                 show-password
+                placeholder="请输入当前密码"
               ></el-input>
             </div>
+          </div>
+          <div v-else-if="dialogTitle === '修改密码'">
+            <div style="margin-bottom: 5px">旧密码：</div>
+            <el-input
+              type="password"
+              v-model="oldPassword"
+              show-password
+              placeholder="请输入旧密码"
+            ></el-input>
+            <div style="margin-top: 10px; margin-bottom: 5px">新密码：</div>
+            <el-input
+              type="password"
+              v-model="newPassword"
+              show-password
+              placeholder="请输入新密码"
+            ></el-input>
+            <div style="margin-top: 10px; margin-bottom: 5px">确认新密码：</div>
+            <el-input
+              type="password"
+              v-model="confirmPassword"
+              show-password
+              placeholder="请在此输入新密码"
+            ></el-input>
+            <div style="margin-top: 10px; margin-bottom: 5px">验证码：</div>
+            <el-input v-model="code" placeholder="请输入验证码"></el-input>
           </div>
           <div v-else-if="dialogTitle === '修改头像'">
             <uploadPicture
@@ -338,28 +374,32 @@
               </el-radio-group>
             </div>
             <div v-if="passwordFlag === 1">
-              <div style="margin-bottom: 5px">手机号：</div>
-              <el-input v-model="phoneNumber"></el-input>
+              <div style="margin-bottom: 5px">用户名：</div>
+              <el-input v-model="username" placeholder="请输入绑定的用户名"></el-input>
+              <div style="margin-top: 10px; margin-bottom: 5px">手机号：</div>
+              <el-input v-model="phoneNumber" placeholder="请输入绑定的手机号"></el-input>
               <div style="margin-top: 10px; margin-bottom: 5px">验证码：</div>
-              <el-input v-model="code"></el-input>
+              <el-input v-model="code" placeholder="请输入验证码"></el-input>
               <div style="margin-top: 10px; margin-bottom: 5px">新密码：</div>
-              <el-input maxlength="30" v-model="password"></el-input>
+              <el-input maxlength="30" type="password" show-password v-model="password" placeholder="请输入新密码"></el-input>
             </div>
             <div v-else-if="passwordFlag === 2">
-              <div style="margin-bottom: 5px">邮箱：</div>
-              <el-input v-model="email"></el-input>
+              <div style="margin-bottom: 5px">用户名：</div>
+              <el-input v-model="username" placeholder="请输入绑定的用户名"></el-input>
+              <div style="margin-top: 10px; margin-bottom: 5px">邮箱：</div>
+              <el-input v-model="email" placeholder="请输入绑定的邮箱"></el-input>
               <div style="margin-top: 10px; margin-bottom: 5px">验证码：</div>
-              <el-input v-model="code"></el-input>
+              <el-input v-model="code" placeholder="请输入验证码"></el-input>
               <div style="margin-top: 10px; margin-bottom: 5px">新密码：</div>
-              <el-input maxlength="30" v-model="password"></el-input>
+              <el-input maxlength="30" type="password" show-password v-model="password" placeholder="请输入新密码"></el-input>
             </div>
           </div>
           <div v-else-if="dialogTitle === '邮箱验证码'">
             <div>
               <div style="margin-bottom: 5px">邮箱：</div>
-              <el-input v-model="email"></el-input>
+              <el-input v-model="email" placeholder="请输入邮箱"></el-input>
               <div style="margin-top: 10px; margin-bottom: 5px">验证码：</div>
-              <el-input v-model="code"></el-input>
+              <el-input v-model="code" placeholder="请输入验证码"></el-input>
             </div>
           </div>
         </div>
@@ -374,6 +414,7 @@
               dialogTitle === '绑定手机号' ||
               dialogTitle === '修改邮箱' ||
               dialogTitle === '绑定邮箱' ||
+              dialogTitle === '修改密码' ||
               dialogTitle === '找回密码' ||
               dialogTitle === '邮箱验证码'
             "
@@ -395,7 +436,9 @@
     </el-dialog>
 
     <!-- 添加滑动验证组件 -->
-    <CaptchaWrapper
+    <component
+      :is="captchaWrapperComponent"
+      v-if="showCaptchaWrapper && captchaWrapperComponent"
       :visible="showCaptchaWrapper"
       :action="captchaAction"
       :force-slide="false"
@@ -403,7 +446,7 @@
       @fail="closeVerify"
       @refresh="$emit('refresh')"
       @close="closeVerify"
-    ></CaptchaWrapper>
+    ></component>
   </div>
 </template>
 
@@ -419,7 +462,6 @@ export default {
   components: {
     proButton: defineAsyncComponent(() => import('./common/proButton')),
     uploadPicture: defineAsyncComponent(() => import('./common/uploadPicture')),
-    CaptchaWrapper: defineAsyncComponent(() => import('./common/CaptchaWrapper')),
   },
   data() {
     return {
@@ -427,6 +469,9 @@ export default {
       username: '',
       account: '',
       password: '',
+      oldPassword: '',
+      newPassword: '',
+      confirmPassword: '',
       phoneNumber: '',
       email: '',
       avatar: '',
@@ -440,6 +485,9 @@ export default {
       verifyAction: null,
       captchaAction: 'login',
       verifyParams: null,
+      captchaWrapperComponent: null,
+      captchaWrapperLoadingPromise: null,
+      hasShownExpiredMessage: false,
       thirdPartyLoginConfig: {
         enable: false,
       },
@@ -458,9 +506,25 @@ export default {
   created() {
     // 初始化当前用户
     this.currentUser = this.mainStore.currentUser
+    
+    // 如果本地有用户信息，则主动校验一下 Token 是否已过期
+    if (!this.$common.isEmpty(this.currentUser)) {
+      this.checkUserToken()
+    }
 
     // 动态设置页面SEO信息
     this.updatePageSEO()
+    this.showExpiredSessionNotice()
+  },
+  watch: {
+    showCaptchaWrapper(newVal) {
+      if (newVal) {
+        this.ensureCaptchaWrapperLoaded()
+      }
+    },
+    '$route.query.expired': function () {
+      this.showExpiredSessionNotice()
+    },
   },
   mounted() {
     // 获取第三方登录配置
@@ -487,6 +551,24 @@ export default {
     )
   },
   methods: {
+    ensureCaptchaWrapperLoaded() {
+      if (this.captchaWrapperComponent) {
+        return Promise.resolve(this.captchaWrapperComponent)
+      }
+
+      if (!this.captchaWrapperLoadingPromise) {
+        this.captchaWrapperLoadingPromise = import('./common/CaptchaWrapper.vue')
+          .then((module) => {
+            this.captchaWrapperComponent = module.default || module
+            return this.captchaWrapperComponent
+          })
+          .finally(() => {
+            this.captchaWrapperLoadingPromise = null
+          })
+      }
+
+      return this.captchaWrapperLoadingPromise
+    },
     // 根据登录状态动态更新页面SEO信息
     updatePageSEO() {
       // 优先使用webTitle，fallback到webName，最后使用默认值
@@ -553,6 +635,28 @@ export default {
           document.head.appendChild(meta)
         }
       })
+    },
+    showExpiredSessionNotice() {
+      if (
+        this.$route.query.expired !== 'true' ||
+        this.hasShownExpiredMessage
+      ) {
+        return
+      }
+
+      this.hasShownExpiredMessage = true
+      this.$nextTick(() => {
+        this.$message.warning(
+          '你之前的登录状态已经失效，可能是 Token 已过期，请重新登录。'
+        )
+      })
+    },
+    // 主动校验前台 Token 是否过期
+    checkUserToken() {
+      // 通过发出一个需要验证的请求来判断前台Token是否已被移出或过期（401/300）
+      this.$http.get(this.$constant.baseURL + '/user/current', {}, false).catch(() => {
+        // 请求失败(例如 401)，统一拦截器会自动处理清理本地数据并退出
+      });
     },
     addPicture(res) {
       this.avatar = res
@@ -976,6 +1080,13 @@ export default {
         (this.dialogTitle === '找回密码' && this.passwordFlag === 1)
       ) {
         params.flag = 1
+        if (this.dialogTitle === '找回密码') {
+          if (this.$common.isEmpty(this.username)) {
+            this.$message.error('请输入用户名！')
+            return false
+          }
+          params.username = this.username.trim()
+        }
         if (this.$common.isEmpty(this.phoneNumber)) {
           this.$message({
             message: '请输入手机号！',
@@ -999,6 +1110,13 @@ export default {
         (this.dialogTitle === '找回密码' && this.passwordFlag === 2)
       ) {
         params.flag = 2
+        if (this.dialogTitle === '找回密码') {
+          if (this.$common.isEmpty(this.username)) {
+            this.$message.error('请输入用户名！')
+            return false
+          }
+          params.username = this.username.trim()
+        }
         if (this.$common.isEmpty(this.email)) {
           this.$message({
             message: '请输入邮箱！',
@@ -1014,6 +1132,10 @@ export default {
           return false
         }
         params.place = this.email
+        return true
+      } else if (this.dialogTitle === '修改密码') {
+        params.flag = 2
+        params.place = this.currentUser.email
         return true
       }
       return false
@@ -1050,6 +1172,11 @@ export default {
             message: '邮箱格式有误！',
             type: 'error',
           })
+          return false
+        }
+      } else if (value === '修改密码') {
+        if (this.$common.isEmpty(this.currentUser.email)) {
+          this.$message.error('安全起见，请先绑定邮箱后再修改密码！')
           return false
         }
       }
@@ -1096,6 +1223,8 @@ export default {
         this.dialogTitle === '绑定邮箱'
       ) {
         this.updateSecretInfo()
+      } else if (this.dialogTitle === '修改密码') {
+        this.updatePassword()
       } else if (this.dialogTitle === '找回密码') {
         if (this.passwordFlag !== 1 && this.passwordFlag !== 2) {
           this.$message({
@@ -1134,6 +1263,15 @@ export default {
             ? ''
             : await this.$common.encrypt(this.password.trim()),
         }
+        
+        if (this.dialogTitle === '找回密码') {
+          if (this.$common.isEmpty(this.username)) {
+            this.$message.error('请输入用户名！')
+            return
+          }
+          params.username = this.username.trim()
+        }
+
         if (!this.checkParams(params)) {
           return
         }
@@ -1190,6 +1328,61 @@ export default {
           message: '加密失败: ' + error.message,
           type: 'error',
         })
+      }
+    },
+    async updatePassword() {
+      if (this.$common.isEmpty(this.oldPassword)) {
+        this.$message.error('请输入旧密码！')
+        return
+      }
+      if (this.$common.isEmpty(this.newPassword)) {
+        this.$message.error('请输入新密码！')
+        return
+      }
+      if (this.newPassword !== this.confirmPassword) {
+        this.$message.error('两次输入的新密码不一致！')
+        return
+      }
+      if (this.$common.isEmpty(this.code)) {
+        this.$message.error('请输入邮箱验证码！')
+        return
+      }
+
+      try {
+        let params = {
+          place: await this.$common.encrypt(this.oldPassword.trim()),
+          password: await this.$common.encrypt(this.newPassword.trim()),
+          code: this.code.trim(),
+          flag: 3
+        }
+
+        this.$http
+          .post(
+            this.$constant.baseURL + '/user/updateSecretInfo',
+            params,
+            false,
+            false
+          )
+          .then((res) => {
+            if (!this.$common.isEmpty(res.data)) {
+              this.clearDialog()
+              this.$message.success('密码修改成功，请使用新密码重新登录！')
+
+              // 清除所有登录状态
+              localStorage.removeItem('userToken')
+              localStorage.removeItem('adminToken')
+              this.mainStore.loadCurrentUser({})
+              this.mainStore.loadCurrentAdmin({})
+              
+              // 强制刷新页面触发现有登出和重载判断，或者跳转回特定页面
+              window.location.reload()
+            }
+          })
+          .catch((error) => {
+            this.$message.error(error.message)
+          })
+      } catch (error) {
+        this.$message.error('加密失败: ' + error.message)
       }
     },
     getCode() {
@@ -1265,6 +1458,8 @@ export default {
         savedDialogTitle === '邮箱验证码'
       ) {
         url = '/user/getCodeForForgetPassword'
+      } else if (savedDialogTitle === '修改密码') {
+        url = '/user/getCode' // 和后台复用一致机制的发送
       } else {
         url = '/user/getCodeForBind'
       }
@@ -1310,6 +1505,9 @@ export default {
     },
     clearDialog() {
       this.password = ''
+      this.oldPassword = ''
+      this.newPassword = ''
+      this.confirmPassword = ''
       this.phoneNumber = ''
       this.email = ''
       this.avatar = ''
@@ -1417,6 +1615,12 @@ export default {
               name: 'Baidu',
               icon: '/static/svg/baidu.svg',
               title: 'Baidu登录',
+            },
+            {
+              key: 'afdian',
+              name: '爱发电',
+              icon: '/static/svg/afdian.svg',
+              title: '爱发电登录',
             },
           ]
 

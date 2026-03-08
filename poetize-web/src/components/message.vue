@@ -59,14 +59,16 @@
     </div>
     
     <!-- 验证码弹窗 -->
-    <CaptchaWrapper
+    <component
+      :is="captchaWrapperComponent"
+      v-if="showCaptchaWrapper && captchaWrapperComponent"
       :visible="showCaptchaWrapper"
       action="comment"
       :force-slide="false"
       @success="onCaptchaSuccess"
       @fail="closeCaptcha"
       @close="closeCaptcha"
-    ></CaptchaWrapper>
+    ></component>
     
     <div class="comment-wrap">
       <div class="comment-content">
@@ -93,7 +95,6 @@ export default {
     comment: defineAsyncComponent(() => import('./comment/comment')),
     myFooter: defineAsyncComponent(() => import('./common/myFooter')),
     danmaku: defineAsyncComponent(() => import('./common/Danmaku')),
-    CaptchaWrapper: defineAsyncComponent(() => import('./common/CaptchaWrapper')),
     ElIconArrowDown,
   },
   computed: {
@@ -109,12 +110,39 @@ export default {
       barrageList: [],
       showCaptchaWrapper: false,
       pendingVerificationToken: '',
+      captchaWrapperComponent: null,
+      captchaWrapperLoadingPromise: null,
     }
   },
   created() {
     this.getTreeHole()
   },
+  watch: {
+    showCaptchaWrapper(newVal) {
+      if (newVal) {
+        this.ensureCaptchaWrapperLoaded()
+      }
+    },
+  },
   methods: {
+    ensureCaptchaWrapperLoaded() {
+      if (this.captchaWrapperComponent) {
+        return Promise.resolve(this.captchaWrapperComponent)
+      }
+
+      if (!this.captchaWrapperLoadingPromise) {
+        this.captchaWrapperLoadingPromise = import('./common/CaptchaWrapper.vue')
+          .then((module) => {
+            this.captchaWrapperComponent = module.default || module
+            return this.captchaWrapperComponent
+          })
+          .finally(() => {
+            this.captchaWrapperLoadingPromise = null
+          })
+      }
+
+      return this.captchaWrapperLoadingPromise
+    },
     scrollToComments() {
       // 平滑滚动到评论区
       window.scrollTo({

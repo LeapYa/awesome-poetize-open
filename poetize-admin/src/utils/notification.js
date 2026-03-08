@@ -77,12 +77,13 @@ export const notificationManager = {
   /**
    * 显示提示通知
    */
-  info(title, message, duration = 3000) {
+  info(title, message, duration = 3000, onClick = null) {
     return this.getInstance().addNotification({
       title,
       message,
       type: 'info',
-      duration
+      duration,
+      onClick
     });
   },
   

@@ -49,6 +49,24 @@ spring:
       pool:
         virtual-threads: true
   
+  # HTTP Client 配置 (Spring Boot 3.4+ 需要, 防止默认 reactor 导致问题)
+  http:
+    client:
+      factory: jdk
+  
+  # Spring AI 配置 (默认占位值, 实际由 DynamicChatClientFactory 从数据库动态读取)
+  ai:
+    openai:
+      api-key: ${AI_OPENAI_API_KEY:placeholder}
+      base-url: ${AI_OPENAI_BASE_URL:https://api.openai.com}
+    anthropic:
+      api-key: ${AI_ANTHROPIC_API_KEY:placeholder}
+    retry:
+      max-attempts: 2
+      backoff:
+        initial-interval: 1000
+        multiplier: 2
+  
   freemarker:
     template-loader-path: classpath:/templates/
     suffix: .ftl
@@ -166,21 +184,9 @@ easyimage:
   url:
   token:
 
-python:
-  server:
-    url: ${PYTHON_SERVICE_URL:http://localhost:5000}
-  service:
-    url: ${PYTHON_SERVICE_URL:http://localhost:5000}  # 添加此配置，与TranslationService中的@Value注解对应
-
-# 翻译API配置
-translation:
-  api:
-    url: https://api.fanyi.baidu.com/api/trans/vip/translate
-    key: your-api-id:your-api-key
-    cache-time-hours: 24
-  local:
-    enabled: false
-    url: ${PYTHON_SERVICE_URL}/api/translate
+# [已迁移] 翻译功能现由 Spring AI ChatClient 和百度翻译 API 本地实现
+# 百度翻译 API 配置请在管理面板 article_ai 配置中设置 baiduConfig
+# LLM 翻译配置请在管理面板 article_ai 配置中设置 llmConfig / translationLlmConfig
 
 # Actuator配置
 management:

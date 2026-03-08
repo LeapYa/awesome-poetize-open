@@ -80,7 +80,7 @@ export default {
           ? 'bind'
           : 'login'
 
-        // 检查是否已经处理完成（来自Python后端的直接结果）
+        // 检查是否已经处理完成（来自后端的直接结果）
         if (success === 'true') {
           this.handleSuccess(
             message || '绑定成功！现在您可以使用第三方账号登录了'

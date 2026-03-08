@@ -30,6 +30,11 @@ public class SysPluginServiceImpl extends ServiceImpl<SysPluginMapper, SysPlugin
     @Autowired
     private SysPluginActiveMapper sysPluginActiveMapper;
 
+    private boolean allowsNoActivePlugin(String pluginType) {
+        return SysPlugin.TYPE_PARTICLE_EFFECT.equals(pluginType)
+                || SysPlugin.TYPE_PAYMENT.equals(pluginType);
+    }
+
     private void ensureBuiltInPlugins(String pluginType) {
         if (!SysPlugin.TYPE_EDITOR.equals(pluginType)) {
             return;
@@ -118,7 +123,19 @@ public class SysPluginServiceImpl extends ServiceImpl<SysPluginMapper, SysPlugin
         }
         
         // 获取对应的插件
-        return getPluginByTypeAndKey(pluginType, active.getPluginKey());
+        SysPlugin plugin = getPluginByTypeAndKey(pluginType, active.getPluginKey());
+        if (plugin == null) {
+            log.warn("插件类型 {} 的激活记录指向了不存在的插件: {}", pluginType, active.getPluginKey());
+            return null;
+        }
+
+        if (!Boolean.TRUE.equals(plugin.getEnabled()) && allowsNoActivePlugin(pluginType)) {
+            sysPluginActiveMapper.deleteById(active.getId());
+            log.info("清理已禁用插件的激活记录: type={}, key={}", pluginType, active.getPluginKey());
+            return null;
+        }
+
+        return plugin;
     }
 
     @Override

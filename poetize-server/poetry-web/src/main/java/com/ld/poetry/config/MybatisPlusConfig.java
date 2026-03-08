@@ -8,13 +8,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@MapperScan({"com.ld.poetry.dao", "com.ld.poetry.im.http.dao"})
+@MapperScan({ "com.ld.poetry.dao", "com.ld.poetry.im.http.dao" })
 public class MybatisPlusConfig {
 
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+        // 使用 MARIADB 方言，与 pom.xml 中的 mariadb-java-client 驱动保持一致
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MARIADB));
         return interceptor;
     }
 }

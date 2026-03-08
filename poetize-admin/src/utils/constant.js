@@ -1,12 +1,19 @@
 export default {
+  // 应用版本号（生产环境由 deploy.sh 注入，开发环境从 git tag 自动获取）
+  // eslint-disable-next-line no-undef
+  APP_VERSION: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
+
+  // GitHub 仓库地址（用于检查更新）
+  GITHUB_REPO: 'LeapYa/Awesome-poetize-open',
+
+  // Gitee 仓库地址（国内服务器 GitHub 不可达时降级）
+  GITEE_REPO: 'leapya/poetize',
+
   // 自动根据环境切换 URL
   baseURL: import.meta.env.DEV
     ? "http://localhost:8081"
     : location.protocol + "//" + location.host + "/api",
 
-  pythonBaseURL: import.meta.env.DEV
-    ? "http://localhost:5000"
-    : location.protocol + "//" + location.host + "/python",
 
   webURL: import.meta.env.DEV
     ? "http://localhost:5174"

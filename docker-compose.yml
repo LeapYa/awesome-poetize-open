@@ -17,7 +17,6 @@ services:
       - poetize_admin_dist:/usr/share/nginx/html/admin
       - poetize_uploads:/usr/share/nginx/html/uploads
       - ./docker/nginx/enable-https.sh:/enable-https.sh
-      - ./py/data:/app/data
       - certbot-etc:/etc/letsencrypt
       - certbot-var:/var/lib/letsencrypt
       - web-root:/usr/share/nginx/html
@@ -38,8 +37,6 @@ services:
         condition: service_completed_successfully
       java-backend:
         condition: service_healthy
-      python-backend:
-        condition: service_healthy
     restart: always
 
   # 主站前端+聊天室（Vue 3）
@@ -52,6 +49,8 @@ services:
         - VUE_APP_POETIZE_AES_KEY=${POETIZE_AES_KEY:-sarasarasarasara}
         # 生产模式(反调试、混淆、日志移除)
         - VUE_APP_PRODUCTION_MODE=true
+        # 版本号
+        - VITE_APP_VERSION=${APP_VERSION:-dev}
     container_name: poetize-web
     environment:
       - TZ=Asia/Shanghai
@@ -72,6 +71,7 @@ services:
       args:
         - VUE_APP_POETIZE_AES_KEY=${POETIZE_AES_KEY:-sarasarasarasara}
         - VUE_APP_PRODUCTION_MODE=true
+        - VITE_APP_VERSION=${APP_VERSION:-dev}
     container_name: poetize-admin
     environment:
       - TZ=Asia/Shanghai
@@ -108,53 +108,6 @@ services:
     restart: "no"
     entrypoint: []
     command: sh /certbot-entrypoint.sh
-
-  python-backend:
-    build:
-      context: .
-      dockerfile: docker/python/Dockerfile
-    container_name: poetize-python
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "3"
-    environment:
-      - TZ=Asia/Shanghai
-      # Python服务端口
-      - PORT=5000
-      # Java服务主机名和端口
-      - JAVA_BACKEND_HOST=poetize-java
-      - JAVA_BACKEND_PORT=8081
-      - DOCKER_SUBNET=${DOCKER_SUBNET:-172.28.147.0/28}
-      # Redis配置
-      - REDIS_HOST=${REDIS_HOST:-redis}
-      - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-poetize_redis_2025}
-      - REDIS_DB=${REDIS_DB:-0}
-      - REDIS_MAX_CONNECTIONS=20
-      # OAuth代理配置
-      - OAUTH_PROXY_DOMAIN=${OAUTH_PROXY_DOMAIN:-}
-    volumes:
-      - ./py/data:/app/data
-      - /etc/localtime:/etc/localtime:ro
-      - /etc/timezone:/etc/timezone:ro
-    networks:
-      poetize-network:
-        ipv4_address: ${IP_PYTHON:-172.28.147.6}
-    depends_on:
-      java-backend:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-        required: false
-    restart: always
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 60s
-      timeout: 20s
-      retries: 3
-      start_period: 40s
 
   # # Ollama翻译模型服务
   # translation-model:
@@ -210,7 +163,6 @@ services:
       # 数据库驱动类名
       - SPRING_DATASOURCE_DRIVER_CLASS_NAME=${DB_DRIVER_CLASS:-org.mariadb.jdbc.Driver}
       - SERVER_PORT=8081
-      - PYTHON_SERVICE_URL=http://poetize-python:5000
       # AES加密密钥，需与前端一致
       - POETIZE_AES_KEY=${POETIZE_AES_KEY:-sarasarasarasara}
       - PRERENDER_URL=http://poetize-prerender:4000/render
@@ -339,7 +291,6 @@ services:
       - PRERENDER_BASE_URL=http://nginx
       - PRERENDER_OUTPUT=/app/dist/prerender
       - JAVA_BACKEND_URL=http://poetize-java:8081
-      - PYTHON_BACKEND_URL=http://poetize-python:5000
       - SITE_URL=${SITE_URL:-http://localhost}
       - NODE_ENV=production
     volumes:

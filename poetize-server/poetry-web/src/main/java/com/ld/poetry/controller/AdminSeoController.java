@@ -42,7 +42,7 @@ public class AdminSeoController {
 
     @Autowired
     private SeoConfigService seoConfigService;
-    
+
     @Autowired
     private SeoMetaService seoMetaService;
 
@@ -71,7 +71,7 @@ public class AdminSeoController {
     private com.ld.poetry.service.RobotsService robotsService;
 
     @Autowired
-    private com.ld.poetry.config.PoetryApplicationRunner poetryApplicationRunner;
+    private com.ld.poetry.config.PrerenderStartupRunner prerenderStartupRunner;
 
     @Autowired
     private FileSecurityValidator fileSecurityValidator;
@@ -84,13 +84,13 @@ public class AdminSeoController {
         try {
             String nginxUrl = "http://nginx";
             String clearCacheUrl = nginxUrl + "/flush_seo_cache";
-            
+
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Internal-Service", "poetize-java");
             headers.set("User-Agent", "poetize-java/1.0.0");
-            
+
             HttpEntity<?> request = new HttpEntity<>(headers);
-            
+
             restTemplate.exchange(clearCacheUrl, HttpMethod.GET, request, String.class);
         } catch (Exception e) {
             log.warn("清除nginx SEO缓存失败: {}", e.getMessage());
@@ -122,7 +122,6 @@ public class AdminSeoController {
     public PoetryResult<Map<String, Object>> getSeoConfig(HttpServletRequest request) {
         try {
             Map<String, Object> config = seoConfigService.getSeoConfigAsJson();
-            
 
             return PoetryResult.success(config);
         } catch (Exception e) {
@@ -130,7 +129,6 @@ public class AdminSeoController {
             return PoetryResult.fail("获取SEO配置失败");
         }
     }
-
 
     /**
      * 更新SEO配置（自动清理缓存并触发预渲染）
@@ -147,26 +145,26 @@ public class AdminSeoController {
                     if (sitemapService != null) {
                         sitemapService.updateSitemapAndPush("SEO配置更新");
                     }
-                    
+
                     // 2. 清除nginx SEO缓存
                     clearNginxSeoCache();
-                    
+
                     // 3. 异步触发预渲染，避免阻塞主流程，并确保缓存数据已完全生效
                     CompletableFuture.runAsync(() -> {
                         try {
                             // 等待2秒确保缓存完全生效并可被预渲染服务读取
                             Thread.sleep(2000);
-                            poetryApplicationRunner.executeFullPrerender();
+                            prerenderStartupRunner.executeFullPrerender();
                         } catch (Exception e) {
                             log.warn("异步预渲染失败", e);
                         }
                     });
-                    
+
                 } catch (Exception e) {
                     // 预渲染失败不影响主流程，只记录日志
                     log.warn("缓存清除或预渲染失败", e);
                 }
-                
+
                 return PoetryResult.success(true);
             } else {
                 return PoetryResult.fail("SEO配置更新失败");
@@ -185,12 +183,12 @@ public class AdminSeoController {
     public PoetryResult<Boolean> updateEnableStatus(@RequestBody Map<String, Object> data) {
         try {
             Object enableObj = data.get("enable");
-            boolean enable = enableObj instanceof Boolean ? (Boolean) enableObj : 
-                Boolean.parseBoolean(enableObj.toString());
+            boolean enable = enableObj instanceof Boolean ? (Boolean) enableObj
+                    : Boolean.parseBoolean(enableObj.toString());
 
             Map<String, Object> config = seoConfigService.getSeoConfigAsJson();
             config.put("enable", enable);
-            
+
             boolean success = seoConfigService.updateSeoConfigFromJson(config);
             if (success) {
                 // 自动清理相关缓存
@@ -204,7 +202,6 @@ public class AdminSeoController {
             return PoetryResult.fail("更新SEO状态失败");
         }
     }
-
 
     // ========== 缓存管理API ==========
 
@@ -273,7 +270,7 @@ public class AdminSeoController {
     public PoetryResult<Map<String, Object>> analyzeSite() {
         try {
             Map<String, Object> seoConfig = seoConfigService.getSeoConfigAsJson();
-            
+
             // 检查SEO是否启用
             if (!Boolean.TRUE.equals(seoConfig.get("enable"))) {
                 return PoetryResult.fail(403, "SEO功能未启用");
@@ -307,8 +304,8 @@ public class AdminSeoController {
             }
 
             // 验证文件安全性
-            FileSecurityValidator.ValidationResult validationResult =
-                    fileSecurityValidator.validateFile(imageFile, imageFile.getOriginalFilename(), imageFile.getContentType());
+            FileSecurityValidator.ValidationResult validationResult = fileSecurityValidator.validateFile(imageFile,
+                    imageFile.getOriginalFilename(), imageFile.getContentType());
 
             if (!validationResult.isSuccess()) {
                 log.warn("文件安全验证失败: {}", validationResult.getMessage());
@@ -316,11 +313,11 @@ public class AdminSeoController {
             }
 
             Map<String, Object> result = seoImageService.processImage(imageFile, targetType, preferredFormat);
-            
+
             if ((Integer) result.get("code") != 200) {
                 return PoetryResult.fail(result.get("message").toString());
             }
-            
+
             return PoetryResult.success((Map<String, Object>) result.get("data"));
         } catch (Exception e) {
             log.error("图片处理失败", e);
@@ -345,8 +342,8 @@ public class AdminSeoController {
             }
 
             // 验证文件安全性
-            FileSecurityValidator.ValidationResult validationResult =
-                    fileSecurityValidator.validateFile(imageFile, imageFile.getOriginalFilename(), imageFile.getContentType());
+            FileSecurityValidator.ValidationResult validationResult = fileSecurityValidator.validateFile(imageFile,
+                    imageFile.getOriginalFilename(), imageFile.getContentType());
 
             if (!validationResult.isSuccess()) {
                 log.warn("文件安全验证失败: {}", validationResult.getMessage());
@@ -354,11 +351,11 @@ public class AdminSeoController {
             }
 
             Map<String, Object> result = seoImageService.batchProcessIcons(imageFile, iconTypes);
-            
+
             if ((Integer) result.get("code") != 200) {
                 return PoetryResult.fail(result.get("message").toString());
             }
-            
+
             return PoetryResult.success((Map<String, Object>) result.get("data"));
         } catch (Exception e) {
             log.error("批量图标处理失败", e);
@@ -381,8 +378,8 @@ public class AdminSeoController {
             }
 
             // 验证文件安全性
-            FileSecurityValidator.ValidationResult validationResult =
-                    fileSecurityValidator.validateFile(imageFile, imageFile.getOriginalFilename(), imageFile.getContentType());
+            FileSecurityValidator.ValidationResult validationResult = fileSecurityValidator.validateFile(imageFile,
+                    imageFile.getOriginalFilename(), imageFile.getContentType());
 
             if (!validationResult.isSuccess()) {
                 log.warn("文件安全验证失败: {}", validationResult.getMessage());
@@ -390,11 +387,11 @@ public class AdminSeoController {
             }
 
             Map<String, Object> result = seoImageService.getImageInfo(imageFile);
-            
+
             if ((Integer) result.get("code") != 200) {
                 return PoetryResult.fail(result.get("message").toString());
             }
-            
+
             return PoetryResult.success((Map<String, Object>) result.get("data"));
         } catch (Exception e) {
             log.error("获取图片信息失败", e);
@@ -407,66 +404,68 @@ public class AdminSeoController {
     private void clearSeoCache() {
         // 清理静态文件缓存
         seoStaticService.clearStaticCache(null);
-        
+
         // 清理业务缓存
         cacheService.deleteKeysByPattern("seo:*");
-        
+
         // 清理搜索引擎推送服务的SEO配置缓存
         searchEnginePushService.clearSeoConfigCache();
-        
+
         // 清理sitemap缓存
         sitemapService.clearSitemapCache();
-        
+
     }
 
     private Map<String, Object> performSeoAnalysis(Map<String, Object> seoConfig) {
         Map<String, Object> analysis = new HashMap<>();
-        
+
         // 检查基本SEO配置并生成建议
         java.util.List<Map<String, Object>> suggestions = new java.util.ArrayList<>();
-        
-        
+
         // 检查网站描述
         String description = (String) seoConfig.get("site_description");
         if (!StringUtils.hasText(description) || description.length() < 50) {
             suggestions.add(createSuggestion("warning", "网站描述过短或未设置，建议使用50-160个字符的描述"));
         }
-        
+
         // 检查关键词
         if (!StringUtils.hasText((String) seoConfig.get("site_keywords"))) {
             suggestions.add(createSuggestion("warning", "网站关键词未设置，这对SEO有一定影响"));
         }
-        
+
         // 检查搜索引擎推送配置
         checkSearchEngineConfig(suggestions, seoConfig, "baidu_push_enabled", "百度推送功能未启用，建议启用以提高百度搜索引擎收录速度");
         checkSearchEngineConfig(suggestions, seoConfig, "google_index_enabled", "Google索引功能未启用，建议启用以提高Google搜索引擎收录速度");
         checkSearchEngineConfig(suggestions, seoConfig, "bing_push_enabled", "Bing推送功能未启用，建议启用以提高Bing搜索收录速度");
-        
+
         // 检查网站验证
         checkSiteVerification(suggestions, seoConfig, "baidu_site_verification", "百度站点验证未设置，这会影响百度搜索引擎对网站的信任度");
-        checkSiteVerification(suggestions, seoConfig, "google_site_verification", "Google站点验证未设置，这会影响对Google Search Console的访问");
-        
+        checkSiteVerification(suggestions, seoConfig, "google_site_verification",
+                "Google站点验证未设置，这会影响对Google Search Console的访问");
+
         // 计算SEO得分
         int seoScore = Math.max(100 - suggestions.size() * 5, 10);
-        
+
         analysis.put("suggestions", suggestions);
         analysis.put("seo_score", seoScore);
-        
+
         return analysis;
     }
-    
-    private void checkSearchEngineConfig(java.util.List<Map<String, Object>> suggestions, Map<String, Object> config, String key, String message) {
+
+    private void checkSearchEngineConfig(java.util.List<Map<String, Object>> suggestions, Map<String, Object> config,
+            String key, String message) {
         if (!Boolean.TRUE.equals(config.get(key))) {
             suggestions.add(createSuggestion("warning", message));
         }
     }
-    
-    private void checkSiteVerification(java.util.List<Map<String, Object>> suggestions, Map<String, Object> config, String key, String message) {
+
+    private void checkSiteVerification(java.util.List<Map<String, Object>> suggestions, Map<String, Object> config,
+            String key, String message) {
         if (!StringUtils.hasText((String) config.get(key))) {
             suggestions.add(createSuggestion("info", message));
         }
     }
-    
+
     private Map<String, Object> createSuggestion(String type, String message) {
         Map<String, Object> suggestion = new HashMap<>();
         suggestion.put("type", type);

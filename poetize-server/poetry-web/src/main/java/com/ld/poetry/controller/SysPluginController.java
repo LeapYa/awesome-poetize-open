@@ -3,7 +3,9 @@ package com.ld.poetry.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ld.poetry.aop.LoginCheck;
 import com.ld.poetry.config.PoetryResult;
+import com.ld.poetry.dao.SysPluginActiveMapper;
 import com.ld.poetry.entity.SysPlugin;
+import com.ld.poetry.entity.SysPluginActive;
 import com.ld.poetry.service.SysPluginService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +33,9 @@ public class SysPluginController {
     @Autowired
     private SysPluginService sysPluginService;
 
+    @Autowired
+    private SysPluginActiveMapper sysPluginActiveMapper;
+
     // ============ 公开接口（前端网站调用） ============
 
     /**
@@ -50,7 +55,7 @@ public class SysPluginController {
     public PoetryResult<Map<String, Object>> getActiveMouseClickEffect() {
         String activeKey = sysPluginService.getActiveMouseClickEffect();
         SysPlugin plugin = sysPluginService.getPluginByTypeAndKey(SysPlugin.TYPE_MOUSE_CLICK_EFFECT, activeKey);
-        
+
         Map<String, Object> result = new HashMap<>();
         result.put("pluginKey", activeKey);
         if (plugin != null) {
@@ -107,6 +112,59 @@ public class SysPluginController {
         }
         
         return PoetryResult.success(plugins);
+    }
+
+    /**
+     * 获取所有当前激活的前端插件包（公开接口）
+     * 仅返回通过插件包安装且包含版本号的插件，不包含系统内置插件。
+     */
+    @GetMapping("/listActivePlugins")
+    public PoetryResult<List<Map<String, Object>>> listActivePlugins() {
+        LambdaQueryWrapper<SysPluginActive> activeWrapper = new LambdaQueryWrapper<>();
+        activeWrapper.orderByAsc(SysPluginActive::getId);
+        List<SysPluginActive> activePlugins = sysPluginActiveMapper.selectList(activeWrapper);
+
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        for (SysPluginActive active : activePlugins) {
+            SysPlugin plugin = sysPluginService.getPluginByTypeAndKey(active.getPluginType(), active.getPluginKey());
+            if (plugin == null) {
+                continue;
+            }
+            if (!Boolean.TRUE.equals(plugin.getEnabled())) {
+                continue;
+            }
+            if (!StringUtils.hasText(plugin.getVersion())) {
+                continue;
+            }
+            result.add(buildFrontendPluginPayload(plugin));
+        }
+
+        return PoetryResult.success(result);
+    }
+
+    /**
+     * 获取当前激活的动态粒子特效（公开接口）
+     */
+    @GetMapping("/getActiveParticleEffect")
+    public PoetryResult<Map<String, Object>> getActiveParticleEffect() {
+        SysPlugin plugin = sysPluginService.getActivePlugin(SysPlugin.TYPE_PARTICLE_EFFECT);
+        if (plugin == null || !Boolean.TRUE.equals(plugin.getEnabled())) {
+            return PoetryResult.success(null);
+        }
+        return PoetryResult.success(buildFrontendPluginPayload(plugin));
+    }
+
+    private Map<String, Object> buildFrontendPluginPayload(SysPlugin plugin) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("pluginKey", plugin.getPluginKey());
+        result.put("pluginName", plugin.getPluginName());
+        result.put("pluginType", plugin.getPluginType());
+        result.put("version", plugin.getVersion());
+        result.put("pluginCode", plugin.getPluginCode());
+        result.put("frontendCss", plugin.getFrontendCss());
+        result.put("pluginConfig", plugin.getPluginConfig());
+        result.put("enabled", plugin.getEnabled());
+        return result;
     }
 
     // ============ 管理接口（需要登录） ============
@@ -298,7 +356,8 @@ public class SysPluginController {
     public PoetryResult<Void> togglePluginStatus(@RequestBody Map<String, Object> params) {
         Integer id = (Integer) params.get("id");
         Boolean enabled = (Boolean) params.get("enabled");
-        
+        SysPlugin activePlugin = null;
+
         if (id == null || enabled == null) {
             return PoetryResult.fail("参数不完整");
         }
@@ -310,15 +369,31 @@ public class SysPluginController {
         
         // 如果要禁用插件，检查是否为当前激活的插件
         if (!enabled) {
-            SysPlugin activePlugin = sysPluginService.getActivePlugin(existing.getPluginType());
+            activePlugin = sysPluginService.getActivePlugin(existing.getPluginType());
             if (activePlugin != null && activePlugin.getId().equals(id)) {
-                return PoetryResult.fail("不能禁用当前激活的插件，请先切换到其他插件");
+                // 特殊处理：动态粒子特效和支付插件允许随时禁用，因为它可以没有任何激活项
+                if (!SysPlugin.TYPE_PARTICLE_EFFECT.equals(existing.getPluginType())
+                        && !SysPlugin.TYPE_PAYMENT.equals(existing.getPluginType())) {
+                    return PoetryResult.fail("不能禁用当前激活的插件，请先切换到其他插件");
+                }
             }
         }
         
         existing.setEnabled(enabled);
         existing.setUpdateTime(LocalDateTime.now());
         boolean success = sysPluginService.updateById(existing);
+
+        if (success && enabled && SysPlugin.TYPE_PARTICLE_EFFECT.equals(existing.getPluginType())) {
+            sysPluginService.setActivePlugin(existing.getPluginType(), existing.getPluginKey());
+        }
+
+        if (success && !enabled && activePlugin != null && activePlugin.getId().equals(id)
+                && (SysPlugin.TYPE_PARTICLE_EFFECT.equals(existing.getPluginType())
+                || SysPlugin.TYPE_PAYMENT.equals(existing.getPluginType()))) {
+            LambdaQueryWrapper<SysPluginActive> activeWrapper = new LambdaQueryWrapper<>();
+            activeWrapper.eq(SysPluginActive::getPluginType, existing.getPluginType());
+            sysPluginActiveMapper.delete(activeWrapper);
+        }
         
         if (success) {
             log.info("切换插件状态成功: id={}, enabled={}", id, enabled);

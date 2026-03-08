@@ -1,7 +1,6 @@
 import axios from "axios";
 import constant from "./constant";
 import cryptoUtil from "./crypto";
-import { getBrowserFingerprint } from "./fingerprintUtil";
 
 import router from "../router";
 import { handleTokenExpire } from "./tokenExpireHandler";
@@ -18,9 +17,10 @@ async function getCachedFingerprint() {
   if (cachedFingerprint) {
     return cachedFingerprint;
   }
-  
+
   if (!fingerprintPromise) {
-    fingerprintPromise = getBrowserFingerprint()
+    fingerprintPromise = import('./fingerprintUtil')
+      .then(({ getBrowserFingerprint }) => getBrowserFingerprint())
       .then(fp => {
         cachedFingerprint = fp;
         return fp;
@@ -31,7 +31,7 @@ async function getCachedFingerprint() {
         return null;
       });
   }
-  
+
   return fingerprintPromise;
 }
 
@@ -39,6 +39,36 @@ async function getCachedFingerprint() {
 let cachedTranslationConfig = null;
 let configCacheTime = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5分钟缓存
+const FINGERPRINT_URL_PATTERNS = [
+  '/user/regist',
+  '/user/login',
+  '/user/thirdLogin',
+  '/user/getCodeForBind',
+  '/user/getCodeForForgetPassword',
+  '/user/updateForForgetPassword',
+  '/captcha/verify-checkbox',
+  '/captcha/verify-slide',
+  '/captcha/verify-token'
+];
+
+function getRequestPath(url) {
+  if (!url) return '';
+
+  try {
+    if (/^https?:\/\//.test(url)) {
+      return new URL(url).pathname;
+    }
+
+    return new URL(url, constant.baseURL).pathname;
+  } catch (error) {
+    return String(url).split('?')[0];
+  }
+}
+
+function shouldAttachFingerprint(config) {
+  const requestPath = getRequestPath(config && config.url);
+  return FINGERPRINT_URL_PATTERNS.some(pattern => requestPath.endsWith(pattern));
+}
 
 // 获取翻译配置中的超时时间
 async function getTranslationTimeout() {
@@ -62,13 +92,23 @@ async function getTranslationTimeout() {
       headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
     }
 
-    const response = await axios.get(constant.pythonBaseURL + '/api/translation/config', {
+    const response = await axios.get(constant.baseURL + '/webInfo/ai/config/articleAi', {
       timeout: 10000,
       headers: headers
     });
 
     if (response.data && response.data.code === 200 && response.data.data) {
-      const timeout = response.data.data.llm?.timeout || 30;
+      // 从 Java 端 article_ai 配置中提取 llmConfig JSON 的 timeout
+      const llmConfigStr = response.data.data.llmConfig;
+      let timeout = 30;
+      if (llmConfigStr) {
+        try {
+          const llmConfig = typeof llmConfigStr === 'string' ? JSON.parse(llmConfigStr) : llmConfigStr;
+          timeout = llmConfig.timeout || 30;
+        } catch (e) {
+          // 解析失败使用默认值
+        }
+      }
       cachedTranslationConfig = { timeout };
       configCacheTime = now;
       return timeout;
@@ -144,21 +184,23 @@ function configureTimeout(config) {
 axios.interceptors.request.use(async function (config) {
   // 统一处理超时配置
   config = configureTimeout(config);
-  
+
   // 确保headers对象存在
   if (!config.headers) {
     config.headers = {};
   }
-  
+
   // 添加浏览器指纹到请求头（用于限流）
-  try {
-    const fingerprint = await getCachedFingerprint();
-    if (fingerprint) {
-      config.headers['X-Fingerprint'] = fingerprint;
+  if (shouldAttachFingerprint(config)) {
+    try {
+      const fingerprint = await getCachedFingerprint();
+      if (fingerprint) {
+        config.headers['X-Fingerprint'] = fingerprint;
+      }
+    } catch (err) {
+      // 指纹获取失败不阻塞请求
+      console.debug('添加指纹到请求头失败:', err);
     }
-  } catch (err) {
-    // 指纹获取失败不阻塞请求
-    console.debug('添加指纹到请求头失败:', err);
   }
 
   // 如果是验证码相关的请求，不需要token
@@ -242,17 +284,17 @@ axios.interceptors.response.use(async function (response) {
       error.code = 429;
       error.retryAfter = parseInt(retryAfter, 10);
       error.isRateLimited = true;
-      
+
       // 显示限流提示（使用全局消息提示，如果可用）
       if (typeof window !== 'undefined' && window.$message) {
         window.$message.warning(`${error.message}（${retryAfter}秒后可重试）`);
       } else if (typeof window !== 'undefined' && window.ElMessage) {
         window.ElMessage.warning(`${error.message}（${retryAfter}秒后可重试）`);
       }
-      
+
       return Promise.reject(error);
     }
-    
+
     if (response.data.code === 300 || response.data.code === 401) {
       // token失效，使用统一的token过期处理逻辑
       const isAdminRequest = response.config.isAdmin || false;
@@ -330,21 +372,21 @@ axios.interceptors.response.use(async function (response) {
     if (error.response.status === 429) {
       const retryAfter = error.response.headers['retry-after'] || 60;
       const message = error.response.data?.message || '操作过于频繁，请稍后再试';
-      
+
       error.isRateLimited = true;
       error.retryAfter = parseInt(retryAfter, 10);
       error.message = message;
-      
+
       // 显示限流提示
       if (typeof window !== 'undefined' && window.$message) {
         window.$message.warning(`${message}（${retryAfter}秒后可重试）`);
       } else if (typeof window !== 'undefined' && window.ElMessage) {
         window.ElMessage.warning(`${message}（${retryAfter}秒后可重试）`);
       }
-      
+
       return Promise.reject(error);
     }
-    
+
     // 服务器返回错误状态码
     if (error.response.status === 401 || error.response.status === 403) {
       // token相关错误，使用统一的token过期处理逻辑

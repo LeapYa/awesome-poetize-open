@@ -95,7 +95,22 @@ jobs:
           done
           touch prev_releases.txt
 
+      - name: Get custom release notes from tag annotation
+        if: steps.version.outputs.skip != 'true'
+        id: custom_notes
+        run: |
+          RAW_TAG="${{ steps.version.outputs.raw_tag }}"
+          NOTES=$(git for-each-ref "refs/tags/$RAW_TAG" --format='%(contents)' | sed '/^$/N;/^\n$/D' || echo "")
+
+          if [ -n "$NOTES" ]; then
+            printf '%s\n' "$NOTES" > release_notes.md
+            echo "has_custom_notes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_custom_notes=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Check AI availability
+        if: steps.version.outputs.skip != 'true' && steps.custom_notes.outputs.has_custom_notes != 'true'
         id: check_ai
         run: |
           if [ -n "${{ secrets.OPENAI_API_KEY }}" ]; then
@@ -105,7 +120,7 @@ jobs:
           fi
 
       - name: Generate notes with AI
-        if: steps.version.outputs.skip != 'true' && steps.check_ai.outputs.has_ai == 'true'
+        if: steps.version.outputs.skip != 'true' && steps.custom_notes.outputs.has_custom_notes != 'true' && steps.check_ai.outputs.has_ai == 'true'
         id: ai_notes
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -141,7 +156,7 @@ jobs:
           fi
 
       - name: Generate notes (fallback)
-        if: steps.version.outputs.skip != 'true' && (steps.check_ai.outputs.has_ai != 'true' || steps.ai_notes.outputs.success != 'true')
+        if: steps.version.outputs.skip != 'true' && steps.custom_notes.outputs.has_custom_notes != 'true' && (steps.check_ai.outputs.has_ai != 'true' || steps.ai_notes.outputs.success != 'true')
         run: |
           TAG="${{ steps.version.outputs.tag }}"
           PREV_TAG="${{ steps.version.outputs.prev_tag }}"
@@ -201,12 +216,15 @@ jobs:
           NOTES="${NOTES}**查看项目版本：**\n\n\`\`\`bash\npoetize -info\n\`\`\`\n"
           
           if [ -n "$HAS_SQL_CHANGES" ]; then
-            # ===== 有 SQL 变更：使用简化的两段式说明 =====
+            # ===== 有 SQL 变更：统一使用三段式说明 =====
+            
+            NOTES="${NOTES}**如果从v3.0.0以上版本升级：**\n\n"
+            NOTES="${NOTES}\`\`\`bash\n# 执行此命令Java启动失败，这是正常的，主要是为了升级数据库\npoetize -update\n# 升级poetize脚本\npoetize -update-poetize-command\n# 完整启动项目\npoetize -update\n\`\`\`\n\n"
             
             NOTES="${NOTES}**如果从v3.0.0升级：**\n\n"
-            NOTES="${NOTES}\`\`\`bash\n# 1. 先更新 poetize 脚本（修复端口备份问题）\n\n# GitHub（海外服务器）\nsudo curl -fsSL https://raw.githubusercontent.com/LeapYa/Awesome-poetize-open/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n# Gitee（国内服务器，如访问 GitHub 失败使用此命令）\nsudo curl -fsSL https://gitee.com/leapya/poetize/raw/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n\n# 2. 执行系统升级\npoetize -update\n\`\`\`\n\n"
+            NOTES="${NOTES}\`\`\`bash\n# 先更新 poetize 脚本\n\n# GitHub（海外服务器）\nsudo curl -fsSL https://raw.githubusercontent.com/LeapYa/Awesome-poetize-open/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n# Gitee（国内服务器，如访问 GitHub 失败使用此命令）\nsudo curl -fsSL https://gitee.com/leapya/poetize/raw/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n\n# 执行此命令Java启动失败，这是正常的，主要是为了升级数据库\npoetize -update\n# 升级poetize脚本\npoetize -update-poetize-command\n# 完整启动项目\npoetize -update\n\`\`\`\n\n"
             
-            NOTES="${NOTES}**如果从其他的版本升级：**\n\n"
+            NOTES="${NOTES}**如果从更早版本升级：**\n\n"
             NOTES="${NOTES}\`\`\`bash\n# 执行此命令Java启动失败，这是正常的，主要是为了升级数据库\npoetize -update\n# 升级poetize脚本\npoetize -update-poetize-command\n# 完整启动项目\npoetize -update\n\`\`\`\n\n"
             
           else

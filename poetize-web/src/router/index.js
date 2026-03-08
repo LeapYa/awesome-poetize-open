@@ -6,7 +6,13 @@ import {
   handleTokenExpire,
   isLoggedIn,
   getValidToken,
+  clearAuthState,
 } from '../utils/tokenExpireHandler'
+import {
+  ensureSessionValid,
+  getTrackableToken,
+  hasStoredSessionToken,
+} from '../utils/sessionValidation'
 
 const routes = [
   {
@@ -103,6 +109,11 @@ const routes = [
         name: 'privacy',
         component: () => import('../views/Privacy'),
       },
+      {
+        path: '/payment-return',
+        name: 'payment-return',
+        component: () => import('../components/payment-return'),
+      },
     ],
   },
   {
@@ -164,11 +175,38 @@ router.beforeEach(async (to, from, next) => {
     '/',
     '/about',
     '/privacy',
+    '/payment-return',
   ]
   const isPublicPath =
     publicPaths.includes(to.path) ||
     to.path.startsWith('/article/') ||
     to.path.startsWith('/sort/')
+
+  // 处理OAuth临时授权码
+  if (to.query.code && to.path === '/') {
+    await handleOAuthAuthCode(to, from, next)
+    return
+  }
+
+  if (
+    !hasStoredSessionToken() &&
+    (localStorage.getItem('currentUser') || localStorage.getItem('currentAdmin'))
+  ) {
+    clearAuthState()
+  }
+
+  if (hasStoredSessionToken()) {
+    const sessionValid = await ensureSessionValid({
+      force: false,
+      source: from.name ? 'route' : 'boot',
+      currentPath: to.fullPath,
+      preferAdmin: to.matched.some((record) => record.meta.isAdmin),
+    })
+
+    if (!sessionValid) {
+      return
+    }
+  }
 
   if (!isPublicPath) {
     const needsAdminAuth = to.matched.some((record) => record.meta.isAdmin)
@@ -196,13 +234,6 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  // 处理OAuth临时授权码
-  if (to.query.code && to.path === '/') {
-    await handleOAuthAuthCode(to, from, next)
-    return
-  }
-
-
   next()
 })
 
@@ -215,13 +246,13 @@ router.afterEach((to, from) => {
 
   try {
     const url = constant.baseURL + '/track/pageview?path=' + encodeURIComponent(to.fullPath)
-    const token = getValidToken()
+    const token = getTrackableToken()
     // 使用 fetch + keepalive 代替 sendBeacon，以便携带 Authorization header 识别登录用户
     const headers = {}
     if (token) {
       headers['Authorization'] = token
     }
-    fetch(url, { method: 'POST', keepalive: true, headers }).catch(() => {})
+    fetch(url, { method: 'POST', keepalive: true, headers }).catch(() => { })
   } catch (e) {
     // 统计失败不影响用户
   }

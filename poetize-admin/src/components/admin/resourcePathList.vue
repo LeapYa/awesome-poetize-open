@@ -1,6 +1,10 @@
 <template>
   <div>
     <div>
+      <div v-if="routeSearchKeyword" style="margin-bottom: 12px; padding: 10px 14px; border-radius: 8px; background: #f4f8ff; color: #606266; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+        <span>当前显示的是全局搜索结果：{{ routeSearchKeyword }}</span>
+        <el-button type="text" @click="clearGlobalSearchFilter">清除全局筛选</el-button>
+      </div>
       <div class="handle-box">
         <el-select clearable v-model="pagination.resourceType" placeholder="资源聚合类型" class="handle-select mrb10">
           <el-option
@@ -17,7 +21,7 @@
         <el-button type="primary" icon="el-icon-search" @click="search()">搜索</el-button>
         <el-button type="primary" @click="addResourcePathDialog = true">新增资源聚合</el-button>
       </div>
-      <el-table :data="resourcePaths" border class="table" header-cell-class-name="table-header">
+      <el-table :data="filteredResourcePaths" border class="table" header-cell-class-name="table-header">
         <el-table-column prop="id" label="ID" width="55" align="center"></el-table-column>
         <el-table-column prop="title" label="标题" align="center"></el-table-column>
         <el-table-column prop="classify" label="分类" align="center"></el-table-column>
@@ -356,11 +360,35 @@
       }
     },
 
-    computed: {},
+    computed: {
+      routeSearchKeyword() {
+        return ((this.$route.query.search || '') + '').toLowerCase().replace(/\s+/g, '').trim();
+      },
+      filteredResourcePaths() {
+        if (!this.routeSearchKeyword) {
+          return this.resourcePaths;
+        }
 
-    watch: {},
+        return this.resourcePaths.filter((item) => {
+          return [item.title, item.classify, item.introduction, item.type, item.url, item.remark].some((value) => {
+            return ((value || '') + '').toLowerCase().replace(/\s+/g, '').includes(this.routeSearchKeyword);
+          });
+        });
+      }
+    },
+
+    watch: {
+      '$route.query': {
+        handler() {
+          this.applyRouteQuery();
+          this.getResourcePaths();
+        },
+        deep: true
+      }
+    },
 
     created() {
+      this.applyRouteQuery();
       this.getResourcePaths();
     },
 
@@ -557,6 +585,19 @@
         });
       });
       },
+      applyRouteQuery() {
+        const query = this.$route.query || {};
+        this.pagination.current = 1;
+        this.pagination.resourceType = query.resourceType || '';
+        this.pagination.searchKey = query.search || '';
+        this.pagination.size = query.search ? 500 : 10;
+      },
+      clearGlobalSearchFilter() {
+        const nextQuery = { ...this.$route.query };
+        delete nextQuery.search;
+        delete nextQuery.resourceType;
+        this.$router.replace({ path: this.$route.path, query: nextQuery });
+      },
       search() {
         this.pagination.total = 0;
         this.pagination.current = 1;
@@ -733,3 +774,12 @@
   }
 }
 </style>
+
+
+
+
+
+
+
+
+

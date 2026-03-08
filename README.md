@@ -32,7 +32,6 @@
    <img src="https://img.shields.io/badge/Vue.js-35495e.svg?logo=vue.js&logoColor=4FC08D" alt="Vue.js">
    <img src="https://img.shields.io/badge/Java-%23ED8B00.svg?logo=openjdk&logoColor=white" alt="Java">
    <img src="https://img.shields.io/badge/Spring-6DB33F.svg?logo=spring&logoColor=white" alt="Spring">
-   <img src="https://img.shields.io/badge/Python-14354C.svg?logo=python&logoColor=white" alt="Python">
    <img src="https://img.shields.io/badge/MariaDB-003545?logo=mariadb&logoColor=white" alt="MariaDB">
    <img src="https://img.shields.io/badge/Redis-DC382D.svg?logo=redis&logoColor=white" alt="Redis">
    <img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white" alt="Docker">
@@ -54,7 +53,7 @@
 
 ## 📖 项目简介
 
-本项目**Awesome-poetize-open**是基于开源项目 [POETIZE最美博客](https://gitee.com/littledokey/poetize) 功能扩展和定制化开发，改造历时一年，这是一个集内容创作、社交互动与技术优化于一体的现代化博客系统。本项目主要用于自用，可能有些地方比不上商业化的最美博客，我当初也是被它的颜值吸引，想着自己也改一个自己满意的分享出来，我每个月都会进行不定时更新，如果你有什么好的想法或者功能建议，欢迎提issue或pr。
+本项目**Awesome-poetize-open**是基于开源项目 [POETIZE最美博客](https://gitee.com/littledokey/poetize) 功能扩展和定制化开发，改造历时一年，这是一个集内容创作、社交互动与技术优化于一体的现代化博客系统。本项目主要用于自用，旨在为不愿支付高昂闭源版费用的开发者提供一个更现代、更好看、更轻量的开源替代方案，可能有些地方与商业化的最美博客有点差异，我当初也是被它的颜值吸引，想着自己也改一个自己满意的分享出来，我每个月都会进行不定时更新，如果你有什么好的想法或者功能建议，欢迎提issue或pr。
 
 <p align="center">
   <img src="poetize_picture/首页.png" alt="首页" width="100%">
@@ -93,7 +92,8 @@
 1. ✅ 实现token签名算法HMAC-SHA256认证 —— 完全替换简单UUID token，新增防伪造、防篡改、防重放攻击能力
 1. ✅ 彻底重构 IM 系统 —— 移除 t-io 依赖，迁移至原生 Spring WebSocket，降低架构复杂度和维护成本，配合Java 25 虚拟线程，性能也能媲美 t-io
 1. ✅ 支持账号多端登录 —— 实现多设备同时在线登录，并加强了账号安全，改密码后强制下线所有设备
-1. ✅ 核心技术栈升级 —— 主站前端升级到 Vue3.5，后端升级到 Java 25 LTS + Spring Boot 3.5，全面启用虚拟线程，并使用 Redis缓存，性能与响应速度显著提升
+1. ✅ 核心技术栈升级 —— 主站前端升级到 Vue3.5，后端升级到 Java 25 LTS + Spring Boot 3.5.11，全面启用虚拟线程，并使用 Redis缓存，性能与响应速度显著提升
+1. ✅ 插件系统 —— 支持通过 .zip 插件包扩展前端展示和后端逻辑，无需修改核心代码，详见 [插件开发指南](docs/插件开发指南.md)
 
 > 更多功能，就不一一列举了...
 
@@ -365,16 +365,16 @@ sudo docker system prune -af && cd .. && sudo rm -rf Awesome-poetize-open && bas
 详细的开发环境配置、项目结构说明和各模块开发指南，请参阅 **[开发指南文档](docs/开发指南.md)**。
 
 包含内容：
-- 环境要求（Node.js、JDK、Maven、Python、Docker）
+- 环境要求（Node.js、JDK、Maven、Docker）
 - 项目目录结构
 - 前端开发（poetize-web、poetize-admin）
 - Java 后端开发
-- Python 后端开发
 - 数据库配置（MariaDB/MySQL）
 - 从 MariaDB 切换到 MySQL 的步骤
 
 其他文档：
 - **[SEO优化指南](docs/SEO优化指南.md)** - 发布策略、收录技巧、技术配置
+- **[插件开发指南](docs/插件开发指南.md)** - 插件包格式、前后端 SDK、钩子 API、安全策略
 - **[数据库设计文档](docs/数据库设计.md)** - 表结构、字段说明、ER图
 - **[架构设计文档](docs/架构设计.md)** - 系统架构、技术栈、部署架构
 
@@ -405,7 +405,6 @@ cd poetize-admin && npm install && npm run dev
 包含常见问题解决方案：
 - 前端问题（npm 安装失败、API 请求失败、WebSocket 连接失败）
 - Java 后端问题（Maven 依赖、Spring Boot 启动、数据库连接）
-- Python 服务问题（依赖安装、端口冲突、OAuth 回调）
 - Docker 环境问题（容器启动、健康检查、日志查看）
 - 网络与访问问题（HTTPS 证书、静态资源 404）
 - 性能调试命令
@@ -413,7 +412,7 @@ cd poetize-admin && npm install && npm run dev
 ## 🛠️ 技术栈
 
 * **前端** - Vue3（前台+聊天室）、Vue2（后台管理）、Element Plus/Element UI、WebSocket、Live2D
-* **后端** - Spring Boot 3.5.5、Java 25 LTS、FastAPI、Python 3.9+
+* **后端** - Spring Boot 3.5.11、Java 25 LTS
 * **数据库** - MariaDB 11、Redis 7
 * **部署** - Docker、Docker Compose、OpenResty（Nginx）、Shell 脚本
 

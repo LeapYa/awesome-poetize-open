@@ -2,11 +2,15 @@
   <div id="app">
     <router-view />
     <!-- 全局验证码容器 -->
-    <captcha-container />
+    <component
+      :is="captchaContainerComponent"
+      v-if="captchaVisible && captchaContainerComponent"
+    />
     <!-- 全局异步通知组件 -->
     <async-notification ref="globalNotification" />
     <!-- 全局邮箱收集组件 -->
-    <global-email-collection
+    <GlobalEmailCollectionAsync
+      v-if="showGlobalEmailCollection"
       :visible="showGlobalEmailCollection"
       :userInfo="tempUserData"
       :provider="emailCollectionProvider"
@@ -14,7 +18,7 @@
     />
     <!-- AI聊天（支持Live2D看板娘模式或简单按钮模式） -->
     <!-- mode从后台配置读取，默认为 'live2d' -->
-    <Live2D :mode="waifuDisplayMode" />
+    <Live2DAsync :mode="waifuDisplayMode" />
   </div>
 </template>
 
@@ -22,22 +26,21 @@
 import { useMainStore } from '@/stores/main'
 import globalEmailCollectionMixin from '@/mixins/globalEmailCollection.js'
 import { initMouseClickEffect } from '@/composables/useMouseClickEffect'
-
-import CaptchaContainer from '@/components/common/CaptchaContainer.vue'
-import GlobalEmailCollection from '@/components/common/GlobalEmailCollection.vue'
-import Live2D from '@/components/live2d/index.vue'
+import { defineAsyncComponent } from 'vue'
+import { ensureSessionValid, hasStoredSessionToken } from '@/utils/sessionValidation'
 
 export default {
   name: 'App',
   mixins: [globalEmailCollectionMixin],
   components: {
-    CaptchaContainer,
-    GlobalEmailCollection,
-    Live2D,
+    GlobalEmailCollectionAsync: defineAsyncComponent(() => import('@/components/common/GlobalEmailCollection.vue')),
+    Live2DAsync: defineAsyncComponent(() => import('@/components/live2d/index.vue')),
   },
   data() {
     return {
       currentLang: 'zh', // 默认中文
+      captchaContainerComponent: null,
+      captchaContainerLoadingPromise: null,
     }
   },
 
@@ -46,12 +49,20 @@ export default {
       return useMainStore()
     },
     waifuDisplayMode() {
-      // 从 webInfo 中读取显示模式，默认为 'live2d'
-      return this.mainStore?.webInfo?.waifuDisplayMode || 'live2d'
+      // 从 webInfo 中读取显示模式，默认为 'auto'，交由组件自身兜底
+      return this.mainStore?.webInfo?.waifuDisplayMode || 'auto'
+    },
+    captchaVisible() {
+      return this.mainStore.captcha.show
     },
   },
 
   watch: {
+    captchaVisible(visible) {
+      if (visible) {
+        this.ensureCaptchaContainerLoaded()
+      }
+    },
     '$route.path': function (newPath) {
       // 部分页面自行管理标题（如分类页、文章页），跳过全局覆盖
       const selfManagedTitlePaths = ['/sort', '/article']
@@ -95,6 +106,10 @@ export default {
     // 确保字体加载
     document.body.style.fontFamily = 'var(--globalFont), serif'
 
+    if (this.captchaVisible) {
+      this.ensureCaptchaContainerLoaded()
+    }
+
     // 注册全局通知实例
     if (this.$refs.globalNotification) {
       this.$notify.setInstance(this.$refs.globalNotification)
@@ -102,6 +117,8 @@ export default {
 
     // 初始化鼠标点击效果（根据后端配置自动选择效果类型）
     this.mouseClickEffectCleanup = initMouseClickEffect(this.mainStore)
+
+    document.addEventListener('visibilitychange', this.handleVisibilityChange)
   },
 
   beforeUnmount() {
@@ -109,9 +126,42 @@ export default {
     if (this.mouseClickEffectCleanup) {
       this.mouseClickEffectCleanup()
     }
+
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange)
   },
 
   methods: {
+    ensureCaptchaContainerLoaded() {
+      if (this.captchaContainerComponent) {
+        return Promise.resolve(this.captchaContainerComponent)
+      }
+
+      if (!this.captchaContainerLoadingPromise) {
+        this.captchaContainerLoadingPromise = import(
+          '@/components/common/CaptchaContainer.vue'
+        )
+          .then((module) => {
+            this.captchaContainerComponent = module.default || module
+            return this.captchaContainerComponent
+          })
+          .finally(() => {
+            this.captchaContainerLoadingPromise = null
+          })
+      }
+
+      return this.captchaContainerLoadingPromise
+    },
+    handleVisibilityChange() {
+      if (document.visibilityState !== 'visible' || !hasStoredSessionToken()) {
+        return
+      }
+
+      ensureSessionValid({
+        force: true,
+        source: 'visibility',
+        currentPath: this.$route.fullPath,
+      }).catch(() => {})
+    },
     handleLanguageChange(lang) {
       if (this.currentLang === lang) return
 

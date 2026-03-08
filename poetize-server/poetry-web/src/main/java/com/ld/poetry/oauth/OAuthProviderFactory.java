@@ -50,12 +50,14 @@ public class OAuthProviderFactory {
     @Autowired
     private BaiduOAuthProvider baiduOAuthProvider;
 
+    @Autowired
+    private AfdianOAuthProvider afdianOAuthProvider;
+
     /**
      * 支持的OAuth提供商列表
      */
     private static final List<String> SUPPORTED_PROVIDERS = Arrays.asList(
-            "github", "google", "x", "twitter", "yandex", "gitee", "qq", "baidu"
-    );
+            "github", "google", "x", "twitter", "yandex", "gitee", "qq", "baidu", "afdian");
 
     /**
      * 获取OAuth提供商
@@ -76,7 +78,7 @@ public class OAuthProviderFactory {
 
         // 获取对应的Provider并设置配置
         BaseOAuthProvider provider = getProviderInstance(platformType);
-        
+
         // 设置配置
         if (provider instanceof OAuth2Provider) {
             ((OAuth2Provider) provider).setConfig(oauthConfig);
@@ -112,6 +114,8 @@ public class OAuthProviderFactory {
                 return qqOAuthProvider;
             case "baidu":
                 return baiduOAuthProvider;
+            case "afdian":
+                return afdianOAuthProvider;
             default:
                 throw new ConfigurationException("不支持的OAuth平台: " + platformType, platformType);
         }

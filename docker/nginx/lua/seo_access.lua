@@ -21,7 +21,6 @@ end
 
     -- 检查API路径
     if string.sub(uri, 1, 5) == "/api/" or
-       string.sub(uri, 1, 8) == "/python/" or
        string.sub(uri, 1, 6) == "/ws/im" then
         return
     end

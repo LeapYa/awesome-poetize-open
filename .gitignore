@@ -36,6 +36,12 @@ build/
 ### VS Code ###
 .vscode/
 
+### Codex / AI tooling ###
+.agents/
+.github/prompts/
+poetize-admin/diff.txt
+poetize-server/poetry-web/.m2/
+
 ### History ###
 .history/
 

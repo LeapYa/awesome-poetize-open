@@ -16,9 +16,10 @@ upstream poetize-java {
     server poetize-java:8081 max_fails=3 fail_timeout=30s;
 }
 
-upstream poetize-python {
-    server poetize-python:5000 max_fails=3 fail_timeout=30s;
-}
+# [已迁移] Python 后端已合并到 Java
+# upstream poetize-python {
+#     server poetize-python:5000 max_fails=3 fail_timeout=30s;
+# }
 
 
 # 添加map指令用于解析请求URI，提取文章ID、分类ID等
@@ -87,7 +88,7 @@ map $arg_lang $is_supported_lang {
 map $request_uri $is_api_request {
     ~^/api/ 1;
     ~^/user/(login|register|logout|updateUserInfo|getCode|getCodeForBind|updateUserSecretInfo|bindingUserSecretInfo|getUserInfo|listUser|saveUser|updatePassword|updateAdminInfo|deleteUsers|getAdminUserInfo|updateAdminConfig) 1;
-    ~^/python/ 1;
+    # [已迁移] ~^/python/ 不再需要单独标记
     ~^/ws/im 1;
     ~^/flush_seo_cache 1;
     default 0;
@@ -189,14 +190,13 @@ server {
         proxy_send_timeout 300s;
     }
     
-    # Python后端API（主要用于AI功能）
+    # [已迁移] Python后端API → 转发到Java后端
     location ^~ /python/ {
-        proxy_pass http://poetize-python/;
+        proxy_pass http://poetize-java/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
         proxy_http_version 1.1;
         proxy_read_timeout 900s;
         proxy_send_timeout 900s;
@@ -343,7 +343,7 @@ server {
         internal;
         # 移除/internal_proxy前缀
         rewrite ^/internal_proxy(/.*)$ $1 break;
-        proxy_pass http://poetize-python;
+        proxy_pass http://poetize-java;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

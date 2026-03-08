@@ -1,5 +1,9 @@
 <template>
   <div>
+    <div v-if="globalSearchKeyword" style="margin-bottom: 12px; padding: 10px 14px; border-radius: 8px; background: #f4f8ff; color: #606266; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+      <span>当前显示的是全局搜索结果：{{ globalSearchKeyword }}</span>
+      <el-button type="text" @click="clearGlobalSearchFilter">清除全局筛选</el-button>
+    </div>
     <div class="handle-box">
       <el-select v-model="pagination.recommendStatus" placeholder="是否推荐" style="width: 120px" class="mrb10">
         <el-option key="1" label="是" :value="true"></el-option>
@@ -551,6 +555,9 @@
         if (!this.importNewLabelForm.sortId) return '';
         var sort = this.sorts.find(function(s) { return s.id === this.importNewLabelForm.sortId; }.bind(this));
         return sort ? sort.sortName : '';
+      },
+      globalSearchKeyword() {
+        return ((this.$route.query.search || '') + '').trim();
       }
     },
 
@@ -570,12 +577,19 @@
           }
         },
         deep: true
+      },
+      '$route.query.search': {
+        immediate: true,
+        handler(value) {
+          this.pagination.searchKey = (value || '').toString().trim();
+        }
       }
     },
 
     async created() {
       // 加载后台管理用语言映射（中文）
       this.languageMap = await getAdminLanguageMapping();
+      this.pagination.searchKey = ((this.$route.query.search || '') + '').trim();
       this.getArticles();
       this.getSortAndLabel();
     },
@@ -604,11 +618,23 @@
           current: 1,
           size: 10,
           total: 0,
-          searchKey: "",
+          searchKey: '',
           recommendStatus: null,
           sortId: null,
           labelId: null
         }
+        if (this.globalSearchKeyword) {
+          this.clearGlobalSearchFilter();
+          return;
+        }
+        this.getArticles();
+      },
+      clearGlobalSearchFilter() {
+        const nextQuery = { ...this.$route.query };
+        delete nextQuery.search;
+        this.$router.replace({ path: this.$route.path, query: nextQuery });
+        this.pagination.current = 1;
+        this.pagination.searchKey = '';
         this.getArticles();
       },
       getArticles() {
@@ -1930,3 +1956,13 @@
     }
   }
 </style>
+
+
+
+
+
+
+
+
+
+

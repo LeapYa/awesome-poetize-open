@@ -12,7 +12,7 @@
 
     <properties>
         <poetry.version>3.0-LeapYa</poetry.version>
-        <spring-boot.version>3.5.5</spring-boot.version>
+        <spring-boot.version>3.5.11</spring-boot.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven-jar-plugin.version>3.9.0</maven-jar-plugin.version>
@@ -24,6 +24,7 @@
         <lombok.version>1.18.40</lombok.version>
         <!-- 离线IP地址定位库 ip2region v3.x (支持 IPv4 和 IPv6) -->
         <ip2region.version>3.3.4</ip2region.version>
+        <spring-ai.version>1.1.2</spring-ai.version>
         <!-- 禁用Maven 3.8+的HTTP仓库检查 -->
         <maven.resolver.transport.wagon.http.checksumExtension>false</maven.resolver.transport.wagon.http.checksumExtension>
     </properties>
@@ -39,6 +40,15 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
                 <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Spring AI BOM -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>

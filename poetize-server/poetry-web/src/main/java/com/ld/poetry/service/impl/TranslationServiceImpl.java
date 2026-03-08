@@ -6,13 +6,11 @@ import com.ld.poetry.dao.ArticleTranslationMapper;
 import com.ld.poetry.entity.Article;
 import com.ld.poetry.entity.ArticleTranslation;
 import com.ld.poetry.service.TranslationService;
+import com.ld.poetry.service.ai.BaiduTranslationProvider;
+import com.ld.poetry.service.ai.LlmTranslationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.core.ParameterizedTypeReference;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -23,14 +21,12 @@ import java.util.stream.Collectors;
 
 /**
  * 翻译服务实现类
- * 通过HTTP调用Python端的翻译服务
+ * 使用 Spring AI (LlmTranslationService) 和百度翻译 (BaiduTranslationProvider) 替代
+ * Python 后端
  */
 @Service
 @Slf4j
 public class TranslationServiceImpl implements TranslationService {
-
-    @Value("${PYTHON_SERVICE_URL:http://localhost:5000}")
-    private String pythonServiceUrl;
 
     @Autowired
     private ArticleMapper articleMapper;
@@ -38,17 +34,17 @@ public class TranslationServiceImpl implements TranslationService {
     @Autowired
     private ArticleTranslationMapper articleTranslationMapper;
 
-    private final RestTemplate restTemplate;
-
     @Autowired
     private com.ld.poetry.service.SitemapService sitemapService;
 
     @Autowired
     private com.ld.poetry.service.SysAiConfigService sysAiConfigService;
 
-    public TranslationServiceImpl() {
-        this.restTemplate = new RestTemplate();
-    }
+    @Autowired
+    private LlmTranslationService llmTranslationService;
+
+    @Autowired
+    private BaiduTranslationProvider baiduTranslationProvider;
 
     @Override
     public void translateAndSaveArticle(Integer articleId) {
@@ -163,7 +159,6 @@ public class TranslationServiceImpl implements TranslationService {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public Map<String, String> translateArticleOnly(String title, String content, boolean skipAiTranslation,
             Map<String, String> pendingTranslation) {
 
@@ -203,88 +198,49 @@ public class TranslationServiceImpl implements TranslationService {
             // 3. 处理跳过AI翻译的情况
             if (skipAiTranslation) {
                 log.info("跳过AI自动翻译");
-                // 如果有暂存的翻译数据，返回它
                 if (pendingTranslation != null && !pendingTranslation.isEmpty()) {
                     return pendingTranslation;
                 }
                 return null;
             }
 
-            // 4. 使用TOON格式一次性翻译标题和内容
+            // 4. 根据翻译类型选择翻译方式（本地调用，不再依赖 Python 后端）
+            String translationType = aiConfig != null ? aiConfig.getTranslationType() : "llm";
+            log.info("使用翻译方式: {}", translationType);
 
-            // 构建TOON翻译请求
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("title", title);
-            requestBody.put("content", content);
-            requestBody.put("source_lang", sourceLanguage);
-            requestBody.put("target_lang", targetLanguage);
+            if ("baidu".equals(translationType)) {
+                // 百度翻译：分别翻译标题和内容
+                String translatedTitle = baiduTranslationProvider.translate(title, sourceLanguage, targetLanguage);
+                String translatedContent = baiduTranslationProvider.translate(content, sourceLanguage, targetLanguage);
 
-            // 设置请求头
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("X-Internal-Service", "poetize-java");
-            headers.set("X-Admin-Request", "true");
-            headers.set("User-Agent", "poetize-java/1.0.0");
-
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-
-            // 调用Python端翻译服务（自动识别TOON格式）
-            String url = pythonServiceUrl + "/api/translation/translate";
-
-            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    url, HttpMethod.POST, request,
-                    new ParameterizedTypeReference<Map<String, Object>>() {
-                    });
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                Map<String, Object> responseBody = response.getBody();
-                Integer code = (Integer) responseBody.get("code");
-
-                if (code != null && code == 200) {
-                    Map<String, Object> data = (Map<String, Object>) responseBody.get("data");
-                    if (data != null) {
-                        String translatedTitle = (String) data.get("translated_title");
-                        String translatedContent = (String) data.get("translated_content");
-                        Double tokenSavedPercent = data.get("token_saved_percent") != null
-                                ? ((Number) data.get("token_saved_percent")).doubleValue()
-                                : null;
-
-                        // 验证翻译结果
-                        if (translatedTitle != null && !translatedTitle.trim().isEmpty() &&
-                                translatedContent != null && !translatedContent.trim().isEmpty() &&
-                                !translatedTitle.equals(title) && !translatedContent.equals(content)) {
-
-                            if (tokenSavedPercent != null && tokenSavedPercent > 0) {
-                                log.info("TOON翻译成功！相比传统方式节省了 {}% token",
-                                        String.format("%.1f", tokenSavedPercent));
-                            } else {
-                                log.info("TOON翻译成功");
-                            }
-
-                            // 返回翻译结果
-                            Map<String, String> result = new HashMap<>();
-                            result.put("title", translatedTitle);
-                            result.put("content", translatedContent);
-                            result.put("language", targetLanguage);
-
-                            return result;
-                        } else {
-                            log.error("TOON翻译结果无效或未改变");
-                            return null;
-                        }
-                    }
-                } else {
-                    String message = (String) responseBody.get("message");
-                    log.error("TOON翻译失败: {}", message);
-                    return null;
+                if (translatedTitle != null && !translatedTitle.isBlank() &&
+                        translatedContent != null && !translatedContent.isBlank() &&
+                        !translatedTitle.equals(title) && !translatedContent.equals(content)) {
+                    Map<String, String> result = new HashMap<>();
+                    result.put("title", translatedTitle);
+                    result.put("content", translatedContent);
+                    result.put("language", targetLanguage);
+                    log.info("百度翻译成功");
+                    return result;
                 }
+                log.warn("百度翻译结果无效");
+                return null;
             }
 
-            log.error("TOON翻译服务返回异常响应");
+            // LLM 翻译（llm / dedicated_llm 均走 LlmTranslationService）
+            Map<String, String> result = llmTranslationService.translateArticle(
+                    title, content, sourceLanguage, targetLanguage);
+
+            if (result != null && !result.isEmpty()) {
+                log.info("LLM 文章翻译成功");
+                return result;
+            }
+
+            log.warn("LLM 文章翻译失败");
             return null;
 
         } catch (Exception e) {
-            log.error("TOON翻译文章失败，错误: {}", e.getMessage(), e);
+            log.error("文章翻译失败: {}", e.getMessage(), e);
             return null;
         }
     }
@@ -555,67 +511,40 @@ public class TranslationServiceImpl implements TranslationService {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public String translateText(String text, String sourceLang, String targetLang) {
         if (text == null || text.trim().isEmpty()) {
             return text;
         }
 
+        String src = sourceLang != null ? sourceLang : "zh";
+        String tgt = targetLang != null ? targetLang : "en";
+
         try {
-            // 构建请求参数，设置默认中文转英文
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("text", text);
-            requestBody.put("source_lang", sourceLang != null ? sourceLang : "zh"); // 默认中文
-            requestBody.put("target_lang", targetLang != null ? targetLang : "en"); // 默认英文
+            // 根据翻译类型选择翻译方式
+            com.ld.poetry.entity.SysAiConfig aiConfig = sysAiConfigService.getArticleAiConfig("default");
+            String translationType = aiConfig != null ? aiConfig.getTranslationType() : "llm";
 
-            // 设置请求头
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("X-Internal-Service", "poetize-java");
-            headers.set("X-Admin-Request", "true");
-            headers.set("User-Agent", "poetize-java/1.0.0");
-
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-
-            // 调用Python端翻译服务
-            String url = pythonServiceUrl + "/api/translation/translate";
-            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    url, HttpMethod.POST, request,
-                    new ParameterizedTypeReference<Map<String, Object>>() {
-                    });
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                Map<String, Object> responseBody = response.getBody();
-                Integer code = (Integer) responseBody.get("code");
-
-                if (code != null && code == 200) {
-                    Map<String, Object> data = (Map<String, Object>) responseBody.get("data");
-                    if (data != null) {
-                        String translatedText = (String) data.get("translated_text");
-                        if (translatedText != null && !translatedText.trim().isEmpty() &&
-                                !translatedText.equals(text)) {
-                            return translatedText;
-                        } else {
-                            log.warn("翻译服务返回无效结果，原文: {}, 翻译结果: {}",
-                                    text.length() > 50 ? text.substring(0, 50) + "..." : text,
-                                    translatedText != null
-                                            ? (translatedText.length() > 50 ? translatedText.substring(0, 50) + "..."
-                                                    : translatedText)
-                                            : "null");
-                        }
-                    }
-                } else {
-                    String message = (String) responseBody.get("message");
-                    log.warn("翻译失败: {}", message);
+            if ("baidu".equals(translationType)) {
+                String result = baiduTranslationProvider.translate(text, src, tgt);
+                if (result != null && !result.isBlank() && !result.equals(text)) {
+                    return result;
+                }
+            } else if (!"none".equals(translationType)) {
+                // LLM 翻译 (llm / dedicated_llm / custom)
+                String result = llmTranslationService.translateText(text, src, tgt);
+                if (result != null && !result.isBlank() && !result.equals(text)) {
+                    return result;
                 }
             }
 
-            log.error("翻译服务返回异常响应，原文: {}", text.length() > 50 ? text.substring(0, 50) + "..." : text);
-            return null; // 翻译失败时返回null，而不是原文
+            log.warn("翻译未成功, 类型={}, 原文前50字: {}",
+                    translationType,
+                    text.length() > 50 ? text.substring(0, 50) + "..." : text);
+            return null;
 
         } catch (Exception e) {
-            log.error("调用翻译服务失败: {}", e.getMessage(), e);
-            return null; // 翻译失败时返回null，而不是原文
+            log.error("翻译失败: {}", e.getMessage(), e);
+            return null;
         }
     }
 

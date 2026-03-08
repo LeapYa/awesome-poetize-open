@@ -299,6 +299,72 @@
             <artifactId>spring-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Spring AI: OpenAI 兼容 API (覆盖 OpenAI/DeepSeek/硅基流动/自定义) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+        <!-- Spring AI: Anthropic Claude -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-anthropic</artifactId>
+        </dependency>
+        <!-- Spring AI: MCP 客户端 (stdio transport) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-client</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.swagger.core.v3</groupId>
+                    <artifactId>swagger-annotations-jakarta</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- 统一 swagger-annotations-jakarta 版本，解决 spring-ai-model(2.2.38) 与 mcp-annotations(2.2.36) 的收敛冲突 -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
+            <version>2.2.38</version>
+        </dependency>
+        <!-- WebFlux: 仅作为库依赖, 不替换 Tomcat, 提供 Flux/WebClient 给 Spring AI 流式调用 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+        <!-- Token 计算 (替代 Python tiktoken) -->
+        <dependency>
+            <groupId>com.knuddels</groupId>
+            <artifactId>jtokkit</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+
+        <!-- Groovy 脚本引擎 - 用于后端插件系统 -->
+        <dependency>
+            <groupId>org.apache.groovy</groupId>
+            <artifactId>groovy</artifactId>
+            <version>4.0.30</version>
+        </dependency>
+
+        <!-- Apache FontBox: TTF 字体解析与子集化 -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>fontbox</artifactId>
+            <version>3.0.4</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Brotli4j: Brotli 压缩（WOFF2 格式需要） -->
+        <dependency>
+            <groupId>com.aayushatharva.brotli4j</groupId>
+            <artifactId>brotli4j</artifactId>
+            <version>1.17.0</version>
+        </dependency>
+
     </dependencies>
 
     <build>

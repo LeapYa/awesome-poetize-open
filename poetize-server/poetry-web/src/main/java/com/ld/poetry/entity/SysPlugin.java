@@ -81,6 +81,54 @@ public class SysPlugin implements Serializable {
     private Boolean isSystem;
 
     /**
+     * 插件版本号（如 1.0.0）
+     */
+    @TableField("version")
+    private String version;
+
+    /**
+     * 插件作者
+     */
+    @TableField("author")
+    private String author;
+
+    /**
+     * 插件 manifest.json 内容（JSON 字符串）
+     */
+    @TableField("manifest")
+    private String manifest;
+
+    /**
+     * 后端 Groovy 脚本源码
+     */
+    @TableField("backend_code")
+    private String backendCode;
+
+    /**
+     * 前端 CSS 样式
+     */
+    @TableField("frontend_css")
+    private String frontendCss;
+
+    /**
+     * 安装 SQL（备份用）
+     */
+    @TableField("install_sql")
+    private String installSql;
+
+    /**
+     * 卸载 SQL（备份用）
+     */
+    @TableField("uninstall_sql")
+    private String uninstallSql;
+
+    /**
+     * 是否有后端 Groovy 脚本 [0:无, 1:有]
+     */
+    @TableField("has_backend")
+    private Byte hasBackend;
+
+    /**
      * 排序顺序
      */
     @TableField("sort_order")
@@ -103,4 +151,8 @@ public class SysPlugin implements Serializable {
     public static final String TYPE_WAIFU_MODEL = "waifu_model";
     public static final String TYPE_EDITOR = "editor";
     public static final String TYPE_ARTICLE_THEME = "article_theme";
+    public static final String TYPE_PAYMENT = "payment";
+    public static final String TYPE_AI_TOOL = "ai_tool";
+    public static final String TYPE_PARTICLE_EFFECT = "particle_effect";
 }
+

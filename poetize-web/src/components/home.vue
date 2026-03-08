@@ -424,6 +424,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useMainStore } from '@/stores/main'
 import { cycleMouseClickEffect, getMouseClickEffectInfo } from '@/composables/useMouseClickEffect'
+import { initPluginLoader } from '@/composables/usePluginLoader'
 
 export default {
   components: {
@@ -509,6 +510,9 @@ export default {
 
     // 初始化目录按钮显示状态
     this.updateTocButtonVisibility()
+
+    // 初始化插件加载器（加载已安装的 .zip 插件的前端 JS/CSS）
+    initPluginLoader()
 
     // 初始化简化语言切换按钮显示状态（已注释，不再需要）
     // this.updateSimpleLangSwitchVisibility();

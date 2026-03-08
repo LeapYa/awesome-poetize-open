@@ -9,7 +9,7 @@
              :text-color="isAdminDark ? '#b0b0b0' : '#606266'"
              active-text-color="#20a0ff"
              unique-opened
-             :default-active="$router.currentRoute.path"
+             :default-active="$route.path"
              router>
       <template v-for="item in items">
         <template v-if="hasPermission(item)">
@@ -28,14 +28,14 @@
                     {{ threeItem.title }}
                   </el-menu-item>
                 </el-submenu>
-                <el-menu-item v-else :index="subItem.index" :key="'item-'+subItem.index">
+                <el-menu-item v-else :index="subItem.index" :key="'item-'+subItem.index" :id="'menu-' + subItem.index.replace('/', '')">
                   {{ subItem.title }}
                 </el-menu-item>
               </template>
             </el-submenu>
           </template>
           <template v-else>
-            <el-menu-item :index="item.index" :key="item.index" @click="item.title === 'SEO优化' ? goToSeoConfig() : null">
+            <el-menu-item :index="item.index" :key="item.index" :id="'menu-' + item.index.replace('/', '')" @click="item.title === 'SEO优化' ? goToSeoConfig() : null">
               <i :class="item.icon"></i>
               {{ item.title }}
             </el-menu-item>
@@ -67,9 +67,25 @@ export default {
           requiredUserType: 0  // 仅站长可访问
         }, {
           icon: "el-icon-s-tools",
-          index: "/webEdit",
+          index: "web-settings",
           title: "网站设置",
-          requiredUserType: 0  // 仅站长可访问
+          requiredUserType: 0,  // 仅站长可访问
+          subs: [{
+            index: "/webEdit",
+            title: "基础设置"
+          }, {
+            index: "/webAppearance",
+            title: "外观个性化"
+          }, {
+            index: "/webNotice",
+            title: "通知与邮件"
+          }, {
+            index: "/webSecurity",
+            title: "安全与登录"
+          }, {
+            index: "/webNavApi",
+            title: "导航与接口"
+          }]
         }, {
           icon: "el-icon-user-solid",
           index: "/userList",
@@ -232,6 +248,7 @@ export default {
     top: 70px;
     bottom: 0;
     overflow-y: scroll;
+    overflow-x: hidden;
     width: 130px;
     user-select: none;
   }
@@ -246,6 +263,26 @@ export default {
 
   .sidebar-el-menu .el-menu-item {
     padding: 0 10px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 子菜单标题缩进 */
+  .sidebar-el-menu .el-submenu >>> .el-submenu__title {
+    padding: 0 10px !important;
+  }
+
+  /* 子菜单展开项减少左侧缩进，防止撑宽侧边栏 */
+  .sidebar-el-menu .el-submenu .el-menu-item {
+    padding-left: 30px !important;
+    padding-right: 5px !important;
+    min-width: 0 !important;
+  }
+
+  /* 子菜单内嵌列表不设置最小宽度 */
+  .sidebar-el-menu .el-submenu >>> .el-menu--inline {
+    min-width: 0 !important;
   }
   
   /* 折叠按钮样式 */

@@ -33,6 +33,7 @@ import { initVueErrorHandler, initPromiseErrorHandler } from './utils/error-hand
 import { initGrayMode } from './utils/gray-mode'
 import { initImageLoader } from './utils/image-loader'
 import { registerServiceWorker } from './utils/pwa-manager'
+import { initParticleEffect } from './composables/useParticleEffect'
 
 // Stores - 注意：useMainStore 只能在 app.use(pinia) 之后调用
 import { useMainStore } from './stores/main'
@@ -50,7 +51,6 @@ import './assets/css/font-awesome.min.css'
 import './assets/css/centered-dialog.css'
 import './assets/css/article-style-protection.css' // 文章页面唯一样式来源（含主题变量、hljs颜色、表格、任务列表）
 import './assets/css/im.css'
-
 // ==================== 创建 Vue 应用 ====================
 const app = createApp(App)
 
@@ -140,6 +140,9 @@ nextTick(() => {
 
     // 初始化图片懒加载
     initImageLoader()
+
+    // 启动当前激活的粒子特效插件
+    initParticleEffect()
 
     // 注册 PWA Service Worker
     registerServiceWorker(notificationManager.info)

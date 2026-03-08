@@ -92,16 +92,13 @@
         this.chart = null;
       }
       window.removeEventListener('resize', this.resizeChart);
-      
+
       // 清理全局事件监听
-      this.$root.$off('theme-changed');
-      
-      // 清理 storage 事件监听
-      if (this.themeListener) {
-        window.removeEventListener('storage', this.themeListener);
+      if (this.themeChangeListener) {
+        this.$root.$off('theme-changed', this.themeChangeListener);
       }
     },
-  
+
     methods: {
       initChart() {
         const chartDom = document.getElementById('visitChart');
@@ -399,12 +396,13 @@
       // 监听主题变化
       setupThemeListener() {
         // 监听全局主题变化事件（由父组件 admin.vue 触发）
-        this.$root.$on('theme-changed', (isDark) => {
+        this.themeChangeListener = (isDark) => {
           this.isDarkMode = isDark;
           // 主题变化时重新渲染图表
           this.updateChart();
-        });
-        
+        };
+        this.$root.$on('theme-changed', this.themeChangeListener);
+
         // 监听 storage 事件（跨标签页）
         this.themeListener = (e) => {
           if (e.key === 'theme') {

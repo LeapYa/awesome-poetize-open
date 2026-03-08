@@ -29,7 +29,7 @@
               style="margin:10px; margin-bottom: 20px;">
             </el-alert>
             
-            <el-form-item label="大模型类型">
+            <el-form-item id="field-translation-global-llm-type" label="大模型类型">
               <el-select v-model="apiConfig.llmType" @change="onLlmTypeChange" placeholder="请选择大模型类型" class="full-width">
                 <el-option label="OpenAI (GPT)" value="openai">
               <span class="option-content">
@@ -64,7 +64,7 @@
           </el-select>
         </el-form-item>
             
-            <el-form-item label="模型名称">
+            <el-form-item id="field-translation-global-llm-model" label="模型名称">
               <el-input 
                 v-model="apiConfig.llmModel" 
                 :placeholder="getModelPlaceholder()" 
@@ -102,11 +102,11 @@
               </el-select>
             </el-form-item>
             
-            <el-form-item label="API接口地址">
+            <el-form-item id="field-translation-global-llm-url" label="API接口地址">
               <el-input v-model="apiConfig.llmUrl" placeholder="请输入大模型API接口地址" class="input-field"></el-input>
             </el-form-item>
             
-            <el-form-item label="API密钥" v-if="needsApiKey">
+            <el-form-item id="field-translation-global-llm-key" label="API密钥" v-if="needsApiKey">
               <el-input v-model="apiConfig.llmApiKey" type="password" show-password placeholder="请输入API密钥" class="input-field">
                 <template slot="prefix">
                   <i class="el-icon-lock"></i>
@@ -190,7 +190,7 @@
           </el-tag>
         </div>
           <div class="section-content">
-            <el-form-item label="翻译实现方式">
+            <el-form-item id="field-translation-mode" label="翻译实现方式">
               <el-select v-model="apiConfig.mode" placeholder="请选择翻译实现方式" style="width: 240px" class="mrb10">
                 <el-option key="none" label="不翻译" :value="'none'">
                   <span class="option-content">
@@ -236,7 +236,7 @@
 
             <!-- 语言配置 -->
             <div class="language-config-row">
-              <el-form-item label="默认源语言" class="language-item">
+              <el-form-item id="field-translation-source-lang" label="默认源语言" class="language-item">
                 <el-select 
                   v-model="apiConfig.defaultSourceLang" 
                   placeholder="请选择默认源语言" 
@@ -310,7 +310,7 @@
                 </svg>
               </div>
               
-              <el-form-item label="默认目标语言" class="language-item">
+              <el-form-item id="field-translation-target-lang" label="默认目标语言" class="language-item">
                 <el-select v-model="apiConfig.defaultTargetLang" placeholder="请选择默认目标语言" class="language-select">
                   <el-option label="中文" value="zh">
                     <span class="option-content">
@@ -364,7 +364,7 @@
 
         <!-- API翻译配置 -->
             <template v-if="apiConfig.mode === 'api'">
-          <el-form-item label="翻译引擎">
+          <el-form-item id="field-translation-api-provider" label="翻译引擎">
               <el-select v-model="apiConfig.provider" placeholder="请选择翻译引擎" class="full-width">
                 <el-option label="百度翻译" value="baidu">
                   <span class="option-content">
@@ -468,7 +468,7 @@
                 <el-input type="textarea" v-model="apiConfig.llmPrompt" :rows="3" placeholder="请输入翻译提示词，用于指导大模型如何进行翻译" class="textarea-field"></el-input>
                 <div class="form-tip">
                   <i class="el-icon-info"></i>
-                  可使用占位符：{source_lang}源语言名称，{target_lang}目标语言名称，{toon_data}TOON格式文章数据（文章翻译使用），{format}文本格式（单文本翻译使用）
+                  可使用占位符：{source_lang}源语言名称，{target_lang}目标语言名称，{toon_data}TOON格式文章数据（文章翻译使用），{json_data}JSON格式文章数据（文章翻译使用），{csv_data}CSV格式文章数据（文章翻译使用），{format}文本格式（单文本翻译使用）
                 </div>
               </el-form-item>
             </template>
@@ -611,7 +611,7 @@
                 <el-input type="textarea" v-model="apiConfig.llmPrompt" :rows="3" placeholder="请输入翻译提示词，用于指导大模型如何进行翻译" class="textarea-field"></el-input>
                 <div class="form-tip">
                   <i class="el-icon-info"></i>
-                  可使用占位符：{source_lang}源语言名称，{target_lang}目标语言名称，{toon_data}TOON格式文章数据（文章翻译使用），{format}文本格式（单文本翻译使用）
+                  可使用占位符：{source_lang}源语言名称，{target_lang}目标语言名称，{toon_data}TOON格式文章数据（文章翻译使用），{json_data}JSON格式文章数据（文章翻译使用），{csv_data}CSV格式文章数据（文章翻译使用），{format}文本格式（单文本翻译使用）
                 </div>
               </el-form-item>
             </template>
@@ -642,7 +642,7 @@
             </el-tag>
           </div>
           <div class="section-content">
-            <el-form-item label="摘要生成方式">
+            <el-form-item id="field-translation-summary-mode" label="摘要生成方式">
               <el-select v-model="apiConfig.summaryMode" placeholder="请选择摘要生成方式" style="width: 200px" class="mrb10">
                 <el-option key="global" label="使用全局AI模型" :value="'global'">
                   <span class="option-content">
@@ -871,7 +871,7 @@
                 </el-input>
                 <div class="form-tip">
                   <i class="el-icon-info"></i>
-                  可使用占位符：{style_desc}风格描述，{max_length}最大长度，{toon_example}TOON格式示例，{source_content}源语言内容，{source_lang}源语言名称，{languages}目标语言列表。AI模式只传源语言内容，让AI翻译生成各语言摘要
+                  可使用占位符：{style_desc}风格描述，{max_length}最大长度，{toon_example}TOON格式示例，{json_example}JSON格式示例，{csv_example}CSV格式示例，{source_content}源语言内容，{source_lang}源语言名称，{languages}目标语言列表。AI模式只传源语言内容，让AI翻译生成各语言摘要
                 </div>
               </el-form-item>
             </template>
@@ -1947,7 +1947,7 @@ Vue.js features reactive data binding and a component-based architecture, enabli
         tokenSavedPercent: null,
         processingTime: null,
         detectedLang: null,
-        useStream: false,  // Python端暂不支持流式翻译
+        useStream: false,  // 暂不支持流式翻译
         error: null  // 清空错误信息
       };
       this.testTranslationDialogVisible = true;
@@ -2044,8 +2044,8 @@ Vue.js features reactive data binding and a component-based architecture, enabli
         requestData.text = this.testTranslationForm.sourceText;
       }
       
-      // 调用Python端翻译测试接口
-      const response = await this.$http.post(this.$constant.pythonBaseURL + '/api/translation/test', requestData, true);
+      // 调用翻译测试接口
+      const response = await this.$http.post(this.$constant.baseURL + '/admin/translation/test/text', requestData, true);
       
       if (response.code === 200 && response.data) {
         this.testTranslationForm.processingTime = (Date.now() - startTime) / 1000;
@@ -2236,7 +2236,7 @@ Vue.js features reactive data binding and a component-based architecture, enabli
         // 前端超时时间 = 配置的超时时间 + 10秒缓冲
         const timeoutMs = ((this.apiConfig.llmTimeout || 30) + 10) * 1000;
         
-        const res = await this.$http.post(this.$constant.pythonBaseURL + '/api/translation/test-summary', testRequest, true);
+        const res = await this.$http.post(this.$constant.baseURL + '/admin/translation/test/summary', testRequest, true);
         
         if (res && res.code === 200 && res.data) {
           const result = res.data;
@@ -2310,7 +2310,7 @@ Vue.js features reactive data binding and a component-based architecture, enabli
         };
         
         const startTime = Date.now();
-        const res = await this.$http.post(this.$constant.pythonBaseURL + '/api/translation/test-summary', testRequest, true);
+        const res = await this.$http.post(this.$constant.baseURL + '/admin/translation/test/summary', testRequest, true);
         
         if (res && res.code === 200 && res.data) {
           const result = res.data;
@@ -2503,8 +2503,8 @@ Vue.js features reactive data binding and a component-based architecture, enabli
         // 构建临时配置，用于测试未保存的配置
         const tempConfig = this.buildTempConfig();
         
-        // 调用Python端的快速连接测试接口
-        const response = await this.$http.post(this.$constant.pythonBaseURL + '/api/translation/test-connection', {
+        // 调用快速连接测试接口
+        const response = await this.$http.post(this.$constant.baseURL + '/admin/translation/test/connection', {
           text: 'Hi',  // 极简测试文本，加快响应速度
           config: tempConfig
         }, true);
@@ -2532,7 +2532,7 @@ Vue.js features reactive data binding and a component-based architecture, enabli
       }
     },
     
-    // 构建临时配置（Python格式）
+    // 构建临时配置
     buildTempConfig() {
       const config = {
         type: this.apiConfig.mode,  // 'none', 'api', 'llm', 'dedicated_llm'

@@ -18,6 +18,8 @@
         <el-input v-model="pagination.searchKey" placeholder="用户名/手机号/邮箱" class="handle-input mrb10"></el-input>
         <el-button type="primary" icon="el-icon-search" @click="searchUser()">搜索</el-button>
         <el-button type="danger" @click="clearSearch()">清除参数</el-button>
+        <el-button type="success" @click="openProfileDialog()">修改个人信息</el-button>
+        <el-button type="warning" @click="openPasswordDialog()" v-if="mainStore.currentUser && !mainStore.currentUser.platformType">修改密码</el-button>
       </div>
       <el-table :data="users" border class="table" header-cell-class-name="table-header">
         <el-table-column prop="id" label="ID" width="55" align="center"></el-table-column>
@@ -130,14 +132,94 @@
           <el-button type="primary" @click="saveEdit()">确 定</el-button>
         </span>
     </el-dialog>
+
+    <el-dialog title="修改个人信息"
+               :visible.sync="profileVisible"
+               width="50%"
+               custom-class="centered-dialog"
+               :append-to-body="true"
+               destroy-on-close
+               center>
+      <el-form label-width="80px" style="padding: 0 20px;">
+        <el-form-item label="头像">
+          <uploadPicture :prefix="'userAvatar'" @addPicture="addAvatar" :maxSize="1" :maxNumber="1"></uploadPicture>
+          <el-image style="width: 60px; height: 60px; margin-top: 10px; border-radius: 5px;" 
+                    v-if="myProfile.avatar" 
+                    :src="myProfile.avatar" 
+                    fit="cover"></el-image>
+        </el-form-item>
+        <el-form-item label="用户名">
+          <el-input v-model="myProfile.username" maxlength="30"></el-input>
+        </el-form-item>
+        <el-form-item label="性别">
+          <el-radio-group v-model="myProfile.gender">
+            <el-radio :label="0">薛定谔的猫</el-radio>
+            <el-radio :label="1">男</el-radio>
+            <el-radio :label="2">女</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="简介">
+          <el-input v-model="myProfile.introduction" type="textarea" maxlength="60" show-word-limit></el-input>
+        </el-form-item>
+        <el-form-item label="邮箱">
+          <el-input v-model="myProfile.email" style="width: 70%; margin-right: 10px;"></el-input>
+          <el-button type="primary" :disabled="codeString !== '验证码'" @click="sendCode()">{{ codeString }}</el-button>
+        </el-form-item>
+        <el-form-item label="验证码" v-show="mailChanged">
+          <el-input v-model="myProfile.code" placeholder="输入邮箱验证码"></el-input>
+        </el-form-item>
+        <el-form-item label="密码" v-show="mailChanged && mainStore.currentUser && !mainStore.currentUser.platformType">
+          <el-input v-model="myProfile.password" type="password" placeholder="为了安全，修改邮箱需验证密码" show-password></el-input>
+        </el-form-item>
+      </el-form>
+
+      <span slot="footer" class="dialog-footer">
+          <el-button @click="profileVisible = false">取 消</el-button>
+          <el-button type="primary" @click="saveProfile()">确 定</el-button>
+      </span>
+    </el-dialog>
+
+    <!-- 修改密码弹出框 -->
+    <el-dialog title="修改密码"
+               :visible.sync="passwordVisible"
+               width="40%"
+               custom-class="centered-dialog"
+               :append-to-body="true"
+               destroy-on-close
+               center>
+      <el-form label-width="100px" style="padding: 0 20px;">
+        <el-form-item label="旧密码">
+          <el-input v-model="passwordForm.oldPassword" type="password" placeholder="请输入当前密码" show-password></el-input>
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="passwordForm.newPassword" type="password" placeholder="请输入新密码" show-password></el-input>
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="passwordForm.confirmPassword" type="password" placeholder="请再次输入新密码" show-password></el-input>
+        </el-form-item>
+        <el-form-item label="邮箱验证码">
+          <el-input v-model="passwordForm.code" placeholder="输入邮箱验证码" style="width: 65%; margin-right: 10px;"></el-input>
+          <el-button type="primary" :disabled="pwdCodeString !== '验证码'" @click="sendPwdCode()">{{ pwdCodeString }}</el-button>
+        </el-form-item>
+      </el-form>
+
+      <span slot="footer" class="dialog-footer">
+          <el-button @click="passwordVisible = false">取 消</el-button>
+          <el-button type="primary" @click="savePassword()">确 定</el-button>
+      </span>
+    </el-dialog>
   </div>
 </template>
 
 <script>
 
     import { useMainStore } from '@/stores/main';
+    const uploadPicture = () => import("../common/uploadPicture");
 
 export default {
+    components: {
+      uploadPicture
+    },
     data() {
       return {
         pagination: {
@@ -154,14 +236,38 @@ export default {
           id: null,
           userType: null
         },
-        editVisible: false
+        editVisible: false,
+        profileVisible: false,
+        passwordVisible: false,
+        passwordForm: {
+          oldPassword: '',
+          newPassword: '',
+          confirmPassword: '',
+          code: ''
+        },
+        myProfile: {
+          username: '',
+          gender: null,
+          introduction: '',
+          avatar: '',
+          email: '',
+          password: '',
+          code: ''
+        },
+        originalEmail: '',
+        codeString: "验证码",
+        pwdCodeString: "验证码"
       }
     },
 
     computed: {
       mainStore() {
         return useMainStore();
-      },},
+      },
+      mailChanged() {
+        return this.myProfile.email !== this.originalEmail;
+      }
+    },
 
     watch: {},
 
@@ -346,6 +452,198 @@ export default {
               type: "error"
             });
           });
+      },
+      openProfileDialog() {
+        const u = this.mainStore.currentUser;
+        if (!u) {
+          this.$message.error("未获取到当前用户信息");
+          return;
+        }
+        this.myProfile = {
+          username: u.username,
+          gender: u.gender,
+          introduction: u.introduction,
+          avatar: u.avatar,
+          email: u.email || '',
+          password: '',
+          code: ''
+        };
+        this.originalEmail = u.email || '';
+        this.codeString = "验证码";
+        this.profileVisible = true;
+      },
+      addAvatar(res) {
+        this.myProfile.avatar = res;
+      },
+      sendCode() {
+        if (this.myProfile.email === '') {
+          this.$message.error("请输入邮箱！");
+          return;
+        }
+        if (!(/^\w+@[a-zA-Z0-9]{2,10}(?:\.[a-z]{2,4}){1,3}$/.test(this.myProfile.email))) {
+          this.$message.error("邮箱格式有误！");
+          return;
+        }
+        this.codeString = "发送中...";
+        this.$http.get(this.$constant.baseURL + "/user/getCodeForBind", {
+          place: this.myProfile.email,
+          flag: 2
+        })
+          .then((res) => {
+            this.$message.success("验证码已发送，请注意查收！");
+            let time = 300;
+            let timer = setInterval(() => {
+              if (time === 0) {
+                clearInterval(timer);
+                this.codeString = "验证码";
+              } else {
+                this.codeString = time + " s";
+                time--;
+              }
+            }, 1000);
+          })
+          .catch((error) => {
+            this.codeString = "验证码";
+            this.$message.error(error.message);
+          });
+      },
+      async saveProfile() {
+        if (this.$common.isEmpty(this.myProfile.username)) {
+          this.$message.error("请输入用户名！");
+          return;
+        }
+
+        let user = {
+          username: this.myProfile.username,
+          gender: this.myProfile.gender,
+          introduction: this.myProfile.introduction,
+          avatar: this.myProfile.avatar
+        };
+
+        // 更新基础信息
+        try {
+          let res = await this.$http.post(this.$constant.baseURL + "/user/updateUserInfo", user);
+          if (!this.$common.isEmpty(res.data)) {
+            this.mainStore.loadCurrentUser(res.data);
+          }
+        } catch (error) {
+          this.$message.error(error.message);
+          return;
+        }
+
+        // 修改邮箱
+        if (this.mailChanged) {
+          if (this.$common.isEmpty(this.myProfile.code)) {
+            this.$message.error("请输入邮箱验证码！");
+            return;
+          }
+          if (this.mainStore.currentUser && !this.mainStore.currentUser.platformType && this.$common.isEmpty(this.myProfile.password)) {
+            this.$message.error("修改邮箱需要输入密码验证身份！");
+            return;
+          }
+          try {
+            let params = {
+              code: this.myProfile.code.trim(),
+              password: (this.mainStore.currentUser && this.mainStore.currentUser.platformType) ? '' : await this.$common.encrypt(this.myProfile.password.trim()),
+              place: this.myProfile.email.trim(),
+              flag: 2
+            };
+            let res2 = await this.$http.post(this.$constant.baseURL + "/user/updateSecretInfo", params, false, false);
+            if (!this.$common.isEmpty(res2.data)) {
+              this.mainStore.loadCurrentUser(res2.data);
+            }
+          } catch(error) {
+            this.$message.error("邮箱修改失败：" + error.message);
+            return;
+          }
+        }
+
+        this.$message.success("保存成功！");
+        this.profileVisible = false;
+        this.getUsers(); // Refresh table
+      },
+      openPasswordDialog() {
+        if (!this.mainStore.currentUser || this.$common.isEmpty(this.mainStore.currentUser.email)) {
+          this.$message.error("安全起见，请先在【修改个人信息】中绑定邮箱后再修改密码！");
+          return;
+        }
+
+        this.passwordForm = {
+          oldPassword: '',
+          newPassword: '',
+          confirmPassword: '',
+          code: ''
+        };
+        this.pwdCodeString = "验证码";
+        this.passwordVisible = true;
+      },
+      sendPwdCode() {
+        this.pwdCodeString = "发送中...";
+        this.$http.get(this.$constant.baseURL + "/user/getCode", {
+          flag: 2
+        })
+          .then((res) => {
+            this.$message.success("验证码已发送，请注意查收！");
+            let time = 300;
+            let timer = setInterval(() => {
+              if (time === 0) {
+                clearInterval(timer);
+                this.pwdCodeString = "验证码";
+              } else {
+                this.pwdCodeString = time + " s";
+                time--;
+              }
+            }, 1000);
+          })
+          .catch((error) => {
+            this.pwdCodeString = "验证码";
+            this.$message.error(error.message);
+          });
+      },
+      async savePassword() {
+        if (this.$common.isEmpty(this.passwordForm.oldPassword)) {
+          this.$message.error("请输入旧密码！");
+          return;
+        }
+        if (this.$common.isEmpty(this.passwordForm.newPassword)) {
+          this.$message.error("请输入新密码！");
+          return;
+        }
+        if (this.passwordForm.newPassword !== this.passwordForm.confirmPassword) {
+          this.$message.error("两次输入的新密码不一致！");
+          return;
+        }
+        if (this.$common.isEmpty(this.passwordForm.code)) {
+          this.$message.error("请输入邮箱验证码！");
+          return;
+        }
+
+        try {
+          let params = {
+            place: await this.$common.encrypt(this.passwordForm.oldPassword.trim()),
+            password: await this.$common.encrypt(this.passwordForm.newPassword.trim()),
+            code: this.passwordForm.code.trim(),
+            flag: 3
+          };
+          
+          let res = await this.$http.post(this.$constant.baseURL + "/user/updateSecretInfo", params, false, false);
+          
+          if (!this.$common.isEmpty(res.data)) {
+            this.$message.success("密码修改成功，请使用新密码重新登录！");
+            this.passwordVisible = false;
+            
+            // 清理本地 token 等状态
+            this.mainStore.loadCurrentUser({});
+            this.mainStore.loadCurrentAdmin({});
+            localStorage.removeItem('userToken');
+            localStorage.removeItem('adminToken');
+            
+            // 刷新页面以触发路由守卫，在后台弹出登录框
+            window.location.reload();
+          }
+        } catch(error) {
+          this.$message.error("密码修改失败：" + error.message);
+        }
       }
     }
   }

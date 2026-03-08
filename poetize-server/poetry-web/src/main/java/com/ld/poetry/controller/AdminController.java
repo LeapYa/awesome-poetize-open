@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Logger;
 
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -64,13 +63,13 @@ public class AdminController {
 
     @Autowired
     private PoetryApplicationRunner poetryApplicationRunner;
-    
+
     @Autowired
     private com.ld.poetry.service.SitemapService sitemapService;
-    
+
     @Autowired
     private com.ld.poetry.service.SearchEnginePushService searchEnginePushService;
-    
+
     @Autowired
     private com.ld.poetry.service.RobotsService robotsService;
 
@@ -112,7 +111,7 @@ public class AdminController {
             return PoetryResult.success(statistics);
         } catch (Exception e) {
             log.error("获取密码升级统计失败", e);
-            return PoetryResult.fail("获取密码升级统计失败: " + e.getMessage());
+            return PoetryResult.fail("获取密码升级统计失败，请稍后重试");
         }
     }
 
@@ -127,7 +126,7 @@ public class AdminController {
             return PoetryResult.success(report);
         } catch (Exception e) {
             log.error("生成密码安全报告失败", e);
-            return PoetryResult.fail("生成密码安全报告失败: " + e.getMessage());
+            return PoetryResult.fail("生成密码安全报告失败，请稍后重试");
         }
     }
 
@@ -163,14 +162,13 @@ public class AdminController {
                     log.error("数据库中未找到网站信息");
                     return PoetryResult.fail("网站信息不存在");
                 }
-            } else {
             }
 
-            // 返回完整信息（包含randomAvatar, randomName, waifuJson等敏感配置）
+            // 返回完整信息（包含randomAvatar, randomName, waifuJson等配置）
             return PoetryResult.success(webInfo);
         } catch (Exception e) {
             log.error("获取管理员网站详细信息失败", e);
-            return PoetryResult.fail("获取管理员网站详细信息失败: " + e.getMessage());
+            return PoetryResult.fail("获取网站信息失败，请稍后重试");
         }
     }
 
@@ -201,7 +199,7 @@ public class AdminController {
             return PoetryResult.success(result);
         } catch (Exception e) {
             log.error("刷新管理员缓存失败", e);
-            return PoetryResult.fail("刷新缓存失败: " + e.getMessage());
+            return PoetryResult.fail("缓存刷新失败，请稍后重试");
         }
     }
 
@@ -258,7 +256,7 @@ public class AdminController {
             return PoetryResult.success(result);
         } catch (Exception e) {
             log.error("更新看板娘状态失败", e);
-            return PoetryResult.fail("更新看板娘状态失败: " + e.getMessage());
+            return PoetryResult.fail("更新看板娘状态失败，请稍后重试");
         }
     }
 }

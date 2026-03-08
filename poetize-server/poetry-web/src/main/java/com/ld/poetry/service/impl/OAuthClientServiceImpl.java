@@ -29,21 +29,21 @@ import java.util.Map;
 @Slf4j
 @Service
 public class OAuthClientServiceImpl implements OAuthClientService {
-    
+
     @Autowired
     private ThirdPartyOauthConfigService configService;
-    
+
     @Autowired
     private ObjectMapper objectMapper;
 
     @Autowired
     @Qualifier("oauthRestTemplate")
     private RestTemplate restTemplate;
-    
+
     // OAuth代理域名配置
     @Value("${oauth.proxy.domain:}")
     private String oauthProxyDomain;
-    
+
     @Override
     public String buildAuthUrl(String platformType, String state) {
         try {
@@ -51,10 +51,10 @@ public class OAuthClientServiceImpl implements OAuthClientService {
             if (config == null || !config.getEnabled() || !config.getGlobalEnabled()) {
                 throw new RuntimeException("平台未配置或未启用: " + platformType);
             }
-            
+
             String authUrl = getAuthUrl(platformType);
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(authUrl);
-            
+
             // 添加通用参数
             if ("twitter".equals(platformType)) {
                 builder.queryParam("client_id", config.getClientKey());
@@ -63,12 +63,12 @@ public class OAuthClientServiceImpl implements OAuthClientService {
             }
 
             builder.queryParam("redirect_uri", config.getRedirectUri())
-                   .queryParam("state", state)
-                   .queryParam("response_type", "code");
-            
+                    .queryParam("state", state)
+                    .queryParam("response_type", "code");
+
             // 添加平台特定参数
             addPlatformSpecificParams(platformType, builder);
-            
+
             String finalUrl = builder.build().toUriString();
             return finalUrl;
         } catch (Exception e) {
@@ -76,7 +76,7 @@ public class OAuthClientServiceImpl implements OAuthClientService {
             throw new RuntimeException("构建授权URL失败", e);
         }
     }
-    
+
     @Override
     public Map<String, Object> getAccessToken(String platformType, String code) {
         String tokenUrl = null;
@@ -95,94 +95,94 @@ public class OAuthClientServiceImpl implements OAuthClientService {
                 }
 
                 tokenUrl = getTokenUrl(platformType);
-            
-            // 构建请求参数
-            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-            params.add("grant_type", "authorization_code");
-            params.add("code", code);
-            params.add("redirect_uri", config.getRedirectUri());
-            
-            if ("twitter".equals(platformType)) {
-                params.add("client_id", config.getClientKey());
-            } else {
-                params.add("client_id", config.getClientId());
+
+                // 构建请求参数
+                MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+                params.add("grant_type", "authorization_code");
+                params.add("code", code);
+                params.add("redirect_uri", config.getRedirectUri());
+
+                if ("twitter".equals(platformType)) {
+                    params.add("client_id", config.getClientKey());
+                } else {
+                    params.add("client_id", config.getClientId());
+                }
+                params.add("client_secret", config.getClientSecret());
+
+                // 设置请求头
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+                headers.add("Accept", "application/json");
+
+                HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
+
+                // 发送请求
+
+                ResponseEntity<String> response = restTemplate.postForEntity(tokenUrl, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    String responseBody = response.getBody();
+
+                    Map<String, Object> tokenData;
+
+                    // 尝试解析JSON格式
+                    try {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> jsonData = objectMapper.readValue(responseBody, Map.class);
+                        tokenData = jsonData;
+                    } catch (Exception jsonException) {
+                        // 尝试解析URL编码格式
+                        tokenData = parseUrlEncodedResponse(responseBody);
+                    }
+
+                    // 检查响应中是否包含错误信息
+                    if (tokenData.containsKey("error")) {
+                        String error = (String) tokenData.get("error");
+                        String errorDescription = (String) tokenData.get("error_description");
+
+                        log.warn("访问令牌请求失败: platform={}, error={}", platformType, error);
+
+                        // 根据错误类型提供更友好的错误信息
+                        String userFriendlyMessage = getOAuthErrorMessage(error, errorDescription);
+                        throw new RuntimeException(userFriendlyMessage);
+                    }
+
+                    // 检查是否包含access_token
+                    String accessToken = (String) tokenData.get("access_token");
+                    if (accessToken == null || accessToken.trim().isEmpty()) {
+                        log.error("访问令牌响应格式错误: platform={}", platformType);
+                        throw new RuntimeException("服务器响应格式错误，缺少访问令牌");
+                    }
+
+                    return tokenData;
+                } else {
+                    log.warn("访问令牌请求失败: platform={}, statusCode={}, attempt={}/{}",
+                            platformType, response.getStatusCode(), attempt, maxRetries);
+                    throw new RuntimeException("获取访问令牌失败: HTTP " + response.getStatusCode());
+                }
+            } catch (ResourceAccessException e) {
+                // 网络连接异常（超时、连接被拒绝等）
+                log.warn("网络连接失败: platform={}, attempt={}/{}", platformType, attempt, maxRetries);
+
+                if (attempt < maxRetries) {
+                    try {
+                        Thread.sleep(retryDelay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("重试被中断", ie);
+                    }
+                    continue; // 重试
+                } else {
+                    throw new RuntimeException("网络连接失败，已重试" + maxRetries + "次: " + e.getMessage(), e);
+                }
+            } catch (RestClientException e) {
+                // 其他REST客户端异常
+                log.error("请求客户端错误: platform={}, attempt={}/{}", platformType, attempt, maxRetries);
+                throw new RuntimeException("请求失败: " + e.getMessage(), e);
+            } catch (Exception e) {
+                log.error("获取访问令牌失败: platform={}, attempt={}/{}", platformType, attempt, maxRetries, e);
+                throw new RuntimeException("获取访问令牌失败: " + e.getMessage(), e);
             }
-            params.add("client_secret", config.getClientSecret());
-            
-            // 设置请求头
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-            headers.add("Accept", "application/json");
-            
-            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
-            
-            // 发送请求
-
-            ResponseEntity<String> response = restTemplate.postForEntity(tokenUrl, request, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                String responseBody = response.getBody();
-
-                Map<String, Object> tokenData;
-
-                // 尝试解析JSON格式
-                try {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> jsonData = objectMapper.readValue(responseBody, Map.class);
-                    tokenData = jsonData;
-                } catch (Exception jsonException) {
-                    // 尝试解析URL编码格式
-                    tokenData = parseUrlEncodedResponse(responseBody);
-                }
-
-                // 检查响应中是否包含错误信息
-                if (tokenData.containsKey("error")) {
-                    String error = (String) tokenData.get("error");
-                    String errorDescription = (String) tokenData.get("error_description");
-
-                    log.warn("访问令牌请求失败: platform={}, error={}", platformType, error);
-
-                    // 根据错误类型提供更友好的错误信息
-                    String userFriendlyMessage = getOAuthErrorMessage(error, errorDescription);
-                    throw new RuntimeException(userFriendlyMessage);
-                }
-
-                // 检查是否包含access_token
-                String accessToken = (String) tokenData.get("access_token");
-                if (accessToken == null || accessToken.trim().isEmpty()) {
-                    log.error("访问令牌响应格式错误: platform={}", platformType);
-                    throw new RuntimeException("服务器响应格式错误，缺少访问令牌");
-                }
-
-                return tokenData;
-            } else {
-                log.warn("访问令牌请求失败: platform={}, statusCode={}, attempt={}/{}", 
-                         platformType, response.getStatusCode(), attempt, maxRetries);
-                throw new RuntimeException("获取访问令牌失败: HTTP " + response.getStatusCode());
-            }
-        } catch (ResourceAccessException e) {
-            // 网络连接异常（超时、连接被拒绝等）
-            log.warn("网络连接失败: platform={}, attempt={}/{}", platformType, attempt, maxRetries);
-
-            if (attempt < maxRetries) {
-                try {
-                    Thread.sleep(retryDelay);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException("重试被中断", ie);
-                }
-                continue; // 重试
-            } else {
-                throw new RuntimeException("网络连接失败，已重试" + maxRetries + "次: " + e.getMessage(), e);
-            }
-        } catch (RestClientException e) {
-            // 其他REST客户端异常
-            log.error("请求客户端错误: platform={}, attempt={}/{}", platformType, attempt, maxRetries);
-            throw new RuntimeException("请求失败: " + e.getMessage(), e);
-        } catch (Exception e) {
-            log.error("获取访问令牌失败: platform={}, attempt={}/{}", platformType, attempt, maxRetries, e);
-            throw new RuntimeException("获取访问令牌失败: " + e.getMessage(), e);
-        }
         }
 
         // 如果所有重试都失败了（理论上不会到达这里）
@@ -293,7 +293,7 @@ public class OAuthClientServiceImpl implements OAuthClientService {
             throw new RuntimeException("获取用户信息失败: " + e.getMessage(), e);
         }
     }
-    
+
     @Override
     public boolean isPlatformConfigured(String platformType) {
         try {
@@ -301,22 +301,22 @@ public class OAuthClientServiceImpl implements OAuthClientService {
             if (config == null || !config.getEnabled() || !config.getGlobalEnabled()) {
                 return false;
             }
-            
+
             // 检查必要的配置项
             if ("twitter".equals(platformType)) {
-                return StringUtils.hasText(config.getClientKey()) && 
-                       StringUtils.hasText(config.getClientSecret()) &&
-                       StringUtils.hasText(config.getRedirectUri());
+                return StringUtils.hasText(config.getClientKey()) &&
+                        StringUtils.hasText(config.getClientSecret()) &&
+                        StringUtils.hasText(config.getRedirectUri());
             } else {
-                return StringUtils.hasText(config.getClientId()) && 
-                       StringUtils.hasText(config.getClientSecret()) &&
-                       StringUtils.hasText(config.getRedirectUri());
+                return StringUtils.hasText(config.getClientId()) &&
+                        StringUtils.hasText(config.getClientSecret()) &&
+                        StringUtils.hasText(config.getRedirectUri());
             }
         } catch (Exception e) {
             return false;
         }
     }
-    
+
     // 私有辅助方法
     private String getAuthUrl(String platformType) {
         switch (platformType.toLowerCase()) {
@@ -335,11 +335,13 @@ public class OAuthClientServiceImpl implements OAuthClientService {
                 return "https://graph.qq.com/oauth2.0/authorize";
             case "baidu":
                 return "https://openapi.baidu.com/oauth/2.0/authorize";
+            case "afdian":
+                return "https://afdian.com/oauth2/authorize";
             default:
                 throw new RuntimeException("不支持的平台: " + platformType);
         }
     }
-    
+
     private String getTokenUrl(String platformType) {
         if (StringUtils.hasText(oauthProxyDomain)) {
             switch (platformType.toLowerCase()) {
@@ -373,11 +375,13 @@ public class OAuthClientServiceImpl implements OAuthClientService {
                 return "https://graph.qq.com/oauth2.0/token";
             case "baidu":
                 return "https://openapi.baidu.com/oauth/2.0/token";
+            case "afdian":
+                return "https://afdian.com/api/oauth2/access_token";
             default:
                 throw new RuntimeException("不支持的平台: " + platformType);
         }
     }
-    
+
     private String getUserInfoUrl(String platformType) {
         if (StringUtils.hasText(oauthProxyDomain)) {
             switch (platformType.toLowerCase()) {
@@ -411,11 +415,13 @@ public class OAuthClientServiceImpl implements OAuthClientService {
                 return "https://graph.qq.com/user/get_user_info";
             case "baidu":
                 return "https://openapi.baidu.com/rest/2.0/passport/users/getInfo";
+            case "afdian":
+                return null; // 爱发电没有独立的 userInfo 接口
             default:
                 throw new RuntimeException("不支持的平台: " + platformType);
         }
     }
-    
+
     private void addPlatformSpecificParams(String platformType, UriComponentsBuilder builder) {
         switch (platformType.toLowerCase()) {
             case "github":
@@ -445,10 +451,10 @@ public class OAuthClientServiceImpl implements OAuthClientService {
                 break;
         }
     }
-    
+
     private Map<String, Object> normalizeUserInfo(String platformType, Map<String, Object> rawUserInfo) {
         Map<String, Object> userInfo = new HashMap<>();
-        
+
         switch (platformType.toLowerCase()) {
             case "github":
                 userInfo.put("uid", String.valueOf(rawUserInfo.get("id")));

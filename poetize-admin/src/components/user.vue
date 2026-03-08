@@ -232,7 +232,9 @@
     </el-dialog>
 
     <!-- 添加滑动验证组件 -->
-    <CaptchaWrapper
+    <component
+      :is="captchaWrapperComponent"
+      v-if="showCaptchaWrapper && captchaWrapperComponent"
       :visible="showCaptchaWrapper"
       :action="captchaAction"
       :force-slide="false"
@@ -240,7 +242,7 @@
       @fail="closeVerify"
       @refresh="$emit('refresh')"
       @close="closeVerify"
-    ></CaptchaWrapper>
+    ></component>
   </div>
 </template>
 
@@ -249,15 +251,13 @@
 
 const proButton = () => import( "./common/proButton");
   const uploadPicture = () => import( "./common/uploadPicture");
-  const CaptchaWrapper = () => import("./common/CaptchaWrapper");
   import { checkCaptchaWithCache } from '@/utils/captchaUtil';
   import { handleLoginRedirect } from '../utils/tokenExpireHandler';
 
   export default {
     components: {
       proButton,
-      uploadPicture,
-      CaptchaWrapper
+      uploadPicture
     },
     data() {
       return {
@@ -278,6 +278,8 @@ const proButton = () => import( "./common/proButton");
         verifyAction: null,
         captchaAction: 'login',
         verifyParams: null,
+        captchaWrapperComponent: null,
+        captchaWrapperLoadingPromise: null,
         thirdPartyLoginConfig: {
           enable: false
         },
@@ -299,6 +301,16 @@ const proButton = () => import( "./common/proButton");
       
       // 动态设置页面SEO信息
       this.updatePageSEO();
+      
+      // 拉取最新的网站公开信息（用于正确初始化看板娘形态、背景图等）
+      this.getWebInfo();
+    },
+    watch: {
+      showCaptchaWrapper(newVal) {
+        if (newVal) {
+          this.ensureCaptchaWrapperLoaded();
+        }
+      }
     },
     mounted() {
       // 获取第三方登录配置
@@ -317,6 +329,36 @@ const proButton = () => import( "./common/proButton");
       this.$bus.$off('thirdPartyLoginConfigChanged', this.handleThirdPartyConfigChange);
     },
     methods: {
+      ensureCaptchaWrapperLoaded() {
+        if (this.captchaWrapperComponent) {
+          return Promise.resolve(this.captchaWrapperComponent);
+        }
+
+        if (!this.captchaWrapperLoadingPromise) {
+          this.captchaWrapperLoadingPromise = import('./common/CaptchaWrapper.vue')
+            .then(module => {
+              this.captchaWrapperComponent = module.default || module;
+              return this.captchaWrapperComponent;
+            })
+            .finally(() => {
+              this.captchaWrapperLoadingPromise = null;
+            });
+        }
+
+        return this.captchaWrapperLoadingPromise;
+      },
+      getWebInfo() {
+        this.$http.get(this.$constant.baseURL + "/webInfo/getWebInfo", {}, false)
+          .then((res) => {
+            if (!this.$common.isEmpty(res.data)) {
+              this.mainStore.loadWebInfo(res.data);
+              this.updatePageSEO();
+            }
+          })
+          .catch((error) => {
+            console.error("获取网站配置失败", error);
+          });
+      },
       // 根据登录状态动态更新页面SEO信息
       updatePageSEO() {
         // 优先使用webTitle，fallback到webName，最后使用默认值
@@ -1089,9 +1131,9 @@ const proButton = () => import( "./common/proButton");
           params.verificationToken = verificationToken;
         }
 
-        // Python服务配置
-        const pythonServiceConfig = {
-          baseUrl: this.$constant.pythonBaseURL,
+        // OAuth服务配置
+        const oauthServiceConfig = {
+          baseUrl: this.$constant.baseURL,
           providers: {
             github: {
               icon: 'el-icon-s-platform',
@@ -1121,7 +1163,7 @@ const proButton = () => import( "./common/proButton");
         };
 
         // 构建请求URL，添加重定向参数
-        const loginUrl = `${pythonServiceConfig.baseUrl}/login/${provider}?redirect=${encodeURIComponent(currentPath)}`;
+        const loginUrl = `${oauthServiceConfig.baseUrl}/login/${provider}?redirect=${encodeURIComponent(currentPath)}`;
 
         // 记录当前登录方式
         localStorage.setItem('thirdPartyLoginProvider', provider);

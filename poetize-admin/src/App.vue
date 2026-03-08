@@ -2,11 +2,15 @@
   <div id="app">
     <router-view/>
     <!-- 全局验证码容器 -->
-    <captcha-container />
+    <component
+      :is="captchaContainerComponent"
+      v-if="captchaVisible && captchaContainerComponent"
+    />
     <!-- 全局异步通知组件 -->
     <async-notification ref="globalNotification" />
     <!-- 全局邮箱收集组件 -->
-    <global-email-collection
+    <GlobalEmailCollectionAsync
+      v-if="showGlobalEmailCollection"
       :visible="showGlobalEmailCollection"
       :userInfo="tempUserData"
       :provider="emailCollectionProvider"
@@ -14,7 +18,7 @@
     />
     <!-- AI聊天（支持Live2D看板娘模式或简单按钮模式） -->
     <!-- mode从后台配置读取，默认为 'live2d' -->
-    <Live2D :mode="waifuDisplayMode" />
+    <Live2DAsync :mode="waifuDisplayMode" />
   </div>
 </template>
 
@@ -27,14 +31,14 @@ export default {
   name: "App",
   mixins: [globalEmailCollectionMixin],
   components: {
-    // 动态导入
-    CaptchaContainer: () => import('@/components/common/CaptchaContainer.vue'),
-    GlobalEmailCollection: () => import('@/components/common/GlobalEmailCollection.vue'),
-    Live2D: () => import('@/components/live2d/index.vue')
+    GlobalEmailCollectionAsync: defineAsyncComponent(() => import('@/components/common/GlobalEmailCollection.vue')),
+    Live2DAsync: defineAsyncComponent(() => import('@/components/live2d/index.vue'))
   },
   data() {
     return {
-      currentLang: 'zh' // 默认中文
+      currentLang: 'zh', // 默认中文
+      captchaContainerComponent: null,
+      captchaContainerLoadingPromise: null
     };
   },
 
@@ -42,13 +46,21 @@ export default {
       mainStore() {
         return useMainStore();
       },
+    captchaVisible() {
+      return this.mainStore.captcha.show;
+    },
     waifuDisplayMode() {
-      // 从 webInfo 中读取显示模式，默认为 'live2d'
-      return this.mainStore.webInfo?.waifuDisplayMode || 'live2d';
+      // 从 webInfo 中读取显示模式，默认为 'auto'，交由组件兜底
+      return this.mainStore.webInfo?.waifuDisplayMode || 'auto';
     }
   },
 
   watch: {
+    captchaVisible(visible) {
+      if (visible) {
+        this.ensureCaptchaContainerLoaded();
+      }
+    },
     '$route.path': function(newPath) {
       // 所有页面都使用网站标题
       if (this.mainStore.webInfo && this.mainStore.webInfo.webTitle) {
@@ -90,6 +102,10 @@ export default {
   mounted() {
     // 确保字体加载
     document.body.style.fontFamily = "var(--globalFont), serif";
+
+    if (this.captchaVisible) {
+      this.ensureCaptchaContainerLoaded();
+    }
     
     // 注册全局通知实例
     if (this.$refs.globalNotification) {
@@ -118,6 +134,24 @@ export default {
   },
 
   methods: {
+    ensureCaptchaContainerLoaded() {
+      if (this.captchaContainerComponent) {
+        return Promise.resolve(this.captchaContainerComponent);
+      }
+
+      if (!this.captchaContainerLoadingPromise) {
+        this.captchaContainerLoadingPromise = import('@/components/common/CaptchaContainer.vue')
+          .then(module => {
+            this.captchaContainerComponent = module.default || module;
+            return this.captchaContainerComponent;
+          })
+          .finally(() => {
+            this.captchaContainerLoadingPromise = null;
+          });
+      }
+
+      return this.captchaContainerLoadingPromise;
+    },
     handleLanguageChange(lang) {
       if (this.currentLang === lang) return;
       

@@ -1,8 +1,22 @@
 /**
  * 验证码工具类
  */
-import axios from 'axios'
-import constant from '@/utils/constant'
+
+function getCaptchaBaseURL() {
+  if (
+    typeof window !== 'undefined' &&
+    window.VueAppConfig &&
+    window.VueAppConfig.baseURL
+  ) {
+    return window.VueAppConfig.baseURL
+  }
+
+  if (import.meta.env.DEV) {
+    return 'http://localhost:8081'
+  }
+
+  return `${location.protocol}//${location.host}/api`
+}
 
 /**
  * 检查指定操作是否需要验证码
@@ -10,26 +24,36 @@ import constant from '@/utils/constant'
  * @returns {Promise<boolean>} - 是否需要验证码
  */
 export function checkCaptchaRequired(action) {
-  return new Promise((resolve, reject) => {
-    // 使用Python服务器URL并直接在URL中传递action参数
-    axios
-      .get(`${constant.baseURL}/captcha/validate?action=${action}`)
-      .then((res) => {
-        if (res && res.data && res.data.code === 200) {
-          // 正确解析API返回的{required: true/false}格式
-          const required = res.data.data && res.data.data.required === true
-          resolve(required)
-        } else {
-          // 如果API出错，默认不需要验证（修改：使验证码出错时跳过验证，确保用户能登录）
-          resolve(false)
-        }
-      })
-      .catch((error) => {
-        console.error('验证码检查失败:', error)
-        // 如果网络错误，默认不需要验证（确保在验证码服务失败时用户仍能登录）
-        resolve(false)
-      })
+  const baseURL = getCaptchaBaseURL()
+  const requestURL = `${baseURL}/captcha/validate?action=${encodeURIComponent(action)}`
+
+  return fetch(requestURL, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
   })
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`验证码检查请求失败: ${response.status}`)
+      }
+
+      return response.json()
+    })
+    .then((res) => {
+      if (res && res.code === 200) {
+        // 正确解析API返回的{required: true/false}格式
+        return res.data && res.data.required === true
+      }
+
+      // 如果API出错，默认不需要验证（修改：使验证码出错时跳过验证，确保用户能登录）
+      return false
+    })
+    .catch((error) => {
+      console.error('验证码检查失败:', error)
+      // 如果网络错误，默认不需要验证（确保在验证码服务失败时用户仍能登录）
+      return false
+    })
 }
 
 /**

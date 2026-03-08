@@ -1,18 +1,18 @@
 <template>
   <div>
     <!-- Live2D看板娘模式 -->
-    <Live2DWidget v-if="mode === 'live2d'" />
+    <Live2DWidgetAsync v-if="mode === 'live2d'" />
     
     <!-- 简单按钮模式 -->
-    <AIChatButton v-else-if="mode === 'button'" />
+    <AIChatButtonAsync v-else-if="mode === 'button'" />
     
     <!-- AI聊天面板（懒加载） -->
-    <AIChatPanel v-if="showChat" />
+    <AIChatPanelAsync v-if="showChat" />
   </div>
 </template>
 
 <script>
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { useLive2DStore } from '@/stores/live2d'
 import { useMainStore } from '@/stores/main'
 
@@ -21,9 +21,9 @@ export default {
   
   components: {
     // 所有组件都使用动态导入，打破静态依赖链，避免 mermaid 等大型依赖被预加载
-    Live2DWidget: () => import('./Live2DWidget.vue'),
-    AIChatButton: () => import('./AIChatButton.vue'),
-    AIChatPanel: () => import('./AIChat/index.vue')
+    Live2DWidgetAsync: defineAsyncComponent(() => import('./Live2DWidget.vue')),
+    AIChatButtonAsync: defineAsyncComponent(() => import('./AIChatButton.vue')),
+    AIChatPanelAsync: defineAsyncComponent(() => import('./AIChat/index.vue'))
   },
   
   props: {

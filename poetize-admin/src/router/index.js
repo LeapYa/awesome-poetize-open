@@ -31,6 +31,22 @@ const routes = [
       name: 'webEdit',
       component: () => import('../components/admin/webEdit')
     }, {
+      path: 'webNotice',
+      name: 'webNotice',
+      component: () => import('../components/admin/webNotice')
+    }, {
+      path: 'webSecurity',
+      name: 'webSecurity',
+      component: () => import('../components/admin/webSecurity')
+    }, {
+      path: 'webAppearance',
+      name: 'webAppearance',
+      component: () => import('../components/admin/webAppearance')
+    }, {
+      path: 'webNavApi',
+      name: 'webNavApi',
+      component: () => import('../components/admin/webNavApi')
+    }, {
       path: 'userList',
       name: 'userList',
       component: () => import('../components/admin/userList')
@@ -78,10 +94,6 @@ const routes = [
       path: 'seoConfig',
       name: 'seoConfig',
       component: () => import('../components/admin/seoConfig')
-    }, {
-      path: 'aiChatConfig',
-      name: 'aiChatConfig',
-      component: () => import('../components/admin/aiChatConfig')
     }, {
       path: 'pluginManager',
       name: 'pluginManager',

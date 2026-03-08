@@ -1,8 +1,23 @@
 <template>
   <div class="captcha-wrapper" v-if="visible">
+    <div v-if="isPreparing" class="captcha-loading-card">
+      <button
+        type="button"
+        class="captcha-loading-close"
+        aria-label="关闭验证"
+        @click="onClose"
+      >
+        ×
+      </button>
+      <div class="captcha-loading-text">安全验证加载中...</div>
+    </div>
+
     <!-- 根据实时窗口宽度选择验证码类型 -->
-    <checkbox-captcha
-      v-if="shouldUseCheckboxCaptcha"
+    <component
+      :is="checkboxCaptchaComponent"
+      v-else-if="
+        configReady && shouldUseCheckboxCaptcha && checkboxCaptchaComponent
+      "
       ref="checkboxCaptcha"
       :action="action"
       :track-sensitivity="checkboxOptions.trackSensitivity"
@@ -12,11 +27,12 @@
       @fail="onCheckboxFail"
       @refresh="onCheckboxRefresh"
       @close="onClose"
-    ></checkbox-captcha>
+    ></component>
 
     <!-- 小屏幕显示滑动验证 -->
-    <slide-captcha
-      v-else
+    <component
+      :is="slideCaptchaComponent"
+      v-else-if="configReady && slideCaptchaComponent"
       ref="slideCaptcha"
       :accuracy="slideOptions.accuracy"
       :success-threshold="slideOptions.successThreshold"
@@ -27,21 +43,15 @@
       @fail="onSlideFail"
       @refresh="onSlideRefresh"
       @close="onClose"
-    ></slide-captcha>
+    ></component>
   </div>
 </template>
 
 <script>
-import { $on, $off, $once, $emit } from '../../utils/gogocodeTransfer'
-import CheckboxCaptcha from './CheckboxCaptcha.vue'
-import SlideCaptcha from './SlideCaptcha.vue'
+import { $emit } from '../../utils/gogocodeTransfer'
 
 export default {
   name: 'CaptchaWrapper',
-  components: {
-    CheckboxCaptcha,
-    SlideCaptcha,
-  },
   props: {
     // 显示状态
     visible: {
@@ -85,6 +95,13 @@ export default {
       verified: false, // 验证状态
       isTouchDevice: false, // 是否为触摸设备
       captchaConfig: null, // 验证码配置
+      configReady: false,
+      isPreparing: false,
+      loadingConfigPromise: null,
+      checkboxCaptchaComponent: null,
+      slideCaptchaComponent: null,
+      checkboxCaptchaLoadingPromise: null,
+      slideCaptchaLoadingPromise: null,
     }
   },
   computed: {
@@ -158,8 +175,7 @@ export default {
     // 监听visible属性变化，当显示验证码时更新窗口宽度和加载配置
     visible(newVal) {
       if (newVal) {
-        this.updateWidth()
-        this.loadCaptchaConfig()
+        this.prepareCaptcha()
       }
     },
   },
@@ -170,8 +186,9 @@ export default {
     this.updateWidth()
     // 检测是否为触摸设备
     this.detectTouchDevice()
-    // 加载验证码配置
-    this.loadCaptchaConfig()
+    if (this.visible) {
+      this.prepareCaptcha()
+    }
   },
   beforeUnmount() {
     // 移除监听
@@ -190,14 +207,29 @@ export default {
      */
     updateWidth() {
       const newWidth = window.innerWidth
-      const wasLargeScreen = this.shouldUseCheckboxCaptcha
+      const wasLargeScreen = this.configReady
+        ? this.shouldUseCheckboxCaptcha
+        : null
 
       // 更新宽度
       this.currentWidth = newWidth
 
       // 如果屏幕类型发生变化（大变小或小变大），重置验证状态
-      if (wasLargeScreen !== this.shouldUseCheckboxCaptcha) {
-        this.reset()
+      if (
+        this.configReady &&
+        wasLargeScreen !== this.shouldUseCheckboxCaptcha
+      ) {
+        this.isPreparing = true
+        this.verified = false
+        this.ensureCurrentCaptchaComponentLoaded()
+          .then(() => {
+            this.$nextTick(() => {
+              this.reset()
+            })
+          })
+          .finally(() => {
+            this.isPreparing = false
+          })
       }
     },
 
@@ -211,32 +243,100 @@ export default {
         navigator.msMaxTouchPoints > 0
     },
 
+    createDefaultCaptchaConfig() {
+      return {
+        screenSizeThreshold: 768,
+        forceSlideForMobile: true,
+        slide: { accuracy: 5, successThreshold: 0.95 },
+        checkbox: { trackSensitivity: 0.9, minTrackPoints: 2 },
+      }
+    },
+
+    prepareCaptcha() {
+      this.updateWidth()
+      this.detectTouchDevice()
+      this.configReady = false
+      this.isPreparing = true
+
+      return this.loadCaptchaConfig()
+        .then(() => this.ensureCurrentCaptchaComponentLoaded())
+        .finally(() => {
+          this.configReady = true
+          this.isPreparing = false
+        })
+    },
+
+    ensureCurrentCaptchaComponentLoaded() {
+      return this.shouldUseCheckboxCaptcha
+        ? this.ensureCheckboxCaptchaLoaded()
+        : this.ensureSlideCaptchaLoaded()
+    },
+
+    ensureCheckboxCaptchaLoaded() {
+      if (this.checkboxCaptchaComponent) {
+        return Promise.resolve(this.checkboxCaptchaComponent)
+      }
+
+      if (!this.checkboxCaptchaLoadingPromise) {
+        this.checkboxCaptchaLoadingPromise = import('./CheckboxCaptcha.vue')
+          .then((module) => {
+            this.checkboxCaptchaComponent = module.default || module
+            return this.checkboxCaptchaComponent
+          })
+          .finally(() => {
+            this.checkboxCaptchaLoadingPromise = null
+          })
+      }
+
+      return this.checkboxCaptchaLoadingPromise
+    },
+
+    ensureSlideCaptchaLoaded() {
+      if (this.slideCaptchaComponent) {
+        return Promise.resolve(this.slideCaptchaComponent)
+      }
+
+      if (!this.slideCaptchaLoadingPromise) {
+        this.slideCaptchaLoadingPromise = import('./SlideCaptcha.vue')
+          .then((module) => {
+            this.slideCaptchaComponent = module.default || module
+            return this.slideCaptchaComponent
+          })
+          .finally(() => {
+            this.slideCaptchaLoadingPromise = null
+          })
+      }
+
+      return this.slideCaptchaLoadingPromise
+    },
+
     /**
      * 加载验证码配置
      */
     loadCaptchaConfig() {
+      if (this.loadingConfigPromise) {
+        return this.loadingConfigPromise
+      }
+
       // 添加加密标识，让后端知道需要加密响应
-      this.$http
+      this.loadingConfigPromise = this.$http
         .get(
           this.$constant.baseURL + '/captcha/getConfig',
           { encrypted: true },
           false
         )
         .then((res) => {
-          if (res.data) {
-            this.captchaConfig = res.data
-          }
+          this.captchaConfig = res.data || this.createDefaultCaptchaConfig()
         })
         .catch((error) => {
           console.error('加载验证码配置失败:', error)
-          // 加载失败使用默认配置
-          this.captchaConfig = {
-            screenSizeThreshold: 768,
-            forceSlideForMobile: true,
-            slide: { accuracy: 5, successThreshold: 0.95 },
-            checkbox: { trackSensitivity: 0.9, minTrackPoints: 2 }, // 更新默认配置
-          }
+          this.captchaConfig = this.createDefaultCaptchaConfig()
         })
+        .finally(() => {
+          this.loadingConfigPromise = null
+        })
+
+      return this.loadingConfigPromise
     },
 
     /**
@@ -323,6 +423,32 @@ export default {
   background-color: rgba(0, 0, 0, 0.5);
   z-index: 2100; /* 验证码遮罩层，高于 el-dialog(2000-2001)，低于消息提示(10000) */
 }
+.captcha-loading-card {
+  position: relative;
+  min-width: 260px;
+  max-width: 90vw;
+  padding: 28px 24px;
+  border-radius: 14px;
+  background: #fff;
+  color: #303133;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+  text-align: center;
+}
+.captcha-loading-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: none;
+  background: transparent;
+  color: #909399;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+}
+.captcha-loading-text {
+  font-size: 14px;
+  letter-spacing: 0.5px;
+}
 :deep(.checkbox-captcha-wrapper),
 :deep(.slide-captcha-wrapper) {
   background: transparent !important;
@@ -343,6 +469,10 @@ export default {
   width: 100% !important;
 }
 @media screen and (max-width: 768px) {
+  .captcha-loading-card {
+    min-width: 220px;
+    padding: 24px 18px;
+  }
   :deep(.slide-captcha-wrapper) {
     width: 300px;
     padding: 8px;

@@ -32,8 +32,9 @@ export function clearAuthState() {
  */
 function getLoginUrl(redirectPath, expired = false) {
   const expiredQuery = expired ? '&expired=true' : '';
-  // 使用 constant.adminLoginURL（已根据环境自动配置）
-  return `${constant.adminLoginURL}/user?redirect=${encodeURIComponent(redirectPath)}${expiredQuery}`;
+  // 开发环境使用 adminLoginURL 跳转后台的模拟登录页，生产环境统一跳转前台的真实登录页
+  const baseUrl = import.meta.env.DEV ? constant.adminLoginURL : constant.frontendURL;
+  return `${baseUrl}/user?redirect=${encodeURIComponent(redirectPath)}${expiredQuery}`;
 }
 
 /**

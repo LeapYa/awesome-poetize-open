@@ -40,9 +40,9 @@ public interface UserService extends IService<User> {
 
     PoetryResult<UserVO> updateSecretInfo(String place, Integer flag, String code, String password);
 
-    PoetryResult getCodeForForgetPassword(String place, Integer flag);
+    PoetryResult getCodeForForgetPassword(String username, String place, Integer flag);
 
-    PoetryResult updateForForgetPassword(String place, Integer flag, String code, String password);
+    PoetryResult updateForForgetPassword(String username, String place, Integer flag, String code, String password);
 
     PoetryResult<Page<UserVO>> listUser(BaseRequestVO baseRequestVO);
 
@@ -56,10 +56,10 @@ public interface UserService extends IService<User> {
      * 第三方登录
      *
      * @param provider 平台类型
-     * @param uid 用户在第三方平台的唯一标识
+     * @param uid      用户在第三方平台的唯一标识
      * @param username 用户名
-     * @param email 邮箱
-     * @param avatar 头像
+     * @param email    邮箱
+     * @param avatar   头像
      * @return 登录结果
      */
     PoetryResult<UserVO> thirdLogin(String provider, String uid, String username, String email, String avatar);

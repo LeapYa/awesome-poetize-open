@@ -7,10 +7,19 @@ import { $on, $off, $once, $emit } from './gogocodeTransfer'
 import { useMainStore } from '@/stores/main'
 import router from '@/router'
 
+let handlingTokenExpire = false
+let expireResetTimer = null
+
 /**
  * 清除所有认证相关的状态
  */
 export function clearAuthState() {
+  import('./sessionValidation')
+    .then(({ resetSessionValidation }) => {
+      resetSessionValidation()
+    })
+    .catch(() => {})
+
   // 清除localStorage中的token和用户信息
   localStorage.removeItem('userToken')
   localStorage.removeItem('adminToken')
@@ -34,18 +43,33 @@ export function handleTokenExpire(
   currentPath = null,
   options = {}
 ) {
+  if (handlingTokenExpire) {
+    return
+  }
+
+  handlingTokenExpire = true
+  if (expireResetTimer) {
+    clearTimeout(expireResetTimer)
+  }
+  expireResetTimer = setTimeout(() => {
+    handlingTokenExpire = false
+    expireResetTimer = null
+  }, 1500)
+
   // 清除认证状态
   clearAuthState()
 
   // 确定当前路径，确保不为 undefined
-  const redirectPath = currentPath || router.currentRoute?.fullPath || '/'
+  const routeValue = router.currentRoute?.value || router.currentRoute
+  const currentRoutePath = routeValue?.path || ''
+  const redirectPath = currentPath || routeValue?.fullPath || '/'
 
   // 根据token类型决定跳转目标
   if (isAdmin) {
     // 管理员token过期，跳转到管理员登录页
 
     // 检查当前是否已经在管理员登录页，避免无限重定向
-    if (router.currentRoute.path !== '/verify') {
+    if (currentRoutePath !== '/verify') {
       router.push({
         path: '/verify',
         query: {
@@ -58,7 +82,7 @@ export function handleTokenExpire(
     // 普通用户token过期，跳转到用户登录页
 
     // 检查当前是否已经在用户登录页，避免无限重定向
-    if (router.currentRoute.path !== '/user') {
+    if (currentRoutePath !== '/user') {
       // 如果当前在管理员页面，则跳转到管理员登录页
       if (
         redirectPath.startsWith('/admin') ||
@@ -171,6 +195,10 @@ export function isLoggedIn(isAdmin = false) {
   const user = isAdmin ? mainStore.currentAdmin : mainStore.currentUser
 
   return user && Object.keys(user).length > 0
+}
+
+export function isHandlingTokenExpire() {
+  return handlingTokenExpire
 }
 
 /**

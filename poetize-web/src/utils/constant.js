@@ -4,9 +4,6 @@ export default {
     ? "http://localhost:8081"
     : location.protocol + "//" + location.host + "/api",
 
-  pythonBaseURL: import.meta.env.DEV
-    ? "http://localhost:5000"
-    : location.protocol + "//" + location.host + "/python",
 
   webURL: import.meta.env.DEV
     ? "http://localhost:5173"

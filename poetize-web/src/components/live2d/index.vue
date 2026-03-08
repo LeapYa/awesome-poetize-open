@@ -1,13 +1,13 @@
 <template>
   <div>
     <!-- Live2D看板娘模式 -->
-    <Live2DWidget v-if="mode === 'live2d'" />
+    <Live2DWidgetAsync v-if="mode === 'live2d'" />
 
     <!-- 简单按钮模式 -->
-    <AIChatButton v-else-if="mode === 'button'" />
+    <AIChatButtonAsync v-else-if="mode === 'button'" />
 
     <!-- AI聊天面板（懒加载） -->
-    <AIChatPanel v-if="showChat" />
+    <AIChatPanelAsync v-if="showChat" />
   </div>
 </template>
 
@@ -15,17 +15,15 @@
 import { computed, defineAsyncComponent } from 'vue'
 import { useLive2DStore } from '@/stores/live2d'
 import { useMainStore } from '@/stores/main'
-import Live2DWidget from './Live2DWidget.vue'
-import AIChatButton from './AIChatButton.vue'
 
 export default {
   name: 'Live2DIndex',
 
   components: {
-    Live2DWidget,
-    AIChatButton,
+    Live2DWidgetAsync: defineAsyncComponent(() => import('./Live2DWidget.vue')),
+    AIChatButtonAsync: defineAsyncComponent(() => import('./AIChatButton.vue')),
     // AI聊天面板懒加载
-    AIChatPanel: defineAsyncComponent(() => import('./AIChat/index.vue')),
+    AIChatPanelAsync: defineAsyncComponent(() => import('./AIChat/index.vue')),
   },
 
   props: {

@@ -11,7 +11,7 @@ import constant from '@/utils/constant'
  */
 export function checkCaptchaRequired(action) {
   return new Promise((resolve, reject) => {
-    // 使用Python服务器URL并直接在URL中传递action参数
+    // 验证码检查请求
     axios.get(`${constant.baseURL}/captcha/validate?action=${action}`)
       .then(res => {
         if (res && res.data && res.data.code === 200) {
@@ -49,13 +49,13 @@ const captchaStatusCache = {
  */
 export function checkCaptchaWithCache(action) {
   const now = Date.now()
-  
+
   // 如果缓存有效且包含请求的action
-  if (now - captchaStatusCache.timestamp < captchaStatusCache.TTL && 
-      captchaStatusCache.data.hasOwnProperty(action)) {
+  if (now - captchaStatusCache.timestamp < captchaStatusCache.TTL &&
+    captchaStatusCache.data.hasOwnProperty(action)) {
     return Promise.resolve(captchaStatusCache.data[action])
   }
-  
+
   // 否则请求API并更新缓存
   return checkCaptchaRequired(action)
     .then(required => {
@@ -65,7 +65,7 @@ export function checkCaptchaWithCache(action) {
         captchaStatusCache.data = {}
         captchaStatusCache.timestamp = now
       }
-      
+
       captchaStatusCache.data[action] = required
       return required
     })

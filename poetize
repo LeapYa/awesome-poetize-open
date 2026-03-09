@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-02-17
+## 修改时间: 2026-03-10
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.9.4
+## 版本: 1.10.0
 
 # 定义颜色
 RED='\033[0;31m'
@@ -15,12 +15,141 @@ NC='\033[0m' # No Color
 # 全局变量
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+LOCAL_CORE_DIR="$PROJECT_ROOT/lib/core"
+GLOBAL_CORE_DIR="/usr/local/lib/poetize/core"
+BOOTSTRAP_CORE_DIR=""
+DEPLOY_CORE_SCRIPT="$LOCAL_CORE_DIR/deploy-core.sh"
+MIGRATE_CORE_SCRIPT="$LOCAL_CORE_DIR/migrate-core.sh"
 
 # 函数
 info() { echo -e "${BLUE}[信息]${NC} $1"; }
 success() { echo -e "${GREEN}[成功]${NC} $1"; }
 error() { echo -e "${RED}[失败]${NC} $1"; }
 warning() { echo -e "${YELLOW}[警告]${NC} $1"; }
+
+bootstrap_is_china_environment() {
+    if command -v curl >/dev/null 2>&1; then
+        if ! curl -s --connect-timeout 3 --max-time 5 "https://www.google.com" >/dev/null 2>&1; then
+            if curl -s --connect-timeout 3 --max-time 5 "http://mirrors.aliyun.com" >/dev/null 2>&1; then
+                return 0
+            fi
+        fi
+    fi
+    return 1
+}
+
+resolve_bootstrap_ref() {
+    if [ -n "$UPDATE_VERSION" ]; then
+        printf "%s\n" "$UPDATE_VERSION"
+        return 0
+    fi
+
+    if [ "$USE_LATEST_TAG" = "false" ]; then
+        printf "main\n"
+        return 0
+    fi
+
+    local release_tag=""
+    if bootstrap_is_china_environment; then
+        release_tag=$(curl -fsSL "https://gitee.com/api/v5/repos/leapya/poetize/releases/latest" 2>/dev/null | grep -o '"tag_name":"[^"]*"' | head -1 | sed 's/"tag_name":"//;s/"//')
+    else
+        release_tag=$(curl -fsSL "https://api.github.com/repos/LeapYa/Awesome-poetize-open/releases/latest" 2>/dev/null | grep -o '"tag_name": "[^"]*"' | head -1 | sed 's/"tag_name": "//;s/"//')
+    fi
+
+    if [ -n "$release_tag" ]; then
+        printf "%s\n" "$release_tag"
+    else
+        printf "main\n"
+    fi
+}
+
+ensure_bootstrap_core_dir() {
+    if [ -n "$BOOTSTRAP_CORE_DIR" ] && [ -d "$BOOTSTRAP_CORE_DIR" ]; then
+        return 0
+    fi
+
+    if command -v mktemp >/dev/null 2>&1; then
+        BOOTSTRAP_CORE_DIR=$(mktemp -d /tmp/poetize-core.XXXXXX 2>/dev/null || true)
+    fi
+
+    if [ -z "$BOOTSTRAP_CORE_DIR" ]; then
+        BOOTSTRAP_CORE_DIR="/tmp/poetize-core-bootstrap"
+        mkdir -p "$BOOTSTRAP_CORE_DIR"
+    fi
+
+    [ -d "$BOOTSTRAP_CORE_DIR" ]
+}
+
+download_bootstrap_core_script() {
+    local script_name="$1"
+    local target_path="$2"
+    local ref=""
+    local raw_base=""
+
+    ensure_bootstrap_core_dir || return 1
+    ref=$(resolve_bootstrap_ref)
+
+    if [ -n "${POETIZE_BOOTSTRAP_BASE_URL:-}" ]; then
+        raw_base="${POETIZE_BOOTSTRAP_BASE_URL%/}/${ref}"
+    elif bootstrap_is_china_environment; then
+        raw_base="https://gitee.com/leapya/poetize/raw/${ref}"
+    else
+        raw_base="https://raw.githubusercontent.com/LeapYa/Awesome-poetize-open/${ref}"
+    fi
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "${raw_base}/lib/core/${script_name}" -o "$target_path" >/dev/null 2>&1 || return 1
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$target_path" "${raw_base}/lib/core/${script_name}" >/dev/null 2>&1 || return 1
+    else
+        warning "当前环境缺少 curl/wget，无法下载核心脚本"
+        return 1
+    fi
+
+    chmod +x "$target_path" 2>/dev/null || true
+    return 0
+}
+
+resolve_core_script() {
+    local script_name="$1"
+    if [ -f "$LOCAL_CORE_DIR/$script_name" ]; then
+        printf "%s\n" "$LOCAL_CORE_DIR/$script_name"
+        return 0
+    fi
+    if [ -f "$GLOBAL_CORE_DIR/$script_name" ]; then
+        printf "%s\n" "$GLOBAL_CORE_DIR/$script_name"
+        return 0
+    fi
+    if ensure_bootstrap_core_dir; then
+        local bootstrap_script="$BOOTSTRAP_CORE_DIR/$script_name"
+        if [ ! -f "$bootstrap_script" ]; then
+            info "正在下载核心脚本: $script_name"
+            download_bootstrap_core_script "$script_name" "$bootstrap_script" || return 1
+        fi
+        if [ -f "$bootstrap_script" ]; then
+            printf "%s\n" "$bootstrap_script"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+run_core_script() {
+    local script_name="$1"
+    shift
+
+    local core_script=""
+    core_script=$(resolve_core_script "$script_name") || {
+        error "未找到核心脚本: $script_name"
+        error "请确保项目目录中的 lib/core 已完整存在，或检查 deploy.leapya.com 是否可访问"
+        exit 1
+    }
+
+    chmod +x "$core_script" 2>/dev/null || true
+    bash "$core_script" "$@"
+}
 
 # 引入配置管理库
 load_config_lib() {
@@ -120,7 +249,16 @@ show_help() {
     printf "${CYAN}POETIZE 博客系统全局管理工具${NC}\n"
     printf "\n"
     printf "${BLUE}使用方法:${NC}\n"
-    printf "  poetize [选项]\n"
+    printf "  poetize                   进入交互菜单\n"
+    printf "  poetize <命令> [参数]     使用子命令模式\n"
+    printf "  poetize [旧选项]          使用兼容参数模式\n"
+    printf "\n"
+    printf "${BLUE}推荐命令:${NC}\n"
+    printf "  install [deploy参数]      安装项目\n"
+    printf "  migrate [migrate参数]     迁移项目\n"
+    printf "  update [版本|--latest]    更新项目\n"
+    printf "  uninstall                 卸载当前项目\n"
+    printf "  uninstall-all             完全卸载所有项目\n"
     printf "\n"
     printf "${BLUE}服务管理:${NC}\n"
     printf "  -status                   查看所有服务状态\n"
@@ -149,6 +287,9 @@ show_help() {
     printf "  -help, -h                 显示此帮助信息\n"
     printf "\n"
     printf "${BLUE}常用示例:${NC}\n"
+    printf "  poetize install --domain example.com --skip-dns-check\n"
+    printf "  poetize migrate --version v2.1.1\n"
+    printf "  poetize update v2.1.1\n"
     printf "  poetize -status           查看服务状态\n"
     printf "  poetize -restart          重启所有服务\n"
     printf "  poetize -logs nginx       查看nginx日志\n"
@@ -157,6 +298,105 @@ show_help() {
     printf "  poetize -restore          恢复最新备份数据\n"
     printf "  poetize -restore /path/to/backup  从指定路径恢复数据\n"
     printf "\n"
+}
+
+show_interactive_menu() {
+    while true; do
+        printf "\n"
+        printf "${GREEN}██████╗  ██████╗ ███████╗████████╗██╗███████╗███████╗${NC}\n"
+        printf "${GREEN}██╔══██╗██╔═══██╗██╔════╝╚══██╔══╝██║╚══███╔╝██╔════╝${NC}\n"
+        printf "${GREEN}██████╔╝██║   ██║█████╗     ██║   ██║  ███╔╝ █████╗${NC}\n"
+        printf "${GREEN}██╔═══╝ ██║   ██║██╔══╝     ██║   ██║ ███╔╝  ██╔══╝${NC}\n"
+        printf "${GREEN}██║     ╚██████╔╝███████╗   ██║   ██║███████╗███████╗${NC}\n"
+        printf "${GREEN}╚═╝      ╚═════╝ ╚══════╝   ╚═╝   ╚═╝╚══════╝╚══════╝${NC}\n"
+        printf "\n"
+        printf "  1. 安装项目\n"
+        printf "  2. 卸载当前项目\n"
+        printf "  3. 迁移项目\n"
+        printf "  4. 更新项目\n"
+        printf "  5. 启动服务\n"
+        printf "  6. 停止服务\n"
+        printf "  7. 重启服务\n"
+        printf "  8. 查看状态\n"
+        printf "  9. 备份/恢复\n"
+        printf "  0. 退出\n"
+        printf "\n"
+
+        read -rp "请选择操作: " menu_choice
+        case "$menu_choice" in
+            1)
+                run_deployment
+                return 0
+                ;;
+            2)
+                check_docker
+                uninstall_services
+                return 0
+                ;;
+            3)
+                run_migration
+                return 0
+                ;;
+            4)
+                check_docker
+                ensure_latest_poetize_for_update
+                run_update
+                return 0
+                ;;
+            5)
+                check_docker
+                start_services
+                return 0
+                ;;
+            6)
+                check_docker
+                stop_services
+                return 0
+                ;;
+            7)
+                check_docker
+                restart_services
+                return 0
+                ;;
+            8)
+                check_docker
+                show_status
+                ;;
+            9)
+                printf "\n"
+                printf "  1. 备份当前项目\n"
+                printf "  2. 恢复备份\n"
+                printf "  0. 返回上一级\n"
+                read -rp "请选择操作: " data_choice
+                case "$data_choice" in
+                    1)
+                        check_docker
+                        read -rp "请输入备份路径（留空使用默认路径）: " backup_path
+                        backup_data "$backup_path"
+                        return 0
+                        ;;
+                    2)
+                        check_docker
+                        read -rp "请输入备份路径（留空恢复最新备份）: " restore_path
+                        restore_data "$restore_path"
+                        return 0
+                        ;;
+                    0)
+                        ;;
+                    *)
+                        warning "无效的备份/恢复选项"
+                        ;;
+                esac
+                ;;
+            0)
+                info "已退出"
+                return 0
+                ;;
+            *)
+                warning "无效的菜单选项，请重新输入"
+                ;;
+        esac
+    done
 }
 
 # 显示版本信息
@@ -383,6 +623,8 @@ uninstall_services() {
     else
         info "当前项目无需清理额外数据卷（已通过docker-compose清理）"
     fi
+
+    sudo docker system prune -f 2>/dev/null || true
     
     success "当前项目的POETIZE系统已卸载"
     
@@ -550,65 +792,33 @@ show_logs() {
 # 执行迁移
 run_migration() {
     info "正在执行博客迁移..."
-    # 查找项目目录
-    find_project_dir
-    if [ ! -f "migrate.sh" ]; then
-        error "迁移脚本 migrate.sh 不存在"
-        exit 1
-    fi
-    
-    sudo chmod +x migrate.sh
-    
-    # 构建迁移命令参数
-    local migrate_args=""
+    local migrate_args=()
     if [ -n "$UPDATE_VERSION" ]; then
-        migrate_args="--version $UPDATE_VERSION"
+        migrate_args+=("--version" "$UPDATE_VERSION")
     elif [ "$USE_LATEST_TAG" = "false" ]; then
-        migrate_args="--latest"
+        migrate_args+=("--latest")
     fi
-    
-    sudo ./migrate.sh $migrate_args
+
+    run_core_script "migrate-core.sh" "${migrate_args[@]}"
 }
 
 # 执行部署
 run_deployment() {
     info "正在启动POETIZE博客系统部署向导..."
     printf "\n"
-    
-    # 检查是否已在项目目录中
-    if [ -f "deploy.sh" ]; then
-        warning "检测到当前目录已有POETIZE项目"
-        printf "\n"
-        read -rp "是否在当前目录重新部署？(y/N): " redeploy_confirm
-        case "$redeploy_confirm" in
-            [Yy]|[Yy][Ee][Ss])
-                info "在当前目录重新部署..."
-                find_project_dir
-                sudo chmod +x deploy.sh
-                sudo ./deploy.sh
-                return 0
-                ;;
-            *)
-                info "取消当前目录重新部署"
-                ;;
-        esac
-    fi
-    
-    # 显示安装信息
+
+    run_core_script "deploy-core.sh"
+}
+
+run_deployment_with_args() {
+    info "正在启动POETIZE博客系统部署向导..."
     printf "\n"
-    printf "${GREEN}===========================================${NC}\n"
-    printf "${GREEN}    POETIZE 博客系统一键部署${NC}\n"
-    printf "${GREEN}===========================================${NC}\n"
-    printf "\n"
-    printf "安装位置: ${CYAN}$install_dir${NC}\n"
-    printf "\n"
-    
-    # 执行一键部署脚本
-    if is_china_environment; then
-        bash <(curl -fsSL https://gitee.com/leapya/poetize/raw/main/deploy.sh)
-    else
-        bash <(curl -fsSL https://raw.githubusercontent.com/leapya/Awesome-poetize-open/main/deploy.sh)
-    fi
+    run_core_script "deploy-core.sh" "$@"
+}
+
+run_migration_with_args() {
+    info "正在执行博客迁移..."
+    run_core_script "migrate-core.sh" "$@"
 }
 
 # 显示系统信息
@@ -1156,26 +1366,61 @@ is_china_environment() {
     return 1  # 不是国内环境
 }
 
-# 拉取项目代码
-pull_code_on_target() {
-    info "拉取项目代码..."
-    
-    local IS_CHINA_ENV=false
+# 解析更新目标的仓库地址和版本
+resolve_update_source() {
+    local is_china_env=false
+    RESOLVED_GIT_URL=""
+    RESOLVED_TARGET_VERSION=""
+    RESOLVED_BRANCH_OPT=""
 
     if is_china_environment; then
-        IS_CHINA_ENV=true
+        is_china_env=true
     fi
 
-    local git_url
-    if [ "$IS_CHINA_ENV" = true ]; then
-        git_url="https://gitee.com/leapya/poetize.git"
+    if [ "$is_china_env" = true ]; then
+        RESOLVED_GIT_URL="https://gitee.com/leapya/poetize.git"
     else
-        git_url="https://github.com/LeapYa/Awesome-poetize-open.git"
+        RESOLVED_GIT_URL="https://github.com/LeapYa/Awesome-poetize-open.git"
     fi
-    
-    info "使用仓库地址: $git_url"
 
-    # 安装必要工具
+    if [ -n "$UPDATE_VERSION" ]; then
+        RESOLVED_TARGET_VERSION="$UPDATE_VERSION"
+        info "使用指定版本: $RESOLVED_TARGET_VERSION"
+    elif [ "$USE_LATEST_TAG" = "true" ]; then
+        info "获取最新稳定版本..."
+        local release_api_url=""
+        if [ "$is_china_env" = true ]; then
+            release_api_url="https://gitee.com/api/v5/repos/leapya/poetize/releases/latest"
+            RESOLVED_TARGET_VERSION=$(curl -fsSL "$release_api_url" 2>/dev/null | grep -o '"tag_name":"[^"]*"' | head -1 | sed 's/"tag_name":"//;s/"//')
+        else
+            release_api_url="https://api.github.com/repos/LeapYa/Awesome-poetize-open/releases/latest"
+            RESOLVED_TARGET_VERSION=$(curl -fsSL "$release_api_url" 2>/dev/null | grep -o '"tag_name": "[^"]*"' | head -1 | sed 's/"tag_name": "//;s/"//')
+        fi
+
+        if [ -n "$RESOLVED_TARGET_VERSION" ]; then
+            info "使用最新稳定版本: $RESOLVED_TARGET_VERSION"
+        else
+            warning "无法从 Release API 获取版本，尝试使用 git tags..."
+            RESOLVED_TARGET_VERSION=$(git ls-remote --tags "$RESOLVED_GIT_URL" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
+            if [ -n "$RESOLVED_TARGET_VERSION" ]; then
+                info "使用最新标签版本: $RESOLVED_TARGET_VERSION"
+            else
+                warning "无法获取最新版本标签，将使用main分支"
+            fi
+        fi
+    else
+        info "使用main分支（最新开发版本）"
+    fi
+
+    if [ -n "$RESOLVED_TARGET_VERSION" ]; then
+        RESOLVED_BRANCH_OPT="--branch $RESOLVED_TARGET_VERSION"
+    fi
+
+    return 0
+}
+
+# 安装更新流程需要的基础工具
+ensure_update_dependencies() {
     if command -v apt-get &>/dev/null; then
         sudo apt-get update && sudo apt-get install -y git curl
     elif command -v yum &>/dev/null; then
@@ -1192,55 +1437,23 @@ pull_code_on_target() {
         error '不支持的包管理器，请手动安装git和curl'
         exit 1
     fi
-    
-    # 确定目标版本
-    local target_version=""
-    local branch_opt=""
-    
-    if [ -n "$UPDATE_VERSION" ]; then
-        target_version="$UPDATE_VERSION"
-        info "使用指定版本: $target_version"
-    elif [ "$USE_LATEST_TAG" = "true" ]; then
-        # 获取最新稳定版本（从 GitHub Release API 获取，确保只获取已发布的版本）
-        info "获取最新稳定版本..."
-        local release_api_url=""
-        if [ "$IS_CHINA_ENV" = true ]; then
-            # Gitee API
-            release_api_url="https://gitee.com/api/v5/repos/leapya/poetize/releases/latest"
-            target_version=$(curl -fsSL "$release_api_url" 2>/dev/null | grep -o '"tag_name":"[^"]*"' | head -1 | sed 's/"tag_name":"//;s/"//')
-        else
-            # GitHub API
-            release_api_url="https://api.github.com/repos/LeapYa/Awesome-poetize-open/releases/latest"
-            target_version=$(curl -fsSL "$release_api_url" 2>/dev/null | grep -o '"tag_name": "[^"]*"' | head -1 | sed 's/"tag_name": "//;s/"//')
-        fi
-        
-        if [ -n "$target_version" ]; then
-            info "使用最新稳定版本: $target_version"
-        else
-            # 降级：如果 API 失败，尝试使用 git tags
-            warning "无法从 Release API 获取版本，尝试使用 git tags..."
-            target_version=$(git ls-remote --tags "$git_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
-            if [ -n "$target_version" ]; then
-                info "使用最新标签版本: $target_version"
-            else
-                warning "无法获取最新版本标签，将使用main分支"
-            fi
-        fi
-    else
-        info "使用main分支（最新开发版本）"
-    fi
-    
-    # 如果有目标版本，添加 --branch 参数
-    if [ -n "$target_version" ]; then
-        branch_opt="--branch $target_version"
-    fi
-    
+}
+
+# 拉取项目代码
+pull_code_on_target() {
+    info "拉取项目代码..."
+
+    ensure_update_dependencies
+    resolve_update_source
+
+    info "使用仓库地址: $RESOLVED_GIT_URL"
+
     # 克隆项目
-    git clone --depth 1 $branch_opt $git_url $BACKUP_PROJECT_NAME
+    git clone --depth 1 $RESOLVED_BRANCH_OPT "$RESOLVED_GIT_URL" "$BACKUP_PROJECT_NAME"
     
     # 检查是否成功
     if [ -d "$BACKUP_PROJECT_NAME" ] && [ -f "$BACKUP_PROJECT_NAME/deploy.sh" ]; then
-        success "项目代码拉取成功${target_version:+: $target_version}"
+        success "项目代码拉取成功${RESOLVED_TARGET_VERSION:+: $RESOLVED_TARGET_VERSION}"
         cd "$BACKUP_PROJECT_NAME"
         return 0
     else
@@ -1249,74 +1462,136 @@ pull_code_on_target() {
     fi
 }
 
+# 安装项目中的 poetize 脚本到全局命令
+install_poetize_command_from_project() {
+    local source_poetize="${1:-poetize}"
+    local current_poetize="/usr/local/bin/poetize"
+    local source_dir
+    local source_core_dir
+    local target_core_dir="/usr/local/lib/poetize/core"
+
+    source_dir="$(cd "$(dirname "$source_poetize")" && pwd)"
+    source_core_dir="$source_dir/lib/core"
+
+    if [ ! -f "$source_poetize" ]; then
+        warning "未找到新版本的poetize脚本，跳过命令更新"
+        return 1
+    fi
+
+    if [ ! -d "$source_core_dir" ]; then
+        warning "未找到核心脚本目录: $source_core_dir"
+        return 1
+    fi
+
+    if [ -f "$current_poetize" ]; then
+        sudo cp "$current_poetize" "/usr/local/bin/poetize.backup.$(date +%Y%m%d_%H%M%S)"
+    fi
+
+    sudo mkdir -p "$target_core_dir"
+    sudo cp "$source_poetize" "$current_poetize"
+    sudo cp "$source_core_dir/"*.sh "$target_core_dir/"
+    sudo chmod +x "$current_poetize"
+    sudo chmod +x "$target_core_dir/"*.sh
+    return 0
+}
+
+poetize_runtime_matches() {
+    local candidate_poetize="${1:-}"
+    local installed_poetize="/usr/local/bin/poetize"
+    local installed_core_dir="/usr/local/lib/poetize/core"
+    local candidate_dir
+    local candidate_core_dir
+
+    if [ ! -f "$candidate_poetize" ] || [ ! -f "$installed_poetize" ]; then
+        return 1
+    fi
+
+    candidate_dir="$(cd "$(dirname "$candidate_poetize")" && pwd)"
+    candidate_core_dir="$candidate_dir/lib/core"
+
+    if [ ! -d "$candidate_core_dir" ] || [ ! -d "$installed_core_dir" ]; then
+        return 1
+    fi
+
+    cmp -s "$installed_poetize" "$candidate_poetize" || return 1
+    diff -qr "$installed_core_dir" "$candidate_core_dir" >/dev/null 2>&1 || return 1
+    return 0
+}
+
+# 检查更新流程是否需要先自更新 poetize 命令
+ensure_latest_poetize_for_update() {
+    local raw_update_arg="${1:-}"
+    local current_poetize="/usr/local/bin/poetize"
+    local temp_update_dir="/tmp/poetize_self_update_$$"
+
+    if [ "${POETIZE_SKIP_SELF_UPDATE:-false}" = "true" ]; then
+        return 0
+    fi
+
+    find_project_dir
+    ensure_update_dependencies
+    resolve_update_source
+
+    info "预拉取目标版本的poetize脚本用于自更新检查..."
+    rm -rf "$temp_update_dir"
+    if ! git clone --depth 1 $RESOLVED_BRANCH_OPT "$RESOLVED_GIT_URL" "$temp_update_dir" >/dev/null 2>&1; then
+        warning "无法预拉取目标版本代码，跳过poetize命令自更新检查"
+        return 0
+    fi
+
+    if [ ! -f "$temp_update_dir/poetize" ]; then
+        warning "目标版本中未找到poetize脚本，跳过命令自更新检查"
+        rm -rf "$temp_update_dir"
+        return 0
+    fi
+
+    if poetize_runtime_matches "$temp_update_dir/poetize"; then
+        info "poetize命令已是目标版本，继续执行更新"
+        rm -rf "$temp_update_dir"
+        return 0
+    fi
+
+    info "检测到目标版本的poetize命令有更新，正在先升级升级器本身..."
+    install_poetize_command_from_project "$temp_update_dir/poetize" || {
+        rm -rf "$temp_update_dir"
+        error "poetize命令自动更新失败"
+        exit 1
+    }
+    rm -rf "$temp_update_dir"
+
+    success "poetize命令已更新，正在切换到新版本继续执行升级"
+
+    if [ -n "$raw_update_arg" ]; then
+        exec env POETIZE_SKIP_SELF_UPDATE=true "$current_poetize" -update "$raw_update_arg"
+    fi
+
+    exec env POETIZE_SKIP_SELF_UPDATE=true "$current_poetize" -update
+}
+
 # 检查并更新poetize命令本身
 update_poetize_command() {
     find_project_dir
 
     info "检查poetize命令是否需要更新..."
-    
-    # 下载最新的poetize脚本到临时文件
-    local temp_poetize="/tmp/poetize_new_$$"
-    local current_poetize="/usr/local/bin/poetize"
-    
-    # 从项目中获取最新的poetize脚本
-    if [ -f "poetize" ]; then
-        sudo cp "poetize" "$temp_poetize"
-    else
+
+    if [ ! -f "poetize" ]; then
         warning "未找到新版本的poetize脚本，跳过命令更新"
         return 0
     fi
-    
-    # 比较版本或文件差异
-    if [ -f "$current_poetize" ] && cmp -s "$current_poetize" "$temp_poetize"; then
+
+    if poetize_runtime_matches "poetize"; then
         info "poetize命令已是最新版本"
-        sudo rm -f "$temp_poetize"
         return 0
     fi
-    
-    info "发现poetize命令需要更新，准备自更新..."
-    
-    # 创建自更新脚本
-    local self_update_script="/tmp/poetize_self_update_$$.sh"
-    cat > "$self_update_script" << 'EOF'
-#!/bin/bash
-# poetize自更新脚本
 
-# 等待原进程结束
-sleep 2
+    info "发现poetize命令需要更新，正在安装新版本..."
+    install_poetize_command_from_project "poetize" || {
+        error "poetize命令更新失败"
+        exit 1
+    }
 
-# 备份原文件
-if [ -f "/usr/local/bin/poetize" ]; then
-    cp "/usr/local/bin/poetize" "/usr/local/bin/poetize.backup.$(date +%Y%m%d_%H%M%S)"
-fi
-
-# 更新poetize命令
-if [ -f "$1" ]; then
-    cp "$1" "/usr/local/bin/poetize"
-    chmod +x "/usr/local/bin/poetize"
-    echo -e "\033[0;32m[成功]\033[0m poetize命令已更新到最新版本"
-    
-    # 清理临时文件
-    rm -f "$1"
-    rm -f "$0"
-    
-    echo -e "\033[0;33m[提示]\033[0m 请重新运行 'poetize -update' 以继续更新过程"
-else
-    echo -e "\033[0;31m[失败]\033[0m 更新文件不存在: $1"
-    rm -f "$0"
-    exit 1
-fi
-EOF
-    
-    sudo chmod +x "$self_update_script"
-    
-    info "启动自更新进程..."
-    sudo nohup "$self_update_script" "$temp_poetize" > /dev/null 2>&1 &
-    
-    success "poetize命令自更新已启动，当前进程即将退出"
-    info "请等待几秒后重新运行 'poetize -update' 以继续更新"
-    
-    exit 0
+    success "poetize命令已更新到最新版本"
+    info "后续执行将直接使用新版本poetize命令"
 }
 
 # 执行额外的SQL脚本（除了poetry.sql之外的新增表脚本）
@@ -1465,7 +1740,7 @@ reinstall_latest_system() {
     fi
     
     # 构建安装命令
-    local deploy_cmd="sudo chmod +x deploy.sh && sudo ./deploy.sh"
+    local deploy_cmd="sudo chmod +x poetize && sudo ./poetize install"
     
     if [ -n "$domains" ]; then
         info "使用域名进行自动安装..."
@@ -1881,93 +2156,185 @@ run_update() {
 }
 
 # 主函数
-main() {
-    # 检查项目环境
-    check_docker
-    
-    # 解析命令行参数
-    case "${1:-}" in
+parse_version_selector() {
+    local selector="${1:-}"
+    if [ -n "$selector" ]; then
+        if [[ "$selector" =~ ^v[0-9] ]]; then
+            UPDATE_VERSION="$selector"
+        elif [[ "$selector" =~ ^--?(latest|use-main|use-latest)$ ]]; then
+            USE_LATEST_TAG=false
+        fi
+    fi
+}
+
+dispatch_command() {
+    local command="${1:-}"
+    shift || true
+
+    case "$command" in
+        "install")
+            run_deployment_with_args "$@"
+            ;;
+        "migrate")
+            run_migration_with_args "$@"
+            ;;
+        "update")
+            check_docker
+            parse_version_selector "${1:-}"
+            if [ -n "$UPDATE_VERSION" ]; then
+                info "更新到指定版本: $UPDATE_VERSION"
+            elif [ "$USE_LATEST_TAG" = "false" ]; then
+                info "更新使用main分支"
+            fi
+            ensure_latest_poetize_for_update "${1:-}"
+            run_update
+            ;;
+        "uninstall")
+            check_docker
+            uninstall_services
+            ;;
+        "uninstall-all")
+            check_docker
+            uninstall_all_services
+            ;;
+        "status")
+            check_docker
+            show_status
+            ;;
+        "start")
+            check_docker
+            start_services
+            ;;
+        "stop")
+            check_docker
+            stop_services
+            ;;
+        "restart")
+            check_docker
+            restart_services
+            ;;
+        "logs")
+            check_docker
+            show_logs "${1:-}" "false"
+            ;;
+        "logs-follow")
+            check_docker
+            show_logs "${1:-}" "true"
+            ;;
+        "backup")
+            check_docker
+            backup_data "${1:-}"
+            ;;
+        "restore")
+            check_docker
+            restore_data "${1:-}"
+            ;;
+        "health")
+            check_docker
+            check_health
+            ;;
+        "info")
+            show_info
+            ;;
+        "version")
+            show_version
+            ;;
+        "help")
+            show_help
+            ;;
         "-qianyi"|"-migrate"|"-qy")
-            # 支持指定版本: -qy v2.1.1 或 -qy --latest
-            if [ -n "${2:-}" ]; then
-                if [[ "${2:-}" =~ ^v[0-9] ]]; then
-                    UPDATE_VERSION="$2"
-                    info "迁移到指定版本: $UPDATE_VERSION"
-                elif [[ "${2:-}" =~ ^--?(latest|use-main|use-latest)$ ]]; then
-                    USE_LATEST_TAG=false
-                    info "迁移使用main分支"
-                fi
+            parse_version_selector "${1:-}"
+            if [ -n "$UPDATE_VERSION" ]; then
+                info "迁移到指定版本: $UPDATE_VERSION"
+            elif [ "$USE_LATEST_TAG" = "false" ]; then
+                info "迁移使用main分支"
             fi
             run_migration
             ;;
         "-status")
+            check_docker
             show_status
             ;;
         "-start"|"-up")
+            check_docker
             start_services
             ;;
         "-stop"|"-down")
+            check_docker
             stop_services
             ;;
         "-restart")
+            check_docker
             restart_services
             ;;
         "-update")
-            # 支持指定版本: -update v2.1.1 或 -update --latest
-            if [ -n "${2:-}" ]; then
-                if [[ "${2:-}" =~ ^v[0-9] ]]; then
-                    UPDATE_VERSION="$2"
-                    info "更新到指定版本: $UPDATE_VERSION"
-                elif [[ "${2:-}" =~ ^--?(latest|use-main|use-latest)$ ]]; then
-                    USE_LATEST_TAG=false
-                    info "更新使用main分支"
-                fi
+            check_docker
+            parse_version_selector "${1:-}"
+            if [ -n "$UPDATE_VERSION" ]; then
+                info "更新到指定版本: $UPDATE_VERSION"
+            elif [ "$USE_LATEST_TAG" = "false" ]; then
+                info "更新使用main分支"
             fi
+            ensure_latest_poetize_for_update "${1:-}"
             run_update
             ;;
         "-update-poetize-command")
             update_poetize_command
             ;;
         "-uninstall")
+            check_docker
             uninstall_services
             ;;
         "-uninstall-all")
+            check_docker
             uninstall_all_services
             ;;
         "-deploy"|"-bushu"|"-bs")
             run_deployment
             ;;
         "-logs")
-            show_logs "$2" "false"
+            check_docker
+            show_logs "${1:-}" "false"
             ;;
         "-logs-follow")
-            show_logs "$2" "true"
+            check_docker
+            show_logs "${1:-}" "true"
             ;;
         "-info")
             show_info
             ;;
         "-health")
+            check_docker
             check_health
             ;;
         "-version"|"-v")
             show_version
             ;;
         "-backup")
-            backup_data "$2"
+            check_docker
+            backup_data "${1:-}"
             ;;
         "-restore")
-            restore_data "$2"
+            check_docker
+            restore_data "${1:-}"
             ;;
-        "-help"|"-h"|"")
+        "-help"|"-h")
             show_help
             ;;
+        "")
+            show_interactive_menu
+            ;;
         *)
-            error "未知选项: $1"
+            error "未知选项: $command"
             printf "\n"
             show_help
             exit 1
             ;;
     esac
+}
+
+main() {
+    dispatch_command "${1:-}" "${@:2}"
 }
 
 # 运行主函数

@@ -23,6 +23,7 @@
 </template>
 
 <script>
+  import { defineAsyncComponent } from 'vue';
   import { useMainStore } from '@/stores/main';
   import globalEmailCollectionMixin from '@/mixins/globalEmailCollection.js';
   import { initMouseClickEffect } from '@/utils/mouseClickEffect';

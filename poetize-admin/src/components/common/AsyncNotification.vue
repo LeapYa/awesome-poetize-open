@@ -38,7 +38,8 @@ export default {
   data() {
     return {
       notifications: [],
-      pollTimers: {} // 存储每个任务的轮询定时器
+      pollTimers: {}, // 存储每个任务的轮询定时器
+      streamControllers: {} // 存储每个任务的流式请求控制器
     }
   },
   mounted() {
@@ -101,9 +102,11 @@ export default {
       if (notification) {
         Object.assign(notification, updates);
         
-        // 如果状态变为成功或失败，设置自动移除
-        if ((updates.type === 'success' || updates.type === 'error') && notification.duration === 0) {
-          notification.duration = updates.type === 'success' ? 2000 : 5000;
+        // 如果状态变为终态，设置自动移除
+        if ((updates.type === 'success' || updates.type === 'error' || updates.type === 'info') && notification.duration === 0) {
+          notification.duration = updates.duration !== undefined
+            ? updates.duration
+            : (updates.type === 'success' ? 2000 : 5000);
           setTimeout(() => {
             this.removeNotification(id);
           }, notification.duration);
@@ -127,6 +130,11 @@ export default {
     removeNotification(id) {
       const index = this.notifications.findIndex(n => n.id === id);
       if (index > -1) {
+        const notification = this.notifications[index];
+        if (notification && notification.taskId) {
+          this.stopPolling(notification.taskId);
+          this.stopStream(notification.taskId);
+        }
         this.notifications.splice(index, 1);
       }
     },
@@ -142,6 +150,11 @@ export default {
         if (timer) clearInterval(timer);
       });
       this.pollTimers = {};
+
+      Object.values(this.streamControllers).forEach(controller => {
+        if (controller) controller.abort();
+      });
+      this.streamControllers = {};
     },
     
     /**
@@ -178,38 +191,104 @@ export default {
         delete this.pollTimers[taskId];
       }
     },
+
+    startStream(taskId) {
+      if (!taskId) {
+        return;
+      }
+
+      this.stopStream(taskId);
+
+      const baseURL = this.getBaseURL();
+      const headers = this.getAuthHeaders();
+      const controller = new AbortController();
+      this.streamControllers[taskId] = controller;
+
+      fetch(`${baseURL}/article/streamArticleSaveStatus?taskId=${encodeURIComponent(taskId)}`, {
+        method: 'GET',
+        headers,
+        signal: controller.signal
+      })
+      .then(response => {
+        if (!response.ok || !response.body) {
+          throw new Error('任务流式订阅失败');
+        }
+        return this.consumeStream(taskId, response.body.getReader());
+      })
+      .catch(error => {
+        if (error.name !== 'AbortError') {
+          console.error('任务流式订阅失败:', error);
+        }
+        this.stopStream(taskId);
+      });
+    },
+
+    stopStream(taskId) {
+      const controller = this.streamControllers[taskId];
+      if (controller) {
+        controller.abort();
+        delete this.streamControllers[taskId];
+      }
+    },
+
+    async consumeStream(taskId, reader) {
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let currentEventName = null;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          this.stopStream(taskId);
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        if (lines[lines.length - 1] !== '') {
+          buffer = lines.pop();
+        } else {
+          buffer = '';
+        }
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine) {
+            currentEventName = null;
+            continue;
+          }
+
+          if (trimmedLine.startsWith('event:')) {
+            currentEventName = trimmedLine.substring(6).trim();
+            continue;
+          }
+
+          if (!trimmedLine.startsWith('data:')) {
+            continue;
+          }
+
+          const dataStr = trimmedLine.substring(5).trim();
+          if (!dataStr) {
+            continue;
+          }
+
+          try {
+            const payload = JSON.parse(dataStr);
+            this.handleTaskStreamEvent(taskId, currentEventName, payload);
+          } catch (error) {
+            console.error('解析任务流事件失败:', error);
+          }
+        }
+      }
+    },
     
     /**
      * 检查任务状态
      */
     checkTaskStatus(taskId) {
-      // 获取baseURL（通过多种方式尝试）
-      let baseURL = '';
-      if (this.$constant && this.$constant.baseURL) {
-        baseURL = this.$constant.baseURL;
-      } else if (window.VueAppConfig && window.VueAppConfig.baseURL) {
-        baseURL = window.VueAppConfig.baseURL;
-      } else {
-        baseURL = window.location.protocol + '//' + window.location.host;
-      }
-      
+      const baseURL = this.getBaseURL();
       const url = `${baseURL}/article/getArticleSaveStatus`;
-      
-      // 获取token（管理员token通常以admin_access_token开头）
-      const tokens = [
-        localStorage.getItem('adminToken'),
-        localStorage.getItem('token'),
-        ...Object.keys(localStorage).filter(key => key.startsWith('admin_access_token')).map(key => localStorage.getItem(key))
-      ].filter(Boolean);
-      
-      const token = tokens[0];
-      const headers = {
-        'Content-Type': 'application/json'
-      };
-      
-      if (token) {
-        headers['Authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
-      }
+      const headers = this.getAuthHeaders();
       
       fetch(url + '?taskId=' + encodeURIComponent(taskId), {
         method: 'GET',
@@ -218,38 +297,11 @@ export default {
       .then(response => response.json())
       .then(res => {
         if (res.code === 200 && res.data) {
-          const status = res.data;
-          
-          // 更新通知状态
-          this.updateNotificationByTaskId(taskId, {
-            message: status.message
-          });
-          
-          // 如果完成（成功或失败），停止轮询
-          if (status.status === 'success') {
-            this.stopPolling(taskId);
-            
-            this.updateNotificationByTaskId(taskId, {
-              type: 'success',
-              title: '保存成功',
-              message: '文章保存成功！'
-            });
-          } else if (status.status === 'failed') {
-            console.error('任务失败：', status.message);
-            this.stopPolling(taskId);
-            
-            this.updateNotificationByTaskId(taskId, {
-              type: 'error',
-              title: '保存失败',
-              message: status.message || '文章保存失败'
-            });
-          } else if (status.status === 'processing') {
-            // 进行中的状态不输出日志，减少噪音
-          } else {
-          }
+          this.applyTaskStatus(taskId, res.data);
         } else {
           // 任务不存在或已过期
           this.stopPolling(taskId);
+          this.stopStream(taskId);
           
           this.updateNotificationByTaskId(taskId, {
             type: 'error',
@@ -262,6 +314,147 @@ export default {
         console.error('轮询请求失败:', error);
         // 网络错误时不再输出额外日志，避免刷屏
       });
+    },
+
+    handleTaskStreamEvent(taskId, eventName, payload) {
+      if (eventName === 'error') {
+        if (payload && payload.status === 'partial_success') {
+          this.updateNotificationByTaskId(taskId, {
+            type: 'info',
+            title: '部分完成',
+            message: payload.message || '文章已保存，但翻译失败',
+            duration: 5000
+          });
+          this.stopStream(taskId);
+          this.stopPolling(taskId);
+          return;
+        }
+      }
+
+      if (eventName === 'complete') {
+        this.updateNotificationByTaskId(taskId, {
+          type: 'success',
+          title: '保存成功',
+          message: payload.message || '文章保存成功！',
+          progress: 100
+        });
+        this.stopStream(taskId);
+        this.stopPolling(taskId);
+        return;
+      }
+
+      if (eventName === 'stage' || eventName === 'start' || eventName === 'retry') {
+        this.applyTaskStatus(taskId, payload || {});
+        return;
+      }
+
+      if (eventName === 'title_delta' || eventName === 'content_delta') {
+        const currentLength = payload && payload.currentLength ? payload.currentLength : 0;
+        const fieldLabel = eventName === 'title_delta' ? '标题' : '正文';
+        this.updateNotificationByTaskId(taskId, {
+          message: `正在流式翻译${fieldLabel}... 已接收 ${currentLength} 字`,
+          progress: 55
+        });
+        return;
+      }
+
+      if (eventName === 'saved') {
+        this.updateNotificationByTaskId(taskId, {
+          message: payload.message || '翻译保存成功，正在继续后续任务...',
+          progress: 75
+        });
+      }
+    },
+
+    applyTaskStatus(taskId, status) {
+      const message = status.message || '任务处理中...';
+      const progress = this.getProgressByStage(status.stage, status.status);
+
+      this.updateNotificationByTaskId(taskId, {
+        message,
+        progress
+      });
+
+      if (status.status === 'success') {
+        this.stopPolling(taskId);
+        this.stopStream(taskId);
+        this.updateNotificationByTaskId(taskId, {
+          type: 'success',
+          title: '保存成功',
+          message: status.message || '文章保存成功！',
+          progress: 100
+        });
+      } else if (status.status === 'partial_success') {
+        this.stopPolling(taskId);
+        this.stopStream(taskId);
+        this.updateNotificationByTaskId(taskId, {
+          type: 'info',
+          title: '部分完成',
+          message: status.message || '文章已保存，但翻译失败',
+          progress: 100,
+          duration: 5000
+        });
+      } else if (status.status === 'failed') {
+        this.stopPolling(taskId);
+        this.stopStream(taskId);
+        this.updateNotificationByTaskId(taskId, {
+          type: 'error',
+          title: '保存失败',
+          message: status.message || '文章保存失败',
+          progress: 100
+        });
+      }
+    },
+
+    getProgressByStage(stage, status) {
+      if (status === 'success' || status === 'failed' || status === 'partial_success') {
+        return 100;
+      }
+
+      switch (stage) {
+        case 'db_saved':
+          return 20;
+        case 'translating':
+          return 50;
+        case 'translation_retry':
+          return 60;
+        case 'saving_translation':
+          return 75;
+        case 'generating_summary':
+          return 90;
+        case 'complete':
+          return 100;
+        default:
+          return 10;
+      }
+    },
+
+    getBaseURL() {
+      if (this.$constant && this.$constant.baseURL) {
+        return this.$constant.baseURL;
+      }
+      if (window.VueAppConfig && window.VueAppConfig.baseURL) {
+        return window.VueAppConfig.baseURL;
+      }
+      return window.location.protocol + '//' + window.location.host;
+    },
+
+    getAuthHeaders() {
+      const tokens = [
+        localStorage.getItem('adminToken'),
+        localStorage.getItem('token'),
+        ...Object.keys(localStorage).filter(key => key.startsWith('admin_access_token')).map(key => localStorage.getItem(key))
+      ].filter(Boolean);
+
+      const token = tokens[0];
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+
+      if (token) {
+        headers['Authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+      }
+      return headers;
     }
   }
 }

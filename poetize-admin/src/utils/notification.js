@@ -18,7 +18,9 @@ export const notificationManager = {
         addNotification: () => console.warn('通知组件尚未初始化'),
         updateNotificationByTaskId: () => console.warn('通知组件尚未初始化'),
         removeNotification: () => console.warn('通知组件尚未初始化'),
-        clearAllNotifications: () => console.warn('通知组件尚未初始化')
+        clearAllNotifications: () => console.warn('通知组件尚未初始化'),
+        startPolling: () => console.warn('通知组件尚未初始化'),
+        startStream: () => console.warn('通知组件尚未初始化')
       };
     }
     return globalNotificationInstance;
@@ -45,6 +47,9 @@ export const notificationManager = {
     
     if (taskId && this.getInstance().startPolling) {
       this.getInstance().startPolling(taskId);
+    }
+    if (taskId && this.getInstance().startStream) {
+      this.getInstance().startStream(taskId);
     }
     
     return notificationId;

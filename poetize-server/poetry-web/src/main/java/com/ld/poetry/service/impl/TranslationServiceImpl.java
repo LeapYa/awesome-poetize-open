@@ -161,6 +161,12 @@ public class TranslationServiceImpl implements TranslationService {
     @Override
     public Map<String, String> translateArticleOnly(String title, String content, boolean skipAiTranslation,
             Map<String, String> pendingTranslation) {
+        return translateArticleOnly(title, content, skipAiTranslation, pendingTranslation, null);
+    }
+
+    @Override
+    public Map<String, String> translateArticleOnly(String title, String content, boolean skipAiTranslation,
+            Map<String, String> pendingTranslation, TranslationService.TranslationProgressListener progressListener) {
 
         try {
             // 0. 检查翻译配置模式
@@ -228,8 +234,8 @@ public class TranslationServiceImpl implements TranslationService {
             }
 
             // LLM 翻译（llm / dedicated_llm 均走 LlmTranslationService）
-            Map<String, String> result = llmTranslationService.translateArticle(
-                    title, content, sourceLanguage, targetLanguage);
+            Map<String, String> result = llmTranslationService.translateArticleStream(
+                    title, content, sourceLanguage, targetLanguage, progressListener);
 
             if (result != null && !result.isEmpty()) {
                 log.info("LLM 文章翻译成功");

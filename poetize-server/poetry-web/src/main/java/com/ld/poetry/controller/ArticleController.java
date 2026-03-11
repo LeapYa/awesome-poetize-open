@@ -41,10 +41,12 @@ import com.ld.poetry.service.QRCodeService;
 import com.ld.poetry.service.SysPluginService;
 import com.ld.poetry.entity.SysPlugin;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.MediaType;
 import java.util.concurrent.Executor;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * <p>
@@ -305,6 +307,24 @@ public class ArticleController {
             log.error("查询保存状态异常: {}", e.getMessage(), e);
             return PoetryResult.fail("查询保存状态失败: " + e.getMessage());
         }
+    }
+
+    @LoginCheck(value = 1, silentLog = true)
+    @GetMapping(value = "/streamArticleSaveStatus", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamArticleSaveStatus(@RequestParam("taskId") String taskId) {
+        if (!StringUtils.hasText(taskId)) {
+            SseEmitter emitter = new SseEmitter(5000L);
+            try {
+                emitter.send(SseEmitter.event()
+                        .name("error")
+                        .data(Map.of("message", "任务ID不能为空")));
+            } catch (Exception ignored) {
+            }
+            emitter.complete();
+            return emitter;
+        }
+
+        return articleService.streamArticleSaveStatus(taskId);
     }
 
     /**

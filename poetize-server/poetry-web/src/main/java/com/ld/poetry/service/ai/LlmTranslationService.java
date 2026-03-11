@@ -3,17 +3,24 @@ package com.ld.poetry.service.ai;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.ld.poetry.entity.SysAiConfig;
+import com.ld.poetry.service.TranslationService;
 import com.ld.poetry.service.SysAiConfigService;
 import com.ld.poetry.utils.ToonFormatter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.time.Duration;
 
 /**
  * LLM 翻译与摘要服务
@@ -52,6 +59,15 @@ public class LlmTranslationService {
      */
     public Map<String, String> translateArticle(String title, String content,
             String sourceLang, String targetLang) {
+        return translateArticleStream(title, content, sourceLang, targetLang, null);
+    }
+
+    /**
+     * LLM 流式翻译文章（标题 + 内容）
+     */
+    public Map<String, String> translateArticleStream(String title, String content,
+            String sourceLang, String targetLang,
+            TranslationService.TranslationProgressListener progressListener) {
         try {
             SysAiConfig config = sysAiConfigService.getArticleAiConfigInternal("default");
             if (config == null) {
@@ -65,26 +81,55 @@ public class LlmTranslationService {
                 return null;
             }
 
-            // 构建翻译提示词
-            String prompt = buildArticleTranslationPrompt(title, content, sourceLang, targetLang, config);
-
             log.info("开始 LLM 文章翻译: {} -> {}, 标题长度={}, 内容长度={}",
                     sourceLang, targetLang, title.length(), content.length());
 
-            // 调用 LLM
-            String response = ChatClient.create(chatModel)
-                    .prompt()
-                    .user(prompt)
-                    .call()
-                    .content();
+            final int maxAttempts = 3;
+            Exception lastException = null;
 
-            if (response == null || response.isBlank()) {
-                log.error("LLM 翻译返回空结果");
-                return null;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    if (progressListener != null) {
+                        Map<String, Object> payload = new HashMap<>();
+                        payload.put("attempt", attempt);
+                        payload.put("maxAttempts", maxAttempts);
+                        payload.put("message", attempt == 1 ? "开始流式翻译文章..." : "正在重试整篇流式翻译...");
+                        progressListener.onEvent(attempt == 1 ? "start" : "retry", payload);
+                    }
+
+                    StreamingTranslationState state = streamArticleTranslationAttempt(
+                            chatModel, title, content, sourceLang, targetLang, config, progressListener);
+
+                    Map<String, String> result = validateStreamingTranslationState(state, title, content, targetLang);
+                    if (result != null) {
+                        if (progressListener != null) {
+                            progressListener.onEvent("complete", Map.of(
+                                    "attempt", attempt,
+                                    "titleLength", state.title().length(),
+                                    "contentLength", state.content().length(),
+                                    "message", "流式翻译完成"));
+                        }
+                        return result;
+                    }
+
+                    lastException = new IllegalStateException("流式翻译结果不完整");
+                    log.warn("第{}次流式翻译结果不完整，准备重试", attempt);
+                } catch (Exception e) {
+                    lastException = e;
+                    log.warn("第{}次流式翻译失败: {}", attempt, e.getMessage());
+                    if (progressListener != null) {
+                        progressListener.onEvent("error", Map.of(
+                                "attempt", attempt,
+                                "retryable", attempt < maxAttempts,
+                                "message", e.getMessage() != null ? e.getMessage() : "流式翻译失败"));
+                    }
+                }
             }
 
-            // 解析翻译结果
-            return parseArticleTranslationResponse(response, title, content, targetLang);
+            if (lastException != null) {
+                log.error("LLM 流式文章翻译最终失败: {}", lastException.getMessage(), lastException);
+            }
+            return null;
 
         } catch (Exception e) {
             log.error("LLM 文章翻译失败: {}", e.getMessage(), e);
@@ -477,6 +522,202 @@ public class LlmTranslationService {
 
     // ==================== 翻译辅助方法 ====================
 
+    private StreamingTranslationState streamArticleTranslationAttempt(ChatModel chatModel, String title, String content,
+            String sourceLang, String targetLang, SysAiConfig config,
+            TranslationService.TranslationProgressListener progressListener) {
+        String prompt = buildArticleTranslationPrompt(title, content, sourceLang, targetLang, config);
+        Prompt translationPrompt = new Prompt(List.of(new UserMessage(prompt)));
+        StringBuilder rawBuffer = new StringBuilder();
+        final StreamingTranslationView[] previousView = {
+                new StreamingTranslationView("", "", false, false)
+        };
+
+        Flux<ChatResponse> flux = chatModel.stream(translationPrompt)
+                .timeout(Duration.ofSeconds(45));
+
+        flux.doOnNext(chatResponse -> {
+            if (chatResponse == null || chatResponse.getResult() == null || chatResponse.getResult().getOutput() == null) {
+                return;
+            }
+
+            String text = chatResponse.getResult().getOutput().getText();
+            if (text == null || text.isEmpty()) {
+                return;
+            }
+
+            rawBuffer.append(text);
+            StreamingTranslationView currentView = parseStreamingTranslationView(rawBuffer.toString());
+
+            emitTranslationDelta("title_delta", previousView[0].title(), currentView.title(), progressListener);
+            emitTranslationDelta("content_delta", previousView[0].content(), currentView.content(), progressListener);
+
+            previousView[0] = currentView;
+        }).blockLast();
+
+        StreamingTranslationView finalView = parseStreamingTranslationView(rawBuffer.toString());
+        return new StreamingTranslationState(
+                finalView.title().trim(),
+                finalView.content().trim(),
+                finalView.titleClosed(),
+                finalView.contentClosed());
+    }
+
+    private void emitTranslationDelta(String eventName, String previous, String current,
+            TranslationService.TranslationProgressListener progressListener) {
+        if (progressListener == null || current == null || current.isEmpty()) {
+            return;
+        }
+
+        String delta = current;
+        if (previous != null && current.startsWith(previous)) {
+            delta = current.substring(previous.length());
+        }
+
+        if (delta.isEmpty()) {
+            return;
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("delta", delta);
+        payload.put("currentLength", current.length());
+        progressListener.onEvent(eventName, payload);
+    }
+
+    private Map<String, String> validateStreamingTranslationState(StreamingTranslationState state,
+            String originalTitle, String originalContent, String targetLang) {
+        if (state == null || !state.titleClosed() || !state.contentClosed()) {
+            return null;
+        }
+
+        if (state.title().isBlank() || state.content().isBlank()) {
+            return null;
+        }
+
+        if (state.title().equals(originalTitle) || state.content().equals(originalContent)) {
+            return null;
+        }
+
+        Map<String, String> result = new HashMap<>();
+        result.put("title", state.title());
+        result.put("content", state.content());
+        result.put("language", targetLang);
+        return result;
+    }
+
+    private StreamingTranslationView parseStreamingTranslationView(String raw) {
+        String normalized = raw == null ? "" : raw.replace("\r", "");
+        String titleToken = extractToonFieldToken(normalized, "title", "content");
+        String contentToken = extractToonFieldToken(normalized, "content", null);
+
+        return new StreamingTranslationView(
+                decodeToonToken(titleToken),
+                decodeToonToken(contentToken),
+                isCompleteToonToken(titleToken),
+                isCompleteToonToken(contentToken));
+    }
+
+    private String extractToonFieldToken(String raw, String fieldName, String nextFieldName) {
+        int articleIndex = raw.indexOf("article:");
+        if (articleIndex < 0) {
+            return "";
+        }
+
+        int fieldIndex = raw.indexOf("\n  " + fieldName + ":", articleIndex);
+        if (fieldIndex < 0 && raw.startsWith("article:\n  " + fieldName + ":")) {
+            fieldIndex = "article:\n".length();
+        }
+        if (fieldIndex < 0) {
+            return "";
+        }
+
+        int valueStart = fieldIndex + ("  " + fieldName + ":").length() + (fieldIndex == "article:\n".length() ? 0 : 1);
+        int valueEnd = raw.length();
+        if (nextFieldName != null) {
+            int nextFieldIndex = raw.indexOf("\n  " + nextFieldName + ":", valueStart);
+            if (nextFieldIndex >= 0) {
+                valueEnd = nextFieldIndex;
+            }
+        }
+
+        return raw.substring(valueStart, valueEnd).trim();
+    }
+
+    private String decodeToonToken(String token) {
+        if (token == null || token.isEmpty()) {
+            return "";
+        }
+
+        if (token.startsWith("\"")) {
+            String partial = token.substring(1);
+            if (partial.endsWith("\"") && !endsWithUnescapedQuote(partial.substring(0, partial.length() - 1))) {
+                partial = partial.substring(0, partial.length() - 1);
+            }
+            return unescapePartialToonString(partial);
+        }
+
+        return token;
+    }
+
+    private boolean isCompleteToonToken(String token) {
+        if (token == null || token.isBlank()) {
+            return false;
+        }
+
+        if (!token.startsWith("\"")) {
+            return true;
+        }
+
+        return token.length() >= 2 && endsWithUnescapedQuote(token);
+    }
+
+    private boolean endsWithUnescapedQuote(String token) {
+        if (token == null || token.length() < 1 || token.charAt(token.length() - 1) != '"') {
+            return false;
+        }
+
+        int backslashCount = 0;
+        for (int i = token.length() - 2; i >= 0 && token.charAt(i) == '\\'; i--) {
+            backslashCount++;
+        }
+        return backslashCount % 2 == 0;
+    }
+
+    private String unescapePartialToonString(String value) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '\\' && i + 1 < value.length()) {
+                char next = value.charAt(i + 1);
+                switch (next) {
+                    case 'n' -> {
+                        sb.append('\n');
+                        i++;
+                    }
+                    case 'r' -> {
+                        sb.append('\r');
+                        i++;
+                    }
+                    case 't' -> {
+                        sb.append('\t');
+                        i++;
+                    }
+                    case '"' -> {
+                        sb.append('"');
+                        i++;
+                    }
+                    case '\\' -> {
+                        sb.append('\\');
+                        i++;
+                    }
+                    default -> sb.append(c);
+                }
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
     /**
      * 构建文章翻译提示词
      */
@@ -499,9 +740,11 @@ public class LlmTranslationService {
 
         if (customPrompt != null && !customPrompt.isBlank()) {
             // 生成不同的格式数据供占位符使用
+            Map<String, Object> articleData = new LinkedHashMap<>();
+            articleData.put("title", title);
+            articleData.put("content", content);
             Map<String, Object> toonDataMap = new LinkedHashMap<>();
-            toonDataMap.put("title", title);
-            toonDataMap.put("content", content);
+            toonDataMap.put("article", articleData);
             String toonData = ToonFormatter.encode(toonDataMap);
             String jsonData = JSON.toJSONString(toonDataMap);
             String csvData = String.format("title,content\n\"%s\",\"%s\"", title.replace("\"", "\"\""),
@@ -516,29 +759,42 @@ public class LlmTranslationService {
                     .replace("{toon_data}", toonData)
                     .replace("{json_data}", jsonData)
                     .replace("{csv_data}", csvData)
-                    .replace("{format}", "JSON格式"); // 默认建议的 format
+                    .replace("{format}", "TOON格式");
         }
 
         // 默认提示词
+        Map<String, Object> articleData = new LinkedHashMap<>();
+        articleData.put("title", title);
+        articleData.put("content", content);
+        Map<String, Object> toonDataMap = new LinkedHashMap<>();
+        toonDataMap.put("article", articleData);
+        String toonData = ToonFormatter.encode(toonDataMap);
+
         return String.format("""
-                你是一个专业翻译，请将以下文章从 %s 精确翻译为 %s。
+                将以下TOON格式数据从%s翻译为%s。
 
-                翻译要求：
-                1. 保持原文的格式和语义
-                2. 如果内容包含 Markdown 格式，保留 Markdown 标记
-                3. 如果内容包含代码块，代码本身不要翻译，只翻译注释和说明文字
-                4. 保留原文中的链接、图片等引用不变
-                5. 请分别翻译标题和内容
+                规则：
+                1. 保持TOON格式结构不变（2个空格缩进）
+                2. 翻译title和content的值
+                3. 保持Markdown格式
+                4. 只返回TOON格式数据，不添加任何解释
 
-                请严格按照以下 JSON 格式返回，不要添加任何其他内容：
-                {"translated_title": "翻译后的标题", "translated_content": "翻译后的内容"}
-
-                === 原文标题 ===
+                输入TOON数据：
                 %s
 
-                === 原文内容 ===
-                %s
-                """, getLanguageName(sourceLang), getLanguageName(targetLang), title, content);
+                请返回翻译后的TOON数据，格式如下：
+                article:
+                  title: (翻译后的%s标题)
+                  content: (翻译后的%s内容)
+                """, getLanguageName(sourceLang), getLanguageName(targetLang),
+                toonData,
+                getLanguageName(targetLang), getLanguageName(targetLang));
+    }
+
+    private record StreamingTranslationView(String title, String content, boolean titleClosed, boolean contentClosed) {
+    }
+
+    private record StreamingTranslationState(String title, String content, boolean titleClosed, boolean contentClosed) {
     }
 
     /**

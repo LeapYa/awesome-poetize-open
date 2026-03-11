@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.ld.poetry.vo.ArticleVO;
 import com.ld.poetry.vo.BaseRequestVO;
 import com.ld.poetry.service.impl.ArticleServiceImpl.ArticleSaveStatus;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -94,6 +95,13 @@ public interface ArticleService extends IService<Article> {
      * @return 保存状态
      */
     PoetryResult<ArticleSaveStatus> getArticleSaveStatus(String taskId);
+
+    /**
+     * 流式订阅文章保存任务状态
+     * @param taskId 任务ID
+     * @return SSE 发射器
+     */
+    SseEmitter streamArticleSaveStatus(String taskId);
 
     /**
      * 获取翻译匹配的内容

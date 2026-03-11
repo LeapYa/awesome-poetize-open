@@ -8,6 +8,11 @@ import java.util.Map;
  */
 public interface TranslationService {
 
+    @FunctionalInterface
+    interface TranslationProgressListener {
+        void onEvent(String eventName, Map<String, Object> payload);
+    }
+
     /**
      * 翻译并保存文章
      * @param articleId 文章ID
@@ -31,6 +36,19 @@ public interface TranslationService {
      * @return 翻译结果 Map {title: 翻译后标题, content: 翻译后内容, language: 目标语言}，如果跳过翻译则返回null
      */
     Map<String, String> translateArticleOnly(String title, String content, boolean skipAiTranslation, Map<String, String> pendingTranslation);
+
+    /**
+     * 只翻译文章内容，不保存到数据库，并回调流式进度
+     * @param title 文章标题
+     * @param content 文章内容
+     * @param skipAiTranslation 是否跳过AI翻译
+     * @param pendingTranslation 暂存的翻译数据
+     * @param progressListener 进度监听器
+     * @return 翻译结果
+     */
+    Map<String, String> translateArticleOnly(String title, String content, boolean skipAiTranslation,
+                                            Map<String, String> pendingTranslation,
+                                            TranslationProgressListener progressListener);
 
     /**
      * 保存翻译结果到数据库

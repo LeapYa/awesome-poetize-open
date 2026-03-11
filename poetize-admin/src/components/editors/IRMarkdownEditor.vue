@@ -386,6 +386,7 @@ export default {
       
       // 标记是否是内部更新，防止循环
       isInternalUpdate: false,
+      queuedImageUploads: [],
       
       // 帮助对话框
       helpDialogVisible: false
@@ -468,6 +469,89 @@ export default {
   },
 
   methods: {
+    createImageUploadId() {
+      return `img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    },
+    createImageUploadToken(uploadId) {
+      return `<!--poetize-image-upload:${uploadId}-->`;
+    },
+    textOffsetFromPosition(line, column) {
+      if (!this.document) return 0;
+      let offset = 0;
+      const safeLine = Math.max(0, Math.min(line, this.document.getLineCount() - 1));
+      for (let i = 0; i < safeLine; i++) {
+        offset += this.document.getLineLength(i) + 1;
+      }
+      return offset + Math.max(0, Math.min(column, this.document.getLineLength(safeLine)));
+    },
+    positionFromTextOffset(offset) {
+      if (!this.document) return { line: 0, column: 0 };
+      let remaining = Math.max(0, offset);
+      const lastLine = Math.max(0, this.document.getLineCount() - 1);
+      for (let line = 0; line <= lastLine; line++) {
+        const length = this.document.getLineLength(line);
+        if (remaining <= length) {
+          return { line, column: remaining };
+        }
+        remaining -= length;
+        if (line < lastLine) {
+          if (remaining === 0) {
+            return { line: line + 1, column: 0 };
+          }
+          remaining -= 1;
+        }
+      }
+      return { line: lastLine, column: this.document.getLineLength(lastLine) };
+    },
+    transformOffsetForReplacement(offset, start, end, replacementLength) {
+      if (offset <= start) return offset;
+      if (offset >= end) return offset + replacementLength - (end - start);
+      return start + replacementLength;
+    },
+    replaceUploadToken(uploadId, replacement) {
+      if (!this.document || !this.cursor) return false;
+      const token = this.createImageUploadToken(uploadId);
+      const content = this.document.getContent();
+      const startOffset = content.indexOf(token);
+      if (startOffset === -1) return false;
+
+      const endOffset = startOffset + token.length;
+      const selection = this.cursor.getSelection();
+      const anchor = selection.getAnchor();
+      const head = selection.getHead();
+      const anchorOffset = this.textOffsetFromPosition(anchor.line, anchor.column);
+      const headOffset = this.textOffsetFromPosition(head.line, head.column);
+
+      const startPos = this.positionFromTextOffset(startOffset);
+      const endPos = this.positionFromTextOffset(endOffset);
+      this.replaceRangeWithText(startPos.line, startPos.column, endPos.line, endPos.column, replacement);
+
+      const nextAnchorOffset = this.transformOffsetForReplacement(anchorOffset, startOffset, endOffset, replacement.length);
+      const nextHeadOffset = this.transformOffsetForReplacement(headOffset, startOffset, endOffset, replacement.length);
+      const nextAnchor = this.positionFromTextOffset(nextAnchorOffset);
+      const nextHead = this.positionFromTextOffset(nextHeadOffset);
+      this.cursor.setSelection(nextAnchor.line, nextAnchor.column, nextHead.line, nextHead.column);
+      return true;
+    },
+    queueOrStartImageUpload(file) {
+      if (!file) return null;
+      if (this.isComposing) {
+        this.queuedImageUploads.push(file);
+        return null;
+      }
+
+      const uploadId = this.createImageUploadId();
+      const token = this.createImageUploadToken(uploadId);
+      this.insertText(token);
+      this.$emit('image-add', { file, uploadId });
+      return uploadId;
+    },
+    flushQueuedImageUploads() {
+      if (this.isComposing || !this.queuedImageUploads.length) return;
+      const files = this.queuedImageUploads.slice();
+      this.queuedImageUploads = [];
+      files.forEach((file) => this.queueOrStartImageUpload(file));
+    },
     resizeAllECharts() {
       if (!window.echarts) return;
       const container = this.$refs.linesContainer;
@@ -1128,6 +1212,9 @@ export default {
       
       // 清空输入框
       this.$refs.hiddenInput.value = '';
+      this.$nextTick(() => {
+        this.flushQueuedImageUploads();
+      });
     },
 
     /**
@@ -1601,7 +1688,7 @@ export default {
     handlePaste(e) {
       handlePasteUtil(e, {
         onImage: (file) => {
-          this.$emit('image-add', file);
+          this.queueOrStartImageUpload(file);
         },
         onText: (text) => {
           this.insertText(text);
@@ -1940,7 +2027,7 @@ export default {
     handleFileChange(e) {
       const file = e.target.files[0];
       if (file) {
-        this.$emit('image-add', file);
+        this.queueOrStartImageUpload(file);
       }
       e.target.value = '';
     },
@@ -2098,6 +2185,12 @@ export default {
      */
     insertValue(text) {
       this.insertText(text);
+    },
+    resolveImageUpload(uploadId, markdown) {
+      return this.replaceUploadToken(uploadId, markdown);
+    },
+    rejectImageUpload(uploadId) {
+      return this.replaceUploadToken(uploadId, '');
     }
   }
 };

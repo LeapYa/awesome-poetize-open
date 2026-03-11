@@ -268,6 +268,7 @@ export default {
       internalContent: '',
       // 标记是否是内部更新，防止循环
       isInternalUpdate: false,
+      queuedImageUploads: [],
       history: null,
       historySuspend: false,
       historyNextMode: null,
@@ -342,6 +343,84 @@ export default {
     }
   },
   methods: {
+    createImageUploadId() {
+      return `img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    },
+    createImageUploadToken(uploadId) {
+      return `<!--poetize-image-upload:${uploadId}-->`;
+    },
+    replaceRangeValue(start, end, replacement, options = {}) {
+      const textarea = this.$refs.textarea;
+      const text = this.internalContent || '';
+      const before = text.slice(0, start);
+      const after = text.slice(end);
+      const newValue = before + replacement + after;
+      const selectionStart = options.selectionStart !== undefined ? options.selectionStart : start + replacement.length;
+      const selectionEnd = options.selectionEnd !== undefined ? options.selectionEnd : selectionStart;
+
+      this.historyNextMode = options.historyMode || 'push';
+      this.internalContent = newValue;
+
+      const downgradedValue = downgradeMarkdownHeadings(newValue);
+      this.isInternalUpdate = true;
+      this.$emit('input', downgradedValue);
+      this.$emit('change', downgradedValue);
+      this.updatePreview(this.internalContent);
+
+      this.$nextTick(() => {
+        if (!textarea) return;
+        if (options.focus !== false) {
+          textarea.focus();
+        }
+        textarea.setSelectionRange(selectionStart, selectionEnd);
+      });
+    },
+    queueOrStartImageUpload(file) {
+      if (!file) return null;
+      if (this.isComposing) {
+        this.queuedImageUploads.push(file);
+        return null;
+      }
+
+      const textarea = this.$refs.textarea;
+      if (!textarea) return null;
+
+      const uploadId = this.createImageUploadId();
+      const token = this.createImageUploadToken(uploadId);
+      this.replaceRangeValue(textarea.selectionStart, textarea.selectionEnd, token, {
+        historyMode: 'push'
+      });
+      this.uploadFile(file, uploadId);
+      return uploadId;
+    },
+    flushQueuedImageUploads() {
+      if (this.isComposing || !this.queuedImageUploads.length) return;
+      const files = this.queuedImageUploads.slice();
+      this.queuedImageUploads = [];
+      files.forEach((file) => this.queueOrStartImageUpload(file));
+    },
+    replaceImageUploadToken(uploadId, replacement) {
+      const token = this.createImageUploadToken(uploadId);
+      const textarea = this.$refs.textarea;
+      const text = this.internalContent || '';
+      const index = text.indexOf(token);
+      if (index === -1) return false;
+
+      const currentStart = textarea ? textarea.selectionStart : 0;
+      const currentEnd = textarea ? textarea.selectionEnd : 0;
+      const tokenEnd = index + token.length;
+      const delta = replacement.length - token.length;
+      const nextStart = currentStart <= index ? currentStart : (currentStart >= tokenEnd ? currentStart + delta : index + replacement.length);
+      const nextEnd = currentEnd <= index ? currentEnd : (currentEnd >= tokenEnd ? currentEnd + delta : index + replacement.length);
+
+      this.replaceRangeValue(index, tokenEnd, replacement, {
+        selectionStart: nextStart,
+        selectionEnd: nextEnd,
+        focus: !!textarea && document.activeElement === textarea,
+        historyMode: 'push'
+      });
+      return true;
+    },
     createHistorySnapshot() {
       const textarea = this.$refs.textarea;
       return {
@@ -429,6 +508,9 @@ export default {
       } else if (this.$refs.textarea) {
         this.handleInput({ target: this.$refs.textarea });
       }
+      this.$nextTick(() => {
+        this.flushQueuedImageUploads();
+      });
     },
     handleInput(e) {
       // 合成输入过程中不做预览刷新（避免中间态频繁抖动）；等 compositionend 统一刷新
@@ -915,7 +997,7 @@ export default {
     handlePaste(e) {
       handlePasteUtil(e, {
         onImage: (file) => {
-          this.uploadFile(file);
+          this.queueOrStartImageUpload(file);
         },
         onText: (text) => {
           this.insertValue(text);
@@ -1057,17 +1139,17 @@ export default {
     handleFileChange(e) {
       const file = e.target.files[0];
       if (file) {
-        this.uploadFile(file);
+        this.queueOrStartImageUpload(file);
       }
       // 清空 input 允许重复选择同一文件
       e.target.value = '';
     },
 
     // 上传文件逻辑
-    uploadFile(file) {
+    uploadFile(file, uploadId = null) {
       // 触发父组件的上传逻辑，保持与 Vditor 接口一致
       // 父组件通常监听 @image-add(file)
-      this.$emit('image-add', file);
+      this.$emit('image-add', uploadId ? { file, uploadId } : file);
     },
 
     // 供父组件调用的方法：插入内容（通常是图片上传后的回调）
@@ -1094,6 +1176,12 @@ export default {
         textarea.focus();
         textarea.setSelectionRange(newCursorPos, newCursorPos);
       });
+    },
+    resolveImageUpload(uploadId, markdown) {
+      return this.replaceImageUploadToken(uploadId, markdown);
+    },
+    rejectImageUpload(uploadId) {
+      return this.replaceImageUploadToken(uploadId, '');
     },
 
     // 预览区域点击处理（事件委托）

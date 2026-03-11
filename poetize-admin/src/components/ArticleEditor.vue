@@ -154,6 +154,25 @@ export default {
         inner.insertValue(text)
       }
     },
+    resolveImageUpload(uploadId, text) {
+      const inner = this.$refs.inner
+      if (inner && typeof inner.resolveImageUpload === 'function') {
+        const result = inner.resolveImageUpload(uploadId, text)
+        return result !== false
+      }
+      if (inner && typeof inner.insertValue === 'function') {
+        inner.insertValue(text)
+        return true
+      }
+      return false
+    },
+    rejectImageUpload(uploadId) {
+      const inner = this.$refs.inner
+      if (inner && typeof inner.rejectImageUpload === 'function') {
+        return inner.rejectImageUpload(uploadId)
+      }
+      return false
+    },
     focus() {
       const inner = this.$refs.inner
       if (inner && typeof inner.focus === 'function') {

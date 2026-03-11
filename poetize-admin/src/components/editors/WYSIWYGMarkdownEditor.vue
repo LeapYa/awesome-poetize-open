@@ -174,6 +174,8 @@
         @click="handleEditorClick"
         @focus="handleFocus"
         @blur="handleBlur"
+        @compositionstart="handleCompositionStart"
+        @compositionend="handleCompositionEnd"
         @mouseup="updateFormatState"
         @keyup="updateFormatState"
       ></div>
@@ -185,6 +187,8 @@
         class="source-editor"
         v-model="markdownContent"
         @input="handleSourceInput"
+        @compositionstart="handleCompositionStart"
+        @compositionend="handleCompositionEnd"
         @blur="syncFromSource"
       ></textarea>
     </div>
@@ -441,6 +445,8 @@ export default {
       history: null,
       historySuspend: false,
       historyNextMode: null,
+      queuedImageUploads: [],
+      isComposing: false,
       
       // 表格右键菜单状态
       contextMenu: {
@@ -724,7 +730,7 @@ export default {
       const jobId = ++this.renderJobId;
       
       try {
-        const html = await renderMarkdown(this.markdownContent || '');
+        const html = await renderMarkdown(this.renderImageUploadPlaceholders(this.markdownContent || ''));
         
         // 确保是最新的渲染任务
         if (jobId !== this.renderJobId) return;
@@ -793,6 +799,110 @@ export default {
       const htmlDark = document.documentElement?.classList.contains('dark-mode');
       const bodyDark = document.body?.classList.contains('dark-mode');
       this.isDarkMode = Boolean(htmlDark || bodyDark);
+    },
+    createImageUploadId() {
+      return `img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    },
+    createImageUploadToken(uploadId) {
+      return `[[poetize-image-upload:${uploadId}]]`;
+    },
+    createImageUploadPlaceholderElement(uploadId) {
+      const span = document.createElement('span');
+      span.className = 'image-upload-placeholder';
+      span.setAttribute('data-upload-id', uploadId);
+      span.setAttribute('contenteditable', 'false');
+      span.textContent = '[图片上传中]';
+      return span;
+    },
+    renderImageUploadPlaceholders(markdown) {
+      return String(markdown || '').replace(/\[\[poetize-image-upload:([^\]]+)\]\]/g, (_match, uploadId) => {
+        const placeholder = this.createImageUploadPlaceholderElement(uploadId);
+        return placeholder.outerHTML;
+      });
+    },
+    replaceUploadPlaceholdersWithTokens(root) {
+      if (!root) return root;
+      root.querySelectorAll('.image-upload-placeholder[data-upload-id]').forEach((node) => {
+        const uploadId = node.getAttribute('data-upload-id');
+        if (!uploadId || !node.parentNode) return;
+        node.parentNode.replaceChild(
+          document.createTextNode(this.createImageUploadToken(uploadId)),
+          node
+        );
+      });
+      return root;
+    },
+    escapeRegExp(value) {
+      return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    },
+    queueOrStartImageUpload(file) {
+      if (!file) return null;
+      if (this.isComposing) {
+        this.queuedImageUploads.push(file);
+        return null;
+      }
+
+      const uploadId = this.createImageUploadId();
+      if (this.showSource) {
+        this.insertSourceUploadPlaceholder(uploadId);
+      } else {
+        this.insertWysiwygUploadPlaceholder(uploadId);
+      }
+      this.$emit('image-add', { file, uploadId });
+      return uploadId;
+    },
+    flushQueuedImageUploads() {
+      if (this.isComposing || !this.queuedImageUploads.length) return;
+      const files = this.queuedImageUploads.slice();
+      this.queuedImageUploads = [];
+      files.forEach((file) => this.queueOrStartImageUpload(file));
+    },
+    insertSourceUploadPlaceholder(uploadId) {
+      const textarea = this.$refs.sourceEditor;
+      if (!textarea) return false;
+      const token = this.createImageUploadToken(uploadId);
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const value = textarea.value || '';
+      this.historyNextMode = 'push';
+      this.markdownContent = value.slice(0, start) + token + value.slice(end);
+      this.emitChange();
+      this.$nextTick(() => {
+        textarea.focus();
+        const offset = start + token.length;
+        textarea.setSelectionRange(offset, offset);
+      });
+      return true;
+    },
+    insertWysiwygUploadPlaceholder(uploadId) {
+      const editor = this.$refs.editorContent;
+      if (!editor) return false;
+
+      this.focus();
+      this.updateSavedSelection();
+      const selectionSnapshot = this.saveSelection() || this.savedSelection;
+      if (selectionSnapshot) {
+        this.restoreSelection(selectionSnapshot);
+      }
+
+      const selection = window.getSelection();
+      if (!selection || !selection.rangeCount) return false;
+      const range = selection.getRangeAt(0);
+      const placeholder = this.createImageUploadPlaceholderElement(uploadId);
+      range.deleteContents();
+      range.insertNode(placeholder);
+
+      const nextRange = document.createRange();
+      nextRange.setStartAfter(placeholder);
+      nextRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+
+      this.savedSelection = this.saveSelection();
+      this.historyNextMode = 'push';
+      this.syncToMarkdown({ historyMode: 'push' });
+      this.updateFormatState();
+      return true;
     },
     cloneSelectionSnapshot(selection) {
       if (!selection) return null;
@@ -884,6 +994,16 @@ export default {
     
     // ==================== 输入处理 ====================
     
+    handleCompositionStart() {
+      this.isComposing = true;
+    },
+    handleCompositionEnd() {
+      this.isComposing = false;
+      this.$nextTick(() => {
+        this.flushQueuedImageUploads();
+      });
+    },
+
     /**
      * 处理输入事件
      */
@@ -952,7 +1072,9 @@ export default {
 
       this.normalizeTodoCheckboxAttributes(editor);
       
-      const html = editor.innerHTML;
+      const clonedEditor = editor.cloneNode(true);
+      this.replaceUploadPlaceholdersWithTokens(clonedEditor);
+      const html = clonedEditor.innerHTML;
       const markdown = htmlToMarkdown(html);
       
       if (this.markdownContent !== markdown) {
@@ -2534,7 +2656,7 @@ export default {
     handlePaste(e) {
       handlePasteUtil(e, {
         onImage: (file) => {
-          this.$emit('image-add', file);
+          this.queueOrStartImageUpload(file);
         },
         onText: (text) => {
           this.insertMarkdownContent(text);
@@ -2545,10 +2667,15 @@ export default {
     /**
      * 插入 Markdown 内容
      */
-    async insertMarkdownContent(markdown) {
+    async insertMarkdownContent(markdown, selectionSnapshot = null) {
       if (!markdown) return;
       
       try {
+        if (selectionSnapshot) {
+          this.savedSelection = this.cloneSelectionSnapshot(selectionSnapshot);
+          this.focus();
+          this.restoreSelection(selectionSnapshot);
+        }
         const html = await renderMarkdown(markdown);
         document.execCommand('insertHTML', false, html);
         this.handleInput();
@@ -2774,7 +2901,7 @@ export default {
     handleFileChange(e) {
       const file = e.target.files[0];
       if (file) {
-        this.$emit('image-add', file);
+        this.queueOrStartImageUpload(file);
       }
       e.target.value = '';
     },
@@ -2974,6 +3101,86 @@ export default {
         // WYSIWYG 模式：插入 Markdown 渲染后的 HTML
         this.insertMarkdownContent(text);
       }
+    },
+    replaceSourceUploadToken(uploadId, replacement) {
+      const token = this.createImageUploadToken(uploadId);
+      const textarea = this.$refs.sourceEditor;
+      const content = this.markdownContent || '';
+      const index = content.indexOf(token);
+      if (index === -1) return false;
+
+      const start = textarea ? textarea.selectionStart : 0;
+      const end = textarea ? textarea.selectionEnd : 0;
+      const tokenEnd = index + token.length;
+      const delta = replacement.length - token.length;
+      const nextStart = start <= index ? start : (start >= tokenEnd ? start + delta : index + replacement.length);
+      const nextEnd = end <= index ? end : (end >= tokenEnd ? end + delta : index + replacement.length);
+
+      this.historyNextMode = 'push';
+      this.markdownContent = content.slice(0, index) + replacement + content.slice(tokenEnd);
+      this.emitChange();
+      this.$nextTick(() => {
+        if (!textarea) return;
+        if (document.activeElement === textarea) {
+          textarea.focus();
+        }
+        textarea.setSelectionRange(nextStart, nextEnd);
+      });
+      return true;
+    },
+    async replaceWysiwygUploadPlaceholder(uploadId, markdown) {
+      const editor = this.$refs.editorContent;
+      if (!editor) return false;
+      const placeholder = editor.querySelector(`.image-upload-placeholder[data-upload-id="${uploadId}"]`);
+      if (!placeholder) return false;
+
+      const selection = this.saveSelection() || this.savedSelection;
+      const html = markdown ? await renderMarkdown(markdown) : '';
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = html;
+      const fragment = document.createDocumentFragment();
+      while (wrapper.firstChild) {
+        fragment.appendChild(wrapper.firstChild);
+      }
+
+      if (markdown) {
+        placeholder.replaceWith(fragment);
+      } else {
+        placeholder.remove();
+      }
+
+      if (selection) {
+        this.savedSelection = this.cloneSelectionSnapshot(selection);
+      }
+      this.historyNextMode = 'push';
+      this.syncToMarkdown({ historyMode: 'push' });
+      this.$nextTick(() => {
+        if (selection) {
+          this.restoreSelection(selection);
+        }
+        this.updateFormatState();
+      });
+      return true;
+    },
+    async resolveImageUpload(uploadId, markdown) {
+      if (!uploadId) return false;
+      if (this.showSource) {
+        return this.replaceSourceUploadToken(uploadId, markdown);
+      }
+
+      const replaced = await this.replaceWysiwygUploadPlaceholder(uploadId, markdown);
+      if (replaced) return true;
+      return this.replaceSourceUploadToken(uploadId, markdown);
+    },
+    async rejectImageUpload(uploadId) {
+      if (!uploadId) return false;
+      if (this.showSource) {
+        return this.replaceSourceUploadToken(uploadId, '');
+      }
+
+      const removed = await this.replaceWysiwygUploadPlaceholder(uploadId, '');
+      if (removed) return true;
+      return this.replaceSourceUploadToken(uploadId, '');
     },
 
     // ==================== 表格操作 ====================
@@ -3243,6 +3450,20 @@ export default {
   color: #333;
 }
 
+.editor-content :deep(.image-upload-placeholder) {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin: 0 2px;
+  border: 1px dashed #c0c4cc;
+  border-radius: 999px;
+  background: #f5f7fa;
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 .editor-content:empty::before {
   content: attr(placeholder);
   color: #c0c4cc;
@@ -3251,6 +3472,12 @@ export default {
 
 .wysiwyg-editor.dark-mode .editor-content {
   color: #d4d4d4;
+}
+
+.wysiwyg-editor.dark-mode .editor-content :deep(.image-upload-placeholder) {
+  border-color: #606266;
+  background: #2b2b2b;
+  color: #a8abb2;
 }
 
 .wysiwyg-editor.dark-mode .editor-content:empty::before {

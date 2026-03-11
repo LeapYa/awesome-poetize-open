@@ -335,7 +335,9 @@
           </div>
         </div>
 
-        <div id="toc" class="toc"></div>
+        <teleport to="body">
+          <div id="toc" class="toc"></div>
+        </teleport>
       </div>
 
       <div style="background: var(--background)">
@@ -805,8 +807,12 @@ export default {
   },
   mounted() {
     window.addEventListener('scroll', this.onScrollPage)
+    window.addEventListener('load', this.syncTocPosition)
+    window.addEventListener('pageshow', this.syncTocPosition)
+    window.addEventListener('resize', this.syncTocPosition)
     // 注意：不在这里调用getTocbot()，因为文章内容还没加载
     // getTocbot()会在getArticle()完成后的$nextTick中调用
+    this.syncTocPosition()
 
     // 监听主题切换事件
     $on(this.$root, 'themeChanged', this.handleThemeChange)
@@ -908,6 +914,9 @@ export default {
   },
   unmounted() {
     window.removeEventListener('scroll', this.onScrollPage)
+    window.removeEventListener('load', this.syncTocPosition)
+    window.removeEventListener('pageshow', this.syncTocPosition)
+    window.removeEventListener('resize', this.syncTocPosition)
 
     // 移除文章主题自定义 CSS 变量，恢复默认值
     resetTheme()
@@ -1480,16 +1489,10 @@ export default {
         })
     },
     onScrollPage() {
-      this.scrollTop =
-        document.documentElement.scrollTop || document.body.scrollTop
-      const tocElements = document.querySelectorAll('.toc')
-      tocElements.forEach((element) => {
-        if (this.scrollTop < window.innerHeight / 4) {
-          element.style.top = window.innerHeight / 4 + 'px'
-        } else {
-          element.style.top = '90px'
-        }
-      })
+      const scrollingElement =
+        document.scrollingElement || document.documentElement || document.body
+      this.scrollTop = scrollingElement ? scrollingElement.scrollTop : 0
+      this.syncTocPosition()
 
       // 在用户首次滚动时刷新tocbot，确保位置计算准确
       if (!this.tocbotRefreshed && window.tocbot && window.tocbot.refresh) {
@@ -1503,6 +1506,19 @@ export default {
           }
         }, 50)
       }
+    },
+    syncTocPosition() {
+      const scrollingElement =
+        document.scrollingElement || document.documentElement || document.body
+      this.scrollTop = scrollingElement ? scrollingElement.scrollTop : 0
+      const tocElements = document.querySelectorAll('.toc')
+      tocElements.forEach((element) => {
+        if (this.scrollTop < window.innerHeight / 4) {
+          element.style.top = window.innerHeight / 4 + 'px'
+        } else {
+          element.style.top = '90px'
+        }
+      })
     },
     getTocbot() {
       // 检查是否有旧内容（用于判断是否需要过渡效果）
@@ -1592,6 +1608,7 @@ export default {
 
               this.$nextTick(() => {
                 forceReflow()
+                this.syncTocPosition()
                 if (window.tocbot && window.tocbot.refresh) {
                   window.tocbot.refresh()
                 }
@@ -1656,6 +1673,7 @@ export default {
           tocElements.forEach((element) => {
             element.style.display = 'none'
           })
+          this.syncTocPosition()
         })
       }
     },

@@ -130,7 +130,7 @@ public class ArticleController {
     @LoginCheck(1)
     @PostMapping("/saveArticle")
     public PoetryResult saveArticle(@Validated @RequestBody ArticleVO articleVO,
-                                   @RequestParam(value = "skipAiTranslation", defaultValue = "false") boolean skipAiTranslation,
+                                   @RequestParam(value = "skipAiTranslation", required = false) Boolean skipAiTranslation,
                                    @RequestParam(value = "pendingTranslationTitle", required = false) String pendingTranslationTitle,
                                    @RequestParam(value = "pendingTranslationContent", required = false) String pendingTranslationContent,
                                    @RequestParam(value = "pendingTranslationLanguage", required = false) String pendingTranslationLanguage) {
@@ -180,17 +180,12 @@ public class ArticleController {
             // 清理文章相关缓存
             cacheService.evictSortArticleList();
             
-            // 准备暂存翻译数据（需要在调用saveArticle之前准备）
-            Map<String, String> pendingTranslation = null;
-            if (pendingTranslationTitle != null && pendingTranslationContent != null && pendingTranslationLanguage != null) {
-                pendingTranslation = new HashMap<>();
-                pendingTranslation.put("title", pendingTranslationTitle);
-                pendingTranslation.put("content", pendingTranslationContent);
-                pendingTranslation.put("language", pendingTranslationLanguage);
-            }
+            boolean resolvedSkipAiTranslation = resolveSkipAiTranslation(articleVO, skipAiTranslation);
+            Map<String, String> pendingTranslation = buildPendingTranslation(articleVO,
+                    pendingTranslationTitle, pendingTranslationContent, pendingTranslationLanguage);
             
             // 保存文章（传递skipAiTranslation和pendingTranslation参数）
-            PoetryResult result = articleService.saveArticle(articleVO, skipAiTranslation, pendingTranslation);
+            PoetryResult result = articleService.saveArticle(articleVO, resolvedSkipAiTranslation, pendingTranslation);
             
             // 如果保存成功并且文章有ID，执行后续任务
             if (result.getCode() == 200 && articleVO.getId() != null) {
@@ -233,7 +228,7 @@ public class ArticleController {
     @LoginCheck(1)
     @PostMapping("/saveArticleAsync")
     public PoetryResult<String> saveArticleAsync(@Validated @RequestBody ArticleVO articleVO,
-                                                @RequestParam(value = "skipAiTranslation", defaultValue = "false") boolean skipAiTranslation,
+                                                @RequestParam(value = "skipAiTranslation", required = false) Boolean skipAiTranslation,
                                                 @RequestParam(value = "pendingTranslationTitle", required = false) String pendingTranslationTitle,
                                                 @RequestParam(value = "pendingTranslationContent", required = false) String pendingTranslationContent,
                                                 @RequestParam(value = "pendingTranslationLanguage", required = false) String pendingTranslationLanguage) {
@@ -271,17 +266,12 @@ public class ArticleController {
                 articleVO.setUserId(currentUserId);
             }
             
-            // 准备暂存翻译数据
-            Map<String, String> pendingTranslation = null;
-            if (pendingTranslationTitle != null && pendingTranslationContent != null && pendingTranslationLanguage != null) {
-                pendingTranslation = new HashMap<>();
-                pendingTranslation.put("title", pendingTranslationTitle);
-                pendingTranslation.put("content", pendingTranslationContent);
-                pendingTranslation.put("language", pendingTranslationLanguage);
-            }
+            boolean resolvedSkipAiTranslation = resolveSkipAiTranslation(articleVO, skipAiTranslation);
+            Map<String, String> pendingTranslation = buildPendingTranslation(articleVO,
+                    pendingTranslationTitle, pendingTranslationContent, pendingTranslationLanguage);
 
             // 调用异步保存服务
-            PoetryResult<String> result = articleService.saveArticleAsync(articleVO, skipAiTranslation, pendingTranslation);
+            PoetryResult<String> result = articleService.saveArticleAsync(articleVO, resolvedSkipAiTranslation, pendingTranslation);
             
             // 使用Redis缓存清理替换PoetryCache
             if (articleVO.getUserId() != null) {
@@ -316,8 +306,6 @@ public class ArticleController {
             return PoetryResult.fail("查询保存状态失败: " + e.getMessage());
         }
     }
-    
-
 
     /**
      * 删除文章
@@ -378,7 +366,7 @@ public class ArticleController {
     @LoginCheck(1)
     @PostMapping("/updateArticle")
     public PoetryResult updateArticle(@Validated @RequestBody ArticleVO articleVO,
-                                     @RequestParam(value = "skipAiTranslation", defaultValue = "false") boolean skipAiTranslation,
+                                     @RequestParam(value = "skipAiTranslation", required = false) Boolean skipAiTranslation,
                                      @RequestParam(value = "pendingTranslationTitle", required = false) String pendingTranslationTitle,
                                      @RequestParam(value = "pendingTranslationContent", required = false) String pendingTranslationContent,
                                      @RequestParam(value = "pendingTranslationLanguage", required = false) String pendingTranslationLanguage) {
@@ -391,17 +379,12 @@ public class ArticleController {
         // 清理文章相关缓存
         cacheService.evictSortArticleList();
         
-        // 准备暂存翻译数据（需要在调用updateArticle之前准备）
-        Map<String, String> pendingTranslation = null;
-        if (pendingTranslationTitle != null && pendingTranslationContent != null && pendingTranslationLanguage != null) {
-            pendingTranslation = new HashMap<>();
-            pendingTranslation.put("title", pendingTranslationTitle);
-            pendingTranslation.put("content", pendingTranslationContent);
-            pendingTranslation.put("language", pendingTranslationLanguage);
-        }
+        boolean resolvedSkipAiTranslation = resolveSkipAiTranslation(articleVO, skipAiTranslation);
+        Map<String, String> pendingTranslation = buildPendingTranslation(articleVO,
+                pendingTranslationTitle, pendingTranslationContent, pendingTranslationLanguage);
         
         // 更新文章（传递skipAiTranslation和pendingTranslation参数）
-        PoetryResult result = articleService.updateArticle(articleVO, skipAiTranslation, pendingTranslation);
+        PoetryResult result = articleService.updateArticle(articleVO, resolvedSkipAiTranslation, pendingTranslation);
         
         // 更新文章成功后执行后续任务
         if (result.getCode() == 200 && articleVO.getId() != null) {
@@ -752,7 +735,7 @@ public class ArticleController {
     @LoginCheck(1)
     @PostMapping("/updateArticleAsync")
     public PoetryResult<String> updateArticleAsync(@Validated @RequestBody ArticleVO articleVO,
-                                                  @RequestParam(value = "skipAiTranslation", defaultValue = "false") boolean skipAiTranslation,
+                                                  @RequestParam(value = "skipAiTranslation", required = false) Boolean skipAiTranslation,
                                                   @RequestParam(value = "pendingTranslationTitle", required = false) String pendingTranslationTitle,
                                                   @RequestParam(value = "pendingTranslationContent", required = false) String pendingTranslationContent,
                                                   @RequestParam(value = "pendingTranslationLanguage", required = false) String pendingTranslationLanguage) {
@@ -766,17 +749,12 @@ public class ArticleController {
         }
         
         try {
-            // 准备暂存翻译数据
-            Map<String, String> pendingTranslation = null;
-            if (pendingTranslationTitle != null && pendingTranslationContent != null && pendingTranslationLanguage != null) {
-                pendingTranslation = new HashMap<>();
-                pendingTranslation.put("title", pendingTranslationTitle);
-                pendingTranslation.put("content", pendingTranslationContent);
-                pendingTranslation.put("language", pendingTranslationLanguage);
-            }
+            boolean resolvedSkipAiTranslation = resolveSkipAiTranslation(articleVO, skipAiTranslation);
+            Map<String, String> pendingTranslation = buildPendingTranslation(articleVO,
+                    pendingTranslationTitle, pendingTranslationContent, pendingTranslationLanguage);
 
             // 调用异步更新服务
-            PoetryResult<String> result = articleService.updateArticleAsync(articleVO, skipAiTranslation, pendingTranslation);
+            PoetryResult<String> result = articleService.updateArticleAsync(articleVO, resolvedSkipAiTranslation, pendingTranslation);
             
             // 使用Redis缓存清理替换PoetryCache
             if (articleVO.getUserId() != null) {
@@ -790,6 +768,32 @@ public class ArticleController {
         } catch (Exception e) {
             return PoetryResult.fail("启动异步更新失败: " + e.getMessage());
         }
+    }
+
+    private boolean resolveSkipAiTranslation(ArticleVO articleVO, Boolean requestParamValue) {
+        if (requestParamValue != null) {
+            return requestParamValue;
+        }
+        return Boolean.TRUE.equals(articleVO.getSkipAiTranslation());
+    }
+
+    private Map<String, String> buildPendingTranslation(ArticleVO articleVO,
+                                                        String requestTitle,
+                                                        String requestContent,
+                                                        String requestLanguage) {
+        String title = StringUtils.hasText(requestTitle) ? requestTitle : articleVO.getPendingTranslationTitle();
+        String content = StringUtils.hasText(requestContent) ? requestContent : articleVO.getPendingTranslationContent();
+        String language = StringUtils.hasText(requestLanguage) ? requestLanguage : articleVO.getPendingTranslationLanguage();
+
+        if (!StringUtils.hasText(title) || !StringUtils.hasText(content) || !StringUtils.hasText(language)) {
+            return null;
+        }
+
+        Map<String, String> pendingTranslation = new HashMap<>();
+        pendingTranslation.put("title", title);
+        pendingTranslation.put("content", content);
+        pendingTranslation.put("language", language);
+        return pendingTranslation;
     }
 
     /**

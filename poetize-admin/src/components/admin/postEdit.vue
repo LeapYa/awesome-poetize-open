@@ -624,20 +624,59 @@ const uploadPicture = () => import("../common/uploadPicture");
       handleTranslationEditorChange(value) {
         // Vditor 内置了 Mermaid 支持，无需手动渲染
       },
+
+      resetTranslationForm() {
+        this.translationForm.translatedTitle = '';
+        this.translationForm.translatedContent = '';
+      },
+
+      restorePendingTranslation(language = this.translationForm.targetLanguage) {
+        if (!this.hasPendingTranslation || this.pendingTranslation.language !== language) {
+          return false;
+        }
+
+        this.translationForm.translatedTitle = this.pendingTranslation.title || '';
+        this.translationForm.translatedContent = this.pendingTranslation.content || '';
+        return true;
+      },
+
+      buildArticleRequestPayload(article) {
+        const payload = {
+          ...article,
+          skipAiTranslation: this.skipAiTranslation
+        };
+
+        if (this.hasPendingTranslation) {
+          payload.pendingTranslationTitle = this.pendingTranslation.title;
+          payload.pendingTranslationContent = this.pendingTranslation.content;
+          payload.pendingTranslationLanguage = this.pendingTranslation.language;
+        } else {
+          payload.pendingTranslationTitle = null;
+          payload.pendingTranslationContent = null;
+          payload.pendingTranslationLanguage = null;
+        }
+
+        return payload;
+      },
       
       // 打开翻译编辑器对话框
       async openTranslationEditor() {
         try {
           // 加载默认目标语言
           await this.loadDefaultTargetLanguage();
-          
-          // 只有在文章已保存（有ID）时才加载已有翻译
-          if (!this.$common.isEmpty(this.id)) {
-            await this.loadExistingTranslation();
-          } else {
-            // 新文章，以空白状态打开
-            this.translationForm.translatedTitle = '';
-            this.translationForm.translatedContent = '';
+
+          if (this.hasPendingTranslation) {
+            this.translationForm.targetLanguage = this.pendingTranslation.language;
+          }
+
+          if (!this.restorePendingTranslation()) {
+            // 只有在文章已保存（有ID）时才加载已有翻译
+            if (!this.$common.isEmpty(this.id)) {
+              await this.loadExistingTranslation();
+            } else {
+              // 新文章，以空白状态打开
+              this.resetTranslationForm();
+            }
           }
 
           // 显示弹窗
@@ -666,8 +705,7 @@ const uploadPicture = () => import("../common/uploadPicture");
       async loadExistingTranslation() {
         // 确保有文章ID才执行数据库查询
         if (this.$common.isEmpty(this.id)) {
-          this.translationForm.translatedTitle = '';
-          this.translationForm.translatedContent = '';
+          this.resetTranslationForm();
           return;
         }
 
@@ -682,13 +720,11 @@ const uploadPicture = () => import("../common/uploadPicture");
             this.translationForm.translatedContent = response.data.content || '';
           } else {
             // 该语言没有翻译内容，清空表单
-            this.translationForm.translatedTitle = '';
-            this.translationForm.translatedContent = '';
+            this.resetTranslationForm();
           }
         } catch (error) {
           // 加载失败，清空表单
-          this.translationForm.translatedTitle = '';
-          this.translationForm.translatedContent = '';
+          this.resetTranslationForm();
         }
       },
 
@@ -697,13 +733,16 @@ const uploadPicture = () => import("../common/uploadPicture");
           // 更新系统默认目标语言
           await this.updateDefaultTargetLanguage(newLanguage);
 
+          if (this.restorePendingTranslation(newLanguage)) {
+            return;
+          }
+
           // 只有在文章已保存（有ID）时才加载翻译内容
           if (!this.$common.isEmpty(this.id)) {
             await this.loadExistingTranslation();
           } else {
             // 新文章或无ID，清空翻译表单
-            this.translationForm.translatedTitle = '';
-            this.translationForm.translatedContent = '';
+            this.resetTranslationForm();
           }
         } catch (error) {
           console.error('切换目标语言失败:', error);
@@ -768,8 +807,7 @@ const uploadPicture = () => import("../common/uploadPicture");
 
       closeTranslationDialog() {
         this.translationDialogVisible = false;
-        this.translationForm.translatedTitle = '';
-        this.translationForm.translatedContent = '';
+        this.resetTranslationForm();
       },
 
       // 清空暂存的翻译数据
@@ -920,22 +958,10 @@ const uploadPicture = () => import("../common/uploadPicture");
         }).then(() => {
           // 显示加载中
           this.startLoading("保存文章中...");
-          
-          // 记录保存请求数据，便于调试
-          
-          // 准备请求参数
-          const params = new URLSearchParams();
-          params.append('skipAiTranslation', this.skipAiTranslation);
-
-          // 添加暂存翻译数据
-          if (this.hasPendingTranslation) {
-            params.append('pendingTranslationTitle', this.pendingTranslation.title);
-            params.append('pendingTranslationContent', this.pendingTranslation.content);
-            params.append('pendingTranslationLanguage', this.pendingTranslation.language);
-          }
+          const payload = this.buildArticleRequestPayload(article);
 
           // 发送保存请求
-          this.$http.post(this.$constant.baseURL + url + '?' + params.toString(), article, true)
+          this.$http.post(this.$constant.baseURL + url, payload, true)
             .then(res => {
               this.stopLoading();
               
@@ -1007,20 +1033,10 @@ const uploadPicture = () => import("../common/uploadPicture");
           let url = this.$common.isEmpty(this.id)
             ? "/article/saveArticle"
             : "/article/updateArticle";
-
-          // 准备请求参数
-          const params = new URLSearchParams();
-          params.append('skipAiTranslation', this.skipAiTranslation);
-
-          // 添加暂存翻译数据
-          if (this.hasPendingTranslation) {
-            params.append('pendingTranslationTitle', this.pendingTranslation.title);
-            params.append('pendingTranslationContent', this.pendingTranslation.content);
-            params.append('pendingTranslationLanguage', this.pendingTranslation.language);
-          }
+          const payload = this.buildArticleRequestPayload(article);
 
           // 发送同步保存请求
-          this.$http.post(this.$constant.baseURL + url + '?' + params.toString(), article, true)
+          this.$http.post(this.$constant.baseURL + url, payload, true)
             .then(res => {
               // 记录响应
               
@@ -1123,20 +1139,10 @@ const uploadPicture = () => import("../common/uploadPicture");
           let url = this.$common.isEmpty(this.id)
             ? "/article/saveArticleAsync"
             : "/article/updateArticleAsync";
-
-          // 准备请求参数
-          const params = new URLSearchParams();
-          params.append('skipAiTranslation', this.skipAiTranslation);
-
-          // 添加暂存翻译数据
-          if (this.hasPendingTranslation) {
-            params.append('pendingTranslationTitle', this.pendingTranslation.title);
-            params.append('pendingTranslationContent', this.pendingTranslation.content);
-            params.append('pendingTranslationLanguage', this.pendingTranslation.language);
-          }
+          const payload = this.buildArticleRequestPayload(article);
 
           // 发送异步保存请求
-          this.$http.post(this.$constant.baseURL + url + '?' + params.toString(), article, true)
+          this.$http.post(this.$constant.baseURL + url, payload, true)
             .then(res => {
               this.asyncSaveLoading = false;
               

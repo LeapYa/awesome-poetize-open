@@ -351,6 +351,7 @@ import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
 import { parseEChartsOption } from '@/utils/echartsOptionParser';
 import { handlePaste as handlePasteUtil } from '@/utils/pasteHandler';
+import SnapshotHistory from '@/components/editors/core/SnapshotHistory';
 // 导入公共样式（与文章页、IR模式保持一致）
 import '@/assets/css/markdown-highlight.css';
 import '@/assets/css/editor-heading-styles.css';
@@ -435,6 +436,11 @@ export default {
       
       // 渲染任务 ID
       renderJobId: 0,
+
+      // 快照历史
+      history: null,
+      historySuspend: false,
+      historyNextMode: null,
       
       // 表格右键菜单状态
       contextMenu: {
@@ -465,15 +471,35 @@ export default {
         const displayValue = upgradeMarkdownHeadings(newVal || '');
         
         if (this.markdownContent !== displayValue) {
+          this.historySuspend = true;
           this.markdownContent = displayValue;
           this.renderContent();
+          this.$nextTick(() => {
+            this.resetHistory();
+            this.historySuspend = false;
+          });
         }
       },
       immediate: true
+    },
+    markdownContent(newVal, oldVal) {
+      if (newVal === oldVal || this.historySuspend || !this.history) {
+        return;
+      }
+
+      this.recordHistorySnapshot({
+        merge: this.historyNextMode !== 'push'
+      });
+      this.historyNextMode = null;
     }
   },
 
   mounted() {
+    this.history = new SnapshotHistory({
+      limit: 2000,
+      mergeWindow: 800,
+      isEqual: (a, b) => !!a && !!b && a.markdownContent === b.markdownContent && a.showSource === b.showSource
+    });
     this.initEditor();
     this.setupThemeObserver();
     this._onWindowResize = () => {
@@ -490,6 +516,9 @@ export default {
     }
     
     this.updateFormatState();
+    this.$nextTick(() => {
+      this.resetHistory();
+    });
     this.$emit('ready', this);
   },
 
@@ -509,6 +538,10 @@ export default {
     
     if (this.syncTimer) {
       clearTimeout(this.syncTimer);
+    }
+    if (this.history) {
+      this.history.clear();
+      this.history = null;
     }
   },
 
@@ -761,6 +794,93 @@ export default {
       const bodyDark = document.body?.classList.contains('dark-mode');
       this.isDarkMode = Boolean(htmlDark || bodyDark);
     },
+    cloneSelectionSnapshot(selection) {
+      if (!selection) return null;
+      return {
+        startContainer: selection.startContainer || null,
+        startOffset: selection.startOffset || 0,
+        endContainer: selection.endContainer || null,
+        endOffset: selection.endOffset || 0,
+        startPath: Array.isArray(selection.startPath) ? selection.startPath.slice() : null,
+        endPath: Array.isArray(selection.endPath) ? selection.endPath.slice() : null
+      };
+    },
+    createHistorySnapshot() {
+      if (this.showSource) {
+        const textarea = this.$refs.sourceEditor;
+        return {
+          markdownContent: this.markdownContent || '',
+          showSource: true,
+          selectionStart: textarea ? textarea.selectionStart : 0,
+          selectionEnd: textarea ? textarea.selectionEnd : 0
+        };
+      }
+
+      return {
+        markdownContent: this.markdownContent || '',
+        showSource: false,
+        selection: this.cloneSelectionSnapshot(this.saveSelection() || this.savedSelection)
+      };
+    },
+    resetHistory() {
+      if (!this.history) return;
+      this.history.reset(this.createHistorySnapshot());
+      this.updateHistoryState();
+      this.historyNextMode = null;
+    },
+    recordHistorySnapshot(options = {}) {
+      if (!this.history || this.historySuspend) return;
+      this.history.push(this.createHistorySnapshot(), options);
+      this.updateHistoryState();
+    },
+    updateHistoryState() {
+      this.formatState = {
+        ...this.formatState,
+        undo: !!this.history && this.history.canUndo(),
+        redo: !!this.history && this.history.canRedo()
+      };
+    },
+    flushPendingSync() {
+      if (this.syncTimer) {
+        clearTimeout(this.syncTimer);
+        this.syncTimer = null;
+        this.syncToMarkdown({ historyMode: 'merge' });
+      }
+    },
+    applyHistorySnapshot(snapshot) {
+      if (!snapshot) return;
+
+      this.historySuspend = true;
+      this.showSource = !!snapshot.showSource;
+      this.markdownContent = snapshot.markdownContent || '';
+      this.emitChange();
+
+      const finalize = () => {
+        this.$nextTick(() => {
+          if (snapshot.showSource) {
+            const textarea = this.$refs.sourceEditor;
+            if (textarea) {
+              textarea.focus();
+              textarea.setSelectionRange(snapshot.selectionStart || 0, snapshot.selectionEnd || 0);
+            }
+          } else {
+            this.savedSelection = this.cloneSelectionSnapshot(snapshot.selection);
+            this.focus();
+            if (this.savedSelection) {
+              this.restoreSelection(this.savedSelection);
+            }
+          }
+          this.historySuspend = false;
+          this.updateFormatState();
+        });
+      };
+
+      if (snapshot.showSource) {
+        finalize();
+      } else {
+        this.renderContent().finally(finalize);
+      }
+    },
     
     // ==================== 输入处理 ====================
     
@@ -816,13 +936,14 @@ export default {
      */
     handleSourceInput() {
       // 源码模式下直接更新
+      this.historyNextMode = 'merge';
       this.emitChange();
     },
     
     /**
      * 从编辑器同步到 Markdown
      */
-    syncToMarkdown() {
+    syncToMarkdown(options = {}) {
       const editor = this.$refs.editorContent;
       if (!editor) return;
       
@@ -835,8 +956,11 @@ export default {
       const markdown = htmlToMarkdown(html);
       
       if (this.markdownContent !== markdown) {
+        this.historyNextMode = options.historyMode || this.historyNextMode;
         this.markdownContent = markdown;
         this.emitChange();
+      } else {
+        this.updateHistoryState();
       }
     },
     
@@ -1855,8 +1979,8 @@ export default {
         italic: document.queryCommandState('italic'),
         strikethrough: document.queryCommandState('strikethrough'),
         underline: document.queryCommandState('underline'),
-        undo: document.queryCommandEnabled('undo'),
-        redo: document.queryCommandEnabled('redo'),
+        undo: !!this.history && this.history.canUndo(),
+        redo: !!this.history && this.history.canRedo(),
         inlineCode
       };
       this.updateSavedSelection();
@@ -2554,20 +2678,21 @@ export default {
      * 撤销
      */
     undo() {
-      this.focus();
-      document.execCommand('undo');
-      this.handleInput();
-      this.updateFormatState();
+      this.flushPendingSync();
+      if (!this.history || !this.history.canUndo()) return;
+      const snapshot = this.history.undo();
+      this.updateHistoryState();
+      this.applyHistorySnapshot(snapshot);
     },
     
     /**
      * 重做
      */
     redo() {
-      this.focus();
-      document.execCommand('redo');
-      this.handleInput();
-      this.updateFormatState();
+      if (!this.history || !this.history.canRedo()) return;
+      const snapshot = this.history.redo();
+      this.updateHistoryState();
+      this.applyHistorySnapshot(snapshot);
     },
     
     // ==================== 工具操作 ====================
@@ -2817,8 +2942,13 @@ export default {
      */
     setValue(value) {
       const displayValue = upgradeMarkdownHeadings(value || '');
+      this.historySuspend = true;
       this.markdownContent = displayValue;
       this.renderContent();
+      this.$nextTick(() => {
+        this.resetHistory();
+        this.historySuspend = false;
+      });
     },
 
     /**
@@ -2834,6 +2964,7 @@ export default {
           const start = textarea.selectionStart;
           const end = textarea.selectionEnd;
           const value = textarea.value;
+          this.historyNextMode = 'push';
           textarea.value = value.slice(0, start) + text + value.slice(end);
           textarea.selectionStart = textarea.selectionEnd = start + text.length;
           this.markdownContent = textarea.value;

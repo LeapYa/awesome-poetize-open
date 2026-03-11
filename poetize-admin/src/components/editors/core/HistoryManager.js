@@ -108,6 +108,7 @@ export class HistoryManager {
     // 配置
     this.maxHistorySize = options.maxHistorySize || 1000;
     this.mergeInterval = options.mergeInterval || 300; // 操作合并间隔（毫秒）
+    this.maxGroupSize = options.maxGroupSize || 32; // 单个撤销单元最多合并多少次连续操作
     
     // 历史栈
     this.undoStack = [];
@@ -228,6 +229,11 @@ export class HistoryManager {
     
     // 没有当前操作组，不能合并
     if (this.currentGroup.length === 0) {
+      return false;
+    }
+
+    // 连续输入过长时强制切分，避免整段文本只占一个撤销单元
+    if (this.currentGroup.length >= this.maxGroupSize) {
       return false;
     }
     

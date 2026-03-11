@@ -58,10 +58,10 @@
 
       <div class="toolbar-group">
         <el-tooltip content="撤销 (Ctrl+Z)" placement="top" :enterable="false">
-          <div class="toolbar-item" @click="undo"><i class="el-icon-refresh-left"></i></div>
+          <div class="toolbar-item" :class="{ 'disabled': !canUndo }" @click="undo"><i class="el-icon-refresh-left"></i></div>
         </el-tooltip>
         <el-tooltip content="重做 (Ctrl+Y)" placement="top" :enterable="false">
-          <div class="toolbar-item" @click="redo"><i class="el-icon-refresh-right"></i></div>
+          <div class="toolbar-item" :class="{ 'disabled': !canRedo }" @click="redo"><i class="el-icon-refresh-right"></i></div>
         </el-tooltip>
       </div>
 
@@ -229,6 +229,7 @@ import { parseEChartsOption } from '@/utils/echartsOptionParser';
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
 import { handlePaste as handlePasteUtil } from '@/utils/pasteHandler';
 import { initEditorTheme } from '@/utils/useEditorTheme';
+import SnapshotHistory from '@/components/editors/core/SnapshotHistory';
 // 导入公共编辑器标题样式
 import '@/assets/css/editor-heading-styles.css';
 import 'katex/dist/katex.min.css';
@@ -266,7 +267,12 @@ export default {
       // 编辑器内部显示的内容（升级后的标题）
       internalContent: '',
       // 标记是否是内部更新，防止循环
-      isInternalUpdate: false
+      isInternalUpdate: false,
+      history: null,
+      historySuspend: false,
+      historyNextMode: null,
+      canUndo: false,
+      canRedo: false
     };
   },
   computed: {
@@ -286,11 +292,29 @@ export default {
         // 从数据库读取时，升级标题后显示
         this.internalContent = upgradeMarkdownHeadings(val || '');
         this.updatePreview(this.internalContent);
+        this.$nextTick(() => {
+          this.resetHistory();
+        });
       },
       immediate: true
+    },
+    internalContent(newVal, oldVal) {
+      if (newVal === oldVal || this.historySuspend || this.isComposing || !this.history) {
+        return;
+      }
+
+      this.recordHistorySnapshot({
+        merge: this.historyNextMode === 'merge'
+      });
+      this.historyNextMode = null;
     }
   },
   mounted() {
+    this.history = new SnapshotHistory({
+      limit: 2000,
+      mergeWindow: 600,
+      isEqual: (a, b) => !!a && !!b && a.content === b.content
+    });
     this.$emit('ready', this);
     this.syncThemeFromDom();
     this.$root.$on('theme-changed', this.handleThemeChanged);
@@ -301,6 +325,9 @@ export default {
     this.themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
     // 加载文章主题到编辑器 CSS 变量
     initEditorTheme();
+    this.$nextTick(() => {
+      this.resetHistory();
+    });
   },
   beforeDestroy() {
     if (this.renderTimer) clearTimeout(this.renderTimer);
@@ -309,8 +336,57 @@ export default {
       this.themeObserver.disconnect();
       this.themeObserver = null;
     }
+    if (this.history) {
+      this.history.clear();
+      this.history = null;
+    }
   },
   methods: {
+    createHistorySnapshot() {
+      const textarea = this.$refs.textarea;
+      return {
+        content: this.internalContent || '',
+        selectionStart: textarea ? textarea.selectionStart : 0,
+        selectionEnd: textarea ? textarea.selectionEnd : 0
+      };
+    },
+    resetHistory() {
+      if (!this.history) return;
+      this.history.reset(this.createHistorySnapshot());
+      this.updateHistoryState();
+      this.historyNextMode = null;
+    },
+    recordHistorySnapshot(options = {}) {
+      if (!this.history || this.historySuspend) return;
+      this.history.push(this.createHistorySnapshot(), options);
+      this.updateHistoryState();
+    },
+    updateHistoryState() {
+      this.canUndo = !!this.history && this.history.canUndo();
+      this.canRedo = !!this.history && this.history.canRedo();
+    },
+    applyHistorySnapshot(snapshot) {
+      if (!snapshot) return;
+
+      this.historySuspend = true;
+      this.internalContent = snapshot.content || '';
+
+      const downgradedValue = downgradeMarkdownHeadings(this.internalContent);
+      this.isInternalUpdate = true;
+      this.$emit('input', downgradedValue);
+      this.$emit('change', downgradedValue);
+      this.updatePreview(this.internalContent);
+
+      this.$nextTick(() => {
+        const textarea = this.$refs.textarea;
+        if (textarea) {
+          textarea.focus();
+          textarea.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+        }
+        this.historySuspend = false;
+        this.updateHistoryState();
+      });
+    },
     goPluginManager() {
       const doNavigate = () => {
         if (this.isFullscreen) {
@@ -361,6 +437,7 @@ export default {
         this.internalContent = e.target.value;
         return;
       }
+      this.historyNextMode = 'merge';
       // 更新内部显示内容
       this.internalContent = e.target.value;
       // 降级标题后发送给父组件（保存到数据库）
@@ -373,23 +450,17 @@ export default {
     },
 
     undo() {
-      const textarea = this.$refs.textarea;
-      if (!textarea) return;
-      textarea.focus();
-      document.execCommand('undo');
-      requestAnimationFrame(() => {
-        this.handleInput({ target: textarea });
-      });
+      if (!this.history || !this.history.canUndo()) return;
+      const snapshot = this.history.undo();
+      this.updateHistoryState();
+      this.applyHistorySnapshot(snapshot);
     },
 
     redo() {
-      const textarea = this.$refs.textarea;
-      if (!textarea) return;
-      textarea.focus();
-      document.execCommand('redo');
-      requestAnimationFrame(() => {
-        this.handleInput({ target: textarea });
-      });
+      if (!this.history || !this.history.canRedo()) return;
+      const snapshot = this.history.redo();
+      this.updateHistoryState();
+      this.applyHistorySnapshot(snapshot);
     },
     
     updatePreview(content) {
@@ -580,6 +651,7 @@ export default {
           // 更新替换范围为整行
           const replacement = prefix + newText;
           const newValue = text.substring(0, lineStart) + replacement + text.substring(lineEnd);
+          this.historyNextMode = 'push';
           this.internalContent = newValue;
           
           // 降级标题后发送给父组件
@@ -648,6 +720,7 @@ export default {
       
       const replacement = prefix + newText + suffix;
       const newValue = text.substring(0, start) + replacement + text.substring(end);
+      this.historyNextMode = 'push';
       this.internalContent = newValue;
       
       // 降级标题后发送给父组件
@@ -711,6 +784,7 @@ export default {
           const rowLine = '| ' + Array(colCount).fill('内容').join(' | ') + ' |';
           lines.splice(blockEnd, 0, rowLine);
           const newValue = lines.join('\n');
+          this.historyNextMode = 'push';
           this.internalContent = newValue;
           
           // 降级标题后发送给父组件
@@ -739,6 +813,7 @@ export default {
       const tableText = `| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |`;
       const insertion = `${needPrefixNewline ? '\n' : ''}${tableText}\n`;
       const newValue = before + insertion + after;
+      this.historyNextMode = 'push';
       this.internalContent = newValue;
       const insertStart = before.length + (needPrefixNewline ? 1 : 0);
       const firstCellStart = insertStart + tableText.indexOf('列1');
@@ -816,6 +891,7 @@ export default {
         const text = this.internalContent;
         
         const newValue = text.substring(0, start) + '  ' + text.substring(end);
+        this.historyNextMode = 'push';
         this.internalContent = newValue;
         // 降级标题后发送给父组件
         const downgradedValue = downgradeMarkdownHeadings(newValue);
@@ -1002,6 +1078,7 @@ export default {
       const text = this.internalContent;
       
       const newValue = text.substring(0, start) + content + text.substring(end);
+      this.historyNextMode = 'push';
       this.internalContent = newValue;
       
       // 降级标题后发送给父组件

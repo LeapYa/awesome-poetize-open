@@ -1214,9 +1214,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     .fail("密码错误" + (StringUtils.hasText(article.getTips()) ? article.getTips() : "请联系作者获取密码"));
         }
 
-        // 只有当需要增加浏览量时才调用updateViewCount
-        if (incrementViewCount) {
+        // 作者本人访问自己的文章时不计入浏览量，避免热度被作者自己抬高。
+        if (shouldIncrementViewCount(article, incrementViewCount)) {
             articleMapper.updateViewCount(id);
+            article.setViewCount((article.getViewCount() == null ? 0 : article.getViewCount()) + 1);
         }
 
         article.setPassword(null);
@@ -1235,6 +1236,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         applyPaywall(article, articleVO);
 
         return PoetryResult.success(articleVO);
+    }
+
+    private boolean shouldIncrementViewCount(Article article, boolean incrementViewCount) {
+        if (!incrementViewCount) {
+            return false;
+        }
+
+        Integer currentUserId = PoetryUtil.getUserId();
+        return currentUserId == null || !currentUserId.equals(article.getUserId());
     }
 
     /**

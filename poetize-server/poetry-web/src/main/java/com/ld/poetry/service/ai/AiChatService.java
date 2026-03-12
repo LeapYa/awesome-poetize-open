@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ld.poetry.entity.SysAiConfig;
 import com.ld.poetry.service.SysAiConfigService;
 import com.ld.poetry.service.ai.tools.ArticleTools;
+import com.ld.poetry.service.ai.tools.CalculatorTools;
 import com.ld.poetry.service.ai.tools.TimeTools;
 import com.ld.poetry.utils.RedisUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,9 @@ public class AiChatService {
 
     @Autowired
     private TimeTools timeTools;
+
+    @Autowired
+    private CalculatorTools calculatorTools;
 
     @Autowired
     private Mem0Service mem0Service;
@@ -505,7 +509,7 @@ public class AiChatService {
 
         if (enableTools) {
             List<ToolCallback> toolCallbacks = new ArrayList<>();
-            toolCallbacks.addAll(Arrays.asList(ToolCallbacks.from(articleTools, timeTools)));
+            toolCallbacks.addAll(Arrays.asList(ToolCallbacks.from(articleTools, timeTools, calculatorTools)));
             toolCallbacks.addAll(httpAiToolProvider.getEnabledToolCallbacks());
 
             ToolCallback[] tools = toolCallbacks.stream()
@@ -759,6 +763,8 @@ public class AiChatService {
         lines.add("- getHolidaySchedule / isHoliday: 查询某天是否放假、周末或调休上班，结果会标注 official/predicted");
         lines.add("- getNextHolidayBreak: 查询最近法定放假安排及剩余天数，结果会标注 official/predicted");
         lines.add("- countdownTo: 普通倒计时");
+        lines.add("Built-in Calculator:");
+        lines.add("- calculate: 计算数学表达式，支持 + - * / % ^、括号、pi/e 和 sqrt/abs/round/floor/ceil/pow/max/min");
 
         List<org.springframework.ai.tool.definition.ToolDefinition> dynamicTools = httpAiToolProvider.getEnabledToolDefinitions();
         if (dynamicTools.isEmpty()) {

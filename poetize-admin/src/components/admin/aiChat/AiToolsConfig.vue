@@ -180,7 +180,7 @@ export default {
       loading: true,
       memoryDialogVisible: false,
       externalTools: [],
-      // 硬编码的系统内置原生工具 (基于 ArticleTools.java 和 TimeTools.java 提取)
+      // 硬编码的系统内置原生工具 (基于 ArticleTools.java、TimeTools.java、CalculatorTools.java 提取)
       nativeTools: [
         {
           id: 'article_search',
@@ -195,6 +195,13 @@ export default {
           description: '赋予 AI 当前时间、农历/节气/节日、最近节日倒计时，以及中国法定放假/调休查询能力；法定安排会明确区分 official 与 predicted 口径。',
           svgIcon: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>',
           features: ['当前时间/时区', '农历/节气/节日', '最近节日倒计时', '放假/调休']
+        },
+        {
+          id: 'calculator',
+          name: '数学计算器',
+          description: '允许 AI 直接进行数学表达式计算，适合四则运算、括号表达式、幂运算，以及常见数学函数求值。',
+          svgIcon: '<rect x="5" y="2" width="14" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="10" x2="8" y2="10"></line><line x1="12" y1="10" x2="12" y2="10"></line><line x1="16" y1="10" x2="16" y2="10"></line><line x1="8" y1="14" x2="8" y2="14"></line><line x1="12" y1="14" x2="12" y2="14"></line><line x1="16" y1="14" x2="16" y2="14"></line><line x1="8" y1="18" x2="16" y2="18"></line>',
+          features: ['四则运算', '括号/负数', '幂与取模', 'sqrt/pow/max']
         },
         {
           id: 'ai_memory',

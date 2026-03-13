@@ -54,9 +54,9 @@ jobs:
         if: steps.prev_version.outputs.skip_update == 'false'
         run: |
           cd previous-release
-          chmod +x deploy.sh
+          chmod +x poetize
           # 使用命令行参数进行非交互式安装
-          sudo bash deploy.sh --domain localhost --skip-dns-check
+          sudo bash poetize install --domain localhost --skip-dns-check
           
           # 等待服务启动
           echo "Waiting for services to start..."
@@ -91,8 +91,8 @@ jobs:
         if: steps.prev_version.outputs.skip_update == 'true'
         run: |
           cd current-release
-          chmod +x deploy.sh
-          sudo bash deploy.sh --domain localhost --skip-dns-check
+          chmod +x poetize
+          sudo bash poetize install --domain localhost --skip-dns-check
           
           sleep 60
           docker ps -a
@@ -190,15 +190,15 @@ jobs:
             sleep 1
           done
 
-      - name: Run deploy.sh with external services
+      - name: Run poetize install with external services
         run: |
-          chmod +x deploy.sh
+          chmod +x poetize
           HOST_IP=${{ steps.host_ip.outputs.HOST_IP }}
           echo "Deploying with external services at $HOST_IP..."
           
           # 传入宿主机 IP 作为外部服务地址
           # 注意：非交互式运行
-          sudo bash deploy.sh \
+          sudo bash poetize install \
             --domain localhost:8080 \
             --skip-dns-check \
             --db-host $HOST_IP \

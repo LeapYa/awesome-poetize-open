@@ -185,10 +185,10 @@ bash <(curl -sL install.leapya.com)
 bash <(curl -sL install.leapya.com) -d 域名.com -d www.域名.com
 
 # 方式三：克隆本仓库部署（交互模式）
-git clone https://github.com/LeapYa/Awesome-poetize-open.git && sudo chmod +x deploy.sh && sudo ./deploy.sh
+git clone https://github.com/LeapYa/Awesome-poetize-open.git && cd Awesome-poetize-open && sudo chmod +x poetize && sudo ./poetize install
 
 # 方式四：克隆本仓库部署（非交互模式）
-git clone https://github.com/LeapYa/Awesome-poetize-open.git && sudo chmod +x deploy.sh && sudo ./deploy.sh -d 域名.com -d www.域名.com
+git clone https://github.com/LeapYa/Awesome-poetize-open.git && cd Awesome-poetize-open && sudo chmod +x poetize && sudo ./poetize install -d 域名.com -d www.域名.com
 ```
 
 > 部署脚本已经做好了错误处理和重试机制，如果仍然部署失败，请查看[常见问题](#6常见问题)
@@ -329,11 +329,11 @@ sudo docker system prune -af && cd .. && sudo rm -rf Awesome-poetize-open && bas
 
 ### 7.高级功能
 
-本项目提供三个管理脚本，使用 `poetize -h`、`./deploy.sh -h` 或 `./migrate.sh` 查看详细用法。
+本项目统一使用 `poetize` 管理脚本，执行 `poetize -h` 或在仓库根目录执行 `./poetize -h` 查看详细用法。
 
 #### 国内环境部署
 
-`deploy.sh` 脚本已内置国内镜像源加速。~~若网络受限，可从Release下载离线资源包，包含Docker安装包和所有镜像文件。~~
+`poetize install` 已内置国内镜像源加速。~~若网络受限，可从Release下载离线资源包，包含Docker安装包和所有镜像文件。~~
 
 ## 🤖 OpenClaw 博客自动化
 

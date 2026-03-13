@@ -53,9 +53,9 @@ resolve_bootstrap_ref() {
 
     local release_tag=""
     if bootstrap_is_china_environment; then
-        release_tag=$(curl -fsSL "https://gitee.com/api/v5/repos/leapya/poetize/releases/latest" 2>/dev/null | grep -o '"tag_name":"[^"]*"' | head -1 | sed 's/"tag_name":"//;s/"//')
+        release_tag=$(curl -fsSL "https://gitee.com/api/v5/repos/leapya/poetize/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
     else
-        release_tag=$(curl -fsSL "https://api.github.com/repos/LeapYa/Awesome-poetize-open/releases/latest" 2>/dev/null | grep -o '"tag_name": "[^"]*"' | head -1 | sed 's/"tag_name": "//;s/"//')
+        release_tag=$(curl -fsSL "https://api.github.com/repos/LeapYa/Awesome-poetize-open/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
     fi
 
     if [ -n "$release_tag" ]; then
@@ -82,34 +82,67 @@ ensure_bootstrap_core_dir() {
     [ -d "$BOOTSTRAP_CORE_DIR" ]
 }
 
+list_bootstrap_base_urls() {
+    local ref="$1"
+    local github_base="https://raw.githubusercontent.com/LeapYa/Awesome-poetize-open/${ref}"
+    local gitee_base="https://gitee.com/leapya/poetize/raw/${ref}"
+
+    if [ -n "${POETIZE_BOOTSTRAP_BASE_URL:-}" ]; then
+        printf "%s\n" "${POETIZE_BOOTSTRAP_BASE_URL%/}/${ref}"
+    fi
+
+    if bootstrap_is_china_environment; then
+        printf "%s\n%s\n" "$gitee_base" "$github_base"
+    else
+        printf "%s\n%s\n" "$github_base" "$gitee_base"
+    fi
+}
+
+download_file_to_path() {
+    local url="$1"
+    local target_path="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --connect-timeout 8 --retry 2 --retry-delay 1 "$url" -o "$target_path" >/dev/null 2>&1
+        return $?
+    fi
+
+    if command -v wget >/dev/null 2>&1; then
+        wget -q -O "$target_path" "$url" >/dev/null 2>&1
+        return $?
+    fi
+
+    warning "当前环境缺少 curl/wget，无法下载核心脚本" >&2
+    return 1
+}
+
 download_bootstrap_core_script() {
     local script_name="$1"
     local target_path="$2"
     local ref=""
-    local raw_base=""
+    local download_url=""
+    local attempted_urls=()
 
     ensure_bootstrap_core_dir || return 1
     ref=$(resolve_bootstrap_ref)
 
-    if [ -n "${POETIZE_BOOTSTRAP_BASE_URL:-}" ]; then
-        raw_base="${POETIZE_BOOTSTRAP_BASE_URL%/}/${ref}"
-    elif bootstrap_is_china_environment; then
-        raw_base="https://gitee.com/leapya/poetize/raw/${ref}"
-    else
-        raw_base="https://raw.githubusercontent.com/LeapYa/Awesome-poetize-open/${ref}"
-    fi
+    while IFS= read -r raw_base; do
+        [ -n "$raw_base" ] || continue
+        download_url="${raw_base}/lib/core/${script_name}"
+        attempted_urls+=("$download_url")
+        if download_file_to_path "$download_url" "$target_path"; then
+            chmod +x "$target_path" 2>/dev/null || true
+            return 0
+        fi
+    done < <(list_bootstrap_base_urls "$ref")
 
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "${raw_base}/lib/core/${script_name}" -o "$target_path" >/dev/null 2>&1 || return 1
-    elif command -v wget >/dev/null 2>&1; then
-        wget -q -O "$target_path" "${raw_base}/lib/core/${script_name}" >/dev/null 2>&1 || return 1
-    else
-        warning "当前环境缺少 curl/wget，无法下载核心脚本"
-        return 1
-    fi
-
-    chmod +x "$target_path" 2>/dev/null || true
-    return 0
+    warning "核心脚本下载失败，已尝试以下地址：" >&2
+    local attempted_url=""
+    for attempted_url in "${attempted_urls[@]}"; do
+        warning "  - $attempted_url" >&2
+    done
+    rm -f "$target_path" 2>/dev/null || true
+    return 1
 }
 
 resolve_core_script() {
@@ -125,7 +158,7 @@ resolve_core_script() {
     if ensure_bootstrap_core_dir; then
         local bootstrap_script="$BOOTSTRAP_CORE_DIR/$script_name"
         if [ ! -f "$bootstrap_script" ]; then
-            info "正在下载核心脚本: $script_name"
+            info "正在下载核心脚本: $script_name" >&2
             download_bootstrap_core_script "$script_name" "$bootstrap_script" || return 1
         fi
         if [ -f "$bootstrap_script" ]; then
@@ -143,7 +176,7 @@ run_core_script() {
     local core_script=""
     core_script=$(resolve_core_script "$script_name") || {
         error "未找到核心脚本: $script_name"
-        error "请确保项目目录中的 lib/core 已完整存在，或检查 deploy.leapya.com 是否可访问"
+        error "请确保项目目录中的 lib/core 已完整存在，或检查 install.leapya.com / GitHub / Gitee 是否可访问"
         exit 1
     }
 

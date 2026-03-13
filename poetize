@@ -13,6 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
+POETIZE_VERSION="1.10.0"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -11366,20 +11367,20 @@ show_interactive_menu() {
         printf "${GREEN}██╔═══╝ ██║   ██║██╔══╝     ██║   ██║ ███╔╝  ██╔══╝${NC}\n"
         printf "${GREEN}██║     ╚██████╔╝███████╗   ██║   ██║███████╗███████╗${NC}\n"
         printf "${GREEN}╚═╝      ╚═════╝ ╚══════╝   ╚═╝   ╚═╝╚══════╝╚══════╝${NC}\n"
+        printf "${CYAN}────────────────────────────────────────────────────────────────${NC}\n"
+        printf "${GREEN}  Control Center${NC}  ${YELLOW}v%s${NC}\n" "$POETIZE_VERSION"
+        printf "${BLUE}  安装、迁移、更新、运维管理一体化入口${NC}\n"
+        printf "${CYAN}────────────────────────────────────────────────────────────────${NC}\n"
         printf "\n"
-        printf "  1. 安装项目\n"
-        printf "  2. 卸载当前项目\n"
-        printf "  3. 迁移项目\n"
-        printf "  4. 更新项目\n"
-        printf "  5. 启动服务\n"
-        printf "  6. 停止服务\n"
-        printf "  7. 重启服务\n"
-        printf "  8. 查看状态\n"
-        printf "  9. 备份/恢复\n"
-        printf "  0. 退出\n"
+        printf "  ${YELLOW}[1]${NC} 安装项目        ${YELLOW}[2]${NC} 卸载当前项目    ${YELLOW}[3]${NC} 迁移项目\n"
+        printf "  ${YELLOW}[4]${NC} 更新项目        ${YELLOW}[5]${NC} 启动服务        ${YELLOW}[6]${NC} 停止服务\n"
+        printf "  ${YELLOW}[7]${NC} 重启服务        ${YELLOW}[8]${NC} 查看状态        ${YELLOW}[9]${NC} 备份 / 恢复\n"
+        printf "  ${YELLOW}[0]${NC} 退出\n"
+        printf "\n"
+        printf "${BLUE}  Tip:${NC} 首次部署建议先执行安装项目，后续统一使用 poetize 命令管理\n"
         printf "\n"
 
-        read -rp "请选择操作: " menu_choice
+        read -rp "请输入编号 [0-9]: " menu_choice
         case "$menu_choice" in
             1)
                 run_deployment
@@ -11421,10 +11422,14 @@ show_interactive_menu() {
                 ;;
             9)
                 printf "\n"
-                printf "  1. 备份当前项目\n"
-                printf "  2. 恢复备份\n"
-                printf "  0. 返回上一级\n"
-                read -rp "请选择操作: " data_choice
+                printf "${CYAN}---------------------------------------------------------------${NC}\n"
+                printf "${GREEN}  数据管理${NC}\n"
+                printf "${CYAN}---------------------------------------------------------------${NC}\n"
+                printf "  ${YELLOW}[1]${NC} 备份当前项目\n"
+                printf "  ${YELLOW}[2]${NC} 恢复备份\n"
+                printf "  ${YELLOW}[0]${NC} 返回上一级\n"
+                printf "\n"
+                read -rp "请输入编号 [0-2]: " data_choice
                 case "$data_choice" in
                     1)
                         check_docker
@@ -11458,7 +11463,7 @@ show_interactive_menu() {
 
 # 显示版本信息
 show_version() {
-    printf "${GREEN}POETIZE 管理工具 v1.7.0${NC}\n"
+    printf "${GREEN}POETIZE 管理工具 v%s${NC}\n" "$POETIZE_VERSION"
     printf "作者: LeapYa\n"
     printf "项目: Awesome-poetize-open\n"
 }

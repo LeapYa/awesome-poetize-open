@@ -583,7 +583,7 @@
       checkAdminToken() {
         // 主动发送一个需要Admin Token的请求，验证Token在后端是否已过期
         // 由于welcome等页面可能不发送需要Token的请求，此处用于进入后台时的强制校验
-        this.$http.get(this.$constant.baseURL + '/webInfo/ai/config/articleAi', {}, true)
+        this.$http.get(this.$constant.baseURL + '/webInfo/ai/config/articleAi/get', {}, true)
           .catch(() => {
             // 如果401过期，拦截器会自动处理跳转，不需额外逻辑
           });

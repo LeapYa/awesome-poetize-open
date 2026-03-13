@@ -13,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 // import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -133,7 +134,7 @@ public class SysAiConfigController {
     @LoginCheck(0)
     public PoetryResult<Map<String, Object>> testAiChatConnection(@RequestBody SysAiConfig config) {
         try {
-            Map<String, Object> result = sysAiConfigService.testConnection(config);
+            Map<String, Object> result = sysAiConfigService.testConnection(resolveAiChatTestConfig(config));
             return PoetryResult.success(result);
             
         } catch (Exception e) {
@@ -156,6 +157,42 @@ public class SysAiConfigController {
         } else {
             return PoetryResult.fail("切换失败");
         }
+    }
+
+    private SysAiConfig resolveAiChatTestConfig(SysAiConfig config) {
+        SysAiConfig resolvedConfig = config != null ? config : new SysAiConfig();
+        resolvedConfig.setConfigType("ai_chat");
+
+        if (!StringUtils.hasText(resolvedConfig.getConfigName())) {
+            resolvedConfig.setConfigName("default");
+        }
+
+        SysAiConfig savedConfig = sysAiConfigService.getAiChatConfigInternal(resolvedConfig.getConfigName());
+        if (savedConfig == null) {
+            return resolvedConfig;
+        }
+
+        if (!StringUtils.hasText(resolvedConfig.getProvider())) {
+            resolvedConfig.setProvider(savedConfig.getProvider());
+        }
+
+        if (!StringUtils.hasText(resolvedConfig.getApiBase())) {
+            resolvedConfig.setApiBase(savedConfig.getApiBase());
+        }
+
+        if (!StringUtils.hasText(resolvedConfig.getModel())) {
+            resolvedConfig.setModel(savedConfig.getModel());
+        }
+
+        if (!StringUtils.hasText(resolvedConfig.getApiKey()) || resolvedConfig.getApiKey().contains("*")) {
+            resolvedConfig.setApiKey(savedConfig.getApiKey());
+        }
+
+        if (resolvedConfig.getTemperature() == null) {
+            resolvedConfig.setTemperature(savedConfig.getTemperature());
+        }
+
+        return resolvedConfig;
     }
 
     // ========== 文章AI助手配置接口 ==========

@@ -222,6 +222,7 @@
           <!-- 正文显示 -->
           <div
             v-else
+            :key="articleContentKey"
             v-html="articleContentHtml"
             class="entry-content"
             :lang="currentLang"
@@ -1075,6 +1076,40 @@ export default {
       return md
     },
 
+    getDisplayedMarkdownContent() {
+      if (
+        this.currentLang &&
+        this.currentLang !== this.sourceLanguage &&
+        this.translatedContent
+      ) {
+        return this.translatedContent
+      }
+
+      return this.article?.articleContent || ''
+    },
+
+    async renderArticleBody(content, { setupCommentObserver = false } = {}) {
+      const safeContent = content || ''
+      const md = await this.createMarkdownRenderer(safeContent)
+      this.articleContentHtml = md.render(safeContent)
+      this.articleContentKey = Date.now()
+
+      await this.$nextTick()
+
+      this.$common.imgShow('.entry-content img')
+      this.normalizeTaskListCheckboxes()
+      this.wrapTables()
+      this.highlight()
+      this.renderMermaid()
+      this.renderECharts()
+      this.addId()
+      this.detectAndLoadResources()
+
+      if (setupCommentObserver) {
+        this.setupCommentIntersectionObserver()
+      }
+    },
+
     normalizeTaskListCheckboxes(container) {
       const root =
         container ||
@@ -1572,9 +1607,6 @@ export default {
                 headingsOffset: 100,
                 scrollSmoothDuration: 420,
                 includeHtml: false,
-                onClick: function (e) {
-                  e.preventDefault()
-                },
               })
 
               // 动态设置目录标题（根据当前语言 + 文章主题 emoji）
@@ -1886,9 +1918,6 @@ export default {
                 ? this.article.translatedContent
                 : this.article.articleContent
 
-            // 按需加载 KaTeX（只有包含数学公式时才加载）
-            const md = await this.createMarkdownRenderer(contentToRender)
-
             // 判断显示原文还是翻译
             if (
               this.currentLang !== this.sourceLanguage &&
@@ -1897,30 +1926,13 @@ export default {
               // 显示翻译内容（后端已一次性返回）
               this.translatedTitle = this.article.translatedTitle
               this.translatedContent = this.article.translatedContent
-              this.articleContentHtml = md.render(this.translatedContent)
             } else {
               // 显示原文
               this.translatedTitle = ''
               this.translatedContent = ''
-              this.articleContentHtml = md.render(this.article.articleContent)
             }
-
-            this.articleContentKey = Date.now()
-
-            // 等待DOM渲染完成后，再检测并加载资源
-            this.$nextTick(() => {
-              this.$common.imgShow('.entry-content img')
-          this.normalizeTaskListCheckboxes()
-          this.wrapTables()  // 先处理表格包装（独立于代码高亮）
-          this.highlight()
-          this.renderMermaid()
-          this.renderECharts()
-          this.addId()
-
-              // 在内容渲染到DOM后检测资源并初始化目录
-              // 注意：getTocbot()会在detectAndLoadResources()中调用
-              this.detectAndLoadResources()
-              this.setupCommentIntersectionObserver()
+            await this.renderArticleBody(contentToRender, {
+              setupCommentObserver: true,
             })
 
             // 确保样式正确应用的保险措施
@@ -2358,7 +2370,7 @@ export default {
     // 检测文章内容中需要加载的资源（异步并行，不阻塞渲染）
     // 注意：此方法应在 $nextTick 中调用，确保 DOM 已渲染
     detectAndLoadResources() {
-      const content = this.article?.articleContent || ''
+      const content = this.getDisplayedMarkdownContent()
       const loadTasks = []
 
       // 保存当前加载的文章ID（使用loadingArticleId而不是this.id，因为路由切换时this.id会先更新）
@@ -3673,41 +3685,13 @@ export default {
       if (lang !== this.sourceLanguage) {
         // 如果已有翻译内容，直接显示
         if (this.translatedContent) {
-          // 强制更新显示翻译内容（按需加载 KaTeX）
-          const md = await this.createMarkdownRenderer(this.translatedContent)
-          this.articleContentHtml = md.render(this.translatedContent)
-          this.articleContentKey = Date.now() // 强制Vue重新渲染
-
-          // 重新应用文章内容处理
-          this.$nextTick(() => {
-            this.$common.imgShow('.entry-content img')
-            this.normalizeTaskListCheckboxes()
-            this.highlight()
-            this.renderMermaid()
-            this.renderECharts()
-            this.addId()
-            this.getTocbot()
-          })
+          await this.renderArticleBody(this.translatedContent)
         } else {
           // 没有翻译内容，获取翻译
           await this.fetchTranslation()
         }
       } else if (lang === this.sourceLanguage) {
-        // 切换到源语言，确保显示原始内容（按需加载 KaTeX）
-        const md = await this.createMarkdownRenderer(this.article.articleContent)
-        this.articleContentHtml = md.render(this.article.articleContent)
-        this.articleContentKey = Date.now() // 强制Vue重新渲染
-
-        // 重新应用文章内容处理
-        this.$nextTick(() => {
-          this.$common.imgShow('.entry-content img')
-          this.normalizeTaskListCheckboxes()
-          this.highlight()
-          this.renderMermaid()
-          this.renderECharts()
-          this.addId()
-          this.getTocbot()
-        })
+        await this.renderArticleBody(this.article.articleContent)
       }
     },
     async fetchTranslation() {
@@ -3726,26 +3710,7 @@ export default {
           }
         )
 
-        if (response.code === 200 && response.data) {
-          this.translatedTitle = response.data.title
-          this.translatedContent = response.data.content
-
-          // 更新文章内容显示（按需加载 KaTeX）
-          const md = await this.createMarkdownRenderer(this.translatedContent)
-          this.articleContentHtml = md.render(this.translatedContent)
-          this.articleContentKey = Date.now() // 强制Vue重新渲染
-
-          // 重新应用文章内容处理
-          this.$nextTick(() => {
-            this.$common.imgShow('.entry-content img')
-            this.normalizeTaskListCheckboxes()
-            this.highlight()
-            this.renderMermaid()
-            this.renderECharts()
-            this.addId()
-            this.getTocbot()
-          })
-        } else if (
+        if (
           response.code === 200 &&
           response.data &&
           response.data.status === 'not_found'
@@ -3760,21 +3725,13 @@ export default {
           // 更新URL为源语言
           this.updateUrlWithLanguage(this.sourceLanguage)
 
-          // 显示原文（按需加载 KaTeX）
-          const md = await this.createMarkdownRenderer(this.article.articleContent)
-          this.articleContentHtml = md.render(this.article.articleContent)
-          this.articleContentKey = Date.now()
-
-          this.$nextTick(() => {
-            this.$common.imgShow('.entry-content img')
-            this.normalizeTaskListCheckboxes()
-            this.highlight()
-            this.renderMermaid()
-            this.renderECharts()
-            this.addId()
-            this.getTocbot()
-          })
+          await this.renderArticleBody(this.article.articleContent)
           this.$message.info('该语言版本不存在，已切换到原文显示')
+        } else if (response.code === 200 && response.data) {
+          this.translatedTitle = response.data.title
+          this.translatedContent = response.data.content
+
+          await this.renderArticleBody(this.translatedContent)
         } else {
           console.error('获取翻译失败，服务器返回:', response)
           // 获取失败时自动降级到源语言
@@ -3787,20 +3744,7 @@ export default {
           // 更新URL为源语言
           this.updateUrlWithLanguage(this.sourceLanguage)
 
-          // 显示原文（按需加载 KaTeX）
-          const md2 = await this.createMarkdownRenderer(this.article.articleContent)
-          this.articleContentHtml = md2.render(this.article.articleContent)
-          this.articleContentKey = Date.now()
-
-          this.$nextTick(() => {
-            this.$common.imgShow('.entry-content img')
-            this.normalizeTaskListCheckboxes()
-            this.highlight()
-            this.renderMermaid()
-            this.renderECharts()
-            this.addId()
-            this.getTocbot()
-          })
+          await this.renderArticleBody(this.article.articleContent)
           this.$message.error('翻译加载失败，已切换到原文显示')
         }
       } catch (error) {
@@ -3816,26 +3760,7 @@ export default {
         // 更新URL为源语言
         this.updateUrlWithLanguage(this.sourceLanguage)
 
-        // 显示原文内容
-        const md = new MarkdownIt({ breaks: true })
-          .use(markdownItMultimdTable)
-          .use(markdownItTaskLists, {
-            enabled: true,
-            label: true,
-            labelAfter: true
-          })
-        this.articleContentHtml = md.render(this.article.articleContent)
-        this.articleContentKey = Date.now()
-
-        this.$nextTick(() => {
-          this.$common.imgShow('.entry-content img')
-          this.normalizeTaskListCheckboxes()
-          this.highlight()
-          this.renderMermaid()
-          this.renderECharts()
-          this.addId()
-          this.getTocbot()
-        })
+        await this.renderArticleBody(this.article.articleContent)
 
         this.$message.error('翻译加载失败，已切换到原文显示')
       } finally {

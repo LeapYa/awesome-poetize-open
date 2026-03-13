@@ -641,8 +641,8 @@ export default {
         toolsConfig: {
           enableMemory: false,
           mem0ApiKey: '',
-          memoryAutosave: true,
-          memoryAutorecall: true,
+          memoryAutoSave: true,
+          memoryAutoRecall: true,
           memoryRecallLimit: 5
         }
       },
@@ -991,8 +991,8 @@ export default {
           this.aiConfigs.toolsConfig = {
             enableMemory: config.enableMemory || false,
             mem0ApiKey: config.mem0ApiKey || '',
-            memoryAutosave: config.memoryAutosave !== false,
-            memoryAutorecall: config.memoryAutorecall !== false,
+            memoryAutoSave: config.memoryAutoSave !== false && config.memoryAutosave !== false,
+            memoryAutoRecall: config.memoryAutoRecall !== false && config.memoryAutorecall !== false,
             memoryRecallLimit: config.memoryRecallLimit || 5
           };
         }
@@ -1031,8 +1031,8 @@ export default {
           enableThinking: this.aiConfigs.advancedConfig.enableThinking,
           // 工具配置 (Mem0 记忆)
           enableMemory: this.aiConfigs.toolsConfig.enableMemory,
-          memoryAutosave: this.aiConfigs.toolsConfig.memoryAutosave,
-          memoryAutorecall: this.aiConfigs.toolsConfig.memoryAutorecall,
+          memoryAutoSave: this.aiConfigs.toolsConfig.memoryAutoSave,
+          memoryAutoRecall: this.aiConfigs.toolsConfig.memoryAutoRecall,
           memoryRecallLimit: this.aiConfigs.toolsConfig.memoryRecallLimit
         };
         if (this.aiConfigs.modelConfig.apiKey && !this.aiConfigs.modelConfig.apiKey.includes('*')) {

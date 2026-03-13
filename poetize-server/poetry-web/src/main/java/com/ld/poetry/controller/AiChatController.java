@@ -53,7 +53,12 @@ public class AiChatController {
     @PostMapping("/sendMessage")
     public PoetryResult<Map<String, Object>> sendMessage(@Valid @RequestBody AiChatRequest request) {
         try {
-            String response = aiChatService.chat(request.message(), request.history(), request.userId());
+            String response = aiChatService.chat(
+                    request.message(),
+                    request.history(),
+                    request.conversationId(),
+                    request.userId(),
+                    request.pageContext());
 
             return PoetryResult.success(Map.of(
                     "content", response != null ? response : "",

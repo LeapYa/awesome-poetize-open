@@ -5,24 +5,22 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.ld.poetry.dao.SysAiConfigMapper;
 import com.ld.poetry.dao.ArticleMapper;
+import com.ld.poetry.dao.SysAiConfigMapper;
 import com.ld.poetry.entity.SysAiConfig;
 import com.ld.poetry.entity.Article;
 import com.ld.poetry.service.SysAiConfigService;
+import com.ld.poetry.service.ai.DynamicChatClientFactory;
 import com.ld.poetry.utils.AESCryptoUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
 import java.util.List;
@@ -43,7 +41,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
     private final SysAiConfigMapper sysAiConfigMapper;
     private final ArticleMapper articleMapper;
     private final AESCryptoUtil aesCryptoUtil;
-    private final RestTemplate restTemplate;
+    private final DynamicChatClientFactory dynamicChatClientFactory;
 
     @Autowired
     @Lazy
@@ -90,6 +88,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                 result.put("welcome_message", "你好！我是你的AI助手，有什么可以帮助你的吗？");
                 result.put("theme_color", "#4facfe");
                 result.put("max_message_length", 500);
+                result.put("max_conversation_length", 20);
                 result.put("rate_limit", 20);
                 return result;
             }
@@ -109,6 +108,8 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                     : "你好！我是你的AI助手，有什么可以帮助你的吗？");
             result.put("theme_color", StringUtils.hasText(config.getThemeColor()) ? config.getThemeColor() : "#4facfe");
             result.put("max_message_length", config.getMaxMessageLength() != null ? config.getMaxMessageLength() : 500);
+            result.put("max_conversation_length",
+                    config.getMaxConversationLength() != null ? config.getMaxConversationLength() : 20);
             result.put("rate_limit", config.getRateLimit() != null ? config.getRateLimit() : 20);
             result.put("enable_content_filter", Boolean.TRUE.equals(config.getEnableContentFilter()));
 
@@ -127,6 +128,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
             result.put("welcome_message", "你好！我是你的AI助手，有什么可以帮助你的吗？");
             result.put("theme_color", "#4facfe");
             result.put("max_message_length", 500);
+            result.put("max_conversation_length", 20);
             result.put("rate_limit", 20);
         }
 
@@ -774,33 +776,28 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
         Map<String, Object> result = new HashMap<>();
 
         try {
-            String apiBase = config.getApiBase();
             String apiKey = config.getApiKey();
 
-            if (!StringUtils.hasText(apiBase) || !StringUtils.hasText(apiKey)) {
+            if (!StringUtils.hasText(apiKey)) {
                 result.put("success", false);
-                result.put("message", "API地址或密钥为空");
+                result.put("message", "API密钥为空");
                 return result;
             }
 
-            // 构建测试请求
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("Authorization", "Bearer " + apiKey);
-            headers.set("Content-Type", "application/json");
+            ChatModel chatModel = dynamicChatClientFactory.createChatModel(config);
+            String response = ChatClient.create(chatModel)
+                    .prompt()
+                    .user("请只回复：ok")
+                    .call()
+                    .content();
 
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            // 发送测试请求（根据provider类型调整端点）
-            String testUrl = apiBase + "/v1/models";
-            ResponseEntity<String> response = restTemplate.exchange(
-                    testUrl, HttpMethod.GET, entity, String.class);
-
-            if (response.getStatusCode().is2xxSuccessful()) {
+            if (StringUtils.hasText(response)) {
                 result.put("success", true);
                 result.put("message", "连接成功");
+                result.put("response", response.trim());
             } else {
                 result.put("success", false);
-                result.put("message", "连接失败: " + response.getStatusCode());
+                result.put("message", "连接测试返回空响应");
             }
 
         } catch (Exception e) {

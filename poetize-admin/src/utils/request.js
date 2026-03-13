@@ -92,7 +92,7 @@ async function getTranslationTimeout() {
       headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
     }
 
-    const response = await axios.get(constant.baseURL + '/webInfo/ai/config/articleAi', {
+    const response = await axios.get(constant.baseURL + '/webInfo/ai/config/articleAi/get', {
       timeout: 10000,
       headers: headers
     });

@@ -222,63 +222,59 @@ export default {
     
     async testConnection() {
       this.testing = true;
-      this.testResult = '';
+      this.testResult = null;
+
+      const usingSavedConfig = this.isApiKeyMasked || (this.modelConfig.apiKey && this.modelConfig.apiKey.includes('*'));
+      const testData = {
+        configType: 'ai_chat',
+        configName: 'default',
+        provider: this.modelConfig.provider,
+        apiBase: this.modelConfig.baseUrl,
+        model: this.modelConfig.model
+      };
+
+      if (!usingSavedConfig && this.modelConfig.apiKey) {
+        testData.apiKey = this.modelConfig.apiKey;
+      }
 
       try {
-        if (this.isApiKeyMasked || (this.modelConfig.apiKey && this.modelConfig.apiKey.includes('*'))) {
-          const response = await this.$http.post(this.$constant.baseURL + '/webInfo/ai/config/chat/test', {
-            provider: this.modelConfig.provider,
-            api_base: this.modelConfig.baseUrl,
-            model: this.modelConfig.model,
-            use_saved_config: true
-          }, true);
+        const response = await this.$http.post(this.$constant.baseURL + '/webInfo/ai/config/chat/test', testData, true);
+        const result = this.normalizeTestResponse(response, usingSavedConfig);
 
-          if (response.flag) {
-            this.testResult = {
-              success: true,
-              message: response.message || '连接测试成功（使用已保存的配置）'
-            };
-            this.$message.success('连接测试成功（使用已保存的配置）');
-          } else {
-            this.testResult = {
-              success: false,
-              message: response.message || '连接测试失败'
-            };
-            this.$message.error('连接测试失败: ' + response.message);
-          }
-        } else {
-          const testData = {
-            provider: this.modelConfig.provider,
-            api_key: this.modelConfig.apiKey,
-            api_base: this.modelConfig.baseUrl,
-            model: this.modelConfig.model
-          };
-
-          const response = await this.$http.post(this.$constant.baseURL + '/webInfo/ai/config/chat/test', testData, true);
-
-          if (response.flag) {
-            this.testResult = {
-              success: true,
-              message: response.message || '连接测试成功'
-            };
-            this.$message.success('连接测试成功');
-          } else {
-            this.testResult = {
-              success: false,
-              message: response.message || '连接测试失败'
-            };
-            this.$message.error('连接测试失败: ' + response.message);
-          }
-        }
+        this.testResult = result;
+        this.$message[result.success ? 'success' : 'error'](result.message);
       } catch (error) {
-        this.testResult = {
-          success: false,
-          message: error.message
-        };
-        this.$message.error('连接测试失败: ' + error.message);
+        const result = this.normalizeTestError(error);
+        this.testResult = result;
+        this.$message.error(result.message);
       } finally {
         this.testing = false;
       }
+    },
+
+    normalizeTestResponse(response, usingSavedConfig) {
+      const data = response && response.data ? response.data : {};
+      const success = typeof data.success === 'boolean'
+        ? data.success
+        : Boolean(response && (response.success === true || response.code === 200));
+      const defaultMessage = success
+        ? (usingSavedConfig ? '连接测试成功（使用已保存的配置）' : '连接测试成功')
+        : '连接测试失败';
+
+      return {
+        success,
+        message: data.message || response.message || defaultMessage
+      };
+    },
+
+    normalizeTestError(error) {
+      const dataMessage = error && error.data && error.data.message;
+      const responseMessage = error && error.responseData && error.responseData.message;
+
+      return {
+        success: false,
+        message: dataMessage || responseMessage || error.message || '连接测试失败，请检查配置和网络连接'
+      };
     },
     
     onApiKeyInput() {
@@ -433,4 +429,4 @@ export default {
     font-size: 10px;
   }
 }
-</style> 
+</style>

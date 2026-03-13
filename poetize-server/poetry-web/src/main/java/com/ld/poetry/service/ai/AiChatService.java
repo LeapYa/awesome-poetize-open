@@ -6,7 +6,9 @@ import com.ld.poetry.service.SysAiConfigService;
 import com.ld.poetry.service.ai.tools.ArticleTools;
 import com.ld.poetry.service.ai.tools.CalculatorTools;
 import com.ld.poetry.service.ai.tools.TimeTools;
+import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.utils.RedisUtil;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -22,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
@@ -78,6 +81,7 @@ public class AiChatService {
     /** Redis 缓存前缀 & TTL */
     private static final String CACHE_PREFIX = "poetize:ai:chat:response:";
     private static final long CACHE_TTL_SECONDS = 86400L; // 1 day
+    private static final String FINGERPRINT_HEADER = "X-Fingerprint";
 
     /** 反提示词泄露指令 — 防止用户通过社会工程让 AI 输出系统提示词 */
     private static final String ANTI_LEAK_INSTRUCTIONS = """
@@ -141,30 +145,41 @@ public class AiChatService {
      * 非流式聊天
      */
     public String chat(String message, List<Map<String, String>> history, String userId) {
+        return chat(message, history, "default", userId, null);
+    }
+
+    /**
+     * 非流式聊天
+     */
+    public String chat(String message, List<Map<String, String>> history, String conversationId,
+            String userId, Map<String, Object> pageContext) {
         SysAiConfig config = getConfig();
         long startedAt = System.currentTimeMillis();
+        String resolvedConversationId = normalizeConversationId(conversationId);
         String resolvedUserId = normalizeUserId(userId);
 
-        logChatRequestStart("sync", resolvedUserId, "", message, history, null, config);
+        logChatRequestStart("sync", resolvedUserId, resolvedConversationId, message, history, pageContext, config);
 
         try {
             validateMessage(message, history, config, resolvedUserId);
 
+            String processedMessage = processUserMessage(message, pageContext);
+
             // 尝试缓存命中（仅无历史的单轮对话）
-            String cached = tryCacheGet(message, history, config);
+            String cached = tryCacheGet(processedMessage, history, config);
             if (cached != null) {
-                logChatRequestCompleted("sync", resolvedUserId, "", startedAt, cached, true);
+                logChatRequestCompleted("sync", resolvedUserId, resolvedConversationId, startedAt, cached, true);
                 return cached;
             }
 
             ChatModel chatModel = chatClientFactory.createChatModel(config);
             boolean enableTools = Boolean.TRUE.equals(config.getEnableTools());
 
-            // 构建消息列表（含历史 + 记忆）
-            List<Message> messages = buildMessages(config, history, message, null, resolvedUserId);
+            // 构建消息列表（含历史 + 页面上下文 + 记忆）
+            List<Message> messages = buildMessages(config, history, processedMessage, pageContext, resolvedUserId);
 
             // 构建选项（含工具）
-            ToolCallingChatOptions options = buildChatOptions(enableTools, null, null, resolvedUserId,
+            ToolCallingChatOptions options = buildChatOptions(enableTools, null, resolvedConversationId, resolvedUserId,
                     new AtomicBoolean(false));
 
             Prompt prompt = new Prompt(messages, options);
@@ -172,15 +187,16 @@ public class AiChatService {
             String content = response.getResult().getOutput().getText();
 
             // 缓存单轮响应
-            tryCachePut(message, history, config, content);
-            logChatRequestCompleted("sync", resolvedUserId, "", startedAt, content, false);
+            tryCachePut(processedMessage, history, config, content);
+            logChatRequestCompleted("sync", resolvedUserId, resolvedConversationId, startedAt, content, false);
+            autoSaveMemory(config, message, content, resolvedConversationId, resolvedUserId);
 
             return content;
         } catch (IllegalArgumentException ex) {
-            logChatRequestRejected("sync", resolvedUserId, "", startedAt, message, ex);
+            logChatRequestRejected("sync", resolvedUserId, resolvedConversationId, startedAt, message, ex);
             throw ex;
         } catch (Exception ex) {
-            logChatRequestFailed("sync", resolvedUserId, "", startedAt, message, ex);
+            logChatRequestFailed("sync", resolvedUserId, resolvedConversationId, startedAt, message, ex);
             throw ex;
         }
     }
@@ -365,10 +381,28 @@ public class AiChatService {
     }
 
     private String normalizeUserId(String userId) {
-        if (userId == null || userId.isBlank()) {
-            return "anonymous";
+        Integer currentUserId = PoetryUtil.getUserId();
+        if (currentUserId != null) {
+            return String.valueOf(currentUserId);
         }
-        return userId;
+        return buildAnonymousUserId();
+    }
+
+    private String buildAnonymousUserId() {
+        HttpServletRequest request = PoetryUtil.getRequest();
+        if (request != null) {
+            String fingerprint = request.getHeader(FINGERPRINT_HEADER);
+            if (StringUtils.hasText(fingerprint) && fingerprint.length() >= 8 && fingerprint.length() <= 64) {
+                return "anonymous:fingerprint:" + fingerprint;
+            }
+        }
+
+        String clientIp = PoetryUtil.getCurrentClientIp();
+        if (StringUtils.hasText(clientIp)) {
+            return "anonymous:ip:" + clientIp;
+        }
+
+        return "anonymous";
     }
 
     private String abbreviateForLog(String text, int maxLength) {
@@ -661,6 +695,10 @@ public class AiChatService {
      * 消息验证（长度 + 内容过滤）
      */
     private void validateMessage(String message, List<Map<String, String>> history, SysAiConfig config, String userId) {
+        if (Boolean.TRUE.equals(config.getRequireLogin()) && PoetryUtil.getUserId() == null) {
+            throw new IllegalArgumentException("请先登录后再使用AI聊天");
+        }
+
         if (message == null || message.isBlank()) {
             throw new IllegalArgumentException("消息内容不能为空");
         }
@@ -686,12 +724,10 @@ public class AiChatService {
      * 频率限制检查（滑动窗口，每分钟）
      */
     private boolean checkRateLimit(String userId, int maxPerMinute) {
-        if (userId == null || "anonymous".equals(userId)) {
-            return true;
-        }
+        String rateLimitKey = StringUtils.hasText(userId) ? userId : "anonymous";
 
         long now = System.currentTimeMillis();
-        long[] window = rateLimitMap.compute(userId, (k, v) -> {
+        long[] window = rateLimitMap.compute(rateLimitKey, (k, v) -> {
             if (v == null || now - v[0] > 60_000) {
                 return new long[] { now, 1 };
             }

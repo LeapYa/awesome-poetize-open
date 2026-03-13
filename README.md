@@ -182,7 +182,7 @@ bash <(curl -sL install.leapya.com)
 bash <(curl -sL install.leapya.com)
 
 # 方式二：非交互模式(替换成自己的域名，每个域名使用-d隔开)
-bash <(curl -sL install.leapya.com) -d 域名.com -d www.域名.com
+bash <(curl -sL install.leapya.com) install -d 域名.com -d www.域名.com
 
 # 方式三：克隆本仓库部署（交互模式）
 git clone https://github.com/LeapYa/Awesome-poetize-open.git && cd Awesome-poetize-open && sudo chmod +x poetize && sudo ./poetize install

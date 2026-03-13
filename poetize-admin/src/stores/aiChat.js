@@ -4,6 +4,8 @@
  */
 import { defineStore } from 'pinia'
 import constant from '@/utils/constant'
+import { getBrowserFingerprint } from '@/utils/fingerprintUtil'
+import { getValidToken } from '@/utils/tokenExpireHandler'
 
 export const useAIChatStore = defineStore('aiChat', {
   state: () => ({
@@ -32,7 +34,10 @@ export const useAIChatStore = defineStore('aiChat', {
       return requireLogin
     },
     isStreamingEnabled: (state) => {
-      return state.config?.streaming_enabled === true
+      return (
+        state.config?.streaming_enabled === true ||
+        state.config?.enable_streaming === true
+      )
     },
     themeColor: (state) => {
       return state.config?.theme_color || '#4facfe'
@@ -106,9 +111,10 @@ export const useAIChatStore = defineStore('aiChat', {
             chat_name: 'AI助手',
             welcome_message: '你好！我是你的AI助手，有什么可以帮助你的吗？',
             theme_color: '#4facfe',
-            enable_streaming: false,
+            streaming_enabled: false,
             require_login: false,
             max_message_length: 500,
+            max_conversation_length: 20,
             rate_limit: 20,
           }
         }
@@ -512,17 +518,40 @@ export const useAIChatStore = defineStore('aiChat', {
       this.attachedPageContext = null
     },
 
+    async buildRequestHeaders() {
+      const headers = {
+        'Content-Type': 'application/json',
+      }
+
+      const token = getValidToken(true) || getValidToken(false)
+      if (token) {
+        headers.Authorization = token.startsWith('Bearer ')
+          ? token
+          : `Bearer ${token}`
+      }
+
+      try {
+        const fingerprint = await getBrowserFingerprint()
+        if (fingerprint) {
+          headers['X-Fingerprint'] = fingerprint
+        }
+      } catch (error) {
+        console.warn('获取聊天请求指纹失败:', error)
+      }
+
+      return headers
+    },
+
     async sendNormalMessage(content) {
       this.typing = true
       this.shouldStop = false
       this.abortController = new AbortController()
 
       try {
+        const headers = await this.buildRequestHeaders()
         const response = await fetch(`${constant.baseURL}/ai/chat/sendMessage`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers,
           body: JSON.stringify({
             message: content,
             conversationId: 'default',
@@ -533,10 +562,16 @@ export const useAIChatStore = defineStore('aiChat', {
           signal: this.abortController.signal,
         })
 
-        const result = await response.json()
+        const result = await response.json().catch(() => null)
         this.typing = false
 
-        if (result.flag && result.data?.content) {
+        const isSuccess =
+          response.ok &&
+          (result?.code === 200 ||
+            result?.success === true ||
+            result?.flag === true)
+
+        if (isSuccess && result?.data?.content) {
           this.addMessage(result.data.content, 'assistant')
           if (this.attachedPageContext) {
             this.attachedPageContext = null
@@ -546,7 +581,7 @@ export const useAIChatStore = defineStore('aiChat', {
             response: result.data.content,
           }
         }
-        throw new Error(result.message || '未知错误')
+        throw new Error(result?.message || '未知错误')
       } catch (error) {
         this.typing = false
         if (error.name === 'AbortError') {
@@ -568,13 +603,12 @@ export const useAIChatStore = defineStore('aiChat', {
       this.abortController = new AbortController()
 
       try {
+        const headers = await this.buildRequestHeaders()
         const response = await fetch(
           `${constant.baseURL}/ai/chat/sendMessageStream`,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers,
             body: JSON.stringify({
               message: content,
               conversationId: 'default',
@@ -585,6 +619,11 @@ export const useAIChatStore = defineStore('aiChat', {
             signal: this.abortController.signal,
           }
         )
+
+        if (!response.ok || !response.body) {
+          const result = await response.json().catch(() => null)
+          throw new Error(result?.message || 'AI 服务暂时不可用，请稍后重试')
+        }
 
         const reader = response.body.getReader()
         const decoder = new TextDecoder()

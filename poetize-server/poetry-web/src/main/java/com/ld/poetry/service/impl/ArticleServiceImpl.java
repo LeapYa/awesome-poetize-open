@@ -19,6 +19,7 @@ import com.ld.poetry.service.ArticleService;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.UserService;
 import com.ld.poetry.service.SysConfigService;
+import com.ld.poetry.service.SysAiConfigService;
 import com.ld.poetry.utils.*;
 import com.ld.poetry.utils.mail.MailUtil;
 import com.ld.poetry.vo.ArticleVO;
@@ -102,6 +103,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     @Autowired
     private SysConfigService sysConfigService;
+
+    @Autowired
+    private SysAiConfigService sysAiConfigService;
 
     @Autowired
     private CacheService cacheService;
@@ -294,56 +298,26 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     return;
                 }
                 log.info("文章保存成功，任务ID: {}, 文章ID: {}，短事务已提交", taskId, savedArticleId);
-                updateSaveStatus(taskId, "processing", "文章已保存，正在进行AI翻译...", savedArticleId);
-                updateTranslationStage(taskId, "translating", "pending", "文章已保存，正在进行AI翻译...", 0, false);
+                String articleReadyMessage = "文章已保存";
+                updateSaveStatus(taskId, "processing", articleReadyMessage + "，正在准备后续任务...", savedArticleId);
 
-                // ========== 步骤2：事务外执行AI翻译（串行执行）==========
-                Map<String, String> translationResult;
-                try {
-                    translationResult = translationService.translateArticleOnly(
-                            articleVO.getArticleTitle(),
-                            articleVO.getArticleContent(),
-                            skipAiTranslation,
-                            pendingTranslation,
-                            buildTranslationProgressListener(taskId));
-                } catch (Exception e) {
-                    log.warn("翻译任务失败，任务ID: {}", taskId, e);
-                    translationResult = null;
-                }
-
-                // ========== 步骤3：在新事务中保存翻译结果 ==========
-                if (translationResult != null && !translationResult.isEmpty()) {
-                    updateTranslationStage(taskId, "saving_translation", "streaming", "文章已保存，正在保存翻译结果...", null, false);
-                    try {
-                        saveTranslationInNewTransaction(
-                                savedArticleId,
-                                translationResult.get("title"),
-                                translationResult.get("content"),
-                                translationResult.get("language"));
-                        log.info("翻译结果保存成功，任务ID: {}，新事务已提交", taskId);
-                        updateTranslationStage(taskId, "saving_translation", "saved", "翻译已保存，正在生成多语言AI摘要...", null, false);
-                        emitTaskEvent(taskId, "saved", Map.of("articleId", savedArticleId, "message", "翻译保存成功"));
-                    } catch (Exception e) {
-                        log.error("翻译结果保存失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
-                        updateTranslationStage(taskId, "saving_translation", "failed", "翻译保存失败：" + e.getMessage(), null, false);
-                    }
-                } else if (!skipAiTranslation) {
-                    updateSaveStatus(taskId, "partial_success", "文章已保存，但翻译失败", savedArticleId);
-                    updateTranslationStage(taskId, "translating", "failed", "文章已保存，但翻译失败", null, false);
-                    emitTaskEvent(taskId, "error", Map.of(
-                            "status", "partial_success",
-                            "message", "文章已保存，但翻译失败",
-                            "retryable", false));
-                    return;
-                } else {
-                    updateTranslationStage(taskId, "saving_translation", "saved", "跳过AI翻译，正在生成多语言AI摘要...", null, false);
-                    if (pendingTranslation != null && !pendingTranslation.isEmpty()) {
-                        emitTaskEvent(taskId, "saved", Map.of("articleId", savedArticleId, "message", "手动翻译已保存"));
-                    }
-                }
+                // ========== 步骤2：处理翻译（AI / 手动翻译 / 跳过）==========
+                AsyncTranslationOutcome translationOutcome = processAsyncTranslation(
+                        taskId,
+                        savedArticleId,
+                        articleVO.getArticleTitle(),
+                        articleVO.getArticleContent(),
+                        skipAiTranslation,
+                        pendingTranslation,
+                        articleReadyMessage);
 
                 // ========== 步骤4：生成多语言摘要（基于原文+翻译）==========
-                updateTranslationStage(taskId, "generating_summary", "saved", "文章已保存，正在生成多语言AI摘要...", null, false);
+                String summaryMessage = buildSummaryProgressMessage(
+                        articleReadyMessage,
+                        translationOutcome.translationStatus());
+                updateSaveStatus(taskId, "processing", summaryMessage, savedArticleId);
+                updateTranslationStage(taskId, "generating_summary", translationOutcome.translationStatus(),
+                        summaryMessage, null, false);
                 try {
                     summaryService.generateAndSaveSummary(savedArticleId);
                 } catch (Exception e) {
@@ -387,13 +361,18 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     log.error("发布文章保存事件失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
                 }
 
-                // 最终成功状态（SEO推送将在预渲染完成后自动执行）
-                updateSaveStatus(taskId, "success", "文章保存成功！AI摘要已生成", savedArticleId);
-                updateTranslationStage(taskId, "complete", "saved", "文章保存成功！AI摘要已生成", null, false);
-                emitTaskEvent(taskId, "complete", Map.of(
-                        "status", "success",
-                        "articleId", savedArticleId,
-                        "message", "文章保存成功！AI摘要已生成"));
+                // 最终状态（SEO推送将在预渲染完成后自动执行）
+                String finalTaskStatus = translationOutcome.failed() ? "partial_success" : "success";
+                String finalMessage = buildFinalAsyncMessage("保存", finalTaskStatus,
+                        translationOutcome.translationStatus());
+                updateSaveStatus(taskId, finalTaskStatus, finalMessage, savedArticleId);
+                updateTranslationStage(taskId, "complete", translationOutcome.translationStatus(), finalMessage, null,
+                        false);
+                emitTaskEvent(taskId, "complete", buildFinalTaskPayload(
+                        finalTaskStatus,
+                        savedArticleId,
+                        finalMessage,
+                        translationOutcome.translationStatus()));
                 log.info("异步文章保存流程全部完成，任务ID: {}, 文章ID: {}", taskId, savedArticleId);
 
             } catch (Exception e) {
@@ -578,6 +557,136 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         return payload;
     }
 
+    private AsyncTranslationOutcome processAsyncTranslation(String taskId, Integer articleId, String title,
+            String content, boolean skipAiTranslation, Map<String, String> pendingTranslation,
+            String articleReadyMessage) {
+        if (hasPendingTranslation(pendingTranslation)) {
+            updateTranslationStage(taskId, "saving_translation", "manual_saved",
+                    articleReadyMessage + "，正在保存手动翻译...", null, false);
+            try {
+                saveTranslationInNewTransaction(
+                        articleId,
+                        pendingTranslation.get("title"),
+                        pendingTranslation.get("content"),
+                        pendingTranslation.get("language"));
+                updateTranslationStage(taskId, "saving_translation", "manual_saved",
+                        "手动翻译已保存，正在生成多语言AI摘要...", null, false);
+                emitTaskEvent(taskId, "saved", Map.of("articleId", articleId, "message", "手动翻译保存成功"));
+                return new AsyncTranslationOutcome("manual_saved", false);
+            } catch (Exception e) {
+                log.error("手动翻译保存失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
+                updateTranslationStage(taskId, "saving_translation", "failed",
+                        "手动翻译保存失败：" + e.getMessage() + "，正在继续生成多语言AI摘要...", null, false);
+                return new AsyncTranslationOutcome("failed", true);
+            }
+        }
+
+        if (shouldSkipAsyncTranslation(skipAiTranslation)) {
+            updateTranslationStage(taskId, "translation_skipped", "skipped",
+                    articleReadyMessage + "，已跳过AI翻译，正在生成多语言AI摘要...", null, false);
+            return new AsyncTranslationOutcome("skipped", false);
+        }
+
+        updateTranslationStage(taskId, "translating", "pending",
+                articleReadyMessage + "，正在进行AI翻译...", 0, false);
+
+        Map<String, String> translationResult;
+        try {
+            translationResult = translationService.translateArticleOnly(
+                    title,
+                    content,
+                    false,
+                    null,
+                    buildTranslationProgressListener(taskId));
+        } catch (Exception e) {
+            log.warn("翻译任务失败，任务ID: {}", taskId, e);
+            translationResult = null;
+        }
+
+        if (translationResult == null || translationResult.isEmpty()) {
+            updateTranslationStage(taskId, "translating", "failed",
+                    articleReadyMessage + "，AI翻译失败，正在继续生成多语言AI摘要...", null, false);
+            return new AsyncTranslationOutcome("failed", true);
+        }
+
+        updateTranslationStage(taskId, "saving_translation", "streaming",
+                articleReadyMessage + "，正在保存翻译结果...", null, false);
+        try {
+            saveTranslationInNewTransaction(
+                    articleId,
+                    translationResult.get("title"),
+                    translationResult.get("content"),
+                    translationResult.get("language"));
+            updateTranslationStage(taskId, "saving_translation", "saved",
+                    "翻译已保存，正在生成多语言AI摘要...", null, false);
+            emitTaskEvent(taskId, "saved", Map.of("articleId", articleId, "message", "翻译保存成功"));
+            return new AsyncTranslationOutcome("saved", false);
+        } catch (Exception e) {
+            log.error("翻译结果保存失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
+            updateTranslationStage(taskId, "saving_translation", "failed",
+                    "翻译保存失败：" + e.getMessage() + "，正在继续生成多语言AI摘要...", null, false);
+            return new AsyncTranslationOutcome("failed", true);
+        }
+    }
+
+    private boolean hasPendingTranslation(Map<String, String> pendingTranslation) {
+        return pendingTranslation != null
+                && StringUtils.hasText(pendingTranslation.get("title"))
+                && StringUtils.hasText(pendingTranslation.get("content"))
+                && StringUtils.hasText(pendingTranslation.get("language"));
+    }
+
+    private boolean shouldSkipAsyncTranslation(boolean skipAiTranslation) {
+        return skipAiTranslation || isTranslationDisabledByConfig();
+    }
+
+    private boolean isTranslationDisabledByConfig() {
+        try {
+            SysAiConfig articleAiConfig = sysAiConfigService.getArticleAiConfigInternal("default");
+            return articleAiConfig != null && "none".equals(articleAiConfig.getTranslationType());
+        } catch (Exception e) {
+            log.warn("读取文章翻译配置失败，按需继续尝试AI翻译: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private String buildSummaryProgressMessage(String articleReadyMessage, String translationStatus) {
+        return switch (translationStatus) {
+            case "saved" -> "翻译已保存，正在生成多语言AI摘要...";
+            case "manual_saved" -> "手动翻译已保存，正在生成多语言AI摘要...";
+            case "skipped" -> articleReadyMessage + "，已跳过AI翻译，正在生成多语言AI摘要...";
+            case "failed" -> articleReadyMessage + "，AI翻译失败，正在继续生成多语言AI摘要...";
+            default -> articleReadyMessage + "，正在生成多语言AI摘要...";
+        };
+    }
+
+    private String buildFinalAsyncMessage(String actionText, String finalStatus, String translationStatus) {
+        if ("partial_success".equals(finalStatus)) {
+            return "文章" + actionText + "成功，AI摘要已生成，但翻译失败";
+        }
+
+        return switch (translationStatus) {
+            case "saved" -> "文章" + actionText + "成功！翻译与AI摘要已生成";
+            case "manual_saved" -> "文章" + actionText + "成功！手动翻译与AI摘要已生成";
+            case "skipped" -> "文章" + actionText + "成功！已跳过AI翻译，AI摘要已生成";
+            default -> "文章" + actionText + "成功！AI摘要已生成";
+        };
+    }
+
+    private Map<String, Object> buildFinalTaskPayload(String finalStatus, Integer articleId, String message,
+            String translationStatus) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("status", finalStatus);
+        payload.put("stage", "complete");
+        payload.put("articleId", articleId);
+        payload.put("message", message);
+        payload.put("translationStatus", translationStatus);
+        return payload;
+    }
+
+    private record AsyncTranslationOutcome(String translationStatus, boolean failed) {
+    }
+
     private TranslationService.TranslationProgressListener buildTranslationProgressListener(String taskId) {
         return (eventName, payload) -> {
             if (eventName == null) {
@@ -585,6 +694,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             }
 
             Map<String, Object> safePayload = payload == null ? Collections.emptyMap() : payload;
+            String forwardedEventName = eventName;
             switch (eventName) {
                 case "start" -> {
                     Integer attempt = readInteger(safePayload.get("attempt"), 1);
@@ -602,9 +712,12 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 case "content_delta" -> appendTranslationPreview(
                         taskId, "content", readString(safePayload.get("delta"), ""),
                         readInteger(safePayload.get("currentLength"), 0));
-                case "complete" -> updateTranslationStage(
-                        taskId, "translating", "streaming",
-                        readString(safePayload.get("message"), "流式翻译完成，等待保存"), null, false);
+                case "complete" -> {
+                    updateTranslationStage(
+                            taskId, "translating", "streaming",
+                            readString(safePayload.get("message"), "流式翻译完成，等待保存"), null, false);
+                    forwardedEventName = "translation_complete";
+                }
                 case "error" -> {
                     String message = readString(safePayload.get("message"), "流式翻译失败");
                     boolean retryable = Boolean.TRUE.equals(safePayload.get("retryable"));
@@ -616,7 +729,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 }
             }
 
-            emitTaskEvent(taskId, eventName, safePayload);
+            emitTaskEvent(taskId, forwardedEventName, safePayload);
         };
     }
 
@@ -1211,8 +1324,11 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
         // 作者本人访问自己的文章时不计入浏览量，避免热度被作者自己抬高。
         if (shouldIncrementViewCount(article, incrementViewCount)) {
-            articleMapper.updateViewCount(id);
-            article.setViewCount((article.getViewCount() == null ? 0 : article.getViewCount()) + 1);
+            int updatedRows = articleMapper.updateViewCount(id);
+            if (updatedRows > 0) {
+                int latestViewCount = (article.getViewCount() == null ? 0 : article.getViewCount()) + 1;
+                article.setViewCount(latestViewCount);
+            }
         }
 
         article.setPassword(null);
@@ -1395,6 +1511,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         // 使用Redis缓存替换PoetryCache
         Map<Integer, List<Article>> cachedResult = cacheService.getCachedSortArticleList();
         if (cachedResult != null) {
+            Map<Integer, Integer> latestViewCountMap = loadLatestViewCountMap(cachedResult);
             // 转换为ArticleVO
             Map<Integer, List<ArticleVO>> result = new HashMap<>();
             for (Map.Entry<?, List<Article>> entry : cachedResult.entrySet()) {
@@ -1402,6 +1519,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 Integer sortId = convertToInteger(entry.getKey());
                 if (sortId != null) {
                     List<ArticleVO> articleVOList = entry.getValue().stream().map(article -> {
+                        applyLatestViewCount(article, latestViewCountMap);
                         ArticleVO vo = buildArticleVO(article, false);
                         if (StringUtils.hasText(article.getSummary())) {
                             vo.setSummary(article.getSummary());
@@ -1475,6 +1593,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 cacheService.cacheSortArticleList(articleMap);
                 return PoetryResult.success(resultMap);
             } else {
+                Map<Integer, Integer> latestViewCountMap = loadLatestViewCountMap(finalCachedResult);
                 // 转换缓存结果为ArticleVO
                 Map<Integer, List<ArticleVO>> resultMap = new HashMap<>();
                 for (Map.Entry<?, List<Article>> entry : finalCachedResult.entrySet()) {
@@ -1482,6 +1601,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     Integer sortId = convertToInteger(entry.getKey());
                     if (sortId != null) {
                         List<ArticleVO> articleVOList = entry.getValue().stream().map(article -> {
+                            applyLatestViewCount(article, latestViewCountMap);
                             ArticleVO vo = buildArticleVO(article, false);
                             if (StringUtils.hasText(article.getSummary())) {
                                 vo.setSummary(article.getSummary());
@@ -1500,6 +1620,45 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 return PoetryResult.success(resultMap);
             }
         });
+    }
+
+    private Map<Integer, Integer> loadLatestViewCountMap(Map<?, List<Article>> articleMap) {
+        if (articleMap == null || articleMap.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Set<Integer> articleIds = articleMap.values().stream()
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .filter(Objects::nonNull)
+                .map(Article::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        if (articleIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        return lambdaQuery()
+                .select(Article::getId, Article::getViewCount)
+                .in(Article::getId, articleIds)
+                .list()
+                .stream()
+                .collect(Collectors.toMap(
+                        Article::getId,
+                        article -> article.getViewCount() == null ? 0 : article.getViewCount(),
+                        (left, right) -> right));
+    }
+
+    private void applyLatestViewCount(Article article, Map<Integer, Integer> latestViewCountMap) {
+        if (article == null || latestViewCountMap == null || latestViewCountMap.isEmpty()) {
+            return;
+        }
+
+        Integer latestViewCount = latestViewCountMap.get(article.getId());
+        if (latestViewCount != null) {
+            article.setViewCount(latestViewCount);
+        }
     }
 
     private ArticleVO buildArticleVO(Article article, Boolean isAdmin) {
@@ -1927,57 +2086,27 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     return;
                 }
                 log.info("文章更新成功，任务ID: {}, 文章ID: {}，短事务已提交", taskId, articleVO.getId());
-                updateSaveStatus(taskId, "processing", "文章已更新，正在进行AI翻译...", articleVO.getId());
-                updateTranslationStage(taskId, "translating", "pending", "文章已更新，正在进行AI翻译...", 0, false);
+                String articleReadyMessage = "文章已更新";
+                updateSaveStatus(taskId, "processing", articleReadyMessage + "，正在准备后续任务...", articleVO.getId());
 
-                // ========== 步骤2：事务外执行AI翻译（串行执行）==========
-                Map<String, String> translationResult;
-                try {
-                    translationResult = translationService.translateArticleOnly(
-                            articleVO.getArticleTitle(),
-                            articleVO.getArticleContent(),
-                            skipAiTranslation,
-                            pendingTranslation,
-                            buildTranslationProgressListener(taskId));
-                } catch (Exception e) {
-                    log.warn("翻译任务失败，任务ID: {}", taskId, e);
-                    translationResult = null;
-                }
-
-                // ========== 步骤3：在新事务中保存翻译结果 ==========
-                if (translationResult != null && !translationResult.isEmpty()) {
-                    updateTranslationStage(taskId, "saving_translation", "streaming", "文章已更新，正在保存翻译结果...", null, false);
-                    try {
-                        saveTranslationInNewTransaction(
-                                articleVO.getId(),
-                                translationResult.get("title"),
-                                translationResult.get("content"),
-                                translationResult.get("language"));
-                        log.info("翻译结果保存成功，任务ID: {}，新事务已提交", taskId);
-                        updateTranslationStage(taskId, "saving_translation", "saved", "翻译已保存，正在生成多语言AI摘要...", null, false);
-                        emitTaskEvent(taskId, "saved", Map.of("articleId", articleVO.getId(), "message", "翻译保存成功"));
-                    } catch (Exception e) {
-                        log.error("翻译结果保存失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
-                        updateTranslationStage(taskId, "saving_translation", "failed", "翻译保存失败：" + e.getMessage(), null, false);
-                    }
-                } else if (!skipAiTranslation) {
-                    updateSaveStatus(taskId, "partial_success", "文章已更新，但翻译失败", articleVO.getId());
-                    updateTranslationStage(taskId, "translating", "failed", "文章已更新，但翻译失败", null, false);
-                    emitTaskEvent(taskId, "error", Map.of(
-                            "status", "partial_success",
-                            "message", "文章已更新，但翻译失败",
-                            "retryable", false));
-                    return;
-                } else {
-                    updateTranslationStage(taskId, "saving_translation", "saved", "跳过AI翻译，正在生成多语言AI摘要...", null, false);
-                    if (pendingTranslation != null && !pendingTranslation.isEmpty()) {
-                        emitTaskEvent(taskId, "saved", Map.of("articleId", articleVO.getId(), "message", "手动翻译已保存"));
-                    }
-                }
+                // ========== 步骤2：处理翻译（AI / 手动翻译 / 跳过）==========
+                AsyncTranslationOutcome translationOutcome = processAsyncTranslation(
+                        taskId,
+                        articleVO.getId(),
+                        articleVO.getArticleTitle(),
+                        articleVO.getArticleContent(),
+                        skipAiTranslation,
+                        pendingTranslation,
+                        articleReadyMessage);
 
                 // ========== 步骤4：更新多语言摘要（基于原文+翻译）==========
                 if (StringUtils.hasText(articleVO.getArticleContent())) {
-                    updateTranslationStage(taskId, "generating_summary", "saved", "文章已更新，正在生成多语言AI摘要...", null, false);
+                    String summaryMessage = buildSummaryProgressMessage(
+                            articleReadyMessage,
+                            translationOutcome.translationStatus());
+                    updateSaveStatus(taskId, "processing", summaryMessage, articleVO.getId());
+                    updateTranslationStage(taskId, "generating_summary", translationOutcome.translationStatus(),
+                            summaryMessage, null, false);
                     try {
                         summaryService.updateSummary(articleVO.getId(), articleVO.getArticleContent());
                     } catch (Exception e) {
@@ -2001,13 +2130,18 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     log.error("发布文章更新事件失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
                 }
 
-                // 最终成功状态（SEO推送将在预渲染完成后自动执行）
-                updateSaveStatus(taskId, "success", "文章更新成功！AI摘要已生成", articleVO.getId());
-                updateTranslationStage(taskId, "complete", "saved", "文章更新成功！AI摘要已生成", null, false);
-                emitTaskEvent(taskId, "complete", Map.of(
-                        "status", "success",
-                        "articleId", articleVO.getId(),
-                        "message", "文章更新成功！AI摘要已生成"));
+                // 最终状态（SEO推送将在预渲染完成后自动执行）
+                String finalTaskStatus = translationOutcome.failed() ? "partial_success" : "success";
+                String finalMessage = buildFinalAsyncMessage("更新", finalTaskStatus,
+                        translationOutcome.translationStatus());
+                updateSaveStatus(taskId, finalTaskStatus, finalMessage, articleVO.getId());
+                updateTranslationStage(taskId, "complete", translationOutcome.translationStatus(), finalMessage, null,
+                        false);
+                emitTaskEvent(taskId, "complete", buildFinalTaskPayload(
+                        finalTaskStatus,
+                        articleVO.getId(),
+                        finalMessage,
+                        translationOutcome.translationStatus()));
                 log.info("异步文章更新流程全部完成，任务ID: {}, 文章ID: {}", taskId, articleVO.getId());
 
             } catch (Exception e) {

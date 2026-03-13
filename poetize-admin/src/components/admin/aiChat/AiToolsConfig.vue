@@ -136,16 +136,16 @@
         </el-form-item>
 
         <el-form-item id="field-ai-mem0-autosave" label="自动保存记忆" v-if="localConfig.enableMemory">
-          <el-switch v-model="localConfig.memoryAutosave" @change="emitChange"></el-switch>
+          <el-switch v-model="localConfig.memoryAutoSave" @change="emitChange"></el-switch>
           <div class="form-tip">聊天过程中，自动总结并保存有用的知识点到记忆库。</div>
         </el-form-item>
 
         <el-form-item id="field-ai-mem0-autorecall" label="自动提取记忆" v-if="localConfig.enableMemory">
-          <el-switch v-model="localConfig.memoryAutorecall" @change="emitChange"></el-switch>
+          <el-switch v-model="localConfig.memoryAutoRecall" @change="emitChange"></el-switch>
           <div class="form-tip">每次对话前，自动检索并注入相关的历史记忆。</div>
         </el-form-item>
 
-        <el-form-item id="field-ai-mem0-limit" label="注入提取上限" v-if="localConfig.enableMemory && localConfig.memoryAutorecall">
+        <el-form-item id="field-ai-mem0-limit" label="注入提取上限" v-if="localConfig.enableMemory && localConfig.memoryAutoRecall">
           <el-input-number v-model="localConfig.memoryRecallLimit" @change="emitChange" :min="1" :max="20" size="small" style="width: 120px;"></el-input-number>
           <div class="form-tip">单次对话最多检索并合并多少条相关记忆。</div>
         </el-form-item>
@@ -168,15 +168,15 @@ export default {
       default: () => ({
         enableMemory: false,
         mem0ApiKey: '',
-        memoryAutosave: true,
-        memoryAutorecall: true,
+        memoryAutoSave: true,
+        memoryAutoRecall: true,
         memoryRecallLimit: 5
       })
     }
   },
   data() {
     return {
-      localConfig: { ...this.value },
+      localConfig: this.normalizeConfig(this.value),
       loading: true,
       memoryDialogVisible: false,
       externalTools: [],
@@ -217,7 +217,7 @@ export default {
   watch: {
     value: {
       handler(val) {
-        this.localConfig = { ...val };
+        this.localConfig = this.normalizeConfig(val);
       },
       deep: true
     }
@@ -226,6 +226,15 @@ export default {
     this.fetchExternalTools();
   },
   methods: {
+    normalizeConfig(config = {}) {
+      return {
+        enableMemory: config.enableMemory || false,
+        mem0ApiKey: config.mem0ApiKey || '',
+        memoryAutoSave: config.memoryAutoSave !== false && config.memoryAutosave !== false,
+        memoryAutoRecall: config.memoryAutoRecall !== false && config.memoryAutorecall !== false,
+        memoryRecallLimit: config.memoryRecallLimit || 5
+      };
+    },
     fetchExternalTools() {
       this.loading = true;
       this.$http.get(this.$constant.baseURL + "/sysPlugin/listPlugins", { pluginType: 'ai_tool' }, true)
@@ -251,7 +260,7 @@ export default {
       }
     },
     emitChange() {
-      this.$emit('input', { ...this.localConfig });
+      this.$emit('input', { ...this.normalizeConfig(this.localConfig) });
     }
   }
 }

@@ -317,29 +317,38 @@ export default {
     },
 
     handleTaskStreamEvent(taskId, eventName, payload) {
+      const terminalStatus = payload && this.isTerminalTaskStatus(payload.status);
+
       if (eventName === 'error') {
-        if (payload && payload.status === 'partial_success') {
+        if (terminalStatus) {
+          this.applyTaskStatus(taskId, payload || {});
+        } else {
           this.updateNotificationByTaskId(taskId, {
-            type: 'info',
-            title: '部分完成',
-            message: payload.message || '文章已保存，但翻译失败',
-            duration: 5000
+            message: (payload && payload.message) || '翻译阶段出现问题，正在继续处理...',
+            progress: 60
           });
-          this.stopStream(taskId);
-          this.stopPolling(taskId);
-          return;
         }
+        return;
       }
 
       if (eventName === 'complete') {
+        if (terminalStatus) {
+          this.applyTaskStatus(taskId, payload || {});
+          return;
+        }
+
         this.updateNotificationByTaskId(taskId, {
-          type: 'success',
-          title: '保存成功',
-          message: payload.message || '文章保存成功！',
-          progress: 100
+          message: (payload && payload.message) || '翻译流已完成，正在保存翻译结果...',
+          progress: 70
         });
-        this.stopStream(taskId);
-        this.stopPolling(taskId);
+        return;
+      }
+
+      if (eventName === 'translation_complete') {
+        this.updateNotificationByTaskId(taskId, {
+          message: (payload && payload.message) || '翻译流已完成，正在保存翻译结果...',
+          progress: 70
+        });
         return;
       }
 
@@ -364,6 +373,10 @@ export default {
           progress: 75
         });
       }
+    },
+
+    isTerminalTaskStatus(status) {
+      return status === 'success' || status === 'failed' || status === 'partial_success';
     },
 
     applyTaskStatus(taskId, status) {
@@ -418,6 +431,8 @@ export default {
           return 50;
         case 'translation_retry':
           return 60;
+        case 'translation_skipped':
+          return 65;
         case 'saving_translation':
           return 75;
         case 'generating_summary':

@@ -18,6 +18,8 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.net.MalformedURLException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.ZoneId;
 import java.util.Date;
 import java.util.HashMap;
@@ -137,6 +139,7 @@ public class SitemapServiceImpl implements SitemapService {
             }
             
             log.info("Sitemap生成成功，包含 {} 个URL", countUrls(sitemapContent));
+            recordSitemapUpdateTime();
             return sitemapContent;
             
         } catch (Exception e) {
@@ -384,6 +387,13 @@ public class SitemapServiceImpl implements SitemapService {
     @Override
     public void clearSitemapCache() {
         cacheService.deleteKey(CacheConstants.SITEMAP_KEY);
+    }
+
+    private void recordSitemapUpdateTime() {
+        cacheService.set(
+                CacheConstants.SITEMAP_LAST_UPDATE_KEY,
+                LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+        );
     }
 
     @Override

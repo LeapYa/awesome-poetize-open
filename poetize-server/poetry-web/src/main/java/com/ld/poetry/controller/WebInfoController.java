@@ -787,6 +787,8 @@ public class WebInfoController {
         Map<String, Object> apiConfig = new HashMap<>();
         apiConfig.put("enabled", webInfo.getApiEnabled() != null ? webInfo.getApiEnabled() : false);
         apiConfig.put("apiKey", webInfo.getApiKey() != null ? webInfo.getApiKey() : generateApiKey());
+        apiConfig.put("ipWhitelist", webInfo.getApiIpWhitelist() != null ? webInfo.getApiIpWhitelist() : "");
+        apiConfig.put("currentIp", PoetryUtil.getIpAddr(PoetryUtil.getRequest()));
 
         return PoetryResult.success(apiConfig);
     }
@@ -810,23 +812,34 @@ public class WebInfoController {
 
         Boolean enabled = (Boolean) apiConfig.get("enabled");
         String apiKey = (String) apiConfig.get("apiKey");
+        String rawIpWhitelist = apiConfig.get("ipWhitelist") instanceof String ? (String) apiConfig.get("ipWhitelist") : "";
 
         // 如果提交的配置不包含apiKey，生成一个新的
         if (apiKey == null || apiKey.isEmpty()) {
             apiKey = generateApiKey();
         }
 
+        List<String> whitelistEntries = IpUtil.normalizeIpWhitelist(rawIpWhitelist);
+        for (String entry : whitelistEntries) {
+            if (!IpUtil.isValidIpWhitelistEntry(entry)) {
+                return PoetryResult.fail("IP白名单格式错误: " + entry + "。支持单个IP或CIDR网段，例如 203.0.113.10 或 203.0.113.0/24");
+            }
+        }
+        String normalizedIpWhitelist = String.join("\n", whitelistEntries);
+
         // 更新数据库
         WebInfo updateInfo = new WebInfo();
         updateInfo.setId(webInfo.getId());
         updateInfo.setApiEnabled(enabled);
         updateInfo.setApiKey(apiKey);
+        updateInfo.setApiIpWhitelist(normalizedIpWhitelist);
         webInfoService.updateById(updateInfo);
 
         // 清理Redis缓存并重新缓存最新数据
         cacheService.evictWebInfo();
         webInfo.setApiEnabled(enabled);
         webInfo.setApiKey(apiKey);
+        webInfo.setApiIpWhitelist(normalizedIpWhitelist);
         cacheService.cacheWebInfo(webInfo);
         log.info("API配置更新成功，已刷新Redis缓存");
 

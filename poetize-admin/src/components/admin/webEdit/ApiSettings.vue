@@ -10,12 +10,14 @@
             <el-switch
               v-model="apiConfig.enabled"
               @change="handleApiToggle"
+              :disabled="apiLoading"
               active-color="#13ce66"
               inactive-color="#ff4949">
             </el-switch>
           </el-form-item>
 
-          <el-form-item v-if="apiConfig.enabled" label="API密钥">
+          <div v-if="apiConfig.enabled" class="api-enabled-panel">
+          <el-form-item label="API密钥">
             <div style="display: flex; align-items: center;">
               <el-input
                 v-model="apiConfig.apiKey"
@@ -27,13 +29,47 @@
                 type="primary"
                 size="small"
                 style="margin-left: 10px;"
+                :loading="apiLoading"
+                :disabled="apiLoading"
                 @click="regenerateApiKey">
                 重新生成
               </el-button>
             </div>
           </el-form-item>
 
-          <el-form-item v-if="apiConfig.enabled" label="API端点">
+          <el-form-item label="IP白名单">
+            <div style="width: 100%; max-width: 560px;">
+              <el-input
+                v-model="apiConfig.ipWhitelist"
+                type="textarea"
+                :rows="5"
+                resize="vertical"
+                :placeholder="'留空表示不限制。支持单个IP、CIDR网段，逗号或换行分隔\n203.0.113.10\n198.51.100.0/24'">
+              </el-input>
+              <p style="margin: 8px 0 0; color: #909399; line-height: 1.6;">
+                留空表示不限制。支持单个 IP、CIDR 网段、逗号或换行分隔。当前访问 IP:
+                <code>{{ apiConfig.currentIp || 'unknown' }}</code>
+              </p>
+              <div style="margin-top: 10px;">
+                <el-button
+                  type="primary"
+                  size="small"
+                  :loading="apiLoading"
+                  :disabled="apiLoading"
+                  @click="saveIpWhitelist">
+                  保存IP白名单
+                </el-button>
+                <el-button
+                  size="small"
+                  :disabled="apiLoading"
+                  @click="resetApiConfig">
+                  重置
+                </el-button>
+              </div>
+            </div>
+          </el-form-item>
+
+          <el-form-item label="API端点">
             <div>
               <p style="margin: 5px 0; color: #606266;">文章创建API:</p>
               <el-input
@@ -41,10 +77,99 @@
                 :disabled="true"
                 style="width: 450px; margin-bottom: 10px;">
               </el-input>
+              <p style="margin: 5px 0; color: #606266;">文章异步创建API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/article/createAsync'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">文章异步更新API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/article/updateAsync'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">任务状态查询API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/article/task/{taskId}'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">支付插件状态API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/payment/plugin/status'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">支付插件配置API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/payment/plugin/configure'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">支付插件连接测试API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/payment/plugin/testConnection'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">文章主题状态API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/article-theme/status'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">文章主题激活API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/article-theme/activate'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">文章复盘数据API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/article/analytics/{id}'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">站点访问趋势API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/analytics/site/visits?days=7'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">SEO状态API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/seo/status'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">受控SEO配置API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/seo/config'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
+              <p style="margin: 5px 0; color: #606266;">Sitemap更新API:</p>
+              <el-input
+                :value="$constant.baseURL + '/api/seo/sitemap/update'"
+                :disabled="true"
+                style="width: 450px; margin-bottom: 10px;">
+              </el-input>
             </div>
           </el-form-item>
 
-          <el-form-item v-if="apiConfig.enabled" label="API文档">
+          <el-form-item label="API文档">
+            <div ref="apiDocsContent">
+            <div class="api-doc-actions">
+              <el-button
+                type="primary"
+                plain
+                size="mini"
+                :disabled="apiLoading"
+                @click="copyAllApiDocs">
+                复制全部文档
+              </el-button>
+            </div>
             <el-collapse>
               <el-collapse-item title="API调用概述" name="0">
                 <div style="padding: 10px;">
@@ -53,8 +178,8 @@
                   <p><strong>响应格式:</strong></p>
                   <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
 {
-  "code": 0,       // 0表示成功，非0表示错误
-  "message": null, // 错误信息，成功时为null
+  "code": 200,     // 200表示成功，500表示错误
+  "message": null, // 错误信息，成功时通常为null
   "data": { ... }  // 响应数据
 }
                   </pre>
@@ -84,16 +209,253 @@ X-API-KEY: {{apiConfig.apiKey}}
                   <p><strong>响应格式:</strong></p>
                   <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
 {
-  "code": 0,
+  "code": 200,
   "message": null,
   "data": {
-    "id": 123
+    "id": 123,
+    "articleId": 123,
+    "articleUrl": "https://your-site.example.com/article/123",
+    "viewStatus": true,
+    "sortId": 1,
+    "labelId": 2
   }
 }
                   </pre>
                 </div>
               </el-collapse-item>
-              <el-collapse-item title="获取文章列表 API" name="2">
+              <el-collapse-item title="异步创建文章 API" name="2">
+                <div style="padding: 10px;">
+                  <p><strong>说明:</strong></p>
+                  <p>适用于 OpenClaw 等需要轮询状态的自动化场景。请求体与同步创建接口一致。</p>
+                  <p>不想上传封面时，可传 <code>cover: " "</code>；付费文章可额外传 <code>payType</code>、<code>payAmount</code>、<code>freePercent</code>。</p>
+                  <p>当 <code>payType &gt; 0</code> 时，必须先在插件管理中启用并配置文章付费插件，否则接口会拒绝该请求。</p>
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+POST {{$constant.baseURL}}/api/article/createAsync
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{
+  "title": "文章标题",
+  "content": "文章内容，支持Markdown格式",
+  "sortName": "分类名称",
+  "labelName": "标签名称",
+  "cover": " ",
+  "viewStatus": true,
+  "commentStatus": true,
+  "submitToSearchEngine": false,
+  "payType": 4,
+  "payAmount": 19.9,
+  "freePercent": 20
+}
+                  </pre>
+                  <p><strong>响应格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+{
+  "code": 200,
+  "message": null,
+  "data": {
+    "taskId": "article_save_1741770000000_123",
+    "status": "processing",
+    "completed": false,
+    "taskStatusUrl": "{{$constant.baseURL}}/api/article/task/article_save_1741770000000_123"
+  }
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="异步更新文章 API" name="3">
+                <div style="padding: 10px;">
+                  <p><strong>说明:</strong></p>
+                  <p>需要传入文章 <code>id</code>。未传的分类、标签、状态字段会沿用原文章值。</p>
+                  <p>如果只是想保留“无自定义封面”的状态，也可以传 <code>cover: " "</code>。</p>
+                  <p>如果要改成付费文章，同样要求插件管理里的文章付费插件已经启用且配置完成。</p>
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+POST {{$constant.baseURL}}/api/article/updateAsync
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{
+  "id": 123,
+  "title": "更新后的标题",
+  "content": "更新后的Markdown内容",
+  "cover": " ",
+  "submitToSearchEngine": false,
+  "payType": 2,
+  "freePercent": 30
+}
+                  </pre>
+                  <p><strong>响应格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+{
+  "code": 200,
+  "message": null,
+  "data": {
+    "taskId": "article_update_1741770000000_456",
+    "status": "processing",
+    "completed": false,
+    "taskStatusUrl": "{{$constant.baseURL}}/api/article/task/article_update_1741770000000_456"
+  }
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="查询异步任务状态 API" name="4">
+                <div style="padding: 10px;">
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+GET {{$constant.baseURL}}/api/article/task/article_save_1741770000000_123
+X-API-KEY: {{apiConfig.apiKey}}
+                  </pre>
+                  <p><strong>响应格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+{
+  "code": 200,
+  "message": null,
+  "data": {
+    "taskId": "article_save_1741770000000_123",
+    "status": "success",
+    "stage": "complete",
+    "message": "文章保存成功！AI摘要已生成",
+    "articleId": 123,
+    "articleUrl": "https://your-site.example.com/article/123",
+    "translationStatus": "saved",
+    "completed": true,
+    "success": true,
+    "failed": false
+  }
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="支付插件状态 API" name="5">
+                <div style="padding: 10px;">
+                  <p><strong>说明:</strong></p>
+                  <p>用于 OpenClaw 或其他自动化工具检查 payment 插件是否已安装、已激活、已配置，并读取 <code>configSchema</code> 与缺失字段。</p>
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+GET {{$constant.baseURL}}/api/payment/plugin/status?pluginKey=afdian
+X-API-KEY: {{apiConfig.apiKey}}
+                  </pre>
+                  <p><strong>响应格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+{
+  "code": 200,
+  "message": null,
+  "data": {
+    "activePluginKey": "afdian",
+    "plugins": [
+      {
+        "pluginKey": "afdian",
+        "pluginName": "爱发电",
+        "enabled": true,
+        "active": true
+      }
+    ],
+    "targetPlugin": {
+      "pluginKey": "afdian",
+      "pluginName": "爱发电",
+      "enabled": true,
+      "active": true,
+      "configSchema": {
+        "userId": { "type": "string", "label": "用户ID" },
+        "apiToken": { "type": "string", "label": "Token" }
+      },
+      "configured": false,
+      "missingFields": ["userId", "apiToken"],
+      "secretFieldStatus": {
+        "apiToken": false
+      },
+      "nonSecretConfigPreview": {},
+      "supportsConnectionTest": true
+    }
+  }
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="支付插件配置 API" name="6">
+                <div style="padding: 10px;">
+                  <p><strong>说明:</strong></p>
+                  <p>仅允许配置 <code>payment</code> 插件。接口会先做字段校验和连接测试，测试通过后才落库；可选自动激活该插件。</p>
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+POST {{$constant.baseURL}}/api/payment/plugin/configure
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{
+  "pluginKey": "afdian",
+  "pluginConfig": {
+    "userId": "your-user-id",
+    "apiToken": "your-api-token"
+  },
+  "activate": true
+}
+                  </pre>
+                  <p><strong>响应格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+{
+  "code": 200,
+  "message": null,
+  "data": {
+    "pluginKey": "afdian",
+    "pluginName": "爱发电",
+    "active": true,
+    "configured": true,
+    "connectionOk": true,
+    "missingFields": [],
+    "secretFieldStatus": {
+      "apiToken": true
+    },
+    "nonSecretConfigPreview": {
+      "userId": "your-user-id"
+    },
+    "message": "配置已保存并通过连接测试"
+  }
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="支付插件连接测试 API" name="7">
+                <div style="padding: 10px;">
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+POST {{$constant.baseURL}}/api/payment/plugin/testConnection
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{
+  "pluginKey": "afdian",
+  "pluginConfig": {
+    "userId": "your-user-id",
+    "apiToken": "your-api-token"
+  }
+}
+                  </pre>
+                  <p><strong>响应格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+{
+  "code": 200,
+  "message": null,
+  "data": {
+    "pluginKey": "afdian",
+    "connectionOk": true,
+    "message": "连接测试成功",
+    "missingFields": [],
+    "secretFieldStatus": {
+      "apiToken": true
+    },
+    "nonSecretConfigPreview": {
+      "userId": "your-user-id"
+    }
+  }
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="获取文章列表 API" name="8">
                 <div style="padding: 10px;">
                   <p><strong>请求格式:</strong></p>
                   <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
@@ -111,7 +473,7 @@ X-API-KEY: {{apiConfig.apiKey}}
                   <p><strong>响应格式:</strong></p>
                   <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
 {
-  "code": 0,
+  "code": 200,
   "message": null,
   "data": {
     "records": [
@@ -136,7 +498,7 @@ X-API-KEY: {{apiConfig.apiKey}}
                   </pre>
                 </div>
               </el-collapse-item>
-              <el-collapse-item title="获取文章详情 API" name="3">
+              <el-collapse-item title="获取文章详情 API" name="9">
                 <div style="padding: 10px;">
                   <p><strong>请求格式:</strong></p>
                   <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
@@ -146,7 +508,7 @@ X-API-KEY: {{apiConfig.apiKey}}
                   <p><strong>响应格式:</strong></p>
                   <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
 {
-  "code": 0,
+  "code": 200,
   "message": null,
   "data": {
     "id": 123,
@@ -162,13 +524,14 @@ X-API-KEY: {{apiConfig.apiKey}}
     "sortId": 1,
     "labelId": 1,
     "sortName": "分类名称",
-    "labelName": "标签名称"
+    "labelName": "标签名称",
+    "articleUrl": "https://your-site.example.com/article/123"
   }
 }
                   </pre>
                 </div>
               </el-collapse-item>
-              <el-collapse-item title="获取分类列表 API" name="4">
+              <el-collapse-item title="获取分类列表 API" name="10">
                 <div style="padding: 10px;">
                   <p><strong>请求格式:</strong></p>
                   <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
@@ -178,7 +541,7 @@ X-API-KEY: {{apiConfig.apiKey}}
                   <p><strong>响应格式:</strong></p>
                   <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
 {
-  "code": 0,
+  "code": 200,
   "message": null,
   "data": [
     {
@@ -193,7 +556,7 @@ X-API-KEY: {{apiConfig.apiKey}}
                   </pre>
                 </div>
               </el-collapse-item>
-              <el-collapse-item title="获取标签列表 API" name="5">
+              <el-collapse-item title="获取标签列表 API" name="11">
                 <div style="padding: 10px;">
                   <p><strong>请求格式:</strong></p>
                   <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
@@ -203,7 +566,7 @@ X-API-KEY: {{apiConfig.apiKey}}
                   <p><strong>响应格式:</strong></p>
                   <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
 {
-  "code": 0,
+  "code": 200,
   "message": null,
   "data": [
     {
@@ -217,19 +580,168 @@ X-API-KEY: {{apiConfig.apiKey}}
                   </pre>
                 </div>
               </el-collapse-item>
+              <el-collapse-item title="文章主题状态 API" name="12">
+                <div style="padding: 10px;">
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+GET {{$constant.baseURL}}/api/article-theme/status
+X-API-KEY: {{apiConfig.apiKey}}
+                  </pre>
+                  <p><strong>响应格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+{
+  "code": 200,
+  "message": null,
+  "data": {
+    "activePluginKey": "academic",
+    "plugins": [
+      {
+        "pluginKey": "academic",
+        "pluginName": "学术主题",
+        "enabled": true,
+        "active": true,
+        "pluginConfig": {}
+      }
+    ]
+  }
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="文章主题激活 API" name="13">
+                <div style="padding: 10px;">
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+POST {{$constant.baseURL}}/api/article-theme/activate
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{
+  "pluginKey": "academic"
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="文章复盘数据 API" name="14">
+                <div style="padding: 10px;">
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+GET {{$constant.baseURL}}/api/article/analytics/123
+X-API-KEY: {{apiConfig.apiKey}}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="站点访问趋势 API" name="15">
+                <div style="padding: 10px;">
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+GET {{$constant.baseURL}}/api/analytics/site/visits?days=7
+X-API-KEY: {{apiConfig.apiKey}}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="SEO状态 API" name="16">
+                <div style="padding: 10px;">
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+GET {{$constant.baseURL}}/api/seo/status
+X-API-KEY: {{apiConfig.apiKey}}
+                  </pre>
+                  <p><strong>响应格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+{
+  "code": 200,
+  "message": null,
+  "data": {
+    "enabled": true,
+    "searchEnginePushEnabled": {
+      "baidu": true,
+      "google": true,
+      "bing": false
+    },
+    "siteVerificationConfigured": {
+      "baidu": true,
+      "google": false
+    },
+    "sitemapAvailable": true,
+    "lastSitemapUpdateTime": "2026-03-13T10:30:45",
+    "searchEnginePingEnabled": true,
+    "sitemapBaseUrl": "https://your-site.example.com",
+    "summary": {
+      "healthy": true,
+      "warnings": []
+    }
+  }
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="受控SEO配置 API" name="17">
+                <div style="padding: 10px;">
+                  <p><strong>说明:</strong></p>
+                  <p>仅允许修改受控 SEO 字段，不允许通过 API-key 修改 <code>custom_head_code</code>、<code>robots_txt</code> 等高风险配置。</p>
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+POST {{$constant.baseURL}}/api/seo/config
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{
+  "enable": true,
+  "site_description": "新的站点描述",
+  "site_keywords": "博客,自动化,OpenClaw",
+  "default_author": "Admin",
+  "og_image": "https://example.com/og.png",
+  "site_logo": "https://example.com/logo.png",
+  "og_site_name": "POETIZE",
+  "og_type": "article",
+  "twitter_card": "summary_large_image",
+  "twitter_site": "@poetize",
+  "twitter_creator": "@poetize",
+  "baidu_push_enabled": true,
+  "google_index_enabled": true,
+  "bing_push_enabled": false,
+  "baidu_site_verification": "token-1",
+  "google_site_verification": "token-2"
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="Sitemap更新 API" name="18">
+                <div style="padding: 10px;">
+                  <p><strong>请求格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+POST {{$constant.baseURL}}/api/seo/sitemap/update
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+                  </pre>
+                  <p><strong>响应格式:</strong></p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+{
+  "code": 200,
+  "message": null,
+  "data": {
+    "triggered": true,
+    "lastSitemapUpdateTime": "2026-03-13T10:31:10",
+    "searchEnginePingEnabled": true,
+    "siteBaseUrl": "https://your-site.example.com",
+    "message": "sitemap 更新已触发"
+  }
+}
+                  </pre>
+                </div>
+              </el-collapse-item>
             </el-collapse>
+            </div>
           </el-form-item>
 
-          <el-form-item v-if="apiConfig.enabled">
+          <el-form-item>
             <div style="display: flex; justify-content: flex-end; margin-top: 20px;"></div>
           </el-form-item>
+          </div>
         </el-form>
       </div>
 
-      <div style="margin-top: 20px; margin-bottom: 22px; text-align: center;">
-        <el-button type="primary" @click="saveApiConfig" :loading="apiLoading">保存API配置</el-button>
-        <el-button @click="resetApiConfig" style="margin-left: 10px;">重置修改</el-button>
-      </div>
     </el-card>
   </div>
 </template>
@@ -244,7 +756,9 @@ export default {
     return {
       apiConfig: {
         enabled: false,
-        apiKey: ''
+        apiKey: '',
+        ipWhitelist: '',
+        currentIp: ''
       },
       apiLoading: false
     }
@@ -253,57 +767,318 @@ export default {
     this.getApiConfig();
   },
   methods: {
+    async fetchApiConfig() {
+      const res = await this.$http.get(this.$constant.baseURL + "/webInfo/getApiConfig", true);
+      return Object.assign(
+        { enabled: false, apiKey: '', ipWhitelist: '', currentIp: '' },
+        res.data || {}
+      );
+    },
     async getApiConfig() {
       try {
-        const res = await this.$http.get(this.$constant.baseURL + "/webInfo/getApiConfig", true);
-        if (res.data) {
-          this.apiConfig = res.data;
-        } else {
-          this.apiConfig = { enabled: false, apiKey: '' };
-        }
+        this.apiConfig = await this.fetchApiConfig();
       } catch (error) {
         this.$message.error("获取API配置失败: " + error.message);
         throw error;
       }
     },
-    handleApiToggle(value) {
+    async handleApiToggle(value) {
+      const previousConfig = { ...this.apiConfig, enabled: !value };
       this.apiConfig.enabled = value;
-    },
-    regenerateApiKey() {
-      this.apiLoading = true;
-      this.$http.post(this.$constant.baseURL + "/webInfo/regenerateApiKey", {}, true)
-        .then((res) => {
-          this.apiConfig.apiKey = res.data;
-          this.$message({ message: "API密钥已重新生成", type: "success" });
-        })
-        .catch((error) => {
-          this.$message({ message: "重新生成API密钥失败: " + error.message, type: "error" });
-        })
-        .finally(() => {
-          this.apiLoading = false;
+
+      try {
+        await this.saveApiConfig({
+          successMessage: value ? "API已启用" : "API已停用",
+          errorPrefix: value ? "启用API失败" : "停用API失败"
         });
+      } catch (error) {
+        this.apiConfig = previousConfig;
+      }
     },
-    saveApiConfig() {
+    async regenerateApiKey() {
       this.apiLoading = true;
-      this.$http.post(this.$constant.baseURL + "/webInfo/saveApiConfig", this.apiConfig, true)
-        .then(() => {
-          this.$message({ message: "API配置保存成功", type: "success" });
-        })
-        .catch((error) => {
-          this.$message({ message: "保存API配置失败: " + error.message, type: "error" });
-        })
-        .finally(() => {
-          this.apiLoading = false;
-        });
+      try {
+        const res = await this.$http.post(this.$constant.baseURL + "/webInfo/regenerateApiKey", {}, true);
+        this.apiConfig.apiKey = res.data;
+        this.$message({ message: "API密钥已重新生成", type: "success" });
+      } catch (error) {
+        this.$message({ message: "重新生成API密钥失败: " + error.message, type: "error" });
+      } finally {
+        this.apiLoading = false;
+      }
     },
-    resetApiConfig() {
-      this.getApiConfig();
+    buildApiConfigPayload() {
+      return {
+        enabled: this.apiConfig.enabled,
+        apiKey: this.apiConfig.apiKey,
+        ipWhitelist: this.apiConfig.ipWhitelist || ''
+      };
+    },
+    async saveIpWhitelist() {
+      try {
+        await this.saveApiConfig({
+          successMessage: "API IP白名单保存成功",
+          errorPrefix: "保存API IP白名单失败"
+        });
+      } catch (error) {
+        return;
+      }
+    },
+    getApiDocsText() {
+      const docsElement = this.$refs.apiDocsContent;
+      if (!docsElement) {
+        return "";
+      }
+
+      const sections = Array.from(docsElement.querySelectorAll('.el-collapse-item'))
+        .map(section => this.formatApiDocSection(section))
+        .filter(Boolean);
+
+      if (!sections.length) {
+        return "";
+      }
+
+      return this.sanitizeApiDocText([
+        "# API文档",
+        ...sections
+      ].join("\n\n").trim());
+    },
+    formatApiDocSection(section) {
+      const titleElement = section.querySelector('.el-collapse-item__header');
+      const title = this.normalizeDocLine(titleElement ? titleElement.innerText : '');
+      const content = section.querySelector('.el-collapse-item__content');
+      if (!title || !content) {
+        return "";
+      }
+
+      const body = this.formatDocChildren(content);
+      if (!body) {
+        return `## ${title}`;
+      }
+
+      return `## ${title}\n\n${body}`;
+    },
+    formatDocChildren(node) {
+      return Array.from(node.childNodes)
+        .map(child => this.formatDocNode(child))
+        .filter(Boolean)
+        .join("\n\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    },
+    formatDocNode(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        return this.normalizeDocLine(node.textContent || '');
+      }
+
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return "";
+      }
+
+      const tagName = node.tagName.toLowerCase();
+
+      if (tagName === 'pre') {
+        return this.formatCodeBlock(node.textContent || '');
+      }
+
+      if (tagName === 'ul') {
+        return Array.from(node.children)
+          .map(item => `- ${this.formatInlineContent(item)}`)
+          .join("\n");
+      }
+
+      if (tagName === 'ol') {
+        return Array.from(node.children)
+          .map((item, index) => `${index + 1}. ${this.formatInlineContent(item)}`)
+          .join("\n");
+      }
+
+      if (tagName === 'p') {
+        return this.formatInlineContent(node);
+      }
+
+      if (tagName === 'div') {
+        return this.formatDocChildren(node);
+      }
+
+      return this.formatInlineContent(node);
+    },
+    formatCodeBlock(text) {
+      const normalized = text
+        .replace(/\r\n/g, '\n')
+        .replace(/\s+$/g, '')
+        .trim();
+
+      if (!normalized) {
+        return "";
+      }
+
+      const language = this.detectCodeBlockLanguage(normalized);
+      const fence = language ? `\`\`\`${language}` : "```";
+
+      return [
+        fence,
+        normalized,
+        "```"
+      ].join("\n");
+    },
+    detectCodeBlockLanguage(text) {
+      const lines = text.split('\n');
+      const firstLine = lines.length ? lines[0].trim() : '';
+      if (!firstLine) {
+        return '';
+      }
+
+      if (/^(GET|POST|PUT|PATCH|DELETE)\s+/i.test(firstLine)) {
+        return 'http';
+      }
+
+      if (/^[\[{]/.test(firstLine)) {
+        return 'json';
+      }
+
+      return '';
+    },
+    formatInlineContent(node) {
+      return Array.from(node.childNodes)
+        .map(child => {
+          if (child.nodeType === Node.TEXT_NODE) {
+            return child.textContent || '';
+          }
+
+          if (child.nodeType !== Node.ELEMENT_NODE) {
+            return '';
+          }
+
+          const tagName = child.tagName.toLowerCase();
+          if (tagName === 'code') {
+            return `\`${this.normalizeDocLine(child.textContent || '')}\``;
+          }
+
+          if (tagName === 'br') {
+            return '\n';
+          }
+
+          return this.formatInlineContent(child);
+        })
+        .join('')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n[ \t]+/g, '\n')
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/\s+([,:;])/g, '$1')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    },
+    normalizeDocLine(text) {
+      return text
+        .replace(/\s+/g, ' ')
+        .trim();
+    },
+    sanitizeApiDocText(text) {
+      let sanitized = text;
+      const baseUrl = this.$constant && this.$constant.baseURL ? this.$constant.baseURL : '';
+      const apiKey = this.apiConfig && this.apiConfig.apiKey ? this.apiConfig.apiKey : '';
+
+      if (baseUrl) {
+        sanitized = sanitized.replace(new RegExp(this.escapeRegExp(baseUrl), 'g'), 'https://your-site.example.com');
+      }
+
+      if (apiKey) {
+        sanitized = sanitized.replace(new RegExp(this.escapeRegExp(apiKey), 'g'), 'YOUR_API_KEY');
+      }
+
+      return sanitized
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    },
+    escapeRegExp(text) {
+      return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    },
+    fallbackCopyText(text) {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "readonly");
+      textarea.style.position = "fixed";
+      textarea.style.top = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.select();
+
+      try {
+        document.execCommand("copy");
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    },
+    async copyAllApiDocs() {
+      const docsText = this.getApiDocsText();
+      if (!docsText) {
+        this.$message.warning("暂无可复制的API文档");
+        return;
+      }
+
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(docsText);
+        } else {
+          this.fallbackCopyText(docsText);
+        }
+        this.$message.success("API文档已复制");
+      } catch (error) {
+        this.$message.error("复制API文档失败: " + error.message);
+      }
+    },
+    async saveApiConfig(options = {}) {
+      const {
+        successMessage = "API配置保存成功",
+        errorPrefix = "保存API配置失败"
+      } = options;
+
+      this.apiLoading = true;
+      try {
+        await this.$http.post(this.$constant.baseURL + "/webInfo/saveApiConfig", this.buildApiConfigPayload(), true);
+        this.apiConfig = await this.fetchApiConfig();
+        this.$message({ message: successMessage, type: "success" });
+      } catch (error) {
+        this.$message({ message: errorPrefix + ": " + error.message, type: "error" });
+        throw error;
+      } finally {
+        this.apiLoading = false;
+      }
+    },
+    async resetApiConfig() {
+      try {
+        await this.getApiConfig();
+      } catch (error) {
+        return;
+      }
     }
   }
 }
 </script>
 
 <style scoped>
+.api-doc-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.api-enabled-panel {
+  max-height: 50vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 12px;
+}
+
+.api-enabled-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.api-enabled-panel::-webkit-scrollbar-thumb {
+  background: #d7dee8;
+  border-radius: 999px;
+}
+
 pre {
   white-space: pre-wrap;
   word-break: break-word;

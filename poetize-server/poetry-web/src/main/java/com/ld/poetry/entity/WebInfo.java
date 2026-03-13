@@ -144,6 +144,9 @@ public class WebInfo implements Serializable {
     @TableField(value = "api_key", exist = true)
     private String apiKey;
 
+    @TableField(value = "api_ip_whitelist", exist = true)
+    private String apiIpWhitelist;
+
     /**
      * 导航栏配置JSON
      */

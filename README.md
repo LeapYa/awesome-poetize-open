@@ -44,6 +44,7 @@
 - [项目简介](#-项目简介)
 - [快速开始](#-快速开始)
 - [部署文档](#-部署文档)
+- [OpenClaw 博客自动化](#-openclaw-博客自动化)
 - [贡献与许可](#-贡献与许可)
 - [开发指南](#-开发指南)
 - [排障指南](#-排障指南)
@@ -83,6 +84,7 @@
 1. ✅ 页脚优化 —— 页脚信息更丰富、可自定义
 1. ✅ 图片压缩和转换WebP格式 —— 自动压缩图片，提升网站加载速度
 1. ✅ 智能摘要 —— 自动生成文章摘要，提升阅读体验
+1. ✅ OpenClaw 博客自动化 —— 支持通过仓库内置的 OpenClaw skill 使用站点 API 完成文章发布、更新、隐藏、主题切换、SEO运维与博客运营自动化（当前仅兼容 `Awesome-poetize-open v3.1.0`）
 1. ✅ 暗色模式优化、定时暗色模式 —— 支持夜间自动切换暗色主题，优化暗色模式
 1. ✅ 灰色模式 —— 支持全站灰色纪念模式
 1. ✅ 自定义错误页面 —— 提供友好的404、403等错误页面
@@ -332,6 +334,207 @@ sudo docker system prune -af && cd .. && sudo rm -rf Awesome-poetize-open && bas
 #### 国内环境部署
 
 `deploy.sh` 脚本已内置国内镜像源加速。~~若网络受限，可从Release下载离线资源包，包含Docker安装包和所有镜像文件。~~
+
+## 🤖 OpenClaw 博客自动化
+
+项目在 `Awesome-poetize-open v3.1.0` 中提供了面向 OpenClaw 的博客自动化能力。你可以通过仓库内置的 skill，让 OpenClaw 直接调用站点 API 来完成文章发布、异步更新、隐藏文章、分类标签安全维护、主题切换、SEO状态查询，以及部分受控 SEO 运维动作。
+
+**注意：该能力当前仅兼容 `Awesome-poetize-open v3.1.0`，更早版本和其他版本不要直接接入。**
+
+### 适合做什么
+
+- 根据主题草拟并发布博客文章
+- 更新已有文章，或将文章切换为隐藏状态
+- 查询文章、分类、标签、主题和 SEO 状态
+- 结合 OpenClaw 的 agent 工作流做博客运营自动化
+
+### 接入前准备
+
+1. 使用 `Awesome-poetize-open v3.1.0`
+2. 进入后台管理的 `API 配置` 页面，开启 API 并生成 API 密钥
+3. 如果开启了 API IP 白名单，需要把 OpenClaw 服务器出口 IP 或 CIDR 加进去
+4. 将 `POETIZE_BASE_URL` 设置为站点公网根地址，例如 `https://your-blog.example.com`
+5. 不要把 `/api` 写进 `POETIZE_BASE_URL`，skill 会自动拼接成 `${POETIZE_BASE_URL}/api/...`
+
+### 安装方式一：让 OpenClaw 按提示词帮你安装（最推荐）
+
+如果你希望直接通过对话让 OpenClaw 帮你处理安装，可以把下面这段提示词发给 OpenClaw。
+
+这个方式会**优先走方式二**，也就是优先使用 `ClawHub` 安装；如果技能暂未发布、`ClawHub` 搜索不到，或者遇到 `ClawHub` 限流，再自动回退到**方式三**，也就是克隆项目后手动安装。
+
+```text
+请先检查是否已安装 ClawHub CLI。
+
+若未安装，请根据 OpenClaw 官方 ClawHub 文档先安装 ClawHub CLI，然后尝试安装技能 `awesome-poetize-open-blog-automation`。
+
+若已安装，则直接尝试安装技能 `awesome-poetize-open-blog-automation`。
+
+如果该技能尚未发布、在 ClawHub 中搜索不到，或者遇到 ClawHub 限流，请改为克隆项目 `https://github.com/LeapYa/Awesome-poetize-open.git`，然后按手动安装方式把 `openclaw-skills/poetize-blog-automation` 复制到 OpenClaw 的 `skills/` 目录中完成安装。
+
+安装目标默认使用 OpenClaw 的 `~/.openclaw/workspace/skills/` 目录，配置默认写入 `~/.openclaw/openclaw.json`。
+```
+
+### 安装方式二：使用 OpenClaw 安装
+
+默认在 OpenClaw 的 `~/.openclaw/workspace/` 目录执行：
+
+```bash
+cd ~/.openclaw/workspace
+clawhub install awesome-poetize-open-blog-automation
+```
+
+安装完成后，默认在 `~/.openclaw/openclaw.json` 中加入：
+
+```json
+{
+  "skills": {
+    "entries": {
+      "poetize-blog-automation": {
+        "enabled": true,
+        "apiKey": "你的POETIZE_API_KEY",
+        "env": {
+          "POETIZE_BASE_URL": "https://你的域名"
+        }
+      }
+    }
+  }
+}
+```
+
+说明：
+
+- 对外安装名是 `awesome-poetize-open-blog-automation`
+- 安装后内部使用的 `skillKey` 仍然是 `poetize-blog-automation`
+- `POETIZE_BASE_URL` 只填站点根地址，不要带 `/api`
+
+### 安装方式三：手动安装
+
+仓库已经内置 skill，目录如下：
+
+```text
+openclaw-skills/poetize-blog-automation/
+```
+
+手动安装时，默认把 `poetize-blog-automation` 整个目录复制到 OpenClaw 的 `~/.openclaw/workspace/skills/` 目录下：
+
+```text
+~/.openclaw/workspace/
+  skills/
+    poetize-blog-automation/
+```
+
+如果你自定义过 OpenClaw 的 workspace，就放到你自己的 `skills/` 目录里。
+
+然后在默认配置文件 `~/.openclaw/openclaw.json` 中加入和上面相同的配置：
+
+```json
+{
+  "skills": {
+    "entries": {
+      "poetize-blog-automation": {
+        "enabled": true,
+        "apiKey": "你的POETIZE_API_KEY",
+        "env": {
+          "POETIZE_BASE_URL": "https://你的域名"
+        }
+      }
+    }
+  }
+}
+```
+
+手动安装的好处是：
+
+- 不依赖公开注册表
+- 适合私有环境或内网环境
+- 你可以直接跟随仓库更新 skill 文件
+
+### 发布名与内部名称
+
+- 对外发布安装名：`awesome-poetize-open-blog-automation`
+- 内部文件夹名 / `skillKey`：`poetize-blog-automation`
+- 这样做是为了让公开安装名和项目名保持一致，同时保留内部配置键的稳定性
+
+### 后续如何更新 skill
+
+为了避免后续升级困难，建议从一开始就保持下面这几个值稳定不变：
+
+- `slug`：`awesome-poetize-open-blog-automation`
+- 内部文件夹名：`poetize-blog-automation`
+- `skillKey`：`poetize-blog-automation`
+
+后续只更新版本号和 skill 内容，不要随意改上面这几个标识。
+
+#### 1. 发布新版本
+
+后续发布新版本时，继续使用同一个 `slug`，只递增 skill 自己的语义化版本号，例如：
+
+- `1.0.0` → 首次发布
+- `1.0.1` → 文档修正、小修复
+- `1.1.0` → 新增兼容能力或新接口
+- `2.0.0` → 有破坏性变更
+
+发布新版本示例：
+
+```bash
+clawhub publish ./openclaw-skills/poetize-blog-automation --slug awesome-poetize-open-blog-automation --name "POETIZE 博客自动化（非官方）" --version 1.0.1 --tags latest
+```
+
+#### 2. 通过 ClawHub 安装的用户如何更新
+
+如果用户是通过方式一或方式二安装的，后续更新直接执行：
+
+```bash
+cd ~/.openclaw/workspace
+clawhub update awesome-poetize-open-blog-automation
+```
+
+如果要更新所有通过 ClawHub 安装的 skills：
+
+```bash
+cd ~/.openclaw/workspace
+clawhub update --all
+```
+
+如果要升级到某个指定版本：
+
+```bash
+cd ~/.openclaw/workspace
+clawhub update awesome-poetize-open-blog-automation --version 1.0.1
+```
+
+如果本地 skill 被手工改过，导致无法匹配已发布版本，可以强制覆盖：
+
+```bash
+cd ~/.openclaw/workspace
+clawhub update awesome-poetize-open-blog-automation --force
+```
+
+更新完成后，重新开启一个新的 OpenClaw 会话即可加载新版本。
+
+#### 3. 手动安装的用户如何更新
+
+如果用户是手动安装的，后续更新方式也很简单：
+
+1. 获取仓库最新版本
+2. 用新的 `openclaw-skills/poetize-blog-automation/` 覆盖旧的 `~/.openclaw/workspace/skills/poetize-blog-automation/`
+3. 保留原来的 `~/.openclaw/openclaw.json` 配置
+4. 开启一个新的 OpenClaw 会话
+
+也就是说，手动安装用户主要更新的是 skill 文件本身，而不是重新配置 API key。
+
+#### 4. 版本策略建议
+
+- skill 版本号和项目版本号可以分开管理
+- 兼容性说明要写清楚，例如当前 skill 文档里已经写明仅兼容 `Awesome-poetize-open v3.1.0`
+- 如果未来某个 skill 版本只支持新的项目版本，直接在 `SKILL.md` 和 README 里写明对应关系
+- 只要 `slug` 和 `skillKey` 不乱改，后续升级路径就不会断
+
+### 参考文档
+
+- [OpenClaw skill 接入说明](openclaw-skills/poetize-blog-automation/references/openclaw-setup.md)
+- [Skill 规范与工作流](openclaw-skills/poetize-blog-automation/SKILL.md)
+- [POETIZE API 参考](openclaw-skills/poetize-blog-automation/references/poetize-api.md)
 
 ## 🤝 贡献与许可
 

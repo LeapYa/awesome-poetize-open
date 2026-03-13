@@ -1,6 +1,7 @@
 package com.ld.poetry.service.payment;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.ld.poetry.dao.ArticlePaymentMapper;
 import com.ld.poetry.entity.ArticlePayment;
 import com.ld.poetry.entity.SysPlugin;
@@ -14,8 +15,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * 支付业务服务
@@ -29,6 +36,10 @@ import java.util.Map;
 @Slf4j
 @Service
 public class PaymentService {
+
+    private static final List<String> SECRET_FIELD_KEYWORDS = List.of(
+            "key", "secret", "token", "password", "private", "api_key", "apikey", "apitoken"
+    );
 
     @Autowired
     private SysPluginService sysPluginService;
@@ -54,49 +65,160 @@ public class PaymentService {
      * </p>
      */
     public PaymentProvider getActiveProvider() {
-        SysPlugin activePlugin = sysPluginService.getActivePlugin(SysPlugin.TYPE_PAYMENT);
+        SysPlugin activePlugin = getActivePaymentPlugin();
         if (activePlugin == null) {
             return null;
         }
-
-        String pluginKey = activePlugin.getPluginKey();
-
-        // 1. 先从 Java Provider 中找（排除 Groovy中间层自身）
-        PaymentProvider javaProvider = providers.stream()
-                .filter(p -> !(p instanceof GroovyPaymentAdapter))
-                .filter(p -> p.getPlatformKey().equals(pluginKey))
-                .findFirst()
-                .orElse(null);
-        if (javaProvider != null) {
-            return javaProvider;
-        }
-
-        // 2. 从 Groovy 引擎中找
-        if (groovyPluginEngine.isLoaded(pluginKey)) {
-            groovyPaymentAdapter.setCurrentPluginKey(pluginKey);
-            return groovyPaymentAdapter;
-        }
-
-        log.warn("未找到匹配的支付 Provider: pluginKey={}，请确认已安装对应支付插件", pluginKey);
-        return null;
+        return resolveProvider(activePlugin.getPluginKey());
     }
 
     /**
      * 获取当前激活插件的配置
      */
     public Map<String, Object> getActiveConfig() {
-        SysPlugin activePlugin = sysPluginService.getActivePlugin(SysPlugin.TYPE_PAYMENT);
-        if (activePlugin == null || activePlugin.getPluginConfig() == null) {
+        SysPlugin activePlugin = getActivePaymentPlugin();
+        if (activePlugin == null) {
             return null;
         }
+        return parsePluginConfig(activePlugin);
+    }
 
+    public SysPlugin getActivePaymentPlugin() {
+        return sysPluginService.getActivePlugin(SysPlugin.TYPE_PAYMENT);
+    }
+
+    public List<SysPlugin> listPaymentPlugins() {
+        return sysPluginService.getPluginsByType(SysPlugin.TYPE_PAYMENT);
+    }
+
+    public SysPlugin getPaymentPluginByKey(String pluginKey) {
+        if (!hasText(pluginKey)) {
+            return null;
+        }
+        return getPluginByKey(pluginKey);
+    }
+
+    public Map<String, Object> parsePluginConfig(SysPlugin plugin) {
+        if (plugin == null || !hasText(plugin.getPluginConfig())) {
+            return new LinkedHashMap<>();
+        }
         try {
-            return objectMapper.readValue(activePlugin.getPluginConfig(),
+            return objectMapper.readValue(plugin.getPluginConfig(),
                     new TypeReference<Map<String, Object>>() {
                     });
         } catch (Exception e) {
-            log.error("解析支付插件配置失败", e);
-            return null;
+            log.error("解析支付插件配置失败: pluginKey={}", plugin.getPluginKey(), e);
+            return new LinkedHashMap<>();
+        }
+    }
+
+    public Map<String, Object> parseConfigSchema(SysPlugin plugin) {
+        if (plugin == null || !hasText(plugin.getManifest())) {
+            return new LinkedHashMap<>();
+        }
+
+        try {
+            Map<String, Object> manifest = objectMapper.readValue(plugin.getManifest(),
+                    new TypeReference<Map<String, Object>>() {
+                    });
+            Object schema = manifest.get("configSchema");
+            return toObjectMap(schema);
+        } catch (Exception e) {
+            log.warn("解析支付插件 manifest 配置 schema 失败: pluginKey={}", plugin.getPluginKey(), e);
+            return new LinkedHashMap<>();
+        }
+    }
+
+    public boolean supportsConnectionTest(String pluginKey) {
+        return resolveProvider(pluginKey) != null;
+    }
+
+    public boolean testConnection(String pluginKey, Map<String, Object> config) {
+        PaymentProvider provider = resolveProvider(pluginKey);
+        if (provider == null || config == null) {
+            return false;
+        }
+        return provider.testConnection(config);
+    }
+
+    public Map<String, Object> mergeAndValidateConfig(String pluginKey,
+                                                      Map<String, Object> existingConfig,
+                                                      Map<String, Object> incomingConfig) {
+        SysPlugin plugin = getPaymentPluginByKey(pluginKey);
+        Map<String, Object> schema = parseConfigSchema(plugin);
+        Map<String, Object> mergedConfig = new LinkedHashMap<>();
+        if (existingConfig != null) {
+            mergedConfig.putAll(existingConfig);
+        }
+        if (incomingConfig != null) {
+            mergedConfig.putAll(incomingConfig);
+        }
+
+        List<String> missingFields = new ArrayList<>();
+        List<String> validationErrors = new ArrayList<>();
+        Map<String, Boolean> secretFieldStatus = new LinkedHashMap<>();
+        Map<String, Object> nonSecretConfigPreview = new LinkedHashMap<>();
+
+        Set<String> keys = new TreeSet<>();
+        keys.addAll(schema.keySet());
+        keys.addAll(mergedConfig.keySet());
+
+        for (String key : keys) {
+            Map<String, Object> fieldSchema = toObjectMap(schema.get(key));
+            if (!mergedConfig.containsKey(key) && fieldSchema.containsKey("defaultValue")) {
+                mergedConfig.put(key, fieldSchema.get("defaultValue"));
+            }
+
+            Object normalizedValue = normalizeSchemaValue(key, fieldSchema, mergedConfig.get(key), validationErrors);
+            mergedConfig.put(key, normalizedValue);
+
+            boolean secretField = isSecretField(key);
+            boolean filled = hasConfigValue(normalizedValue);
+            if (secretField) {
+                secretFieldStatus.put(key, filled);
+            }
+            if (!secretField && filled) {
+                nonSecretConfigPreview.put(key, normalizedValue);
+            }
+            if (!filled && schema.containsKey(key) && isRequiredSchemaField(fieldSchema)) {
+                missingFields.add(key);
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("mergedConfig", mergedConfig);
+        result.put("missingFields", missingFields);
+        result.put("secretFieldStatus", secretFieldStatus);
+        result.put("nonSecretConfigPreview", nonSecretConfigPreview);
+        result.put("configured", validationErrors.isEmpty() && missingFields.isEmpty() && !mergedConfig.isEmpty());
+        result.put("validationErrors", validationErrors);
+        return result;
+    }
+
+    public boolean savePluginConfig(String pluginKey, Map<String, Object> config, boolean activate) {
+        SysPlugin plugin = getPaymentPluginByKey(pluginKey);
+        if (plugin == null) {
+            return false;
+        }
+
+        plugin.setPluginConfig(serializePluginConfig(config));
+        plugin.setUpdateTime(LocalDateTime.now());
+        boolean updated = sysPluginService.updateById(plugin);
+        if (!updated) {
+            return false;
+        }
+
+        if (activate) {
+            return sysPluginService.setActivePlugin(SysPlugin.TYPE_PAYMENT, pluginKey);
+        }
+        return true;
+    }
+
+    public String serializePluginConfig(Map<String, Object> config) {
+        try {
+            return objectMapper.writeValueAsString(config == null ? Collections.emptyMap() : config);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("序列化支付插件配置失败", e);
         }
     }
 
@@ -320,5 +442,148 @@ public class PaymentService {
 
         List<SysPlugin> plugins = sysPluginService.list(wrapper);
         return plugins.isEmpty() ? null : plugins.get(0);
+    }
+
+    private PaymentProvider resolveProvider(String pluginKey) {
+        if (!hasText(pluginKey)) {
+            return null;
+        }
+
+        PaymentProvider javaProvider = providers.stream()
+                .filter(p -> !(p instanceof GroovyPaymentAdapter))
+                .filter(p -> p.getPlatformKey().equals(pluginKey))
+                .findFirst()
+                .orElse(null);
+        if (javaProvider != null) {
+            return javaProvider;
+        }
+
+        if (groovyPluginEngine.isLoaded(pluginKey)) {
+            groovyPaymentAdapter.setCurrentPluginKey(pluginKey);
+            return groovyPaymentAdapter;
+        }
+
+        log.warn("未找到匹配的支付 Provider: pluginKey={}，请确认已安装对应支付插件", pluginKey);
+        return null;
+    }
+
+    private Map<String, Object> toObjectMap(Object source) {
+        if (!(source instanceof Map<?, ?> rawMap)) {
+            return new LinkedHashMap<>();
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        rawMap.forEach((key, value) -> {
+            if (key != null) {
+                result.put(String.valueOf(key), value);
+            }
+        });
+        return result;
+    }
+
+    private Object normalizeSchemaValue(String key,
+                                        Map<String, Object> fieldSchema,
+                                        Object rawValue,
+                                        List<String> validationErrors) {
+        if (fieldSchema.isEmpty()) {
+            return rawValue;
+        }
+
+        if (!hasConfigValue(rawValue)) {
+            return rawValue;
+        }
+
+        String type = Objects.toString(fieldSchema.get("type"), "");
+        try {
+            return switch (type) {
+                case "string" -> String.valueOf(rawValue);
+                case "number" -> normalizeNumberValue(key, rawValue);
+                case "boolean" -> normalizeBooleanValue(key, rawValue);
+                case "select" -> normalizeSelectValue(key, fieldSchema, rawValue);
+                default -> rawValue;
+            };
+        } catch (IllegalArgumentException e) {
+            validationErrors.add(e.getMessage());
+            return rawValue;
+        }
+    }
+
+    private Object normalizeNumberValue(String key, Object rawValue) {
+        if (rawValue instanceof Number) {
+            return rawValue;
+        }
+        if (rawValue instanceof String strValue) {
+            String trimmed = strValue.trim();
+            if (!hasText(trimmed)) {
+                return trimmed;
+            }
+            if (trimmed.contains(".")) {
+                return Double.parseDouble(trimmed);
+            }
+            return Long.parseLong(trimmed);
+        }
+        throw new IllegalArgumentException(key + " 必须是数字");
+    }
+
+    private Object normalizeBooleanValue(String key, Object rawValue) {
+        if (rawValue instanceof Boolean) {
+            return rawValue;
+        }
+        if (rawValue instanceof String strValue) {
+            if ("true".equalsIgnoreCase(strValue)) {
+                return true;
+            }
+            if ("false".equalsIgnoreCase(strValue)) {
+                return false;
+            }
+        }
+        throw new IllegalArgumentException(key + " 必须是布尔值");
+    }
+
+    private Object normalizeSelectValue(String key, Map<String, Object> fieldSchema, Object rawValue) {
+        List<?> options = fieldSchema.get("options") instanceof List<?> list ? list : Collections.emptyList();
+        if (options.isEmpty()) {
+            return rawValue;
+        }
+
+        for (Object option : options) {
+            if (option instanceof Map<?, ?> optionMap) {
+                Object optionValue = optionMap.get("value");
+                if (Objects.equals(optionValue, rawValue)
+                        || Objects.equals(String.valueOf(optionValue), String.valueOf(rawValue))) {
+                    return optionValue;
+                }
+            }
+        }
+        throw new IllegalArgumentException(key + " 不是允许的选项");
+    }
+
+    private boolean isSecretField(String key) {
+        String lowerKey = key == null ? "" : key.toLowerCase();
+        return SECRET_FIELD_KEYWORDS.stream().anyMatch(lowerKey::contains);
+    }
+
+    private boolean hasConfigValue(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof String strValue) {
+            return hasText(strValue);
+        }
+        return true;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private boolean isRequiredSchemaField(Map<String, Object> fieldSchema) {
+        if (fieldSchema == null || fieldSchema.isEmpty()) {
+            return false;
+        }
+        if (Boolean.FALSE.equals(fieldSchema.get("required")) || Boolean.TRUE.equals(fieldSchema.get("optional"))) {
+            return false;
+        }
+        return true;
     }
 }

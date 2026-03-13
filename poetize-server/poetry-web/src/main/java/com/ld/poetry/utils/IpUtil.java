@@ -5,6 +5,11 @@ import lombok.extern.slf4j.Slf4j;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
@@ -328,5 +333,114 @@ public class IpUtil {
             log.error("CIDR匹配检查失败: ip={}, cidr={}, error={}", ip, cidr, e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * 规范化IP白名单配置
+     * 支持逗号、分号、换行分隔，自动去重并保留顺序
+     */
+    public static List<String> normalizeIpWhitelist(String whitelistText) {
+        if (whitelistText == null || whitelistText.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String[] rawEntries = whitelistText.split("[,;\\r\\n]+");
+        Set<String> normalizedEntries = new LinkedHashSet<>();
+        for (String rawEntry : rawEntries) {
+            if (rawEntry == null) {
+                continue;
+            }
+
+            String entry = rawEntry.trim();
+            if (!entry.isEmpty()) {
+                normalizedEntries.add(entry);
+            }
+        }
+
+        return new ArrayList<>(normalizedEntries);
+    }
+
+    /**
+     * 验证IP白名单条目是否合法
+     * 支持单个IP和CIDR网段
+     */
+    public static boolean isValidIpWhitelistEntry(String entry) {
+        if (entry == null || entry.trim().isEmpty()) {
+            return false;
+        }
+
+        String normalizedEntry = entry.trim();
+        if (normalizedEntry.contains("/")) {
+            return isValidCidr(normalizedEntry);
+        }
+
+        return isValidIpLiteral(normalizedEntry);
+    }
+
+    /**
+     * 判断IP是否命中白名单
+     * 白名单为空时表示不限制
+     */
+    public static boolean isIpAllowedByWhitelist(String ip, String whitelistText) {
+        List<String> whitelistEntries = normalizeIpWhitelist(whitelistText);
+        if (whitelistEntries.isEmpty()) {
+            return true;
+        }
+
+        if (!isValidIpFormat(ip)) {
+            return false;
+        }
+
+        for (String entry : whitelistEntries) {
+            if (entry.contains("/")) {
+                if (isIpInCidr(ip, entry)) {
+                    return true;
+                }
+            } else if (ip.equals(entry)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static boolean isValidCidr(String cidr) {
+        try {
+            String[] cidrParts = cidr.split("/");
+            if (cidrParts.length != 2) {
+                return false;
+            }
+
+            String baseIp = cidrParts[0].trim();
+            String prefixText = cidrParts[1].trim();
+            if (!isValidIpLiteral(baseIp)) {
+                return false;
+            }
+
+            InetAddress inetAddress = InetAddress.getByName(baseIp);
+            int maxPrefixLength = inetAddress.getAddress().length * 8;
+            int prefixLength = Integer.parseInt(prefixText);
+            return prefixLength >= 0 && prefixLength <= maxPrefixLength;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static boolean isValidIpLiteral(String ip) {
+        if (ip == null || ip.trim().isEmpty()) {
+            return false;
+        }
+
+        String normalizedIp = ip.trim();
+        if (normalizedIp.contains(":")) {
+            try {
+                InetAddress.getByName(normalizedIp);
+                return true;
+            } catch (UnknownHostException e) {
+                return false;
+            }
+        }
+
+        return IPV4_PATTERN.matcher(normalizedIp).matches();
     }
 }

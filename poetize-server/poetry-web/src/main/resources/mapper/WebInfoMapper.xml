@@ -21,6 +21,7 @@
         <result column="home_page_pull_up_height" property="homePagePullUpHeight"/>
         <result column="api_enabled" property="apiEnabled"/>
         <result column="api_key" property="apiKey"/>
+        <result column="api_ip_whitelist" property="apiIpWhitelist"/>
         <result column="nav_config" property="navConfig"/>
         <result column="footer_background_image" property="footerBackgroundImage"/>
         <result column="footer_background_config" property="footerBackgroundConfig"/>
@@ -38,7 +39,7 @@
     <!-- 通用查询结果列 -->
     <sql id="Base_Column_List">
         id, web_name, web_title, notices, footer, background_image, avatar, random_avatar, random_name, random_cover,
-        waifu_json, status, enable_waifu, waifu_display_mode, home_page_pull_up_height, api_enabled, api_key, nav_config,
+        waifu_json, status, enable_waifu, waifu_display_mode, home_page_pull_up_height, api_enabled, api_key, api_ip_whitelist, nav_config,
         footer_background_image, footer_background_config, email, minimal_footer, enable_auto_night,
         auto_night_start, auto_night_end, enable_gray_mode, enable_dynamic_title, mouse_click_effect_config, mobile_drawer_config
     </sql>
@@ -88,6 +89,9 @@
             </if>
             <if test="apiKey != null">
                 api_key = #{apiKey},
+            </if>
+            <if test="apiIpWhitelist != null">
+                api_ip_whitelist = #{apiIpWhitelist},
             </if>
             <if test="navConfig != null">
                 nav_config = #{navConfig},

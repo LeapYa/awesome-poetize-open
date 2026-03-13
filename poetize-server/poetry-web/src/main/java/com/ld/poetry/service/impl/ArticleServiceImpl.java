@@ -259,19 +259,13 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             return PoetryResult.fail("请设置文章密码！");
         }
 
-        Integer userId = PoetryUtil.getUserId();
+        Integer userId = resolveAsyncActorUserId(articleVO);
         if (userId == null) {
             return PoetryResult.fail("无法确定文章作者，请重新登录后再试");
         }
 
         // 在主线程中获取用户信息，避免异步线程中无法访问RequestContext
-        String currentUsername = null;
-        try {
-            currentUsername = PoetryUtil.getUsername();
-        } catch (Exception e) {
-            log.warn("无法获取当前用户名，使用默认值: {}", e.getMessage());
-            currentUsername = "System";
-        }
+        String currentUsername = resolveAsyncActorUsername(articleVO);
         final String finalUsername = currentUsername;
 
         // 初始化保存状态
@@ -286,6 +280,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
                 // 设置用户ID（虚拟线程中无法访问RequestContext）
                 articleVO.setUserId(userId);
+                articleVO.setUpdateBy(finalUsername);
 
                 // 更新状态：正在保存到数据库
                 updateSaveStatus(taskId, "processing", "正在保存到数据库...");
@@ -882,7 +877,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 .set(Article::getPayAmount, articleVO.getPayAmount())
                 .set(Article::getFreePercent, articleVO.getFreePercent());
 
-        if (StringUtils.hasText(articleVO.getArticleCover())) {
+        if (articleVO.getArticleCover() != null) {
             updateChainWrapper.set(Article::getArticleCover, articleVO.getArticleCover());
         }
         if (articleVO.getCommentStatus() != null) {
@@ -1861,19 +1856,13 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             return PoetryResult.fail("请设置文章密码！");
         }
 
-        Integer userId = PoetryUtil.getUserId();
+        Integer userId = resolveAsyncActorUserId(articleVO);
         if (userId == null) {
             return PoetryResult.fail("无法确定文章作者，请重新登录后再试");
         }
 
         // 在主线程中获取用户信息，避免异步线程中无法访问RequestContext
-        String currentUsername = null;
-        try {
-            currentUsername = PoetryUtil.getUsername();
-        } catch (Exception e) {
-            log.warn("无法获取当前用户名，使用默认值: {}", e.getMessage());
-            currentUsername = "System";
-        }
+        String currentUsername = resolveAsyncActorUsername(articleVO);
         final String finalUsername = currentUsername;
 
         // 初始化更新状态
@@ -1885,6 +1874,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         // 使用虚拟线程异步执行更新
         Thread.ofVirtual().name("article-update-" + taskId).start(() -> {
             try {
+                articleVO.setUserId(userId);
+                articleVO.setUpdateBy(finalUsername);
 
                 // 构建更新条件
                 LambdaUpdateChainWrapper<Article> updateChainWrapper = lambdaUpdate()
@@ -1902,7 +1893,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                         .set(Article::getPayAmount, articleVO.getPayAmount())
                         .set(Article::getFreePercent, articleVO.getFreePercent());
 
-                if (StringUtils.hasText(articleVO.getArticleCover())) {
+                if (articleVO.getArticleCover() != null) {
                     updateChainWrapper.set(Article::getArticleCover, articleVO.getArticleCover());
                 }
                 if (articleVO.getCommentStatus() != null) {
@@ -2031,6 +2022,31 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         });
 
         return PoetryResult.success(taskId);
+    }
+
+    private Integer resolveAsyncActorUserId(ArticleVO articleVO) {
+        Integer userId = PoetryUtil.getUserId();
+        if (userId != null) {
+            return userId;
+        }
+        return articleVO != null ? articleVO.getUserId() : null;
+    }
+
+    private String resolveAsyncActorUsername(ArticleVO articleVO) {
+        try {
+            String username = PoetryUtil.getUsername();
+            if (StringUtils.hasText(username)) {
+                return username;
+            }
+        } catch (Exception e) {
+            log.warn("无法获取当前用户名，尝试使用请求载荷中的操作者信息: {}", e.getMessage());
+        }
+
+        if (articleVO != null && StringUtils.hasText(articleVO.getUpdateBy())) {
+            return articleVO.getUpdateBy();
+        }
+
+        return "System";
     }
 
     /**
@@ -2196,7 +2212,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
         Article article = new Article();
 
-        if (StringUtils.hasText(articleVO.getArticleCover())) {
+        if (articleVO.getArticleCover() != null) {
             article.setArticleCover(articleVO.getArticleCover());
         }
         if (StringUtils.hasText(articleVO.getVideoUrl())) {

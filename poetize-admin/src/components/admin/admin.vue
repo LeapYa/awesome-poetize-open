@@ -48,11 +48,12 @@
     { element: '#menu-webNotice', route: '/webNotice', title: '📧 Step 5: 通知与邮件', description: '进入 <b>通知与邮件</b> 页面，配置 <b>SMTP邮件服务</b> 和 <b>站点公告</b>。请至少配一个邮箱并测试通过。' },
     { element: '#menu-configList', route: '/configList', title: '✉️ Step 6: 邮件模板', description: '回到 <b>配置管理</b> 页面，搜索 <code>user.code.format</code> 和 <code>user.subscribe.format</code>，自定义 <b>邮箱验证码模板</b> 和 <b>邮箱订阅模板</b> 的正文内容，让通知邮件更具个性化。' },
     { element: '#menu-webSecurity', route: '/webSecurity', title: '🧩 Step 7: 安全与登录', description: '进入 <b>安全与登录</b> 页面，配置 <b>验证码防护</b> 和 <b>第三方登录</b>（GitHub、Gitee等），完善站点安全和用户体验。' },
-    { element: '#menu-userList', route: '/userList', title: '👤 Step 8: 站长个人资料修改', description: '点击修改个人信息按钮，<b>修改个人信息</b>（头像、昵称、个人简介等），这些会作为站长资料在前台中展示。' },
-    { element: '#menu-seoConfig', route: '/seoConfig', title: '🔍 Step 9: SEO全套配置', description: '这里是网站被搜索引擎收录的前提：开启SEO → 填写描述/关键词 → 一键生成图标 → 搜索引擎验证推送 → sitemap生成。' },
-    { element: '#menu-resourcePathList', route: '/resourcePathList', title: '📦 Step 10: 本站信息 (siteInfo)', description: '在这里找到或新建 <code>siteInfo</code> 类型，配置你的网站名称、地址、描述和封面。它是友链交换页展示的本站专属“社交名片”。' },
-    { element: '#menu-resourcePathList', route: '/resourcePathList', title: '🎯 Step 11: 侧边栏定制', description: '继续在 <b>资源聚合</b> 页面，点击新增资源聚合按钮，可以配置 <b>联系方式</b>（社交媒体小图标）、<b>快捷入口</b>（自定义跳转按钮）、<b>侧边栏背景</b>（渐变或图片），这些会展示在首页 PC端右侧侧边栏中。点击类型旁的问号图标可查看效果示例。' },
-    { element: '#menu-translationModel', route: '/translationModel', title: '🤖 Step 12: 文章AI助手', description: '最后一步！在这里选择合适的 <b>LLM 提供商</b>，填入 API Key，就能一键开启文章的自动翻译和智能摘要功能啦。配置全部完成！' }
+    { element: '#field-api', route: '/webNavApi', title: '🛰️ Step 8: 对外 API 接口', description: '这里可以开启网站的 <b>对外 API 接口</b>。它主要给 <b>服务端集成</b> 使用，比如接到 <b>OpenClaw</b> 这类 <b>self-hosted AI agent gateway</b>，或者接入你自己的自动发布、内容运营工作流。启用后，可以通过 <code>X-API-KEY</code> 调用文章创建、更新、SEO、资源上传等能力。如果你平时只在后台手工发文，可以先不启用；如果要接服务端自动化，建议开启后立刻配置 <b>API IP 白名单</b>，只放行你的 OpenClaw 服务器或可信出口 IP。' },
+    { element: '#menu-userList', route: '/userList', title: '👤 Step 9: 站长个人资料修改', description: '点击修改个人信息按钮，<b>修改个人信息</b>（头像、昵称、个人简介等），这些会作为站长资料在前台中展示。' },
+    { element: '#menu-seoConfig', route: '/seoConfig', title: '🔍 Step 10: SEO全套配置', description: '这里是网站被搜索引擎收录的前提：开启SEO → 填写描述/关键词 → 一键生成图标 → 搜索引擎验证推送 → sitemap生成。' },
+    { element: '#menu-resourcePathList', route: '/resourcePathList', title: '📦 Step 11: 本站信息 (siteInfo)', description: '在这里找到或新建 <code>siteInfo</code> 类型，配置你的网站名称、地址、描述和封面。它是友链交换页展示的本站专属“社交名片”。' },
+    { element: '#menu-resourcePathList', route: '/resourcePathList', title: '🎯 Step 12: 侧边栏定制', description: '继续在 <b>资源聚合</b> 页面，点击新增资源聚合按钮，可以配置 <b>联系方式</b>（社交媒体小图标）、<b>快捷入口</b>（自定义跳转按钮）、<b>侧边栏背景</b>（渐变或图片），这些会展示在首页 PC端右侧侧边栏中。点击类型旁的问号图标可查看效果示例。' },
+    { element: '#menu-translationModel', route: '/translationModel', title: '🤖 Step 13: 文章AI助手', description: '最后一步！在这里选择合适的 <b>LLM 提供商</b>，填入 API Key，就能一键开启文章的自动翻译和智能摘要功能啦。配置全部完成！' }
   ];
 
   export default {
@@ -242,7 +243,7 @@
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved !== null) {
           const val = parseInt(saved, 10);
-          // val 0 = island intro, val 1-9 = actual steps
+          // val 0 = island intro, val 1-N = actual steps
           if (val >= 0 && val <= GUIDE_STEPS.length) {
             this.guideStep = val;
             this.showGuideWidget = true;
@@ -265,7 +266,7 @@
           return;
         }
 
-        // Step 0: Introduction to Dynamic Island (0/9), stay on welcome page
+        // Step 0: Introduction to Dynamic Island, stay on welcome page
         if (stepIndex === 0) {
           this.guideStep = 0;
           this.showGuideWidget = true;
@@ -281,7 +282,7 @@
           return;
         }
 
-        // Step 1-9: Actual configuration steps
+        // Step 1-N: Actual configuration steps
         this.guideStep = stepIndex;
         this.showGuideWidget = true;
         localStorage.setItem(STORAGE_KEY, String(this.guideStep));
@@ -303,12 +304,12 @@
       },
 
       resumeGuide() {
-        // guideStep 0 = island intro, guideStep 1-9 = actual steps
+        // guideStep 0 = island intro, guideStep 1-N = actual steps
         this.startGuide(this.guideStep);
       },
 
       goPrevStep() {
-        // guideStep 0 = intro, guideStep 1-9 = actual steps
+        // guideStep 0 = intro, guideStep 1-N = actual steps
         if (this.guideStep <= 0) {
           this.closeGuide();
           return;

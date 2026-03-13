@@ -283,6 +283,11 @@ public class CacheConstants {
      * Sitemap缓存键
      */
     public static final String SITEMAP_KEY = CACHE_PREFIX + "seo:sitemap";
+
+    /**
+     * Sitemap最近更新时间缓存键
+     */
+    public static final String SITEMAP_LAST_UPDATE_KEY = CACHE_PREFIX + "seo:sitemap:last-update";
     
     /**
      * Sitemap过期时间（秒）- 1小时

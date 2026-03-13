@@ -170,6 +170,7 @@ CREATE TABLE `poetize`.`web_info` (
   `home_page_pull_up_height` int(11) NULL DEFAULT -1 COMMENT '首页上拉高度',
   `api_enabled` tinyint(1) DEFAULT 0 COMMENT 'API是否启用[0:否，1:是]',
   `api_key` varchar(255) DEFAULT NULL COMMENT 'API密钥',
+  `api_ip_whitelist` text DEFAULT NULL COMMENT 'API IP白名单，支持IP和CIDR，逗号或换行分隔',
   `nav_config` text DEFAULT NULL COMMENT '导航栏配置JSON',
   `enable_waifu` tinyint(1) DEFAULT 0 COMMENT '看板娘是否启用[0:否，1:是]',
   `waifu_display_mode` varchar(20) DEFAULT 'live2d' COMMENT '看板娘显示模式 [live2d:Live2D看板娘, button:简洁按钮]',

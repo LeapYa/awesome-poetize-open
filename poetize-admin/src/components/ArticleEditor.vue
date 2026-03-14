@@ -1,6 +1,7 @@
 <template>
   <div class="article-editor">
     <component
+      v-if="currentComponent"
       :is="currentComponent"
       ref="inner"
       :value="value"
@@ -25,6 +26,9 @@ const VditorEditor = () => import('@/components/VditorEditor.vue')
 const SplitPreviewMarkdownEditor = () => import('@/components/editors/SplitPreviewMarkdownEditor.vue')
 const IRMarkdownEditor = () => import('@/components/editors/IRMarkdownEditor.vue')
 const WYSIWYGMarkdownEditor = () => import('@/components/editors/WYSIWYGMarkdownEditor.vue')
+
+const SUPPORTED_EDITOR_KEYS = ['vditor', 'split_preview', 'ir', 'wysiwyg']
+const DEFAULT_EDITOR_KEY = 'vditor'
 
 export default {
   name: 'ArticleEditor',
@@ -62,7 +66,9 @@ export default {
   },
   data() {
     return {
-      activeKey: 'vditor',
+      activeKey: null,
+      isResolved: false,
+      isDisposed: false,
       // 支持的编辑器类型
       // vditor: Vditor 编辑器
       // split_preview: 分屏预览 Markdown 编辑器（左编辑右预览）
@@ -72,6 +78,9 @@ export default {
   },
   computed: {
     currentComponent() {
+      if (!this.isResolved || !this.activeKey) {
+        return null
+      }
       switch (this.activeKey) {
         case 'split_preview':
           return 'SplitPreviewMarkdownEditor'
@@ -85,30 +94,70 @@ export default {
     },
   },
   created() {
-    this.loadActiveFromCache()
-    this.fetchActivePlugin()
+    this.resolveInitialEditor()
+  },
+  beforeDestroy() {
+    this.isDisposed = true
   },
   methods: {
+    normalizeEditorKey(editorKey) {
+      return SUPPORTED_EDITOR_KEYS.includes(editorKey) ? editorKey : null
+    },
+    applyResolvedEditor(editorKey) {
+      const normalizedKey = this.normalizeEditorKey(editorKey) || DEFAULT_EDITOR_KEY
+      this.activeKey = normalizedKey
+      this.isResolved = true
+      return normalizedKey
+    },
     loadActiveFromCache() {
-      let cached = localStorage.getItem('activeEditorPluginKey')
-      if (['vditor', 'split_preview', 'ir', 'wysiwyg'].includes(cached)) {
-        this.activeKey = cached
+      try {
+        return this.normalizeEditorKey(localStorage.getItem('activeEditorPluginKey'))
+      } catch (error) {
+        return null
       }
     },
-    cacheActive() {
-      localStorage.setItem('activeEditorPluginKey', this.activeKey)
+    cacheActive(editorKey = this.activeKey) {
+      const normalizedKey = this.normalizeEditorKey(editorKey)
+      if (!normalizedKey) {
+        return
+      }
+      try {
+        localStorage.setItem('activeEditorPluginKey', normalizedKey)
+      } catch (error) {}
     },
-    fetchActivePlugin() {
+    async resolveInitialEditor() {
+      const cachedKey = this.loadActiveFromCache()
+      if (cachedKey) {
+        this.applyResolvedEditor(cachedKey)
+        this.fetchActivePlugin({ syncCacheOnly: true, fallbackKey: cachedKey })
+        return
+      }
+
+      await this.fetchActivePlugin({ fallbackKey: DEFAULT_EDITOR_KEY })
+    },
+    async fetchActivePlugin(options = {}) {
+      const fallbackKey = this.normalizeEditorKey(options.fallbackKey) || DEFAULT_EDITOR_KEY
+      const syncCacheOnly = options.syncCacheOnly === true
       const base = this.$constant.baseURL
-      this.$http.get(base + '/sysPlugin/getActivePlugin', { pluginType: 'editor' }, true)
-        .then((res) => {
-          const active = res && res.code === 200 ? res.data : null
-          if (active && ['vditor', 'split_preview', 'ir', 'wysiwyg'].includes(active.pluginKey)) {
-            this.activeKey = active.pluginKey
-            this.cacheActive()
-          }
-        })
-        .catch(() => {})
+      try {
+        const res = await this.$http.get(base + '/sysPlugin/getActivePlugin', { pluginType: 'editor' }, true)
+        const active = res && res.code === 200 ? res.data : null
+        const pluginKey = this.normalizeEditorKey(active && active.pluginKey)
+        const resolvedKey = pluginKey || fallbackKey
+
+        this.cacheActive(resolvedKey)
+
+        if (!this.isDisposed && !syncCacheOnly) {
+          this.applyResolvedEditor(resolvedKey)
+        }
+
+        return resolvedKey
+      } catch (error) {
+        if (!this.isDisposed && !syncCacheOnly) {
+          this.applyResolvedEditor(fallbackKey)
+        }
+        return fallbackKey
+      }
     },
     forwardInput(val) {
       this.$emit('input', val)
@@ -136,9 +185,10 @@ export default {
      * @param {string} editorKey - 编辑器类型：vditor, split_preview, ir, wysiwyg
      */
     switchEditor(editorKey) {
-      if (['vditor', 'split_preview', 'ir', 'wysiwyg'].includes(editorKey)) {
-        this.activeKey = editorKey
-        this.cacheActive()
+      const normalizedKey = this.normalizeEditorKey(editorKey)
+      if (normalizedKey) {
+        this.applyResolvedEditor(normalizedKey)
+        this.cacheActive(normalizedKey)
       }
     },
     /**
@@ -146,7 +196,7 @@ export default {
      * @returns {string}
      */
     getEditorType() {
-      return this.activeKey
+      return this.activeKey || DEFAULT_EDITOR_KEY
     },
     insertValue(text) {
       const inner = this.$refs.inner

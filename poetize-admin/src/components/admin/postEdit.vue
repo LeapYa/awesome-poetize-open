@@ -26,7 +26,6 @@
       </el-form-item>
 
       <el-form-item label="内容" prop="articleContent">
-        <!-- 添加编辑器加载提示 -->
         <div v-if="!editorReady" class="editor-loading-wrapper">
           <div class="editor-skeleton">
             <div class="skeleton-toolbar"></div>
@@ -134,7 +133,7 @@
         <div class="cover-input-container">
           <el-input 
             v-model="article.articleCover" 
-            placeholder="请输入图片链接或使用下方上传功能"></el-input>
+            placeholder="请输入图片链接或使用下方上传功能，如果不想设置封面可以留空"></el-input>
           <el-image 
             class="table-td-thumb"
             lazy
@@ -340,7 +339,17 @@
 
         <!-- 翻译内容 -->
         <el-form-item label="翻译内容" prop="translatedContent">
+          <div v-if="translationDialogVisible && !translationEditorReady" class="editor-loading-wrapper">
+            <div class="editor-skeleton">
+              <div class="skeleton-toolbar"></div>
+              <div class="skeleton-content">
+                <i class="el-icon-loading"></i>
+                <p>翻译编辑器加载中...</p>
+              </div>
+            </div>
+          </div>
           <ArticleEditor
+            v-if="shouldRenderTranslationEditor"
             ref="translationMd"
             class="translation-editor"
             v-model="translationForm.translatedContent"
@@ -367,9 +376,26 @@
     import { useMainStore } from '@/stores/main';
 
 const uploadPicture = () => import("../common/uploadPicture");
-  import ArticleEditor from '@/components/ArticleEditor.vue';
-  import axios from 'axios';
+  const ArticleEditor = () => import('@/components/ArticleEditor.vue');
   import { getAdminLanguageName } from '@/utils/languageUtils';
+
+  const createDefaultArticle = () => ({
+    articleTitle: "",
+    articleContent: "",
+    commentStatus: true,
+    recommendStatus: false,
+    viewStatus: true,
+    submitToSearchEngine: true,
+    password: "",
+    tips: "",
+    articleCover: "",
+    videoUrl: "",
+    sortId: null,
+    labelId: null,
+    payType: 0,
+    payAmount: null,
+    freePercent: 30
+  });
 
   export default {
     components: {
@@ -388,24 +414,10 @@ const uploadPicture = () => import("../common/uploadPicture");
         // 编辑器加载优化相关
         editorReady: false, // 编辑器是否准备好
         shouldRenderEditor: false, // 是否应该渲染编辑器
-        dataLoaded: false, // 数据是否已加载
-        article: {
-          articleTitle: "",
-          articleContent: "",
-          commentStatus: true,
-          recommendStatus: false,
-          viewStatus: true,
-          submitToSearchEngine: true,
-          password: "",
-          tips: "",
-          articleCover: "",
-          videoUrl: "",
-          sortId: null,
-          labelId: null,
-          payType: 0,
-          payAmount: null,
-          freePercent: 30
-        },
+        shouldRenderTranslationEditor: false,
+        mainEditor: null,
+        deferredTaskHandles: [],
+        article: createDefaultArticle(),
         // 付费插件状态
         paymentPluginActive: false,
         paymentPluginName: '',
@@ -453,6 +465,7 @@ const uploadPicture = () => import("../common/uploadPicture");
         },
         // 翻译编辑相关数据
         translationDialogVisible: false,
+        translationEditorReady: false,
         translationSaving: false,
         translationForm: {
           targetLanguage: 'en',
@@ -522,11 +535,12 @@ const uploadPicture = () => import("../common/uploadPicture");
       },
       
       // 监听路由变化，更新文章 ID
-      '$route.query.id'(newId) {
-        this.id = newId ? parseInt(newId) : null;
-        if (this.id) {
-          this.getArticleById();
+      '$route.query.id'(newId, oldId) {
+        if (newId === oldId) {
+          return;
         }
+        this.id = newId ? parseInt(newId) : null;
+        this.initializePageData();
       }
     },
 
@@ -554,6 +568,7 @@ const uploadPicture = () => import("../common/uploadPicture");
       
       // 移除窗口大小变化监听
       window.removeEventListener('resize', this.handleWindowResize);
+      this.clearDeferredTasks();
     },
 
 
@@ -567,22 +582,86 @@ const uploadPicture = () => import("../common/uploadPicture");
       },
       // 初始化页面数据（优化后的加载流程）
       async initializePageData() {
+        this.editorReady = false;
+        this.shouldRenderEditor = false;
+        this.mainEditor = null;
+        this.clearDeferredTasks();
         try {
-          // 先加载分类和标签数据
-          await this.getSortAndLabel();
-          this.checkPaymentPlugin();
-          this.dataLoaded = true;
-          
-          // 延迟渲染编辑器，避免阻塞页面
-          this.$nextTick(() => {
-            setTimeout(() => {
-              this.shouldRenderEditor = true;
-            }, 100); // 延迟100ms，让页面先渲染其他内容
-          });
+          const tasks = [this.getSortAndLabel(false)];
+          if (!this.$common.isEmpty(this.id)) {
+            tasks.push(this.getArticleById({ checkTranslationStatus: false }));
+          } else {
+            this.article = createDefaultArticle();
+          }
+
+          await Promise.all(tasks);
+          this.scheduleEditorMount();
+          this.scheduleNonCriticalStartupTasks();
         } catch (error) {
           console.error('初始化页面数据失败:', error);
           // 即使失败也要显示编辑器
-          this.shouldRenderEditor = true;
+          this.scheduleEditorMount();
+        }
+      },
+
+      scheduleEditorMount() {
+        this.$nextTick(() => {
+          const mountEditor = () => {
+            this.shouldRenderEditor = true;
+          };
+
+          if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(mountEditor);
+          } else {
+            setTimeout(mountEditor, 16);
+          }
+        });
+      },
+
+      scheduleDeferredTask(task, delay = 300) {
+        const removeHandle = (handle) => {
+          this.deferredTaskHandles = this.deferredTaskHandles.filter((item) => item !== handle);
+        };
+        let handle = null;
+
+        if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+          const idleId = window.requestIdleCallback(() => {
+            removeHandle(handle);
+            task();
+          }, { timeout: Math.max(800, delay) });
+          handle = { type: 'idle', id: idleId };
+          this.deferredTaskHandles.push(handle);
+          return;
+        }
+
+        const timeoutId = window.setTimeout(() => {
+          removeHandle(handle);
+          task();
+        }, delay);
+        handle = { type: 'timeout', id: timeoutId };
+        this.deferredTaskHandles.push(handle);
+      },
+
+      clearDeferredTasks() {
+        this.deferredTaskHandles.forEach((handle) => {
+          if (handle.type === 'idle' && typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {
+            window.cancelIdleCallback(handle.id);
+            return;
+          }
+          clearTimeout(handle.id);
+        });
+        this.deferredTaskHandles = [];
+      },
+
+      scheduleNonCriticalStartupTasks() {
+        this.scheduleDeferredTask(() => {
+          this.checkPaymentPlugin();
+        }, 400);
+
+        if (!this.$common.isEmpty(this.id)) {
+          this.scheduleDeferredTask(() => {
+            this.checkAndSetTranslationMode();
+          }, 900);
         }
       },
       
@@ -611,8 +690,8 @@ const uploadPicture = () => import("../common/uploadPicture");
       },
       
       // 翻译编辑器就绪回调
-      onTranslationEditorReady(editor) {
-        this.translationEditor = editor;
+      onTranslationEditorReady() {
+        this.translationEditorReady = true;
       },
       
       // 主编辑器内容变化处理
@@ -680,7 +759,11 @@ const uploadPicture = () => import("../common/uploadPicture");
           }
 
           // 显示弹窗
+          this.translationEditorReady = false;
           this.translationDialogVisible = true;
+          this.$nextTick(() => {
+            this.shouldRenderTranslationEditor = true;
+          });
           
           // Vditor 编辑器将在 ready 事件中自动初始化
         } catch (error) {
@@ -807,6 +890,8 @@ const uploadPicture = () => import("../common/uploadPicture");
 
       closeTranslationDialog() {
         this.translationDialogVisible = false;
+        this.shouldRenderTranslationEditor = false;
+        this.translationEditorReady = false;
         this.resetTranslationForm();
       },
 
@@ -883,17 +968,22 @@ const uploadPicture = () => import("../common/uploadPicture");
       },
       
       // 根据ID获取文章
-      getArticleById() {
-        this.$http.get(this.$constant.baseURL + "/admin/article/getArticleById", {id: this.id})
+      getArticleById(options = {}) {
+        const { checkTranslationStatus = true } = options;
+        return this.$http.get(this.$constant.baseURL + "/admin/article/getArticleById", {id: this.id})
           .then((res) => {
             if (!this.$common.isEmpty(res.data)) {
               this.article = res.data;
               // 检查文章是否有手动编辑的翻译，如果有则自动进入编辑翻译模式
-              this.checkAndSetTranslationMode();
+              if (checkTranslationStatus) {
+                this.checkAndSetTranslationMode();
+              }
             }
+            return res.data;
           })
           .catch((error) => {
             this.showError("获取文章失败", error);
+            throw error;
           });
       },
       

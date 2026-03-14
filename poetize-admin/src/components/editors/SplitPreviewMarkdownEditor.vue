@@ -273,7 +273,9 @@ export default {
       historySuspend: false,
       historyNextMode: null,
       canUndo: false,
-      canRedo: false
+      canRedo: false,
+      isBootstrapped: false,
+      bootstrapHandle: null
     };
   },
   computed: {
@@ -292,6 +294,9 @@ export default {
         }
         // 从数据库读取时，升级标题后显示
         this.internalContent = upgradeMarkdownHeadings(val || '');
+        if (!this.isBootstrapped) {
+          return;
+        }
         this.updatePreview(this.internalContent);
         this.$nextTick(() => {
           this.resetHistory();
@@ -316,7 +321,6 @@ export default {
       mergeWindow: 600,
       isEqual: (a, b) => !!a && !!b && a.content === b.content
     });
-    this.$emit('ready', this);
     this.syncThemeFromDom();
     this.$root.$on('theme-changed', this.handleThemeChanged);
     this.themeObserver = new MutationObserver(() => {
@@ -326,11 +330,13 @@ export default {
     this.themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
     // 加载文章主题到编辑器 CSS 变量
     initEditorTheme();
-    this.$nextTick(() => {
-      this.resetHistory();
-    });
+    this.scheduleBootstrap();
   },
   beforeDestroy() {
+    if (this.bootstrapHandle) {
+      cancelAnimationFrame(this.bootstrapHandle);
+      this.bootstrapHandle = null;
+    }
     if (this.renderTimer) clearTimeout(this.renderTimer);
     this.$root.$off('theme-changed', this.handleThemeChanged);
     if (this.themeObserver) {
@@ -343,6 +349,24 @@ export default {
     }
   },
   methods: {
+    scheduleBootstrap() {
+      const finalizeBootstrap = () => {
+        this.bootstrapHandle = null;
+        this.isBootstrapped = true;
+        this.updatePreview(this.internalContent);
+        this.$nextTick(() => {
+          this.resetHistory();
+          this.$emit('ready', this);
+        });
+      };
+
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        this.bootstrapHandle = window.requestAnimationFrame(finalizeBootstrap);
+        return;
+      }
+
+      finalizeBootstrap();
+    },
     createImageUploadId() {
       return `img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     },
@@ -1325,6 +1349,8 @@ function computeLineStartOffset(lines, lineIndex) {
 
 .editor-pane {
   height: 100%;
+  min-width: 0;
+  max-width: 100%;
   box-sizing: border-box;
   transition: width 0.3s;
 }
@@ -1332,6 +1358,8 @@ function computeLineStartOffset(lines, lineIndex) {
 .editor-textarea {
   width: 100%;
   height: 100%;
+  min-width: 0;
+  max-width: 100%;
   border: none;
   resize: none;
   outline: none;
@@ -1347,10 +1375,28 @@ function computeLineStartOffset(lines, lineIndex) {
 .preview-pane {
   width: 50%;
   height: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow-y: auto;
   border-left: 1px solid #dcdfe6;
   padding: 20px;
   background-color: #fcfcfc;
+  box-sizing: border-box;
+}
+
+.preview-pane :deep(.entry-content),
+.preview-pane :deep(.entry-content > *),
+.preview-pane :deep(.entry-content p),
+.preview-pane :deep(.entry-content li),
+.preview-pane :deep(.entry-content blockquote),
+.preview-pane :deep(.entry-content a),
+.preview-pane :deep(.entry-content span),
+.preview-pane :deep(.entry-content td),
+.preview-pane :deep(.entry-content th) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   box-sizing: border-box;
 }
 

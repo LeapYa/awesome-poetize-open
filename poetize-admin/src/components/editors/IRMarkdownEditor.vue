@@ -148,6 +148,7 @@
                 'cursor-line': seg.lineIndex === cursorLine || isLineInSelection(seg.lineIndex),
                 'has-selection': isLineInSelection(seg.lineIndex)
               }"
+              :style="getLineInteractionStyle(seg.lineIndex)"
               :data-line-index="seg.lineIndex"
             >
               <!-- 光标行、选中行、或正在编辑的块内的行：显示源码 -->
@@ -192,6 +193,8 @@
               v-else
               :key="seg.key"
               class="editor-block"
+              :class="{ 'has-selection': isBlockInSelection(seg.startLine, seg.endLine) }"
+              :style="getBlockInteractionStyle(seg.key)"
               :data-start-line="seg.startLine"
               :data-end-line="seg.endLine"
               :data-block-type="seg.blockType"
@@ -359,6 +362,7 @@ export default {
       segments: [],
       // 渲染任务序号（用于避免异步渲染结果“回写覆盖”导致闪烁/退回）
       renderJobId: 0,
+      segmentRenderTimer: null,
       
       // 输入法状态
       isComposing: false,
@@ -369,6 +373,16 @@ export default {
       isDarkMode: false,
       isFocused: false,
       isMouseDown: false,
+      isSelecting: false,
+      mouseDragActivated: false,
+      mouseDownShiftKey: false,
+      mouseDownClientX: 0,
+      mouseDownClientY: 0,
+      mouseSelectionAnchor: null,
+      selectionLockedLineHeights: {},
+      selectionLockedBlockHeights: {},
+      pendingSelectionRender: false,
+      pendingRevealFrames: 0,
       
       // 撤销/重做状态
       canUndo: false,
@@ -387,6 +401,7 @@ export default {
       // 标记是否是内部更新，防止循环
       isInternalUpdate: false,
       queuedImageUploads: [],
+      bootstrapHandle: null,
       
       // 帮助对话框
       helpDialogVisible: false
@@ -439,7 +454,6 @@ export default {
   },
 
   mounted() {
-    this.initEditor();
     this.setupThemeObserver();
     this._onWindowResize = () => {
       this.resizeAllECharts();
@@ -447,10 +461,18 @@ export default {
     window.addEventListener('resize', this._onWindowResize);
     // 加载文章主题到编辑器 CSS 变量
     initEditorTheme();
-    this.$emit('ready', this);
+    this.scheduleBootstrap();
   },
 
   beforeDestroy() {
+    if (this.bootstrapHandle) {
+      cancelAnimationFrame(this.bootstrapHandle);
+      this.bootstrapHandle = null;
+    }
+    if (this.segmentRenderTimer) {
+      clearTimeout(this.segmentRenderTimer);
+      this.segmentRenderTimer = null;
+    }
     this.cleanupThemeObserver();
     if (this._onWindowResize) {
       window.removeEventListener('resize', this._onWindowResize);
@@ -469,6 +491,20 @@ export default {
   },
 
   methods: {
+    scheduleBootstrap() {
+      const finalizeBootstrap = () => {
+        this.bootstrapHandle = null;
+        this.initEditor();
+        this.$emit('ready', this);
+      };
+
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        this.bootstrapHandle = window.requestAnimationFrame(finalizeBootstrap);
+        return;
+      }
+
+      finalizeBootstrap();
+    },
     createImageUploadId() {
       return `img-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     },
@@ -839,15 +875,21 @@ export default {
       
       // 如果光标行变化或选区变化，需要重新渲染
       if (oldCursorLine !== this.cursorLine || selectionChanged) {
-        // 光标/选区变化会导致块折叠/展开策略变化，直接重渲染
-        this.renderAllSegments();
-        // 更新版本号确保视图刷新
-        this.documentVersion++;
+        if (this.isSelecting) {
+          // 拖拽选区时冻结块折叠/展开，避免布局变化把选区“带跑偏”
+          this.pendingSelectionRender = true;
+        } else {
+          // 光标/选区变化会导致块折叠/展开策略变化。
+          // 这里做轻量防抖，减少选中标题/短行时源码态和渲染态来回闪烁。
+          this.scheduleSegmentRender({
+            delay: selectionChanged ? 60 : 24
+          });
+        }
       }
       
       // 确保光标可见
       this.$nextTick(() => {
-        this.scrollCursorIntoView();
+        this.scrollCursorIntoView({ behavior: this.isSelecting ? 'auto' : 'smooth' });
       });
     },
 
@@ -1000,6 +1042,64 @@ export default {
       return lineIndex >= this.selectionStart.line && lineIndex <= this.selectionEnd.line;
     },
 
+    isBlockInSelection(startLine, endLine) {
+      if (!this.selectionStart || !this.selectionEnd) return false;
+      return !(this.selectionEnd.line < startLine || this.selectionStart.line > endLine);
+    },
+
+    captureSelectionLayoutLock() {
+      const container = this.$refs.linesContainer;
+      if (!container) return;
+
+      const lockedLineHeights = {};
+      const lockedBlockHeights = {};
+
+      const lineElements = container.querySelectorAll('.editor-line[data-line-index]');
+      lineElements.forEach((el) => {
+        const lineIndex = Number(el.dataset.lineIndex);
+        const height = Math.ceil(el.getBoundingClientRect().height);
+        if (!Number.isNaN(lineIndex) && height > 0) {
+          lockedLineHeights[lineIndex] = height;
+        }
+      });
+
+      const blockElements = container.querySelectorAll('.editor-block[data-start-line][data-end-line]');
+      blockElements.forEach((el) => {
+        const startLine = Number(el.dataset.startLine);
+        const endLine = Number(el.dataset.endLine);
+        const height = Math.ceil(el.getBoundingClientRect().height);
+        if (!Number.isNaN(startLine) && !Number.isNaN(endLine) && height > 0) {
+          lockedBlockHeights[`b:${startLine}-${endLine}`] = height;
+        }
+      });
+
+      this.selectionLockedLineHeights = lockedLineHeights;
+      this.selectionLockedBlockHeights = lockedBlockHeights;
+    },
+
+    clearSelectionLayoutLock() {
+      this.selectionLockedLineHeights = {};
+      this.selectionLockedBlockHeights = {};
+    },
+
+    getLineInteractionStyle(lineIndex) {
+      if (!this.isSelecting) return null;
+      const lockedHeight = this.selectionLockedLineHeights[lineIndex];
+      if (!lockedHeight) return null;
+      return {
+        minHeight: `${lockedHeight}px`
+      };
+    },
+
+    getBlockInteractionStyle(blockKey) {
+      if (!this.isSelecting) return null;
+      const lockedHeight = this.selectionLockedBlockHeights[blockKey];
+      if (!lockedHeight) return null;
+      return {
+        minHeight: `${lockedHeight}px`
+      };
+    },
+
     /**
      * 判断行是否应该显示源码
      * 规则：
@@ -1007,6 +1107,13 @@ export default {
      * 2. 在当前选区范围内
      */
     shouldShowSource(lineIndex) {
+      // 拖拽选区过程中，已经进入选区的单行内容直接切到源码态，
+      // 这样字符级“文本选中”能立刻出现，不必等 mouseup。
+      // 配合上面的重渲染冻结，可避免之前那种来回闪烁。
+      if (this.isSelecting) {
+        return lineIndex === this.cursorLine || this.isLineInSelection(lineIndex);
+      }
+
       // 规则1：当前光标行
       if (lineIndex === this.cursorLine) return true;
       
@@ -1017,20 +1124,61 @@ export default {
     /**
      * 滚动使光标可见
      */
-    scrollCursorIntoView() {
+    scrollCursorIntoView(options = {}) {
       const container = this.$refs.editorContent;
       const lineElement = container?.querySelector(`[data-line-index="${this.cursorLine}"]`);
+      const behavior = options.behavior || 'smooth';
       
       if (lineElement) {
         const containerRect = container.getBoundingClientRect();
         const lineRect = lineElement.getBoundingClientRect();
         
         if (lineRect.top < containerRect.top) {
-          lineElement.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          lineElement.scrollIntoView({ block: 'start', behavior });
         } else if (lineRect.bottom > containerRect.bottom) {
-          lineElement.scrollIntoView({ block: 'end', behavior: 'smooth' });
+          lineElement.scrollIntoView({ block: 'end', behavior });
         }
       }
+    },
+
+    revealCursorAfterLayout(frameCount = 3) {
+      const frames = Math.max(1, frameCount);
+      this.pendingRevealFrames = Math.max(this.pendingRevealFrames, frames);
+
+      const tick = () => {
+        this.$nextTick(() => {
+          this.scrollCursorIntoView({ behavior: 'auto' });
+          this.pendingRevealFrames -= 1;
+          if (this.pendingRevealFrames > 0) {
+            requestAnimationFrame(tick);
+          } else {
+            this.pendingRevealFrames = 0;
+          }
+        });
+      };
+
+      if (this.pendingRevealFrames === frames) {
+        requestAnimationFrame(tick);
+      }
+    },
+
+    scheduleSegmentRender(options = {}) {
+      const delay = Math.max(0, options.delay ?? 40);
+      if (this.segmentRenderTimer) {
+        clearTimeout(this.segmentRenderTimer);
+      }
+      this.segmentRenderTimer = setTimeout(() => {
+        this.segmentRenderTimer = null;
+        this.renderAllSegments();
+        this.documentVersion++;
+      }, delay);
+    },
+
+    flushPendingSelectionRender() {
+      if (!this.pendingSelectionRender) return;
+      this.pendingSelectionRender = false;
+      this.scheduleSegmentRender({ delay: 50 });
+      this.revealCursorAfterLayout(2);
     },
 
     // ==================== 输入处理 ====================
@@ -1238,6 +1386,9 @@ export default {
       if (this.history) {
         this.history.recordInsert(pos.line, pos.column, text, newPos.line, newPos.column);
       }
+      if (text.includes('\n') || text.length > 80) {
+        this.revealCursorAfterLayout(4);
+      }
     },
 
     /**
@@ -1322,6 +1473,12 @@ export default {
       if (this._isTouching) return;
 
       this.isMouseDown = true;
+      this.isSelecting = false;
+      this.mouseDragActivated = false;
+      this.mouseDownShiftKey = !!e.shiftKey;
+      this.mouseDownClientX = e.clientX;
+      this.mouseDownClientY = e.clientY;
+      this.mouseSelectionAnchor = null;
       this.focus();
       
       const pos = this.getPositionFromEvent(e);
@@ -1342,6 +1499,9 @@ export default {
           // 普通点击：设置光标
           this.cursor.setPosition(pos.line, pos.column);
         }
+
+        const selection = this.cursor.getSelection();
+        this.mouseSelectionAnchor = selection.start.clone();
       }
     },
 
@@ -1354,8 +1514,26 @@ export default {
       
       const pos = this.getPositionFromEvent(e);
       if (pos) {
+        const dx = e.clientX - this.mouseDownClientX;
+        const dy = e.clientY - this.mouseDownClientY;
+        const movedEnough = (dx * dx + dy * dy) > 9;
+
+        if (!this.mouseDragActivated) {
+          const startPos = this.mouseSelectionAnchor;
+          const changedPosition = startPos &&
+            (startPos.line !== pos.line || startPos.column !== pos.column);
+
+          if (!movedEnough && !changedPosition) {
+            return;
+          }
+
+          this.mouseDragActivated = true;
+          this.captureSelectionLayoutLock();
+          this.isSelecting = true;
+        }
+
         // 扩展选区
-        const anchor = this.cursor.getSelection().start;
+        const anchor = this.mouseSelectionAnchor || this.cursor.getSelection().start;
         this.cursor.setSelection(anchor.line, anchor.column, pos.line, pos.column);
       }
     },
@@ -1363,8 +1541,26 @@ export default {
     /**
      * 处理鼠标释放
      */
-    handleMouseUp() {
+    handleMouseUp(e) {
       this.isMouseDown = false;
+      const hadDragSelection = this.mouseDragActivated;
+      this.isSelecting = false;
+      if (e && hadDragSelection) {
+        const pos = this.getPositionFromEvent(e);
+        if (pos) {
+          const anchor = this.mouseSelectionAnchor || this.cursor.getSelection().start;
+          this.cursor.setSelection(anchor.line, anchor.column, pos.line, pos.column);
+        }
+      }
+      if (hadDragSelection) {
+        this.flushPendingSelectionRender();
+      } else if (!this.mouseDownShiftKey) {
+        this.pendingSelectionRender = false;
+      }
+      this.clearSelectionLayoutLock();
+      this.mouseDragActivated = false;
+      this.mouseDownShiftKey = false;
+      this.mouseSelectionAnchor = null;
     },
 
     /**
@@ -1488,8 +1684,10 @@ export default {
       const { clientX, clientY } = e;
       
       // 找到点击的行元素
-      const items = container.querySelectorAll('.editor-line, .editor-block');
+      const items = Array.from(container.querySelectorAll('.editor-line, .editor-block'));
       let targetEl = null;
+      let nearestEl = null;
+      let nearestDistance = Infinity;
       
       for (const item of items) {
         const r = item.getBoundingClientRect();
@@ -1497,11 +1695,18 @@ export default {
           targetEl = item;
           break;
         }
+
+        const distance = clientY < r.top ? (r.top - clientY) : (clientY - r.bottom);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestEl = item;
+        }
       }
       
       if (!targetEl && items.length > 0) {
-        const firstRect = items[0].getBoundingClientRect();
-        targetEl = clientY < firstRect.top ? items[0] : items[items.length - 1];
+        // 鼠标落在两个元素之间的空白区时，取“最近的那个元素”。
+        // 旧逻辑会直接兜底到最后一个元素，导致轻微下拖就选中几百行。
+        targetEl = nearestEl || items[0];
       }
       
       if (!targetEl) return new Position(0, 0);
@@ -1692,6 +1897,7 @@ export default {
         },
         onText: (text) => {
           this.insertText(text);
+          this.revealCursorAfterLayout(5);
         }
       });
     },
@@ -2332,6 +2538,9 @@ export default {
   display: flex;
   height: 100%;
   overflow: auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   cursor: text;
   /* 阻止浏览器默认的文本选择，由编辑器自己管理 */
   -webkit-user-select: none;
@@ -2350,9 +2559,13 @@ export default {
 /* 内容区域 */
 .lines-container {
   flex: 1;
+  width: 100%;
   /* 左右留白加大，避免内容贴边 */
   padding: 14px 24px;
   min-height: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* 编辑器行 */
@@ -2362,6 +2575,9 @@ export default {
   min-height: 1.6em;
   font-size: 16px;
   position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* 多行块容器：用于渲染 markdown-it 输出（代码块/表格/列表/引用等） */
@@ -2369,11 +2585,14 @@ export default {
   display: flex;
   align-items: flex-start;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .block-content {
   flex: 1;
   min-width: 0;
+  max-width: 100%;
 }
 
 .editor-line.cursor-line {
@@ -2384,22 +2603,73 @@ export default {
   background: rgba(64, 158, 255, 0.1);
 }
 
+.editor-line.has-selection,
+.editor-block.has-selection {
+  border-radius: 6px;
+}
+
+.editor-line.has-selection .line-content.rendered-mode,
+.editor-line.has-selection .line-content.rendered-mode *,
+.editor-block.has-selection .block-content,
+.editor-block.has-selection .block-content * {
+  background: rgba(64, 158, 255, 0.22);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.editor-line.has-selection .line-content.rendered-mode a,
+.editor-block.has-selection .block-content a {
+  text-decoration-thickness: 2px;
+}
+
+.ir-editor.dark-mode .editor-line.has-selection .line-content.rendered-mode,
+.ir-editor.dark-mode .editor-line.has-selection .line-content.rendered-mode *,
+.ir-editor.dark-mode .editor-block.has-selection .block-content,
+.ir-editor.dark-mode .editor-block.has-selection .block-content * {
+  background: rgba(64, 158, 255, 0.3);
+}
+
 /* 行内容容器 */
 .line-content {
   display: inline;
   white-space: pre-wrap;
   word-wrap: break-word;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   min-width: 0;
+  max-width: 100%;
 }
 
 /* 让 entry-content（文章页样式体系）在行内正常工作 */
 .line-content.entry-content {
-  display: block;
+  display: flow-root;
+  width: 100%;
+}
+
+.block-content.entry-content {
+  display: flow-root;
+  width: 100%;
 }
 
 /* 修正 markdown-it 生成的 <p> 默认外边距（否则会出现上下各 16px 的大间距） */
 .ir-editor :deep(.entry-content p) {
   margin: 0 !important;
+}
+
+.ir-editor :deep(.entry-content),
+.ir-editor :deep(.entry-content > *),
+.ir-editor :deep(.entry-content p),
+.ir-editor :deep(.entry-content li),
+.ir-editor :deep(.entry-content blockquote),
+.ir-editor :deep(.entry-content a),
+.ir-editor :deep(.entry-content span),
+.ir-editor :deep(.entry-content td),
+.ir-editor :deep(.entry-content th) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  box-sizing: border-box;
 }
 
 .ir-editor :deep(.mermaid) {

@@ -5,7 +5,6 @@
 </template>
 
 <script>
-import Vditor from 'vditor'
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils'
 import { parseEChartsOption } from '@/utils/echartsOptionParser'
 import { initEditorTheme } from '@/utils/useEditorTheme'
@@ -13,12 +12,20 @@ import { initEditorTheme } from '@/utils/useEditorTheme'
 import '@/assets/css/editor-heading-styles.css'
 // Vditor CSS 动态加载，只在需要时引入
 let vditorStyleLoaded = false
+let vditorCtorPromise = null
 
 function loadVditorStyle() {
   if (!vditorStyleLoaded && typeof document !== 'undefined') {
     import('vditor/dist/index.css')
     vditorStyleLoaded = true
   }
+}
+
+function loadVditorConstructor() {
+  if (!vditorCtorPromise) {
+    vditorCtorPromise = import('vditor').then((mod) => mod.default || mod)
+  }
+  return vditorCtorPromise
 }
 
 export default {
@@ -56,7 +63,9 @@ export default {
       isComposing: false,
       isDarkMode: false,
       isInternalUpdate: false, // 标记是否为内部更新，避免循环
-      helpDialogVisible: false
+      helpDialogVisible: false,
+      editorInitHandle: null,
+      isDisposed: false
     }
   },
   watch: {
@@ -83,13 +92,18 @@ export default {
     loadVditorStyle()
     // 检测初始暗色模式状态
     this.checkDarkMode()
-    this.initEditor()
+    this.scheduleEditorInit()
     // 监听暗色模式变化
     this.setupThemeListener()
     // 加载文章主题到编辑器 CSS 变量
     initEditorTheme()
   },
   beforeDestroy() {
+    this.isDisposed = true
+    if (this.editorInitHandle) {
+      cancelAnimationFrame(this.editorInitHandle)
+      this.editorInitHandle = null
+    }
     // 清理全屏监听器
     if (this._fullscreenObserver) {
       this._fullscreenObserver.disconnect()
@@ -131,6 +145,28 @@ export default {
     }
   },
   methods: {
+    scheduleEditorInit() {
+      const startInit = async () => {
+        try {
+          const VditorCtor = await loadVditorConstructor()
+          if (this.isDisposed || this.editor) return
+          this.initEditor(VditorCtor)
+        } catch (error) {
+          console.error('Failed to load Vditor:', error)
+        } finally {
+          this.editorInitHandle = null
+        }
+      }
+
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        this.editorInitHandle = window.requestAnimationFrame(() => {
+          startInit()
+        })
+        return
+      }
+
+      startInit()
+    },
     goPluginManager() {
       const doNavigate = () => {
         // Vditor 全屏模式下，退出全屏
@@ -160,7 +196,7 @@ export default {
         doNavigate()
       }
     },
-    initEditor() {
+    initEditor(VditorCtor) {
       // 检查 window.hljs 是否可用（优先使用项目的 hljs）
       if (typeof window.hljs !== 'undefined') {
       } else {
@@ -237,7 +273,7 @@ export default {
         }
       }
 
-      this.editor = new Vditor(this.$refs.vditorContainer, {
+      this.editor = new VditorCtor(this.$refs.vditorContainer, {
         height: typeof this.height === 'number' ? this.height : parseInt(this.height),
         placeholder: this.placeholder,
         mode: this.mode,
@@ -654,6 +690,8 @@ body > .vditor-editor-isolate {
 
 .vditor-wrapper {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* 自定义 Vditor 样式 */
@@ -661,6 +699,9 @@ body > .vditor-editor-isolate {
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   font-size: 16px !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 ::v-deep .vditor-toolbar {
@@ -691,21 +732,32 @@ body > .vditor-editor-isolate {
 ::v-deep .vditor-ir,
 ::v-deep .vditor-sv {
   font-size: 16px !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
 }
 
 ::v-deep .vditor-reset {
   font-size: 16px !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 ::v-deep .vditor-reset p {
   font-size: 16px !important;
   line-height: 1.75 !important;
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
 }
 
 ::v-deep .vditor-reset div,
 ::v-deep .vditor-reset span,
 ::v-deep .vditor-reset li {
   font-size: 16px !important;
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
 }
 
 

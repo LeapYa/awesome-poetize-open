@@ -19,12 +19,17 @@ body>.vditor-editor-isolate {
 
 .vditor-wrapper {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 :deep(.vditor) {
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   font-size: 16px !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 :deep(.vditor-toolbar) {
@@ -40,21 +45,32 @@ body>.vditor-editor-isolate {
 :deep(.vditor-ir),
 :deep(.vditor-sv) {
   font-size: 16px !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
 }
 
 :deep(.vditor-reset) {
   font-size: 16px !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 :deep(.vditor-reset p) {
   font-size: 16px !important;
   line-height: 1.75 !important;
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
 }
 
 :deep(.vditor-reset div),
 :deep(.vditor-reset span),
 :deep(.vditor-reset li) {
   font-size: 16px !important;
+  max-width: 100% !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
 }
 
 /* 加粗和斜体样式 - 确保在编辑器中正确显示 */

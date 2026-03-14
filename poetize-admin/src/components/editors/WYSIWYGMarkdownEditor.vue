@@ -447,6 +447,8 @@ export default {
       historyNextMode: null,
       queuedImageUploads: [],
       isComposing: false,
+      isBootstrapped: false,
+      bootstrapHandle: null,
       
       // 表格右键菜单状态
       contextMenu: {
@@ -477,8 +479,11 @@ export default {
         const displayValue = upgradeMarkdownHeadings(newVal || '');
         
         if (this.markdownContent !== displayValue) {
-          this.historySuspend = true;
           this.markdownContent = displayValue;
+          if (!this.isBootstrapped) {
+            return;
+          }
+          this.historySuspend = true;
           this.renderContent();
           this.$nextTick(() => {
             this.resetHistory();
@@ -506,7 +511,6 @@ export default {
       mergeWindow: 800,
       isEqual: (a, b) => !!a && !!b && a.markdownContent === b.markdownContent && a.showSource === b.showSource
     });
-    this.initEditor();
     this.setupThemeObserver();
     this._onWindowResize = () => {
       this.resizeAllECharts();
@@ -522,13 +526,14 @@ export default {
     }
     
     this.updateFormatState();
-    this.$nextTick(() => {
-      this.resetHistory();
-    });
-    this.$emit('ready', this);
+    this.scheduleBootstrap();
   },
 
   beforeDestroy() {
+    if (this.bootstrapHandle) {
+      cancelAnimationFrame(this.bootstrapHandle);
+      this.bootstrapHandle = null;
+    }
     this.cleanupThemeObserver();
     if (this._onWindowResize) {
       window.removeEventListener('resize', this._onWindowResize);
@@ -552,6 +557,24 @@ export default {
   },
 
   methods: {
+    scheduleBootstrap() {
+      const finalizeBootstrap = () => {
+        this.bootstrapHandle = null;
+        this.initEditor();
+        this.isBootstrapped = true;
+        this.$nextTick(() => {
+          this.resetHistory();
+          this.$emit('ready', this);
+        });
+      };
+
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        this.bootstrapHandle = window.requestAnimationFrame(finalizeBootstrap);
+        return;
+      }
+
+      finalizeBootstrap();
+    },
     resizeAllECharts() {
       if (!window.echarts) return;
       const editor = this.$refs.editorContent;
@@ -3443,11 +3466,17 @@ export default {
 /* 编辑内容区域 */
 .editor-content {
   min-height: 100%;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 16px 24px;
   outline: none;
   font-size: 16px;
   line-height: 1.75;
   color: #333;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .editor-content :deep(.image-upload-placeholder) {
@@ -3489,6 +3518,8 @@ export default {
   width: 100%;
   height: 100%;
   min-height: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 16px 24px;
   border: none;
   outline: none;
@@ -3542,6 +3573,18 @@ export default {
 .editor-content :deep(pre code) {
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+.editor-content :deep(p),
+.editor-content :deep(li),
+.editor-content :deep(blockquote),
+.editor-content :deep(a),
+.editor-content :deep(span),
+.editor-content :deep(td),
+.editor-content :deep(th) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* 让语言标签可编辑时的样式 */

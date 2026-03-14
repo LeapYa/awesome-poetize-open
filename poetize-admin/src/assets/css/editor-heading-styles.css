@@ -592,3 +592,40 @@ body .split-preview-editor .entry-content i:not(.fa):not([class^="el-icon"]):not
 .markdown-body i:not(.fa):not([class^="el-icon"]):not([class*=" el-icon"]):not(.iconfont) {
   font-style: italic !important;
 }
+
+/* ==================== 编辑器内容防撑宽保护 ==================== */
+/* 长段落/超长链接在 flex 容器中容易把编辑区域撑宽，这里统一收紧最小宽度并允许断行 */
+
+.vditor-reset,
+.entry-content,
+.editor-heading-styles {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.vditor-reset p,
+.vditor-reset li,
+.vditor-reset blockquote,
+.vditor-reset td,
+.vditor-reset th,
+.vditor-reset a,
+.vditor-reset span,
+.entry-content p,
+.entry-content li,
+.entry-content blockquote,
+.entry-content td,
+.entry-content th,
+.entry-content a,
+.entry-content span,
+.editor-heading-styles p,
+.editor-heading-styles li,
+.editor-heading-styles blockquote,
+.editor-heading-styles td,
+.editor-heading-styles th,
+.editor-heading-styles a,
+.editor-heading-styles span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

@@ -339,7 +339,7 @@
 
         <!-- 翻译内容 -->
         <el-form-item label="翻译内容" prop="translatedContent">
-          <div v-if="translationDialogVisible && !translationEditorReady" class="editor-loading-wrapper">
+          <div v-if="translationDialogVisible && !shouldRenderTranslationEditor" class="editor-loading-wrapper">
             <div class="editor-skeleton">
               <div class="skeleton-toolbar"></div>
               <div class="skeleton-content">
@@ -357,7 +357,6 @@
             mode="ir"
             placeholder="请输入翻译后的文章内容"
             @change="handleTranslationEditorChange"
-            @ready="onTranslationEditorReady"
           />
         </el-form-item>
       </el-form>
@@ -465,7 +464,6 @@ const uploadPicture = () => import("../common/uploadPicture");
         },
         // 翻译编辑相关数据
         translationDialogVisible: false,
-        translationEditorReady: false,
         translationSaving: false,
         translationForm: {
           targetLanguage: 'en',
@@ -689,11 +687,6 @@ const uploadPicture = () => import("../common/uploadPicture");
         this.editorReady = true;
       },
       
-      // 翻译编辑器就绪回调
-      onTranslationEditorReady() {
-        this.translationEditorReady = true;
-      },
-      
       // 主编辑器内容变化处理
       handleEditorChange(value) {
         // Vditor 内置了 Mermaid 支持，无需手动渲染
@@ -759,7 +752,7 @@ const uploadPicture = () => import("../common/uploadPicture");
           }
 
           // 显示弹窗
-          this.translationEditorReady = false;
+          this.shouldRenderTranslationEditor = false;
           this.translationDialogVisible = true;
           this.$nextTick(() => {
             this.shouldRenderTranslationEditor = true;
@@ -891,7 +884,6 @@ const uploadPicture = () => import("../common/uploadPicture");
       closeTranslationDialog() {
         this.translationDialogVisible = false;
         this.shouldRenderTranslationEditor = false;
-        this.translationEditorReady = false;
         this.resetTranslationForm();
       },
 

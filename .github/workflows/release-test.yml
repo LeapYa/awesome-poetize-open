@@ -55,8 +55,14 @@ jobs:
         run: |
           cd previous-release
           chmod +x poetize
-          # 使用命令行参数进行非交互式安装
-          sudo bash poetize install --domain localhost --skip-dns-check
+          
+          if [ -f "deploy.sh" ] || [ -f "migrate.sh" ] || [ -f "lib/config.sh" ]; then
+            echo "Detected legacy multi-file layout, using bash poetize entrypoint"
+            sudo bash poetize install --domain localhost --skip-dns-check
+          else
+            echo "Detected single-file layout, using executable poetize entrypoint"
+            sudo ./poetize install --domain localhost --skip-dns-check
+          fi
           
           # 等待服务启动
           echo "Waiting for services to start..."
@@ -92,7 +98,14 @@ jobs:
         run: |
           cd current-release
           chmod +x poetize
-          sudo bash poetize install --domain localhost --skip-dns-check
+          
+          if [ -f "deploy.sh" ] || [ -f "migrate.sh" ] || [ -f "lib/config.sh" ]; then
+            echo "Detected legacy multi-file layout, using bash poetize entrypoint"
+            sudo bash poetize install --domain localhost --skip-dns-check
+          else
+            echo "Detected single-file layout, using executable poetize entrypoint"
+            sudo ./poetize install --domain localhost --skip-dns-check
+          fi
           
           sleep 60
           docker ps -a
@@ -198,17 +211,33 @@ jobs:
           
           # 传入宿主机 IP 作为外部服务地址
           # 注意：非交互式运行
-          sudo bash poetize install \
-            --domain localhost:8080 \
-            --skip-dns-check \
-            --db-host $HOST_IP \
-            --db-port 3306 \
-            --db-user poetize \
-            --db-pwd password \
-            --db-name poetize \
-            --redis-host $HOST_IP \
-            --redis-port 6379 \
-            --redis-db 0
+          if [ -f "deploy.sh" ] || [ -f "migrate.sh" ] || [ -f "lib/config.sh" ]; then
+            echo "Detected legacy multi-file layout, using bash poetize entrypoint"
+            sudo bash poetize install \
+              --domain localhost:8080 \
+              --skip-dns-check \
+              --db-host $HOST_IP \
+              --db-port 3306 \
+              --db-user poetize \
+              --db-pwd password \
+              --db-name poetize \
+              --redis-host $HOST_IP \
+              --redis-port 6379 \
+              --redis-db 0
+          else
+            echo "Detected single-file layout, using executable poetize entrypoint"
+            sudo ./poetize install \
+              --domain localhost:8080 \
+              --skip-dns-check \
+              --db-host $HOST_IP \
+              --db-port 3306 \
+              --db-user poetize \
+              --db-pwd password \
+              --db-name poetize \
+              --redis-host $HOST_IP \
+              --redis-port 6379 \
+              --redis-db 0
+          fi
             
           # 等待服务启动
           echo "Waiting for services to start..."

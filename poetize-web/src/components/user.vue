@@ -35,12 +35,66 @@
               maxlength="30"
               placeholder="用户名"
             />
-            <input
-              v-model="password"
-              type="password"
-              maxlength="30"
-              placeholder="密码"
-            />
+            <div class="password-field">
+              <input
+                v-model="password"
+                :type="showRegisterPassword ? 'text' : 'password'"
+                maxlength="30"
+                placeholder="密码"
+              />
+              <span
+                v-show="password"
+                role="button"
+                tabindex="0"
+                class="password-toggle"
+                :aria-label="showRegisterPassword ? '隐藏密码' : '显示密码'"
+                :title="showRegisterPassword ? '隐藏密码' : '显示密码'"
+                @click="showRegisterPassword = !showRegisterPassword"
+                @keydown.enter.prevent="showRegisterPassword = !showRegisterPassword"
+                @keydown.space.prevent="showRegisterPassword = !showRegisterPassword"
+              >
+                <svg
+                  v-if="showRegisterPassword"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M3 3L21 21M10.58 10.58A2 2 0 0 0 13.41 13.41M9.88 5.09A9.77 9.77 0 0 1 12 4.8c5 0 9.27 3.11 11 7.2a11.83 11.83 0 0 1-4.05 5.19M6.61 6.61A11.8 11.8 0 0 0 1 12c1.73 4.09 6 7.2 11 7.2a9.6 9.6 0 0 0 4.24-.93M14.12 14.12A3 3 0 0 1 9.88 9.88"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.8"
+                  />
+                </svg>
+                <svg
+                  v-else
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M1 12C2.73 7.91 7 4.8 12 4.8S21.27 7.91 23 12C21.27 16.09 17 19.2 12 19.2S2.73 16.09 1 12Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.8"
+                  />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                  />
+                </svg>
+              </span>
+            </div>
             <input v-model="email" type="email" placeholder="邮箱" />
             <input
               v-model="code"
@@ -62,25 +116,87 @@
           </div>
         </div>
         <div class="form-container sign-in-container">
-          <div class="myCenter">
+          <form
+            ref="loginForm"
+            class="myCenter login-credential-form"
+            autocomplete="on"
+            @submit.prevent="showLoginVerify"
+          >
             <h1>登录</h1>
             <input
+              ref="accountInput"
               v-model="account"
               type="text"
+              name="username"
               placeholder="用户名/邮箱/手机号"
             />
-            <input
-              v-model="password"
-              type="password"
-              placeholder="密码"
-              @keyup.enter="showLoginVerify()"
-            />
+            <div class="password-field">
+              <input
+                ref="passwordInput"
+                v-model="password"
+                :type="showLoginPassword ? 'text' : 'password'"
+                name="password"
+                placeholder="密码"
+              />
+              <span
+                v-show="password"
+                role="button"
+                tabindex="0"
+                class="password-toggle"
+                :aria-label="showLoginPassword ? '隐藏密码' : '显示密码'"
+                :title="showLoginPassword ? '隐藏密码' : '显示密码'"
+                @click="showLoginPassword = !showLoginPassword"
+                @keydown.enter.prevent="showLoginPassword = !showLoginPassword"
+                @keydown.space.prevent="showLoginPassword = !showLoginPassword"
+              >
+                <svg
+                  v-if="showLoginPassword"
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M3 3L21 21M10.58 10.58A2 2 0 0 0 13.41 13.41M9.88 5.09A9.77 9.77 0 0 1 12 4.8c5 0 9.27 3.11 11 7.2a11.83 11.83 0 0 1-4.05 5.19M6.61 6.61A11.8 11.8 0 0 0 1 12c1.73 4.09 6 7.2 11 7.2a9.6 9.6 0 0 0 4.24-.93M14.12 14.12A3 3 0 0 1 9.88 9.88"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.8"
+                  />
+                </svg>
+                <svg
+                  v-else
+                  viewBox="0 0 24 24"
+                  width="18"
+                  height="18"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M1 12C2.73 7.91 7 4.8 12 4.8S21.27 7.91 23 12C21.27 16.09 17 19.2 12 19.2S2.73 16.09 1 12Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="1.8"
+                  />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                  />
+                </svg>
+              </span>
+            </div>
             <a href="#" @click="changeDialog('找回密码')">忘记密码？</a>
             <el-button
               type="primary"
               round
               class="auth-button"
-              @click="showLoginVerify()"
+              native-type="submit"
               >登 录</el-button
             >
 
@@ -147,7 +263,7 @@
                 </a>
               </div>
             </div>
-          </div>
+          </form>
         </div>
         <div class="overlay-container">
           <div class="overlay">
@@ -469,6 +585,8 @@ export default {
       username: '',
       account: '',
       password: '',
+      showRegisterPassword: false,
+      showLoginPassword: false,
       oldPassword: '',
       newPassword: '',
       confirmPassword: '',
@@ -851,8 +969,6 @@ export default {
               localStorage.setItem('adminToken', res.data.accessToken)
               this.mainStore.loadCurrentUser(res.data)
               this.mainStore.loadCurrentAdmin(res.data)
-              this.account = ''
-              this.password = ''
 
               // 显示登录成功消息
               if (this.$route.query.expired === 'true') {
@@ -1505,6 +1621,8 @@ export default {
     },
     clearDialog() {
       this.password = ''
+      this.showRegisterPassword = false
+      this.showLoginPassword = false
       this.oldPassword = ''
       this.newPassword = ''
       this.confirmPassword = ''
@@ -1712,12 +1830,16 @@ export default {
   visibility: hidden;
   transition: all 0.5s ease-in-out;
 }
-.form-container div {
+.form-container > div,
+.form-container > form {
   background: var(--background);
   flex-direction: column;
   padding: 10px 20px;
   height: 100%;
   color: var(--fontColor);
+}
+.login-credential-form {
+  width: 100%;
 }
 .form-container input {
   background: var(--inputBackground);
@@ -1727,6 +1849,43 @@ export default {
   margin: 10px 0;
   width: 90%;
   height: 40px;
+  outline: none;
+  color: var(--fontColor);
+}
+.password-field {
+  position: relative;
+  width: 90%;
+  height: 40px;
+  margin: 10px 0;
+}
+.password-field input {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding-right: 42px;
+  box-sizing: border-box;
+}
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--articleGreyFontColor);
+  cursor: pointer;
+  z-index: 2;
+  line-height: 1;
+  user-select: none;
+}
+.password-toggle:hover {
+  color: var(--fontColor);
+  transform: translateY(-50%);
+}
+.password-toggle:focus {
   outline: none;
   color: var(--fontColor);
 }

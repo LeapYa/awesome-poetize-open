@@ -1,28 +1,40 @@
 <template>
   <div class="myCenter verify-container">
     <div class="verify-content">
-      <div>
-        <el-avatar :size="50" :src="$common.getAvatarUrl(mainStore.webInfo.avatar)">
-          <img :src="$getDefaultAvatar()" />
-        </el-avatar>
-      </div>
-      <div>
-        <el-input v-model="account">
-          <template slot="prepend">账号</template>
-        </el-input>
-      </div>
-      <div>
-        <el-input v-model="password" type="password" @keyup.enter.native="login">
-          <template slot="prepend">密码</template>
-        </el-input>
-      </div>
-      <div>
-        <proButton :info="'提交'"
-                   @click.native="login()"
-                   :before="$constant.before_color_2"
-                   :after="$constant.after_color_2">
-        </proButton>
-      </div>
+      <form ref="loginForm" class="login-form" autocomplete="on" @submit.prevent="login">
+        <div>
+          <el-avatar :size="50" :src="$common.getAvatarUrl(mainStore.webInfo.avatar)">
+            <img :src="$getDefaultAvatar()" />
+          </el-avatar>
+        </div>
+        <div>
+          <el-input
+            ref="accountInput"
+            v-model="account"
+            name="username"
+            autocomplete="username">
+            <template slot="prepend">账号</template>
+          </el-input>
+        </div>
+        <div>
+          <el-input
+            ref="passwordInput"
+            v-model="password"
+            type="password"
+            name="password"
+            autocomplete="current-password">
+            <template slot="prepend">密码</template>
+          </el-input>
+        </div>
+        <div>
+          <proButton :info="'提交'"
+                     @click.native="submitLoginForm"
+                     :before="$constant.before_color_2"
+                     :after="$constant.after_color_2">
+          </proButton>
+          <button type="submit" class="browser-login-submit" aria-hidden="true" tabindex="-1"></button>
+        </div>
+      </form>
     </div>
   </div>
 </template>
@@ -52,7 +64,38 @@ const proButton = () => import( "../common/proButton");
     created() {
 
     },
+    mounted() {
+      this.$nextTick(() => {
+        this.syncCredentialInputAttrs();
+      });
+    },
+    updated() {
+      this.syncCredentialInputAttrs();
+    },
     methods: {
+      syncCredentialInputAttrs() {
+        const accountInput = this.$refs.accountInput?.$el?.querySelector('input');
+        const passwordInput = this.$refs.passwordInput?.$el?.querySelector('input');
+
+        if (accountInput) {
+          accountInput.setAttribute('name', 'username');
+          accountInput.setAttribute('autocomplete', 'username');
+        }
+
+        if (passwordInput) {
+          passwordInput.setAttribute('name', 'password');
+          passwordInput.setAttribute('autocomplete', 'current-password');
+        }
+      },
+      submitLoginForm() {
+        const form = this.$refs.loginForm;
+        if (form && typeof form.requestSubmit === "function") {
+          form.requestSubmit();
+          return;
+        }
+
+        this.login();
+      },
       async login() {
         if (this.$common.isEmpty(this.account) || this.$common.isEmpty(this.password)) {
           this.$message({
@@ -86,9 +129,6 @@ const proButton = () => import( "../common/proButton");
                 // 更新Store状态
                 this.mainStore.loadCurrentUser( res.data);
                 this.mainStore.loadCurrentAdmin( res.data);
-
-                this.account = "";
-                this.password = "";
 
                 // 显示登录成功消息
                 if (this.$route.query.expired === 'true') {
@@ -133,19 +173,35 @@ const proButton = () => import( "../common/proButton");
     position: relative;
   }
 
-  .verify-content > div:first-child {
+  .login-form > div:first-child {
     position: absolute;
     left: 50%;
     transform: translate(-50%);
     top: -25px;
   }
 
-  .verify-content > div:not(:first-child) {
+  .login-form > div:not(:first-child) {
     margin: 25px 0;
   }
 
-  .verify-content > div:last-child > div {
+  .login-form > div:last-child > div {
     margin: 0 auto;
+  }
+
+  .login-form {
+    margin: 0;
+  }
+
+  .browser-login-submit {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
 </style>

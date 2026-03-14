@@ -27,12 +27,24 @@
           </div>
         </div>
         <div class="form-container sign-in-container">
-          <div class="myCenter">
+          <form ref="userLoginForm" class="myCenter login-credential-form" autocomplete="on" @submit.prevent="showLoginVerify">
             <h1>登录</h1>
-            <input v-model="account" type="text" placeholder="用户名/邮箱/手机号">
-            <input v-model="password" type="password" placeholder="密码" @keyup.enter="showLoginVerify()">
+            <input
+              ref="accountInput"
+              v-model="account"
+              type="text"
+              name="username"
+              autocomplete="username"
+              placeholder="用户名/邮箱/手机号">
+            <input
+              ref="passwordInput"
+              v-model="password"
+              type="password"
+              name="password"
+              autocomplete="current-password"
+              placeholder="密码">
             <a href="#" @click="changeDialog('找回密码')">忘记密码？</a>
-            <el-button type="primary" round @click="showLoginVerify()" style="border-radius:8px; width:90%; background: var(--gradualRed); border: none; box-shadow: 3px 3px 6px var(--miniMask), -1px -1px 4px var(--miniWhiteMask); transition: transform 0.3s ease, box-shadow 0.3s ease; padding: 12px 30px; font-weight: 600; letter-spacing: 1px; transform: translateZ(0);">登 录</el-button>
+            <el-button type="primary" round native-type="submit" style="border-radius:8px; width:90%; background: var(--gradualRed); border: none; box-shadow: 3px 3px 6px var(--miniMask), -1px -1px 4px var(--miniWhiteMask); transition: transform 0.3s ease, box-shadow 0.3s ease; padding: 12px 30px; font-weight: 600; letter-spacing: 1px; transform: translateZ(0);">登 录</el-button>
             
             <!-- 第三方登录区域 - 根据配置动态显示 -->
             <div v-if="thirdPartyLoginConfig.enable && enabledThirdPartyProviders.length > 0">
@@ -52,7 +64,7 @@
                 </a>
               </div>
             </div>
-          </div>
+          </form>
         </div>
         <div class="overlay-container">
           <div class="overlay">
@@ -313,6 +325,8 @@ const proButton = () => import( "./common/proButton");
       }
     },
     mounted() {
+      this.syncLoginInputAttrs();
+
       // 获取第三方登录配置
       this.loadThirdPartyLoginConfig();
 
@@ -329,6 +343,17 @@ const proButton = () => import( "./common/proButton");
       this.$bus.$off('thirdPartyLoginConfigChanged', this.handleThirdPartyConfigChange);
     },
     methods: {
+      syncLoginInputAttrs() {
+        if (this.$refs.accountInput) {
+          this.$refs.accountInput.setAttribute('name', 'username');
+          this.$refs.accountInput.setAttribute('autocomplete', 'username');
+        }
+
+        if (this.$refs.passwordInput) {
+          this.$refs.passwordInput.setAttribute('name', 'password');
+          this.$refs.passwordInput.setAttribute('autocomplete', 'current-password');
+        }
+      },
       ensureCaptchaWrapperLoaded() {
         if (this.captchaWrapperComponent) {
           return Promise.resolve(this.captchaWrapperComponent);
@@ -592,8 +617,6 @@ const proButton = () => import( "./common/proButton");
               localStorage.setItem("adminToken", res.data.accessToken);
               this.mainStore.loadCurrentUser( res.data);
               this.mainStore.loadCurrentAdmin( res.data);
-              this.account = "";
-              this.password = "";
 
               // 显示登录成功消息
               if (this.$route.query.expired === 'true') {
@@ -1287,12 +1310,17 @@ const proButton = () => import( "./common/proButton");
     opacity: 0;
   }
 
-  .form-container div {
+  .form-container > div,
+  .form-container > form {
     background: var(--background);
     flex-direction: column;
     padding: 10px 20px;
     height: 100%;
     color: var(--fontColor);
+  }
+
+  .login-credential-form {
+    width: 100%;
   }
 
   .form-container input {

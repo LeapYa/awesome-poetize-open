@@ -1,6 +1,5 @@
 package com.ld.poetry.config;
 
-import com.ld.poetry.constants.CommonConst;
 import com.ld.poetry.entity.User;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.utils.PoetryUtil;
@@ -49,10 +48,7 @@ public class ThreadContextConfig implements AsyncConfigurer {
                 if (requestAttributes != null) {
                     HttpServletRequest request = ((ServletRequestAttributes) requestAttributes).getRequest();
                     if (request != null) {
-                        token = request.getHeader(CommonConst.TOKEN_HEADER);
-                        if ("null".equals(token)) {
-                            token = null;
-                        }
+                        token = PoetryUtil.getTokenWithoutBearer();
                         if (StringUtils.hasText(token)) {
                             try {
                                 // 使用CacheService获取用户信息

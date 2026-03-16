@@ -208,29 +208,15 @@ export default {
 
       const url = `${baseURL}/article/getArticleSaveStatus`
 
-      // 获取token（管理员token通常以admin_access_token开头）
-      const tokens = [
-        localStorage.getItem('adminToken'),
-        localStorage.getItem('token'),
-        ...Object.keys(localStorage)
-          .filter((key) => key.startsWith('admin_access_token'))
-          .map((key) => localStorage.getItem(key)),
-      ].filter(Boolean)
-
-      const token = tokens[0]
+      // Cookie-based auth: no need to inject Authorization header
       const headers = {
         'Content-Type': 'application/json',
-      }
-
-      if (token) {
-        headers['Authorization'] = token.startsWith('Bearer ')
-          ? token
-          : `Bearer ${token}`
       }
 
       fetch(url + '?taskId=' + encodeURIComponent(taskId), {
         method: 'GET',
         headers: headers,
+        credentials: 'include',
       })
         .then((response) => response.json())
         .then((res) => {

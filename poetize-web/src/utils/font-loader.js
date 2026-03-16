@@ -1,10 +1,61 @@
 /**
  * 字体动态加载器
- * 通过动态创建CSS来加载字体文件，使用系统配置的CDN地址
+ * 优先加载 cn-font-split 生成的 font.css，失败时回退到旧版 4 分片方案
  */
 
 // 默认Unicode范围定义
 let baseRange, level1Range, level2Range, otherRange
+
+const DYNAMIC_FONT_STYLE_ID = 'dynamic-font-style'
+const DYNAMIC_FONT_LINK_ID = 'dynamic-font-link'
+
+function removeDynamicFontResources() {
+  const oldStyle = document.getElementById(DYNAMIC_FONT_STYLE_ID)
+  if (oldStyle?.parentNode) {
+    oldStyle.parentNode.removeChild(oldStyle)
+  }
+
+  const oldLink = document.getElementById(DYNAMIC_FONT_LINK_ID)
+  if (oldLink?.parentNode) {
+    oldLink.parentNode.removeChild(oldLink)
+  }
+}
+
+function appendToHead(node) {
+  if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
+    document.head.appendChild(node)
+    return
+  }
+
+  const head = document.querySelector('head')
+  if (head && head.nodeType === Node.ELEMENT_NODE) {
+    head.appendChild(node)
+    return
+  }
+
+  throw new Error('未找到可用的 head 节点')
+}
+
+function buildFontCssPath(fontCdnBaseUrl, sysConfig) {
+  return sysConfig['font.css.path'] || `${fontCdnBaseUrl}font.css`
+}
+
+async function loadFontCss(fontCssPath) {
+  await new Promise((resolve, reject) => {
+    const link = document.createElement('link')
+    link.id = DYNAMIC_FONT_LINK_ID
+    link.rel = 'stylesheet'
+    link.href = fontCssPath
+    link.onload = () => resolve()
+    link.onerror = () => reject(new Error(`加载字体 CSS 失败: ${fontCssPath}`))
+
+    try {
+      appendToHead(link)
+    } catch (error) {
+      reject(error)
+    }
+  })
+}
 
 /**
  * 从远程URL加载JSON
@@ -31,6 +82,7 @@ async function fetchJson(url) {
 export async function loadFonts(sysConfig) {
   const fontCdnBaseUrl =
     sysConfig['font.cdn.base-url'] || '/static/assets/font_chunks/'
+  const fontCssPath = buildFontCssPath(fontCdnBaseUrl, sysConfig)
   // 是否使用单一字体文件
   const useSingleFont = sysConfig['font.use.single'] === 'true'
   // 单一字体文件名
@@ -41,6 +93,17 @@ export async function loadFonts(sysConfig) {
   const unicodeJsonPath =
     sysConfig['font.unicode.path'] ||
     '/static/assets/font_chunks/unicode_ranges.json'
+
+  removeDynamicFontResources()
+
+  if (!useSingleFont) {
+    try {
+      await loadFontCss(fontCssPath)
+      return
+    } catch (error) {
+      console.warn('加载 cn-font-split 字体 CSS 失败，回退旧版分片方案', error)
+    }
+  }
 
   // 如果需要从远程加载Unicode范围
   if (loadUnicodeFromRemote && !useSingleFont) {
@@ -83,13 +146,7 @@ export async function loadFonts(sysConfig) {
   // 创建style元素
   const style = document.createElement('style')
   style.type = 'text/css'
-  style.id = 'dynamic-font-style'
-
-  // 移除旧的样式（如果存在）
-  const oldStyle = document.getElementById('dynamic-font-style')
-  if (oldStyle) {
-    oldStyle.parentNode.removeChild(oldStyle)
-  }
+  style.id = DYNAMIC_FONT_STYLE_ID
 
   // 构建字体CSS
   let css = ''
@@ -151,21 +208,9 @@ export async function loadFonts(sysConfig) {
 
   // 安全地添加样式到head，避免appendChild在文本节点上的错误
   try {
-    if (document.head && document.head.nodeType === Node.ELEMENT_NODE) {
-      document.head.appendChild(style)
-    } else {
-    }
+    appendToHead(style)
   } catch (error) {
     console.error('添加字体样式失败:', error)
-    // 尝试备用方法
-    try {
-      const head = document.querySelector('head')
-      if (head && head.nodeType === Node.ELEMENT_NODE) {
-        head.appendChild(style)
-      }
-    } catch (fallbackError) {
-      console.error('备用方法也失败了:', fallbackError)
-    }
   }
 }
 

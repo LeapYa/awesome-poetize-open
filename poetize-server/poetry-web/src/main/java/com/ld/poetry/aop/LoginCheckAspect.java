@@ -78,7 +78,7 @@ public class LoginCheckAspect {
                 log.info("Token已过期但允许通过（allowExpired=true）- IP: {}, URI: {}", clientIp, requestURI);
                 return joinPoint.proceed();
             }
-            log.warn("Token无效或已过期: {}", token);
+            log.warn("Token无效或已过期: prefix={}", TokenValidationUtil.getTokenPrefix(token));
             throw new PoetryLoginException(CodeMsg.LOGIN_EXPIRED.getMsg());
         }
 
@@ -166,7 +166,7 @@ public class LoginCheckAspect {
                 });
             }
         } catch (Exception e) {
-            log.error("刷新token过期时间时发生错误: userId={}, token={}", user.getId(), token, e);
+            log.error("刷新token过期时间时发生错误: userId={}, tokenPrefix={}", user.getId(), TokenValidationUtil.getTokenPrefix(token), e);
             // 发生错误时不阻止请求继续执行
         }
 

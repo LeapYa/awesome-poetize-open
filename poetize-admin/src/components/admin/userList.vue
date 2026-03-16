@@ -632,11 +632,9 @@ export default {
             this.$message.success("密码修改成功，请使用新密码重新登录！");
             this.passwordVisible = false;
             
-            // 清理本地 token 等状态
+            // 清理本地状态（token由后端通过cookie管理）
             this.mainStore.loadCurrentUser({});
             this.mainStore.loadCurrentAdmin({});
-            localStorage.removeItem('userToken');
-            localStorage.removeItem('adminToken');
             
             // 刷新页面以触发路由守卫，在后台弹出登录框
             window.location.reload();

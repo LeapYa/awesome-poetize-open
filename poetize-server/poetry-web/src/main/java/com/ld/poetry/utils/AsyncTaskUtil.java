@@ -127,7 +127,7 @@ public class AsyncTaskUtil {
             // 尝试从当前请求获取用户信息（适用于HTTP请求触发的异步任务）
             HttpServletRequest request = PoetryUtil.getRequest();
             if (request != null) {
-                String token = request.getHeader(CommonConst.TOKEN_HEADER);
+                String token = PoetryUtil.getTokenWithoutBearer();
                 if (token != null && !token.equals("null") && staticUserCacheManager != null) {
                     try {
                         user = staticUserCacheManager.getUserByToken(token);

@@ -73,24 +73,9 @@ function shouldIgnoreClick(e) {
  * @returns {Function|null} 编译后的函数
  */
 function compilePluginCode(pluginKey, code) {
-  if (!code || code.trim() === '') return null
-
-  // 已编译过，直接返回
-  if (compiledPluginCache[pluginKey]) {
-    return compiledPluginCache[pluginKey]
-  }
-
-  try {
-    // 将代码包装成函数
-    // 函数签名：function(x, y, config, anime) { ...用户代码... }
-    // anime 参数为 anime.js 库（如果已加载）
-    const fn = new Function('x', 'y', 'config', 'anime', code)
-    compiledPluginCache[pluginKey] = fn
-    return fn
-  } catch (e) {
-    console.error(`编译插件 ${pluginKey} 代码失败:`, e)
-    return null
-  }
+  // 安全加固：禁止前端动态执行任意代码
+  console.warn(`[鼠标点击特效] 插件代码执行已禁用 (${pluginKey})，仅内置特效可用`)
+  return null
 }
 
 /**

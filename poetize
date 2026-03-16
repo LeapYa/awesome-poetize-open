@@ -1302,6 +1302,51 @@ is_china_environment() {
     return 1  # 不是国内环境
 }
 
+  # 获取 cn-font-split 版本号（与 docker/java/Dockerfile 保持一致）
+  get_cn_font_split_version() {
+    local dockerfile="docker/java/Dockerfile"
+    local version="7.6.8"
+
+    if [ -f "$dockerfile" ]; then
+      local detected_version
+      detected_version=$(grep -E '^[[:space:]]*ARG[[:space:]]+CN_FONT_SPLIT_VERSION=' "$dockerfile" | head -n 1 | cut -d'=' -f2- | tr -d '[:space:]')
+      if [ -n "$detected_version" ]; then
+        version="$detected_version"
+      fi
+    fi
+
+    echo "$version"
+  }
+
+  # 选择可用的 cn-font-split GitHub 代理地址
+  choose_cn_font_split_gh_host() {
+    if ! command -v curl &>/dev/null; then
+      return 1
+    fi
+
+    local version
+    version=$(get_cn_font_split_version)
+
+    local asset_path="/KonghaYao/cn-font-split/releases/download/${version}/libffi-wasm32-wasip1.wasm"
+    local candidates=(
+      "https://gh-proxy.com/github.com"
+      "https://ghfast.top/https://github.com"
+      "https://github.com"
+    )
+
+    local host
+    local test_url
+    for host in "${candidates[@]}"; do
+      test_url="${host}${asset_path}"
+      if curl -fsL --range 0-0 --connect-timeout 5 --max-time 15 -o /dev/null "$test_url"; then
+        echo "$host"
+        return 0
+      fi
+    done
+
+    return 1
+  }
+
 
 # 检测操作系统类型
 detect_os_type() {
@@ -9231,6 +9276,18 @@ main() {
     if [[ -z "$REPLY" || "$REPLY" =~ ^[Yy]$ ]]; then
       info "开始处理 Dockerfile 国内镜像加速..."
       patch_dockerfile_mirror
+
+      # cn-font-split 需要从 GitHub Releases 下载 wasm 二进制，国内直连不通
+      if [ -z "${CN_FONT_SPLIT_GH_HOST:-}" ]; then
+        local selected_cn_font_split_gh_host
+        selected_cn_font_split_gh_host=$(choose_cn_font_split_gh_host)
+        if [ -n "$selected_cn_font_split_gh_host" ]; then
+          export CN_FONT_SPLIT_GH_HOST="$selected_cn_font_split_gh_host"
+          info "已设置 CN_FONT_SPLIT_GH_HOST=$CN_FONT_SPLIT_GH_HOST"
+        else
+          warning "未探测到可用的 cn-font-split GitHub 代理，将使用 Dockerfile 默认地址"
+        fi
+      fi
     else
       info "已跳过 Dockerfile 加速处理"
     fi

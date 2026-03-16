@@ -86,7 +86,8 @@ export const useAIChatStore = defineStore('aiChat', {
 
       try {
         const response = await fetch(
-          `${constant.baseURL}/webInfo/ai/config/chat/getStreamingConfig?configName=default`
+          `${constant.baseURL}/webInfo/ai/config/chat/getStreamingConfig?configName=default`,
+          { credentials: 'include' }
         )
 
         if (response.ok) {
@@ -523,12 +524,7 @@ export const useAIChatStore = defineStore('aiChat', {
         'Content-Type': 'application/json',
       }
 
-      const token = getValidToken(true) || getValidToken(false)
-      if (token) {
-        headers.Authorization = token.startsWith('Bearer ')
-          ? token
-          : `Bearer ${token}`
-      }
+      // Cookie-based auth: no Authorization header needed
 
       try {
         const fingerprint = await getBrowserFingerprint()
@@ -552,6 +548,7 @@ export const useAIChatStore = defineStore('aiChat', {
         const response = await fetch(`${constant.baseURL}/ai/chat/sendMessage`, {
           method: 'POST',
           headers,
+          credentials: 'include',
           body: JSON.stringify({
             message: content,
             conversationId: 'default',
@@ -609,6 +606,7 @@ export const useAIChatStore = defineStore('aiChat', {
           {
             method: 'POST',
             headers,
+            credentials: 'include',
             body: JSON.stringify({
               message: content,
               conversationId: 'default',

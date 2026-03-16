@@ -3,6 +3,10 @@ package com.ld.poetry.dao;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.ld.poetry.entity.ArticleTranslation;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+
+import java.util.List;
 
 /**
  * <p>
@@ -14,4 +18,18 @@ import org.apache.ibatis.annotations.Mapper;
  */
 @Mapper
 public interface ArticleTranslationMapper extends BaseMapper<ArticleTranslation> {
+
+    @Select("""
+            SELECT article_id FROM article_translation
+            WHERE title REGEXP #{regexPattern}
+            LIMIT 100
+            """)
+    List<Integer> selectArticleIdsByTitleRegex(@Param("regexPattern") String regexPattern);
+
+    @Select("""
+            SELECT article_id FROM article_translation
+            WHERE content REGEXP #{regexPattern}
+            LIMIT 100
+            """)
+    List<Integer> selectArticleIdsByContentRegex(@Param("regexPattern") String regexPattern);
 } 

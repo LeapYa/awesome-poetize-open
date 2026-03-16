@@ -80,21 +80,10 @@ async function getTranslationTimeout() {
   }
 
   try {
-    const adminToken = localStorage.getItem('adminToken');
-    const userToken = localStorage.getItem('userToken');
-    const token = adminToken || userToken;
-
-    const headers = {
-      'User-Agent': 'axios'
-    };
-    if (token) {
-      // 确保Authorization头存在并添加Bearer前缀
-      headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
-    }
-
     const response = await axios.get(constant.baseURL + '/webInfo/ai/config/articleAi/get', {
       timeout: 10000,
-      headers: headers
+      withCredentials: true,
+      headers: { 'User-Agent': 'axios' }
     });
 
     if (response.data && response.data.code === 200 && response.data.data) {
@@ -133,6 +122,7 @@ const TIMEOUT_CONFIG = {
 // 设置请求基本配置
 axios.defaults.baseURL = constant.baseURL;
 axios.defaults.timeout = TIMEOUT_CONFIG.DEFAULT;
+axios.defaults.withCredentials = true;
 
 /**
  * 根据URL路径设置超时时间
@@ -252,22 +242,8 @@ axios.interceptors.request.use(async function (config) {
     }
   }
 
-  // 统一处理token逻辑
-  // 确定是否为管理员请求，优先使用config中的isAdmin标志
-  const isAdmin = config.isAdmin || false;
-
-  // 根据请求类型获取相应的token
-  const token = isAdmin ? localStorage.getItem("adminToken") : localStorage.getItem("userToken");
-
-  // 如果token存在，统一添加到请求头
-  if (token) {
-    // 确保headers对象存在
-    if (!config.headers) {
-      config.headers = {};
-    }
-    // 统一添加Bearer前缀
-    config.headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
-  }
+  // Cookie-based auth: withCredentials already set globally, no need to inject token header
+  config.withCredentials = true;
 
   return config;
 }, function (error) {

@@ -479,15 +479,7 @@ public class CommonQuery {
             // 使用MySQL的REGEXP进行数据库层面的正则搜索
             // 1. 搜索原文标题
             try {
-                LambdaQueryChainWrapper<Article> titleWrapper = new LambdaQueryChainWrapper<>(articleMapper);
-                List<Integer> originalTitleIds = titleWrapper
-                        .select(Article::getId)
-                        .eq(Article::getDeleted, false)
-                        .last("AND article_title REGEXP '" + regexPattern.replace("'", "\\'") + "' LIMIT 100")
-                        .list()
-                        .stream()
-                        .map(Article::getId)
-                        .collect(Collectors.toList());
+                List<Integer> originalTitleIds = articleMapper.selectIdsByTitleRegex(regexPattern);
                 titleIds.addAll(originalTitleIds);
             } catch (Exception e) {
                 log.warn("正则搜索原文标题时出错: {}", e.getMessage());
@@ -495,15 +487,7 @@ public class CommonQuery {
 
             // 2. 搜索原文内容
             try {
-                LambdaQueryChainWrapper<Article> contentWrapper = new LambdaQueryChainWrapper<>(articleMapper);
-                List<Integer> originalContentIds = contentWrapper
-                        .select(Article::getId)
-                        .eq(Article::getDeleted, false)
-                        .last("AND article_content REGEXP '" + regexPattern.replace("'", "\\'") + "' LIMIT 100")
-                        .list()
-                        .stream()
-                        .map(Article::getId)
-                        .collect(Collectors.toList());
+                List<Integer> originalContentIds = articleMapper.selectIdsByContentRegex(regexPattern);
                 contentIds.addAll(originalContentIds);
             } catch (Exception e) {
                 log.warn("正则搜索原文内容时出错: {}", e.getMessage());
@@ -511,14 +495,8 @@ public class CommonQuery {
 
             // 3. 搜索翻译标题
             try {
-                LambdaQueryChainWrapper<ArticleTranslation> translationTitleWrapper = new LambdaQueryChainWrapper<>(
-                        articleTranslationMapper);
-                List<Integer> translationTitleIds = translationTitleWrapper
-                        .select(ArticleTranslation::getArticleId)
-                        .last("WHERE title REGEXP '" + regexPattern.replace("'", "\\'") + "' LIMIT 100")
-                        .list()
+                List<Integer> translationTitleIds = articleTranslationMapper.selectArticleIdsByTitleRegex(regexPattern)
                         .stream()
-                        .map(ArticleTranslation::getArticleId)
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
 
@@ -541,14 +519,8 @@ public class CommonQuery {
 
             // 4. 搜索翻译内容
             try {
-                LambdaQueryChainWrapper<ArticleTranslation> translationContentWrapper = new LambdaQueryChainWrapper<>(
-                        articleTranslationMapper);
-                List<Integer> translationContentIds = translationContentWrapper
-                        .select(ArticleTranslation::getArticleId)
-                        .last("WHERE content REGEXP '" + regexPattern.replace("'", "\\'") + "' LIMIT 100")
-                        .list()
+                List<Integer> translationContentIds = articleTranslationMapper.selectArticleIdsByContentRegex(regexPattern)
                         .stream()
-                        .map(ArticleTranslation::getArticleId)
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
 

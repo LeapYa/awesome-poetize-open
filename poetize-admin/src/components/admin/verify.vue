@@ -122,9 +122,7 @@ const proButton = () => import( "../common/proButton");
                 localStorage.removeItem("currentAdmin");
                 localStorage.removeItem("currentUser");
 
-                // 设置新的token
-                localStorage.setItem("userToken", res.data.accessToken);
-                localStorage.setItem("adminToken", res.data.accessToken);
+                // Token由后端通过HttpOnly Cookie下发，前端不再存储
 
                 // 更新Store状态
                 this.mainStore.loadCurrentUser( res.data);

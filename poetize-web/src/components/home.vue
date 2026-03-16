@@ -855,11 +855,9 @@ export default {
 
         if (response.code === 200 && response.data) {
           const wsToken = response.data
-          // 存储wsToken供IM组件使用
-          localStorage.setItem('wsToken', wsToken)
           
           // 使用Vue Router直接跳转到IM页面（IM现在是主站的一部分）
-          this.$router.push('/im')
+          this.$router.push({ path: '/im', query: { token: wsToken } })
         } else {
           this.$message({
             message: response.message || '获取聊天室访问凭证失败',
@@ -919,8 +917,6 @@ export default {
       const clearAndRedirect = () => {
         this.mainStore.loadCurrentUser({})
         this.mainStore.loadCurrentAdmin({})
-        localStorage.removeItem('userToken')
-        localStorage.removeItem('adminToken')
 
         // 只有在需要登录的页面才跳转到首页，否则留在当前页面
         const currentPath = this.$route.path

@@ -5,6 +5,7 @@ import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.SysConfigService;
 import com.ld.poetry.utils.CommonQuery;
 import com.ld.poetry.utils.SecureTokenGenerator;
+import com.ld.poetry.utils.TokenValidationUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.server.ServerHttpRequest;
@@ -61,13 +62,13 @@ public class ImWebSocketInterceptor implements HandshakeInterceptor {
             SecureTokenGenerator.TokenValidationResult validationResult = SecureTokenGenerator.validateToken(token);
 
             if (!validationResult.isValid()) {
-                log.warn("WebSocket握手失败：token验证失败 - {}, 原因: {}", token, validationResult.getErrorMessage());
+                log.warn("WebSocket握手失败：token验证失败 - {}, 原因: {}", TokenValidationUtil.getTokenPrefix(token), validationResult.getErrorMessage());
                 return false;
             }
 
             Integer userId = validationResult.getUserId();
             if (userId == null) {
-                log.warn("WebSocket握手失败：无法从token中获取用户ID - {}", token);
+                log.warn("WebSocket握手失败：无法从token中获取用户ID - {}", TokenValidationUtil.getTokenPrefix(token));
                 return false;
             }
 
@@ -93,7 +94,7 @@ public class ImWebSocketInterceptor implements HandshakeInterceptor {
             return true;
 
         } catch (Exception e) {
-            log.error("WebSocket握手时验证用户失败 - token: {}", token, e);
+            log.error("WebSocket握手时验证用户失败 - token: {}", TokenValidationUtil.getTokenPrefix(token), e);
             return false;
         }
     }

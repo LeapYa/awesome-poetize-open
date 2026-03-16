@@ -612,9 +612,7 @@ const proButton = () => import( "./common/proButton");
           this.$http.post(this.$constant.baseURL + "/user/login", {data: encryptedUser}, true, true)
           .then((res) => {
             if (!this.$common.isEmpty(res.data)) {
-              // 同时存储用户token和管理员token
-              localStorage.setItem("userToken", res.data.accessToken);
-              localStorage.setItem("adminToken", res.data.accessToken);
+              // Token由后端通过HttpOnly Cookie下发，前端不再存储
               this.mainStore.loadCurrentUser( res.data);
               this.mainStore.loadCurrentAdmin( res.data);
 
@@ -719,7 +717,7 @@ const proButton = () => import( "./common/proButton");
           this.$http.post(this.$constant.baseURL + "/user/regist", user)
             .then(async (res) => {
               if (!this.$common.isEmpty(res.data)) {
-                localStorage.setItem("userToken", res.data.accessToken);
+                // Token由后端通过HttpOnly Cookie下发
                 this.mainStore.loadCurrentUser( res.data);
                 this.username = "";
                 this.password = "";
@@ -738,22 +736,8 @@ const proButton = () => import( "./common/proButton");
                   if (hasReplyAction === 'true') query.hasReplyAction = 'true';
                   this.$router.push({ path: redirect, query: query });
                 } else {
-                  // 如果没有重定向，则跳转首页并打开IM聊天室
+                  // 如果没有重定向，则跳转首页
                   this.$router.push({path: '/'});
-                  let userToken = await this.$common.encrypt(localStorage.getItem("userToken"));
-                  let imUrl = this.$constant.imBaseURL + "?userToken=" + userToken;
-                  
-                  // 仅在开发环境下传递主题状态（生产环境localStorage共享）
-                  const isDevelopment = this.$constant.imBaseURL.includes('localhost') || 
-                                       this.$constant.imBaseURL.includes('127.0.0.1');
-                  if (isDevelopment) {
-                    const currentTheme = localStorage.getItem('theme');
-                    if (currentTheme) {
-                      imUrl += "&theme=" + currentTheme;
-                    }
-                  }
-                  
-                  window.open(imUrl);
                 }
               }
             })

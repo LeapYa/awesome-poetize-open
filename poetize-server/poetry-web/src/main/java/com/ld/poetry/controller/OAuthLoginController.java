@@ -9,6 +9,7 @@ import com.ld.poetry.oauth.providers.TwitterOAuthProvider;
 import com.ld.poetry.oauth.state.OAuthAuthCodeService;
 import com.ld.poetry.oauth.state.OAuthStateService;
 import com.ld.poetry.service.UserService;
+import com.ld.poetry.utils.AuthCookieUtil;
 import com.ld.poetry.vo.UserVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +45,9 @@ public class OAuthLoginController {
 
     @Autowired
     private OAuthAuthCodeService authCodeService;
+
+    @Autowired
+    private AuthCookieUtil authCookieUtil;
 
     @Autowired
     private UserService userService;
@@ -336,7 +340,9 @@ public class OAuthLoginController {
      * 前端通过此接口用一次性授权码换取真正的token
      */
     @PostMapping("/exchange")
-    public PoetryResult<Map<String, Object>> exchangeAuthCode(@RequestParam("code") String code) {
+    public PoetryResult<Map<String, Object>> exchangeAuthCode(@RequestParam("code") String code,
+            HttpServletRequest request,
+            HttpServletResponse response) {
         try {
             if (code == null || code.isEmpty()) {
                 return PoetryResult.fail("授权码不能为空");
@@ -349,14 +355,18 @@ public class OAuthLoginController {
             }
 
             // 构建响应数据
-            Map<String, Object> response = new HashMap<>();
-            response.put("accessToken", codeData.get("access_token"));
-            response.put("redirectPath", codeData.get("redirect_path"));
-            response.put("emailCollectionNeeded", codeData.get("email_collection_needed"));
-            response.put("userId", codeData.get("user_id"));
+            Map<String, Object> responseData = new HashMap<>();
+            responseData.put("redirectPath", codeData.get("redirect_path"));
+            responseData.put("emailCollectionNeeded", codeData.get("email_collection_needed"));
+            responseData.put("userId", codeData.get("user_id"));
+
+            Object accessToken = codeData.get("access_token");
+            if (accessToken instanceof String token && !token.isBlank()) {
+                authCookieUtil.writeAuthCookie(request, response, token);
+            }
 
             log.info("授权码交换成功: userId={}", codeData.get("user_id"));
-            return PoetryResult.success(response);
+            return PoetryResult.success(responseData);
 
         } catch (Exception e) {
             log.error("授权码交换失败", e);

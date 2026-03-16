@@ -207,6 +207,7 @@ export default {
       fetch(`${baseURL}/article/streamArticleSaveStatus?taskId=${encodeURIComponent(taskId)}`, {
         method: 'GET',
         headers,
+        credentials: 'include',
         signal: controller.signal
       })
       .then(response => {
@@ -292,7 +293,8 @@ export default {
       
       fetch(url + '?taskId=' + encodeURIComponent(taskId), {
         method: 'GET',
-        headers: headers
+        headers: headers,
+        credentials: 'include'
       })
       .then(response => response.json())
       .then(res => {
@@ -455,21 +457,10 @@ export default {
     },
 
     getAuthHeaders() {
-      const tokens = [
-        localStorage.getItem('adminToken'),
-        localStorage.getItem('token'),
-        ...Object.keys(localStorage).filter(key => key.startsWith('admin_access_token')).map(key => localStorage.getItem(key))
-      ].filter(Boolean);
-
-      const token = tokens[0];
-      const headers = {
+      // Cookie-based auth: no need to inject Authorization header
+      return {
         'Content-Type': 'application/json'
       };
-
-      if (token) {
-        headers['Authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
-      }
-      return headers;
     }
   }
 }

@@ -1,5 +1,11 @@
+/**
+ * Session Validation for Admin Frontend
+ * Validates the user session by calling the backend /user/token endpoint.
+ * Since auth has migrated to HttpOnly cookies, we no longer read tokens from localStorage.
+ */
 import constant from './constant'
 import { useMainStore } from '../stores/main'
+
 const SESSION_FRESH_MS = 2 * 60 * 1000
 
 const sessionState = {
@@ -50,16 +56,12 @@ export function isSessionFresh() {
   return Date.now() - sessionState.verifiedAt < SESSION_FRESH_MS
 }
 
-export function hasStoredSessionToken() {
+export function hasStoredSessionHint() {
   const mainStore = useMainStore()
   return (
     Boolean(mainStore.currentUser && Object.keys(mainStore.currentUser).length > 0) ||
     Boolean(mainStore.currentAdmin && Object.keys(mainStore.currentAdmin).length > 0)
   )
-}
-
-export function getTrackableToken() {
-  return null
 }
 
 export async function ensureSessionValid(options = {}) {

@@ -117,7 +117,7 @@
         } else if (storeType.value === "qiniu") {
           const xhr = new XMLHttpRequest();
           xhr.open('get', $constant.baseURL + "/qiniu/getUpToken?key=" + key, false);
-          xhr.setRequestHeader("Authorization", localStorage.getItem("userToken"));
+          xhr.withCredentials = true;
           try {
             xhr.send();
             const res = JSON.parse(xhr.responseText);

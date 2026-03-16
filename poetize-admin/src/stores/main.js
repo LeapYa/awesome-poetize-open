@@ -155,7 +155,7 @@ export const useMainStore = defineStore('main', {
 
     /**
      * 加载当前用户信息
-     * 注意：此方法会移除用户对象中的accessToken，token应该独立存储在localStorage中
+     * 注意：此方法会移除用户对象中的accessToken，token由HttpOnly Cookie管理
      */
     loadCurrentUser(user) {
       // 创建用户副本并移除token
@@ -181,7 +181,7 @@ export const useMainStore = defineStore('main', {
 
     /**
      * 加载管理员信息
-     * 注意：此方法会移除用户对象中的accessToken，token应该独立存储在localStorage中
+     * 注意：此方法会移除用户对象中的accessToken，token由HttpOnly Cookie管理
      */
     loadCurrentAdmin(user) {
       // 创建用户副本并移除token

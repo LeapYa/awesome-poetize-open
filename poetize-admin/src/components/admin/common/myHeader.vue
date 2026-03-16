@@ -75,8 +75,6 @@ export default {
         .then(() => {
           this.mainStore.loadCurrentUser({});
           this.mainStore.loadCurrentAdmin({});
-          localStorage.removeItem('userToken');
-          localStorage.removeItem('adminToken');
           this.$router.push({ path: '/' });
         })
         .catch((error) => {

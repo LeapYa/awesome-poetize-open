@@ -4,7 +4,10 @@ import com.ld.poetry.entity.Article;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+
+import java.util.List;
 
 /**
  * <p>
@@ -19,4 +22,18 @@ public interface ArticleMapper extends BaseMapper<Article> {
 
     @Update("update article set view_count=view_count+1 where id=#{id}")
     int updateViewCount(@Param("id") Integer id);
+
+    @Select("""
+            SELECT id FROM article
+            WHERE deleted = 0 AND article_title REGEXP #{regexPattern}
+            LIMIT 100
+            """)
+    List<Integer> selectIdsByTitleRegex(@Param("regexPattern") String regexPattern);
+
+    @Select("""
+            SELECT id FROM article
+            WHERE deleted = 0 AND article_content REGEXP #{regexPattern}
+            LIMIT 100
+            """)
+    List<Integer> selectIdsByContentRegex(@Param("regexPattern") String regexPattern);
 }

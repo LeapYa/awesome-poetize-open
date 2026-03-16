@@ -467,15 +467,10 @@
         formData.append('storeType', 'local'); // 默认使用本地存储
         formData.append('originalName', filename);
         
-        // 获取token
-        const adminToken = window.localStorage.getItem("adminToken");
-        
-        // 上传文件
+        // 上传文件（cookie自动携带认证信息）
         const response = await fetch(this.$constant.baseURL + "/resource/upload", {
           method: 'POST',
-          headers: {
-            'Authorization': adminToken
-          },
+          credentials: 'include',
           body: formData
         });
         

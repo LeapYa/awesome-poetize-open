@@ -160,6 +160,7 @@
 </template>
 
 <script>
+
 export default {
   name: 'AiToolsConfig',
   props: {

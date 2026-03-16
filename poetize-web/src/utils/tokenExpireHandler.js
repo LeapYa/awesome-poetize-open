@@ -20,9 +20,6 @@ export function clearAuthState() {
     })
     .catch(() => {})
 
-  // 清除localStorage中的token和用户信息
-  localStorage.removeItem('userToken')
-  localStorage.removeItem('adminToken')
   localStorage.removeItem('currentUser')
   localStorage.removeItem('currentAdmin')
 
@@ -169,14 +166,9 @@ export function isTokenValid(token) {
  * @returns {string|null} - 有效的token或null
  */
 export function getValidToken(isAdmin = false) {
-  const tokenKey = isAdmin ? 'adminToken' : 'userToken'
-  const token = localStorage.getItem(tokenKey)
-
-  if (isTokenValid(token)) {
-    return token
-  }
-
-  return null
+  const mainStore = useMainStore()
+  const user = isAdmin ? mainStore.currentAdmin : mainStore.currentUser
+  return user && Object.keys(user).length > 0 ? '__cookie_session__' : null
 }
 
 /**

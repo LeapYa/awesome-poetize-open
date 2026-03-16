@@ -37,15 +37,20 @@ public class PoetryUtil {
     @Autowired
     private UserMapper userMapper;
 
+    @Autowired
+    private AuthCookieUtil authCookieUtil;
+
     private static UserCacheManager staticUserCacheManager;
     private static CacheService staticCacheService;
     private static UserMapper staticUserMapper;
+    private static AuthCookieUtil staticAuthCookieUtil;
 
     @PostConstruct
     public void init() {
         staticUserCacheManager = userCacheManager;
         staticCacheService = cacheService;
         staticUserMapper = userMapper;
+        staticAuthCookieUtil = authCookieUtil;
     }
 
     public static HttpServletRequest getRequest() {
@@ -99,8 +104,8 @@ public class PoetryUtil {
         // 如果异步上下文中没有，尝试从请求中获取
         HttpServletRequest request = getRequest();
         if (request != null) {
-            String token = request.getHeader(CommonConst.TOKEN_HEADER);
-            if ("null".equals(token) || !StringUtils.hasText(token)) {
+            String token = staticAuthCookieUtil != null ? staticAuthCookieUtil.resolveToken(request) : null;
+            if (!StringUtils.hasText(token) || "null".equals(token)) {
                 return null;
             }
 

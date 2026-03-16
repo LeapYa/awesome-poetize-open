@@ -1,12 +1,7 @@
 const DEBUGGER_INTERVAL = 50; // debugger循环间隔50ms
 
-// 使用动态函数触发 debugger，避免被构建阶段移除
-let triggerDebugger;
-try {
-  triggerDebugger = new Function('', 'debugger');
-} catch (error) {
-  triggerDebugger = () => { };
-}
+// 安全加固：禁用 new Function 动态代码执行
+let triggerDebugger = () => { };
 
 let debuggerTimer = null;
 

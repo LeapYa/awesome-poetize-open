@@ -142,6 +142,8 @@ services:
     build:
       context: .
       dockerfile: docker/java/Dockerfile
+      args:
+        - CN_FONT_SPLIT_GH_HOST=${CN_FONT_SPLIT_GH_HOST:-}
     container_name: poetize-java
     logging:
       driver: json-file

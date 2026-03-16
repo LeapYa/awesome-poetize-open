@@ -4,6 +4,7 @@ import com.ld.poetry.entity.User;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.UserService;
 import com.ld.poetry.utils.RetryUtil;
+import com.ld.poetry.utils.TokenValidationUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -53,7 +54,7 @@ public class UserCacheManager {
 
                 return null;
             } catch (Exception e) {
-                log.error("从Redis缓存获取用户信息失败: token={}", token, e);
+                log.error("从Redis缓存获取用户信息失败: tokenPrefix={}", TokenValidationUtil.getTokenPrefix(token), e);
                 return null;
             }
         }, 2, 50, "获取用户信息");
@@ -108,7 +109,7 @@ public class UserCacheManager {
             cacheService.cacheUserSession(token, user.getId());
 
         } catch (Exception e) {
-            log.error("缓存用户信息失败: userId={}, token={}", user.getId(), token, e);
+            log.error("缓存用户信息失败: userId={}, tokenPrefix={}", user.getId(), TokenValidationUtil.getTokenPrefix(token), e);
         }
     }
 
@@ -135,7 +136,7 @@ public class UserCacheManager {
             }
 
         } catch (Exception e) {
-            log.error("移除用户缓存失败: token={}", token, e);
+            log.error("移除用户缓存失败: tokenPrefix={}", TokenValidationUtil.getTokenPrefix(token), e);
         }
     }
 

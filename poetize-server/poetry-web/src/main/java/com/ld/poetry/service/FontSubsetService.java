@@ -1,354 +1,361 @@
 package com.ld.poetry.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ld.poetry.utils.font.Woff2Encoder;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.fontbox.ttf.*;
+import org.apache.fontbox.ttf.CmapSubtable;
+import org.apache.fontbox.ttf.CmapTable;
+import org.apache.fontbox.ttf.TTFParser;
+import org.apache.fontbox.ttf.TrueTypeFont;
 import org.apache.pdfbox.io.RandomAccessReadBuffer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PostConstruct;
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
 
 /**
- * 字体子集化服务 — 对应 Python split_font/font_subset.py 的 Java 移植
+ * 字体子集化服务。
  * <p>
- * 将一个 TTF 字体文件切分为 4 个 woff2 子集:
- * <ul>
- * <li>base — ASCII 32-126 + 中文标点</li>
- * <li>level1 — 国家一级常用汉字 (~3500个)</li>
- * <li>level2 — 国家二级常用汉字 (~3000个)</li>
- * <li>other — 剩余所有字符</li>
- * </ul>
- * 同时生成 unicode_ranges.json 供前端 font-loader 使用.
- * 
- * @author LeapYa
- * @since 2026-03-06
+ * 运行时调用 cn-font-split，生成 font.css + 多个细粒度 woff2 分片，
+ * 由前端直接按 unicode-range 自动按需加载。
  */
 @Slf4j
 @Service
 public class FontSubsetService {
 
-    /** 中文标点符号 (与 Python 版本一致) */
-    private static final char[] CHINESE_PUNCTUATIONS = {
-            '·', '—', '\u2018', '\u2019', '\u201C', '\u201D', '…',
-            '。', '《', '》', '【', '】', '！', '，', '？', '～'
-    };
+    private static final String DEFAULT_FONT_FAMILY = "MyAwesomeFont";
+    private static final String DEFAULT_CSS_FILE_NAME = "font.css";
+    private static final String MODULE_PATH_ENV = "CN_FONT_SPLIT_MODULE_PATH";
+    private static final String GH_HOST_ENV = "CN_FONT_SPLIT_GH_HOST";
+    private static final int DEFAULT_CHUNK_SIZE = 48 * 1024;
 
     @Value("${local.uploadUrl:/app/static/}")
     private String uploadUrl;
 
-    @Value("${local.downloadUrl:}")
-    private String downloadUrl;
-
-    /** 一级常用汉字列表 */
-    private List<Character> level1Chars;
-    /** 二级常用汉字列表 */
-    private List<Character> level2Chars;
+    private Path runnerScriptPath;
 
     @PostConstruct
     public void init() {
         try {
-            level1Chars = readCharset("font/level-1.txt");
-            level2Chars = readCharset("font/level-2.txt");
-            log.info("字体子集化服务初始化完成: 一级汉字 {} 个, 二级汉字 {} 个",
-                    level1Chars.size(), level2Chars.size());
+            runnerScriptPath = extractRunnerScript();
+            log.info("cn-font-split 运行脚本已准备: {}", runnerScriptPath);
         } catch (IOException e) {
-            log.error("加载汉字表失败", e);
-            level1Chars = List.of();
-            level2Chars = List.of();
+            log.error("初始化 cn-font-split 运行脚本失败", e);
         }
     }
 
     /**
-     * 执行字体子集化
+     * 执行字体子集化。
      *
-     * @param ttfData   上传的 TTF 字体文件字节
+     * @param ttfData   上传的字体文件字节
      * @param outputDir 输出目录 (font_chunks)
      * @return 处理结果摘要
      */
     public Map<String, Object> subsetFont(byte[] ttfData, Path outputDir) throws IOException {
         long startTime = System.currentTimeMillis();
+        int totalChars = countFontChars(ttfData);
 
-        // 1. 创建输出目录
         Files.createDirectories(outputDir);
+        cleanGeneratedFiles(outputDir);
 
-        // 2. 解析字体, 提取所有字符
-        TrueTypeFont ttf;
-        try (RandomAccessReadBuffer rar = new RandomAccessReadBuffer(ttfData)) {
-            TTFParser parser = new TTFParser();
-            ttf = parser.parse(rar);
+        Path tempFontFile = Files.createTempFile("poetize-font-upload-", ".ttf");
+        Files.write(tempFontFile, ttfData);
+
+        try {
+            executeCnFontSplit(tempFontFile, outputDir);
+        } finally {
+            Files.deleteIfExists(tempFontFile);
         }
 
-        Set<Character> allChars = extractAllChars(ttf);
-        log.info("原始字体中的字符总数: {} 个", allChars.size());
-
-        // 3. 分组
-        List<Character> baseChars = buildBaseChars(allChars);
-        List<Character> level1Filtered = filterChars(level1Chars, allChars, Set.copyOf(baseChars), Set.of());
-        List<Character> level2Filtered = filterChars(level2Chars, allChars, Set.copyOf(baseChars),
-                Set.copyOf(level1Filtered));
-        List<Character> otherChars = buildOtherChars(allChars, baseChars, level1Filtered, level2Filtered);
-
-        log.info("分组结果 — base: {}, level1: {}, level2: {}, other: {}",
-                baseChars.size(), level1Filtered.size(), level2Filtered.size(), otherChars.size());
-
-        // 4. 为每组生成子集 woff2
+        List<Path> chunkFiles = listChunkFiles(outputDir);
+        Path cssFile = outputDir.resolve(DEFAULT_CSS_FILE_NAME);
+        long cssFileSize = Files.exists(cssFile) ? Files.size(cssFile) : 0L;
+        long totalGeneratedSize = cssFileSize;
         Map<String, Long> fileSizes = new LinkedHashMap<>();
-        fileSizes.put("font.base.woff2", createSubsetWoff2(ttfData, baseChars, outputDir.resolve("font.base.woff2")));
-        fileSizes.put("font.level1.woff2",
-                createSubsetWoff2(ttfData, level1Filtered, outputDir.resolve("font.level1.woff2")));
-        fileSizes.put("font.level2.woff2",
-                createSubsetWoff2(ttfData, level2Filtered, outputDir.resolve("font.level2.woff2")));
-        fileSizes.put("font.other.woff2",
-                createSubsetWoff2(ttfData, otherChars, outputDir.resolve("font.other.woff2")));
 
-        // 5. 生成 unicode_ranges.json
-        Map<String, List<String>> unicodeRanges = new LinkedHashMap<>();
-        unicodeRanges.put("base", toUnicodeRangeStrings(baseChars));
-        unicodeRanges.put("level1", toUnicodeRangeStrings(level1Filtered));
-        unicodeRanges.put("level2", toUnicodeRangeStrings(level2Filtered));
-        unicodeRanges.put("other", toUnicodeRangeStrings(otherChars));
+        if (Files.exists(cssFile)) {
+            fileSizes.put(DEFAULT_CSS_FILE_NAME, cssFileSize);
+        }
 
-        ObjectMapper mapper = new ObjectMapper();
-        Path jsonPath = outputDir.resolve("unicode_ranges.json");
-        mapper.writerWithDefaultPrettyPrinter().writeValue(jsonPath.toFile(), unicodeRanges);
-
-        ttf.close();
+        for (Path chunkFile : chunkFiles) {
+            long size = Files.size(chunkFile);
+            totalGeneratedSize += size;
+            fileSizes.put(chunkFile.getFileName().toString(), size);
+        }
 
         long elapsed = System.currentTimeMillis() - startTime;
-        log.info("字体子集化完成, 耗时 {} ms", elapsed);
+        log.info("cn-font-split 字体子集化完成, 分片 {} 个, 耗时 {} ms", chunkFiles.size(), elapsed);
 
-        // 6. 返回结果
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("success", true);
+        result.put("engine", "cn-font-split");
         result.put("elapsedMs", elapsed);
         result.put("originalSize", ttfData.length);
-        result.put("totalChars", allChars.size());
-        result.put("groups", Map.of(
-                "base", baseChars.size(),
-                "level1", level1Filtered.size(),
-                "level2", level2Filtered.size(),
-                "other", otherChars.size()));
+        result.put("totalChars", totalChars);
+        result.put("chunkCount", chunkFiles.size());
+        result.put("cssFile", DEFAULT_CSS_FILE_NAME);
+        result.put("cssFileSize", cssFileSize);
+        result.put("generatedSize", totalGeneratedSize);
         result.put("fileSizes", fileSizes);
         result.put("outputDir", outputDir.toString());
         return result;
     }
 
     /**
-     * 获取默认的 font_chunks 输出目录
+     * 获取默认的 font_chunks 输出目录。
      */
     public Path getDefaultOutputDir() {
-        // 部署到静态资源目录下的 assets/font_chunks/
         String basePath = uploadUrl.endsWith("/") ? uploadUrl : uploadUrl + "/";
         return Path.of(basePath, "assets", "font_chunks");
     }
 
     /**
-     * 获取当前字体文件状态
+     * 获取当前字体文件状态。
      */
     public Map<String, Object> getStatus() {
         Path outputDir = getDefaultOutputDir();
         Map<String, Object> status = new LinkedHashMap<>();
         status.put("outputDir", outputDir.toString());
 
-        String[] expectedFiles = { "font.base.woff2", "font.level1.woff2", "font.level2.woff2", "font.other.woff2",
-                "unicode_ranges.json" };
         Map<String, Object> files = new LinkedHashMap<>();
-        boolean allExist = true;
+        List<Path> chunkFiles = listChunkFiles(outputDir);
+        long totalSize = 0L;
 
-        for (String name : expectedFiles) {
-            Path p = outputDir.resolve(name);
-            if (Files.exists(p)) {
-                try {
-                    files.put(name, Map.of("exists", true, "size", Files.size(p)));
-                } catch (IOException e) {
-                    files.put(name, Map.of("exists", true, "size", -1));
+        if (Files.exists(outputDir)) {
+            try (Stream<Path> stream = Files.list(outputDir)) {
+                List<Path> existingFiles = stream
+                        .filter(Files::isRegularFile)
+                        .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                        .toList();
+
+                for (Path file : existingFiles) {
+                    long size = Files.size(file);
+                    files.put(file.getFileName().toString(), Map.of("exists", true, "size", size));
+                    totalSize += size;
                 }
-            } else {
-                files.put(name, Map.of("exists", false));
-                allExist = false;
+            } catch (IOException e) {
+                log.error("读取字体状态失败: {}", outputDir, e);
             }
         }
 
+        Path cssFile = outputDir.resolve(DEFAULT_CSS_FILE_NAME);
+        boolean cssReady = Files.exists(cssFile) && !chunkFiles.isEmpty();
+        boolean legacyReady = hasLegacySubsetFiles(outputDir);
+        long cssFileSize = 0L;
+
+        try {
+            if (Files.exists(cssFile)) {
+                cssFileSize = Files.size(cssFile);
+            }
+        } catch (IOException e) {
+            log.warn("读取字体 CSS 大小失败: {}", cssFile, e);
+        }
+
+        status.put("engine", cssReady ? "cn-font-split" : (legacyReady ? "legacy" : "none"));
+        status.put("cssFile", Files.exists(cssFile) ? DEFAULT_CSS_FILE_NAME : null);
+        status.put("cssFileSize", cssFileSize);
+        status.put("chunkCount", cssReady ? chunkFiles.size() : (legacyReady ? 4 : 0));
+        status.put("totalSize", totalSize);
         status.put("files", files);
-        status.put("ready", allExist);
+        status.put("ready", cssReady || legacyReady);
         return status;
     }
 
     /**
-     * 清理已生成的字体子集文件
+     * 清理已生成的字体文件。
      */
     public boolean cleanSubsets() {
         Path outputDir = getDefaultOutputDir();
         if (!Files.exists(outputDir)) {
             return true;
         }
-        String[] filesToDelete = { "font.base.woff2", "font.level1.woff2", "font.level2.woff2", "font.other.woff2",
-                "unicode_ranges.json" };
-        boolean success = true;
-        for (String name : filesToDelete) {
-            try {
-                Files.deleteIfExists(outputDir.resolve(name));
-            } catch (IOException e) {
-                log.error("删除文件失败: {}", name, e);
-                success = false;
-            }
+
+        try {
+            cleanGeneratedFiles(outputDir);
+            return true;
+        } catch (IOException e) {
+            log.error("清理字体子集文件失败", e);
+            return false;
         }
-        return success;
     }
 
-    // ==================== 内部方法 ====================
-
-    /** 从 classpath 读取汉字表 (每行一个字符) */
-    private List<Character> readCharset(@org.springframework.lang.NonNull String resourcePath) throws IOException {
-        List<Character> chars = new ArrayList<>();
-        ClassPathResource resource = new ClassPathResource(resourcePath);
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                for (char c : line.trim().toCharArray()) {
-                    if (c >= '\u4E00' && c <= '\u9FFF') { // 只保留 CJK 基本汉字
-                        chars.add(c);
-                    }
-                }
-            }
+    private int countFontChars(byte[] fontData) throws IOException {
+        try (RandomAccessReadBuffer rar = new RandomAccessReadBuffer(fontData);
+             TrueTypeFont ttf = new TTFParser().parse(rar)) {
+            return extractAllChars(ttf).size();
         }
-        return chars;
     }
 
-    /** 从字体 cmap 表提取所有字符 */
-    private Set<Character> extractAllChars(TrueTypeFont ttf) throws IOException {
-        Set<Character> chars = new HashSet<>();
+    private Set<Integer> extractAllChars(TrueTypeFont ttf) throws IOException {
+        Set<Integer> chars = new LinkedHashSet<>();
         CmapTable cmapTable = ttf.getCmap();
-        if (cmapTable == null)
+        if (cmapTable == null) {
             return chars;
+        }
 
         for (CmapSubtable subtable : cmapTable.getCmaps()) {
-            // 遍历 BMP 平面 (U+0020 ~ U+FFFF)
             for (int code = 32; code <= 0xFFFF; code++) {
-                int gid = subtable.getGlyphId(code);
-                if (gid > 0) {
-                    chars.add((char) code);
+                int glyphId = subtable.getGlyphId(code);
+                if (glyphId > 0) {
+                    chars.add(code);
                 }
             }
         }
         return chars;
     }
 
-    /** 构建基础字符集: ASCII 32-126 + 中文标点 */
-    private List<Character> buildBaseChars(Set<Character> allChars) {
-        List<Character> base = new ArrayList<>();
-        // ASCII 可打印字符
-        for (int i = 32; i < 127; i++) {
-            base.add((char) i);
+    private void executeCnFontSplit(Path inputFontFile, Path outputDir) throws IOException {
+        Path modulePath = resolveCnFontSplitModulePath();
+        if (modulePath == null) {
+            throw new IOException("未找到 cn-font-split 模块，请先安装 split_font/package.json 依赖，或配置 CN_FONT_SPLIT_MODULE_PATH");
         }
-        // 中文标点
-        for (char c : CHINESE_PUNCTUATIONS) {
-            if (allChars.contains(c) && !base.contains(c)) {
-                base.add(c);
+
+        Path runnerPath = ensureRunnerScriptReady();
+        ProcessBuilder processBuilder = new ProcessBuilder(
+                "node",
+                runnerPath.toString(),
+                inputFontFile.toAbsolutePath().toString(),
+                outputDir.toAbsolutePath().toString(),
+                DEFAULT_FONT_FAMILY,
+                DEFAULT_CSS_FILE_NAME,
+                String.valueOf(DEFAULT_CHUNK_SIZE));
+        processBuilder.redirectErrorStream(true);
+
+        Map<String, String> env = processBuilder.environment();
+        env.putIfAbsent(MODULE_PATH_ENV, modulePath.toAbsolutePath().toString());
+        env.putIfAbsent(GH_HOST_ENV, "https://ik.imagekit.io/github");
+
+        Process process = processBuilder.start();
+        String output;
+        try (InputStream inputStream = process.getInputStream();
+             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            inputStream.transferTo(outputStream);
+            output = outputStream.toString(StandardCharsets.UTF_8);
+        }
+
+        try {
+            int exitCode = process.waitFor();
+            log.info("cn-font-split 输出:\n{}", output);
+            if (exitCode != 0) {
+                throw new IOException("cn-font-split 执行失败，退出码=" + exitCode + "，输出=" + output);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("等待 cn-font-split 执行完成时被中断", e);
+        }
+    }
+
+    private Path ensureRunnerScriptReady() throws IOException {
+        if (runnerScriptPath == null || !Files.exists(runnerScriptPath)) {
+            runnerScriptPath = extractRunnerScript();
+        }
+        return runnerScriptPath;
+    }
+
+    private Path extractRunnerScript() throws IOException {
+        ClassPathResource resource = new ClassPathResource("font/cn-font-split-runner.mjs");
+        Path tempDir = Files.createTempDirectory("poetize-font-tools-");
+        Path target = tempDir.resolve("cn-font-split-runner.mjs");
+        try (InputStream inputStream = resource.getInputStream()) {
+            Files.copy(inputStream, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+        target.toFile().deleteOnExit();
+        tempDir.toFile().deleteOnExit();
+        return target;
+    }
+
+    private Path resolveCnFontSplitModulePath() {
+        String configuredPath = System.getenv(MODULE_PATH_ENV);
+        if (configuredPath != null && !configuredPath.isBlank()) {
+            Path path = Path.of(configuredPath).toAbsolutePath().normalize();
+            if (Files.exists(path)) {
+                return path;
             }
         }
-        return base;
-    }
 
-    /** 过滤字符: 确保唯一性和字体中存在 */
-    private List<Character> filterChars(List<Character> source, Set<Character> allChars,
-            Set<Character> excludeA, Set<Character> excludeB) {
-        List<Character> filtered = new ArrayList<>();
-        Set<Character> seen = new HashSet<>();
-        for (char c : source) {
-            if (allChars.contains(c) && !excludeA.contains(c) && !excludeB.contains(c) && seen.add(c)) {
-                filtered.add(c);
+        List<Path> candidates = new ArrayList<>();
+        candidates.add(Path.of("/opt/cn-font-split-runtime/node_modules/cn-font-split/dist/node/index.mjs"));
+
+        Path current = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
+        for (int i = 0; i < 6 && current != null; i++) {
+            candidates.add(current.resolve("split_font/node_modules/cn-font-split/dist/node/index.mjs"));
+            current = current.getParent();
+        }
+
+        for (Path candidate : candidates) {
+            Path normalized = candidate.toAbsolutePath().normalize();
+            if (Files.exists(normalized)) {
+                return normalized;
             }
         }
-        return filtered;
+        return null;
     }
 
-    /** 构建 other 字符集 */
-    private List<Character> buildOtherChars(Set<Character> allChars, List<Character> base,
-            List<Character> level1, List<Character> level2) {
-        Set<Character> used = new HashSet<>();
-        used.addAll(base);
-        used.addAll(level1);
-        used.addAll(level2);
-        return allChars.stream()
-                .filter(c -> !used.contains(c))
-                .sorted()
-                .collect(Collectors.toList());
-    }
-
-    /** 使用 FontBox TTFSubsetter 创建子集 TTF, 然后编码为 WOFF2 */
-    private long createSubsetWoff2(byte[] originalTtf, List<Character> chars, Path outputPath) throws IOException {
-        log.info("正在生成 {}...", outputPath.getFileName());
-
-        // 使用 FontBox TTFSubsetter
-        TrueTypeFont ttf;
-        try (RandomAccessReadBuffer rar = new RandomAccessReadBuffer(originalTtf)) {
-            TTFParser parser = new TTFParser();
-            ttf = parser.parse(rar);
-        }
-
-        TTFSubsetter subsetter = new TTFSubsetter(ttf);
-        for (char c : chars) {
-            subsetter.add((int) c);
-        }
-
-        // 输出子集 TTF 到内存
-        ByteArrayOutputStream subsetTtfStream = new ByteArrayOutputStream();
-        subsetter.writeToStream(subsetTtfStream);
-        byte[] subsetTtfBytes = subsetTtfStream.toByteArray();
-
-        ttf.close();
-
-        // TTF → WOFF2
-        byte[] woff2Bytes = Woff2Encoder.encode(subsetTtfBytes);
-
-        // 写出
-        Files.write(outputPath, woff2Bytes);
-        log.info("生成完成: {} ({} bytes)", outputPath.getFileName(), woff2Bytes.length);
-        return woff2Bytes.length;
-    }
-
-    /** 将字符列表转换为 Unicode 范围字符串列表 (合并相邻范围) */
-    List<String> toUnicodeRangeStrings(List<Character> chars) {
-        if (chars.isEmpty())
+    private List<Path> listChunkFiles(Path outputDir) {
+        if (!Files.exists(outputDir)) {
             return List.of();
+        }
 
-        List<Integer> codes = chars.stream()
-                .map(c -> (int) c)
-                .sorted()
-                .distinct()
-                .collect(Collectors.toList());
+        try (Stream<Path> stream = Files.list(outputDir)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().toLowerCase().endsWith(".woff2"))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .toList();
+        } catch (IOException e) {
+            log.error("读取字体分片失败: {}", outputDir, e);
+            return List.of();
+        }
+    }
 
-        // 合并相邻范围
-        List<int[]> ranges = new ArrayList<>();
-        int start = codes.get(0);
-        int end = start;
-        for (int i = 1; i < codes.size(); i++) {
-            int code = codes.get(i);
-            if (code == end + 1) {
-                end = code;
-            } else {
-                ranges.add(new int[] { start, end });
-                start = code;
-                end = code;
+    private boolean hasLegacySubsetFiles(Path outputDir) {
+        String[] legacyFiles = {
+                "font.base.woff2",
+                "font.level1.woff2",
+                "font.level2.woff2",
+                "font.other.woff2",
+                "unicode_ranges.json"
+        };
+
+        for (String fileName : legacyFiles) {
+            if (!Files.exists(outputDir.resolve(fileName))) {
+                return false;
             }
         }
-        ranges.add(new int[] { start, end });
+        return true;
+    }
 
-        // 转换为字符串
-        return ranges.stream()
-                .map(r -> r[0] == r[1]
-                        ? String.format("U+%04X", r[0])
-                        : String.format("U+%04X-%04X", r[0], r[1]))
-                .collect(Collectors.toList());
+    private void cleanGeneratedFiles(Path outputDir) throws IOException {
+        if (!Files.exists(outputDir)) {
+            return;
+        }
+
+        try (Stream<Path> stream = Files.list(outputDir)) {
+            for (Path file : stream.filter(Files::isRegularFile).toList()) {
+                String name = file.getFileName().toString().toLowerCase();
+                if (name.endsWith(".woff2")
+                        || name.endsWith(".css")
+                        || name.endsWith(".json")
+                        || name.endsWith(".bin")
+                        || name.endsWith(".proto")
+                        || name.endsWith(".html")) {
+                    Files.deleteIfExists(file);
+                }
+            }
+        }
     }
 }

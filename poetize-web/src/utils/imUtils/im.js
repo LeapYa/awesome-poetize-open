@@ -81,19 +81,9 @@ export default function (imStore) {
         if (this.currentToken) {
             this.paramStr = 'token=' + this.currentToken
         } else {
-            // 如果URL中没有token，尝试使用localStorage中的token
-            const wsToken = localStorage.getItem('wsToken')
-            const userToken = localStorage.getItem('userToken')
-            const fallbackToken = wsToken || userToken
-
-            if (fallbackToken) {
-                this.currentToken = fallbackToken
-                this.paramStr = 'token=' + fallbackToken
-                console.log('[Token] 从localStorage获取token')
-            } else {
-                console.error('[Token] 未找到WebSocket token')
-                this.paramStr = ''
-            }
+            // 没有token时，将在initWs中通过cookie会话从后端获取wsToken
+            console.debug('[Token] 未找到WebSocket token，将在连接时通过cookie获取')
+            this.paramStr = ''
         }
     }
 
@@ -113,14 +103,8 @@ export default function (imStore) {
         }
 
         if (!this.currentToken) {
-            const wsToken = localStorage.getItem('wsToken')
-            const userToken = localStorage.getItem('userToken')
-            const fallbackToken = wsToken || userToken
-
-            if (fallbackToken) {
-                console.log('[Token] 从localStorage获取token')
-                this.currentToken = fallbackToken
-            }
+            // 没有可用token，需要通过initWs重新获取
+            console.debug('[Token] 无可用token，需要重新连接')
         }
 
         if (this.currentToken) {
@@ -240,24 +224,11 @@ export default function (imStore) {
      */
     this.regenerateTokenWithUserToken = async () => {
         try {
-            const userToken = localStorage.getItem('userToken')
-            if (!userToken) {
-                console.error('[Token] 没有可用的userToken')
-                ElMessage({
-                    message: '会话已过期，请刷新页面重新登录',
-                    type: 'warning',
-                    duration: 5000,
-                })
-                return false
-            }
-
-            console.log('[Token] 使用userToken重新生成...')
+            console.log('[Token] 通过cookie会话重新生成wsToken...')
             const baseURL = constant.baseURL || `${location.protocol}//${location.host}/api`
             const response = await fetch(`${baseURL}/im/getWsToken`, {
                 method: 'GET',
-                headers: {
-                    Authorization: userToken,
-                },
+                credentials: 'include',
             })
             const result = await response.json()
 
@@ -312,25 +283,14 @@ export default function (imStore) {
         }
 
         // 获取新的wsToken（wsToken只有30分钟有效期，每次连接都刷新）
-        const userToken = localStorage.getItem('userToken')
-        if (!userToken) {
-            console.error('[WebSocket] 没有可用的userToken，无法连接')
-            ElMessage({
-                message: '请先登录',
-                type: 'warning',
-                duration: 3000,
-            })
-            return
-        }
+        // 通过cookie会话获取wsToken，不再依赖localStorage中的userToken
 
         try {
             console.log('[WebSocket] 正在获取新的wsToken...')
             const baseURL = constant.baseURL || `${location.protocol}//${location.host}/api`
             const response = await fetch(`${baseURL}/im/getWsToken`, {
                 method: 'GET',
-                headers: {
-                    Authorization: userToken,
-                },
+                credentials: 'include',
             })
             const result = await response.json()
 

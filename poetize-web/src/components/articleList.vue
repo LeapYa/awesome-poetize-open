@@ -416,26 +416,6 @@ export default {
         this.$message.error('获取翻译内容失败')
       }
     },
-
-    // 获取显示标题
-    getDisplayTitle(article) {
-      const result =
-        article.showTranslation && article.translationTitle
-          ? article.translationTitle
-          : article.articleTitle
-
-      return result
-    },
-
-    // 获取显示内容
-    getDisplayContent(article) {
-      const result =
-        article.showTranslation && article.translationContent
-          ? article.translationContent
-          : article.articleContent
-
-      return result
-    },
   },
 }
 </script>

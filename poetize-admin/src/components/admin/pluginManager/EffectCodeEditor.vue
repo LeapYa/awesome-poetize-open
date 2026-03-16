@@ -52,6 +52,7 @@
 
 <script>
 /* eslint-disable vue/no-mutating-props */
+
 export default {
   name: 'EffectCodeEditor',
   props: {

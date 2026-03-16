@@ -10,6 +10,7 @@ import com.ld.poetry.entity.User;
 import com.ld.poetry.entity.WebInfo;
 import com.ld.poetry.utils.RedisUtil;
 import com.ld.poetry.utils.SpringContextUtil;
+import com.ld.poetry.utils.TokenValidationUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisCallback;
@@ -769,7 +770,7 @@ public class CacheService {
         if (userId != null && token != null) {
             String key = CacheConstants.CACHE_PREFIX + "user:token:" + userId;
             redisUtil.set(key, token, CommonConst.TOKEN_EXPIRE);
-            log.info("缓存用户Token映射: userId={}, token={}, 过期时间: {}秒", userId, token, CommonConst.TOKEN_EXPIRE);
+            log.info("缓存用户Token映射: userId={}, tokenPrefix={}, 过期时间: {}秒", userId, TokenValidationUtil.getTokenPrefix(token), CommonConst.TOKEN_EXPIRE);
         }
     }
 
@@ -1586,7 +1587,7 @@ public class CacheService {
         if (wsToken != null && userId != null) {
             String key = WS_SESSION_PREFIX + wsToken;
             redisUtil.set(key, userId, expireSeconds);
-            log.info("缓存WebSocket会话: wsToken={}, userId={}, 过期时间: {}秒", wsToken, userId, expireSeconds);
+            log.info("缓存WebSocket会话: wsTokenPrefix={}, userId={}, 过期时间: {}秒", TokenValidationUtil.getTokenPrefix(wsToken), userId, expireSeconds);
         }
     }
 

@@ -164,11 +164,7 @@ import upload from '../../utils/ajaxUpload';
         } else if (this.currentStoreType === "qiniu") {
           const xhr = new XMLHttpRequest();
           xhr.open('get', this.$constant.baseURL + "/qiniu/getUpToken?key=" + key, false);
-          if (this.isAdmin) {
-            xhr.setRequestHeader("Authorization", localStorage.getItem("adminToken"));
-          } else {
-            xhr.setRequestHeader("Authorization", localStorage.getItem("userToken"));
-          }
+          xhr.withCredentials = true;
 
           try {
             xhr.send();

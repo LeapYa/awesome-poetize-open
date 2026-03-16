@@ -45,6 +45,7 @@ public class SysPluginController {
     @GetMapping("/getMouseClickEffects")
     public PoetryResult<List<SysPlugin>> getMouseClickEffects() {
         List<SysPlugin> plugins = sysPluginService.getMouseClickEffectPlugins();
+        plugins.forEach(this::stripSensitiveFields);
         return PoetryResult.success(plugins);
     }
 
@@ -72,7 +73,7 @@ public class SysPluginController {
     @GetMapping("/getActiveWaifuModel")
     public PoetryResult<SysPlugin> getActiveWaifuModel() {
         SysPlugin plugin = sysPluginService.getActivePlugin("waifu_model");
-        return PoetryResult.success(plugin);
+        return PoetryResult.success(stripSensitiveFields(plugin));
     }
 
     /**
@@ -82,7 +83,7 @@ public class SysPluginController {
     @GetMapping("/getActiveArticleTheme")
     public PoetryResult<SysPlugin> getActiveArticleTheme() {
         SysPlugin plugin = sysPluginService.getActivePlugin(SysPlugin.TYPE_ARTICLE_THEME);
-        return PoetryResult.success(plugin);
+        return PoetryResult.success(stripSensitiveFields(plugin));
     }
 
     /**
@@ -110,7 +111,8 @@ public class SysPluginController {
                 );
             });
         }
-        
+
+        plugins.forEach(this::stripSensitiveFields);
         return PoetryResult.success(plugins);
     }
 
@@ -160,11 +162,25 @@ public class SysPluginController {
         result.put("pluginName", plugin.getPluginName());
         result.put("pluginType", plugin.getPluginType());
         result.put("version", plugin.getVersion());
-        result.put("pluginCode", plugin.getPluginCode());
+        // Security: pluginCode (JS source) is deliberately excluded from public API responses
         result.put("frontendCss", plugin.getFrontendCss());
         result.put("pluginConfig", plugin.getPluginConfig());
         result.put("enabled", plugin.getEnabled());
         return result;
+    }
+
+    /**
+     * 从公开接口返回的 SysPlugin 实体中剥离敏感代码字段。
+     * 管理员接口（@LoginCheck）不受影响。
+     */
+    private SysPlugin stripSensitiveFields(SysPlugin plugin) {
+        if (plugin == null) return null;
+        plugin.setPluginCode(null);
+        plugin.setBackendCode(null);
+        plugin.setInstallSql(null);
+        plugin.setUninstallSql(null);
+        plugin.setManifest(null);
+        return plugin;
     }
 
     // ============ 管理接口（需要登录） ============

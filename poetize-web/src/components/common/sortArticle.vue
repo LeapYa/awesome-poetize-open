@@ -207,6 +207,7 @@
 </template>
 
 <script>
+
 export default {
   props: {
     articleList: {

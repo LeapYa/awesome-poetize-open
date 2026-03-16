@@ -15,6 +15,7 @@ import com.ld.poetry.enums.CodeMsg;
 import com.ld.poetry.utils.JsonUtils;
 import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.utils.CryptoUtil;
+import com.ld.poetry.utils.AuthCookieUtil;
 import com.ld.poetry.vo.EncryptedRequestVO;
 import com.ld.poetry.vo.EncryptedResponseVO;
 import com.ld.poetry.vo.UserVO;
@@ -22,6 +23,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.List;
 import java.util.Map;
@@ -51,6 +54,9 @@ public class UserController {
     @Autowired
     private CaptchaService captchaService;
 
+    @Autowired
+    private AuthCookieUtil authCookieUtil;
+
     /**
      * 用户名/密码注册
      * 
@@ -63,7 +69,9 @@ public class UserController {
             @RateLimit(name = "regist:fp", count = 5, time = 300, keyType = KeyType.FINGERPRINT, message = "注册操作过于频繁，请5分钟后再试"),
             @RateLimit(name = "regist:ip", count = 50, time = 60, keyType = KeyType.IP, message = "当前网络注册请求过多，请稍后再试")
     })
-    public PoetryResult<UserVO> regist(@Validated @RequestBody UserVO user) {
+    public PoetryResult<UserVO> regist(@Validated @RequestBody UserVO user,
+            HttpServletRequest request,
+            HttpServletResponse response) {
         // 检查是否需要验证码（使用register配置项）
         boolean captchaRequired = captchaService.isCaptchaRequired("register");
         String verificationToken = user.getVerificationToken();
@@ -83,7 +91,8 @@ public class UserController {
             log.info("注册验证码token验证通过");
         }
 
-        return userService.regist(user);
+        PoetryResult<UserVO> result = userService.regist(user);
+        return attachCookieIfNeeded(result, request, response);
     }
 
     /**
@@ -101,7 +110,9 @@ public class UserController {
     public PoetryResult<EncryptedResponseVO> login(@RequestParam(value = "account", required = false) String account,
             @RequestParam(value = "password", required = false) String password,
             @RequestParam(value = "isAdmin", defaultValue = "false") Boolean isAdmin,
-            @RequestBody(required = false) EncryptedRequestVO encryptedRequest) {
+            @RequestBody(required = false) EncryptedRequestVO encryptedRequest,
+            HttpServletRequest request,
+            HttpServletResponse response) {
         String verificationToken = null;
 
         // 如果有加密请求体，则解密并提取参数
@@ -152,6 +163,7 @@ public class UserController {
 
         // 调用登录服务
         PoetryResult<UserVO> loginResult = userService.login(account, password, isAdmin);
+        loginResult = attachCookieIfNeeded(loginResult, request, response);
 
         // 如果登录成功，对响应数据进行加密
         if (loginResult.getCode() == 200 && loginResult.getData() != null) {
@@ -188,7 +200,7 @@ public class UserController {
      */
     @PostMapping("/token")
     @RateLimit(name = "token:ip", count = 50, time = 60, keyType = KeyType.IP, message = "Token验证请求过于频繁，请稍后再试")
-    public PoetryResult<UserVO> login(@RequestParam("userToken") String userToken) {
+    public PoetryResult<UserVO> login(@RequestParam(value = "userToken", required = false) String userToken) {
         return userService.token(userToken);
     }
 
@@ -198,9 +210,11 @@ public class UserController {
      */
     @GetMapping("/logout")
     @LoginCheck(allowExpired = true)
-    public PoetryResult exit() {
+    public PoetryResult exit(HttpServletRequest request, HttpServletResponse response) {
         try {
-            return userService.exit();
+            PoetryResult result = userService.exit();
+            authCookieUtil.clearAuthCookie(request, response);
+            return result;
         } catch (Exception e) {
             // 即使在异常情况下也返回成功，因为退出操作应该总是成功
             log.warn("退出登录过程中发生异常，但返回成功: {}", e.getMessage());
@@ -242,7 +256,7 @@ public class UserController {
             }
 
         } catch (Exception e) {
-            log.error("Token验证时发生错误: token={}", token, e);
+            log.error("Token验证时发生错误: tokenPrefix={}", com.ld.poetry.utils.TokenValidationUtil.getTokenPrefix(token), e);
             return PoetryResult.fail("Token验证失败，请重新登录");
         }
 
@@ -412,7 +426,9 @@ public class UserController {
             @RateLimit(name = "thirdLogin:fp", count = 20, time = 300, keyType = KeyType.FINGERPRINT, message = "登录尝试过于频繁，请5分钟后再试"),
             @RateLimit(name = "thirdLogin:ip", count = 100, time = 60, keyType = KeyType.IP, message = "当前网络登录请求过多，请稍后再试")
     })
-    public PoetryResult<UserVO> thirdLogin(@RequestBody UserVO thirdUserInfo) {
+    public PoetryResult<UserVO> thirdLogin(@RequestBody UserVO thirdUserInfo,
+            HttpServletRequest request,
+            HttpServletResponse response) {
         // 检查是否需要验证码
         boolean captchaRequired = captchaService.isCaptchaRequired("login");
         String verificationToken = thirdUserInfo.getVerificationToken();
@@ -432,11 +448,25 @@ public class UserController {
             log.info("第三方登录验证码token验证通过");
         }
 
-        return userService.thirdLogin(
+        PoetryResult<UserVO> result = userService.thirdLogin(
                 thirdUserInfo.getPlatformType(),
                 thirdUserInfo.getUid(),
                 thirdUserInfo.getUsername(),
                 thirdUserInfo.getEmail(),
                 thirdUserInfo.getAvatar());
+        return attachCookieIfNeeded(result, request, response);
+    }
+
+    private PoetryResult<UserVO> attachCookieIfNeeded(PoetryResult<UserVO> result,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        if (result != null && result.getCode() == 200 && result.getData() != null) {
+            String accessToken = result.getData().getAccessToken();
+            if (accessToken != null && !accessToken.isBlank()) {
+                authCookieUtil.writeAuthCookie(request, response, accessToken);
+                result.getData().setAccessToken(null);
+            }
+        }
+        return result;
     }
 }

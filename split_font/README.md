@@ -1,45 +1,34 @@
-# 中文字体子集化工具
+# 中文字体分片工具
 
-这个工具用于将中文字体文件切分为多个子集，以便在Web开发中实现字体优化。
+当前默认方案已切换为 `cn-font-split`，用于生成：
 
-## 切分策略
+- `font.css`
+- 多个细粒度 `.woff2` 分片
 
-将原始字体完整地切分为4个部分：
+浏览器会基于 `@font-face + unicode-range` 自动按需下载真正命中的小分片，而不是一次性拉取超大的一级/二级汉字包。
 
-1. **base**: 英文、数字和常用符号（ASCII 32-126）以及中文标点符号和全角符号
-2. **level1**: 国家一级常用汉字
-3. **level2**: 国家二级常用汉字
-4. **other**: 原始字体中其余的所有字符
+## 推荐方案：cn-font-split
 
-## 依赖项
-
-- Python 3.6+
-- fonttools
-- brotli
-
-## 安装依赖
+### 安装依赖
 
 ```bash
-pip install -r requirements.txt
+npm install
 ```
 
-## 使用方法
-
-1. 将您的字体文件命名为 `font.ttf` 并放在项目根目录下
-2. 运行脚本：
+### 使用方法
 
 ```bash
-python font_subset.py
+npm run split -- ./font.ttf ./font_chunks MyAwesomeFont font.css 49152
 ```
 
-3. 脚本将在 `font_chunks` 目录中生成以下文件：
+参数说明：
 
-- `font.base.woff2` - 包含ASCII字符和中文标点符号的字体文件 (~9KB)
-- `font.level1.woff2` - 包含一级汉字的字体文件 (~830KB)
-- `font.level2.woff2` - 包含二级汉字的字体文件 (~756KB)
-- `font.other.woff2` - 包含原始字体中其他字符的字体文件 (~199KB)
-- `unicode_ranges.json` - 包含各子集Unicode字符范围的JSON文件，用于CSS @font-face的unicode-range属性或JavaScript动态加载
+1. 输入字体文件路径
+2. 输出目录
+3. `font-family` 名称，默认 `MyAwesomeFont`
+4. CSS 文件名，默认 `font.css`
+5. 目标分片大小，默认 `49152` 字节（48KB）
 
-## 优势
+## 旧方案
 
-大幅减少网络请求的数据量，减小网站带宽开销，提升首屏加载速度
+`font_subset.py` 仍保留为旧版 4 大块切分工具，仅用于兼容和对比，不再作为默认推荐方案。

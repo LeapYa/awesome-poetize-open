@@ -242,17 +242,21 @@
             <div v-else-if="fontStatus" class="status-content">
               <div class="status-indicator" :class="fontStatus.ready ? 'is-ready' : 'is-empty'">
                 <div class="indicator-dot"></div>
-                <span class="indicator-text">{{ fontStatus.ready ? '自定义子集字体已就绪' : '使用内置默认分片字体' }}</span>
+                <span class="indicator-text">{{ fontStatus.ready ? (fontStatus.engine === 'cn-font-split' ? '自定义 cn-font-split 字体已就绪' : '自定义子集字体已就绪') : '使用内置默认分片字体' }}</span>
               </div>
               
               <div v-if="fontStatus.ready" class="font-metrics">
                 <div class="metric-item">
                   <span class="metric-label">切片数量</span>
-                  <span class="metric-value">4 <span class="metric-unit">WOFF2</span></span>
+                  <span class="metric-value">{{ fontStatus.chunkCount || 4 }} <span class="metric-unit">WOFF2</span></span>
                 </div>
                 <div class="metric-item">
-                  <span class="metric-label">基础包大小</span>
-                  <span class="metric-value">{{ formatSize(fontStatus.files['font.base.woff2']?.size) }}</span>
+                  <span class="metric-label">总字体体积</span>
+                  <span class="metric-value">{{ formatSize(fontStatus.totalSize) }}</span>
+                </div>
+                <div class="metric-item" v-if="fontStatus.cssFileSize">
+                  <span class="metric-label">CSS 索引大小</span>
+                  <span class="metric-value">{{ formatSize(fontStatus.cssFileSize) }}</span>
                 </div>
               </div>
 
@@ -301,6 +305,8 @@
                 </div>
                 <div class="result-stats">
                   <span>总计字符: {{ fontResult.totalChars }}</span>
+                  <span class="divider">|</span>
+                  <span>分片: {{ fontResult.chunkCount || 0 }}</span>
                   <span class="divider">|</span>
                   <span>耗时: {{ (fontResult.elapsedMs / 1000).toFixed(1) }}s</span>
                   <span class="divider">|</span>
@@ -661,9 +667,8 @@ export default {
       return this.$constant.baseURL + '/fontSubset/upload';
     },
     fontUploadHeaders() {
-      return {
-        Authorization: getValidToken(true) || ''
-      };
+      // Cookie-based auth: no Authorization header needed, withCredentials handles it
+      return {};
     }
   },
   watch: {

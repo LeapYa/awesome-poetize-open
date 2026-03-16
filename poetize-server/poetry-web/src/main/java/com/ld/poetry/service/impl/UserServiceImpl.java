@@ -1152,7 +1152,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public PoetryResult<UserVO> token(String userToken) {
-        userToken = CryptoUtil.decrypt(userToken);
+        if (StringUtils.hasText(userToken)) {
+            userToken = CryptoUtil.decrypt(userToken);
+        } else {
+            userToken = PoetryUtil.getTokenWithoutBearer();
+        }
 
         if (!StringUtils.hasText(userToken)) {
             throw new PoetryRuntimeException("登录已过期，请重新登陆！");
@@ -1205,9 +1209,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         } else {
             userVO.setIsBoss(false);
         }
-
-        // 返回token（用于前端获取新token）
-        userVO.setAccessToken(userToken);
 
         return PoetryResult.success(userVO);
     }

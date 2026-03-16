@@ -10,7 +10,6 @@ import {
 } from '../utils/tokenExpireHandler'
 import {
   ensureSessionValid,
-  getTrackableToken,
   hasStoredSessionToken,
 } from '../utils/sessionValidation'
 
@@ -246,13 +245,8 @@ router.afterEach((to, from) => {
 
   try {
     const url = constant.baseURL + '/track/pageview?path=' + encodeURIComponent(to.fullPath)
-    const token = getTrackableToken()
-    // 使用 fetch + keepalive 代替 sendBeacon，以便携带 Authorization header 识别登录用户
-    const headers = {}
-    if (token) {
-      headers['Authorization'] = token
-    }
-    fetch(url, { method: 'POST', keepalive: true, headers }).catch(() => { })
+    // 使用 fetch + keepalive + credentials 代替 sendBeacon，cookie会自动携带用户身份
+    fetch(url, { method: 'POST', keepalive: true, credentials: 'include' }).catch(() => { })
   } catch (e) {
     // 统计失败不影响用户
   }
@@ -286,12 +280,10 @@ async function handleOAuthAuthCode(to, from, next) {
 
         if (emailCollectionNeeded) {
           const tempUserData = {
-            accessToken: accessToken,
             needsEmailCollection: true,
           }
 
-          localStorage.setItem('userToken', accessToken)
-          localStorage.setItem('adminToken', accessToken)
+          // Token由后端通过HttpOnly Cookie下发
           localStorage.setItem('tempUserData', JSON.stringify(tempUserData))
 
           next({
@@ -302,20 +294,14 @@ async function handleOAuthAuthCode(to, from, next) {
           return
         }
 
-        // 正常登录流程
+        // 正常登录流程 - Token由后端通过HttpOnly Cookie下发
         localStorage.removeItem('currentAdmin')
         localStorage.removeItem('currentUser')
-        localStorage.setItem('userToken', accessToken)
-        localStorage.setItem('adminToken', accessToken)
 
-        // 验证token获取用户信息
-        const encryptedToken = await common.encrypt(accessToken)
+        // 验证会话获取用户信息
         const tokenResponse = await fetch(baseURL + '/user/token', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: 'userToken=' + encryptedToken,
+          credentials: 'include',
         })
 
         if (tokenResponse.ok) {

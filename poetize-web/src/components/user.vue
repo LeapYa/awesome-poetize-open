@@ -964,9 +964,7 @@ export default {
           )
           .then((res) => {
             if (!this.$common.isEmpty(res.data)) {
-              // 同时存储用户token和管理员token
-              localStorage.setItem('userToken', res.data.accessToken)
-              localStorage.setItem('adminToken', res.data.accessToken)
+              // Token由后端通过HttpOnly Cookie下发，前端不再存储
               this.mainStore.loadCurrentUser(res.data)
               this.mainStore.loadCurrentAdmin(res.data)
 
@@ -1090,7 +1088,7 @@ export default {
           .post(this.$constant.baseURL + '/user/regist', user)
           .then(async (res) => {
             if (!this.$common.isEmpty(res.data)) {
-              localStorage.setItem('userToken', res.data.accessToken)
+              // Token由后端通过HttpOnly Cookie下发
               this.mainStore.loadCurrentUser(res.data)
               this.username = ''
               this.password = ''
@@ -1484,9 +1482,7 @@ export default {
               this.clearDialog()
               this.$message.success('密码修改成功，请使用新密码重新登录！')
 
-              // 清除所有登录状态
-              localStorage.removeItem('userToken')
-              localStorage.removeItem('adminToken')
+              // 清除所有登录状态（token由后端通过cookie管理）
               this.mainStore.loadCurrentUser({})
               this.mainStore.loadCurrentAdmin({})
               

@@ -76,7 +76,7 @@
           <div class="commentInfo-content">
             <span v-html="item.commentContent"></span>
           </div>
-          <!-- 🔧 新UI：懒加载子评论展示 -->
+          <!-- 懒加载子评论展示 -->
           <div v-if="item.childComments && item.childComments.total > 0">
             <!-- 展开按钮（当回复未展开时显示） -->
             <div v-if="!item.expanded" class="pagination-wrap">

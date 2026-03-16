@@ -27,7 +27,7 @@ public class FontSubsetController {
 
     /**
      * 上传 TTF 字体文件并执行子集化
-     * 生成 4 个 woff2 子集 + unicode_ranges.json
+     * 使用 cn-font-split 生成 font.css + 多个细粒度 woff2 分片
      */
     @PostMapping("/upload")
     @LoginCheck(0)

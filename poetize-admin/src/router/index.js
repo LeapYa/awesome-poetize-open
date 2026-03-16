@@ -4,6 +4,7 @@ import { useMainStore } from '../stores/main'
 import constant from '../utils/constant'
 import common from '../utils/common'
 import { handleTokenExpire, isLoggedIn, getValidToken } from '../utils/tokenExpireHandler'
+import { ensureSessionValid, hasStoredSessionHint } from '../utils/sessionValidation'
 
 const originalPush = VueRouter.prototype.push;
 VueRouter.prototype.push = function push(location) {
@@ -152,13 +153,21 @@ router.beforeEach(async (to, from, next) => {
   const isPublicPath = publicPaths.includes(to.path);
 
   if (!isPublicPath) {
-    // 检查管理员token
-    const adminToken = getValidToken(true);
-    const isAdminLoggedIn = isLoggedIn(true);
-
-    if (!adminToken || !isAdminLoggedIn) {
-      handleTokenExpire(true, to.fullPath, { showMessage: false });
-      return;
+    // 如果store中有用户信息（可能来自localStorage缓存），需要通过后端验证会话
+    const hasHint = hasStoredSessionHint();
+    if (hasHint) {
+      const sessionValid = await ensureSessionValid({ force: false });
+      if (!sessionValid) {
+        handleTokenExpire(true, to.fullPath, { showMessage: false });
+        return;
+      }
+    } else {
+      // store中没有用户信息，尝试通过cookie验证会话
+      const sessionValid = await ensureSessionValid({ force: true });
+      if (!sessionValid) {
+        handleTokenExpire(true, to.fullPath, { showMessage: false });
+        return;
+      }
     }
   }
 

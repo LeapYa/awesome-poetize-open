@@ -132,17 +132,10 @@
                 _pluginKeys.push(pluginKey)
             },
 
-            /** 加载并执行插件 JS 代码 */
+            /** 加载并执行插件 JS 代码 —— 已禁用（安全加固：禁止前端动态执行任意代码） */
             loadPluginCode(pluginKey, jsCode, config) {
-                try {
-                    PoetizePlugin._internal.setPluginConfig(pluginKey, config)
-                    // 在受限作用域中执行插件代码
-                    const fn = new Function('PoetizePlugin', jsCode) // eslint-disable-line no-new-func
-                    fn(PoetizePlugin)
-                    console.log('[PoetizePlugin] 插件已加载:', pluginKey)
-                } catch (e) {
-                    console.error('[PoetizePlugin] 插件加载失败 (' + pluginKey + '):', e)
-                }
+                console.warn('[PoetizePlugin] 插件前端代码执行已禁用 (' + pluginKey + ')，仅加载配置和 CSS')
+                PoetizePlugin._internal.setPluginConfig(pluginKey, config)
             },
 
             /** 加载插件 CSS */

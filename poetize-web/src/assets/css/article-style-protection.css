@@ -338,6 +338,7 @@ html body .entry-content pre code.css-line-numbers .code-line {
   counter-increment: line-number !important;
   position: relative !important;
   display: block !important;
+  min-width: fit-content !important;
   padding-left: calc(var(--line-number-width, 25px) + 17px) !important;
   padding-right: 12px !important;
   padding-top: 2px !important;

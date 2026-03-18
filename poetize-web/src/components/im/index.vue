@@ -640,6 +640,7 @@
   import changeData from "./hooks/changeData";
   import { getMessagePreview } from "../../utils/imUtils/messagePreview";
   import { loadFonts } from "../../utils/font-loader";
+  import { formatChatTime } from "../../utils/chat-time-utils";
   import proButton from "./common/proButton";
   import treeHole from "./common/treeHole";
   import commentBox from "./common/commentBox";
@@ -1781,7 +1782,7 @@
       const formatTimeWithTick = (dateStr, tick) => {
         // tick参数仅用于触发重新计算，不参与实际逻辑
         void tick;
-        return $common.formatChatTime(dateStr);
+        return formatChatTime(dateStr);
       };
       
       return {

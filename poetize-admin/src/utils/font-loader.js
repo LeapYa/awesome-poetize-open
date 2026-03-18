@@ -41,20 +41,30 @@ function buildFontCssPath(fontCdnBaseUrl, sysConfig) {
 }
 
 async function loadFontCss(fontCssPath) {
-  await new Promise((resolve, reject) => {
-    const link = document.createElement('link');
-    link.id = DYNAMIC_FONT_LINK_ID;
-    link.rel = 'stylesheet';
-    link.href = fontCssPath;
-    link.onload = () => resolve();
-    link.onerror = () => reject(new Error(`加载字体 CSS 失败: ${fontCssPath}`));
-
-    try {
-      appendToHead(link);
-    } catch (error) {
-      reject(error);
-    }
-  });
+  // 使用 fetch 而非 <link>: SPA 会对 404 返回 HTML（200），<link> 的 onload 会误触发
+  const resp = await fetch(fontCssPath);
+  if (!resp.ok) {
+    throw new Error(`加载字体 CSS 失败: HTTP ${resp.status}`);
+  }
+  const contentType = resp.headers.get('content-type') || '';
+  if (!contentType.includes('css') && !contentType.includes('text/plain')) {
+    // SPA fallback 返回的是 text/html，不是真正的 CSS
+    throw new Error(`字体 CSS 响应类型不正确: ${contentType}`);
+  }
+  const cssText = await resp.text();
+  if (!cssText.includes('@font-face')) {
+    throw new Error('字体 CSS 内容无效：未包含 @font-face 规则');
+  }
+  // 注入根据 cn-font-split 生成的 CSS
+  const link = document.createElement('link');
+  link.id = DYNAMIC_FONT_LINK_ID;
+  link.rel = 'stylesheet';
+  link.href = fontCssPath;
+  try {
+    appendToHead(link);
+  } catch (error) {
+    throw error;
+  }
 }
 
 /**
@@ -162,43 +172,26 @@ export async function loadFonts(sysConfig) {
     `;
   } else {
     // 使用分块字体文件
-    css = `
+    // 如果 unicode-range 未加载（unicode_ranges.json 不存在），则省略 unicode-range 属性
+    // 浏览器会按顺序尝试每个字体源，直到找到包含所需字形的文件
+    const chunks = [
+      { file: 'font.base.woff2', range: baseRange },
+      { file: 'font.level1.woff2', range: level1Range },
+      { file: 'font.level2.woff2', range: level2Range },
+      { file: 'font.other.woff2', range: otherRange },
+    ];
+    css = chunks
+      .map(
+        ({ file, range }) => `
       @font-face {
         font-family: 'MyAwesomeFont';
-        src: url('${fontCdnBaseUrl}font.base.woff2') format('woff2');
+        src: url('${fontCdnBaseUrl}${file}') format('woff2');
         font-weight: normal;
         font-style: normal;
-        font-display: swap;
-        unicode-range: ${baseRange};
-      }
-      
-      @font-face {
-        font-family: 'MyAwesomeFont';
-        src: url('${fontCdnBaseUrl}font.level1.woff2') format('woff2');
-        font-weight: normal;
-        font-style: normal;
-        font-display: swap;
-        unicode-range: ${level1Range};
-      }
-      
-      @font-face {
-        font-family: 'MyAwesomeFont';
-        src: url('${fontCdnBaseUrl}font.level2.woff2') format('woff2');
-        font-weight: normal;
-        font-style: normal;
-        font-display: swap;
-        unicode-range: ${level2Range};
-      }
-      
-      @font-face {
-        font-family: 'MyAwesomeFont';
-        src: url('${fontCdnBaseUrl}font.other.woff2') format('woff2');
-        font-weight: normal;
-        font-style: normal;
-        font-display: swap;
-        unicode-range: ${otherRange};
-      }
-    `;
+        font-display: swap;${range ? `\n        unicode-range: ${range};` : ''}
+      }`
+      )
+      .join('\n');
   }
 
   // 设置样式内容并添加到文档

@@ -40,11 +40,13 @@
     padding: 10px 15px;
     color: #606266;
     font-size: 14px;
+    line-height: 1.6;
 }
 
 .el-message-box__header {
     position: relative;
     padding: 15px 15px 10px;
+    line-height: 1.5;
 }
 
 .el-dialog__header {
@@ -98,8 +100,7 @@ html.loaded .article-detail::before,
 .article-head,
 .article-info-container,
 .article-detail,
-.article-content,
-.entry-content {
+.article-content {
     /* 提示浏览器这些元素会变化，提前优化 */
     will-change: transform, opacity;
     /* 启用GPU合成层，减少重绘 */
@@ -107,6 +108,15 @@ html.loaded .article-detail::before,
     /* 隐藏元素背面，提升性能 */
     backface-visibility: hidden;
     /* 抗锯齿优化 */
+    -webkit-font-smoothing: subpixel-antialiased;
+}
+
+/*
+ * .entry-content 不使用 will-change / GPU 合成层
+ * 原因：代码高亮加载时会大量操作 DOM，如果整个容器处于独立合成层，
+ * 浏览器在重绘时容易出现短暂白屏（内容消失），需要滚动才能恢复。
+ */
+.entry-content {
     -webkit-font-smoothing: subpixel-antialiased;
 }
 
@@ -526,6 +536,9 @@ body {
 .small-menu>li {
     list-style: none;
     line-height: 40px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
     cursor: pointer;
 }
 

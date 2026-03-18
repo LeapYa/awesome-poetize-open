@@ -132,7 +132,7 @@ export default {
   height: 18px !important;
   fill: currentColor;
   position: relative;
-  top: -3px;
+  top: 0;
 }
 .waifu-tool-icon {
   animation: toolIconPop 0.5s ease;

@@ -13,8 +13,6 @@ import 'element-plus/es/components/message/style/css'
 import 'element-plus/es/components/message-box/style/css'
 import 'element-plus/es/components/notification/style/css'
 import 'element-plus/es/components/loading/style/css'
-// 命令式组件需要手动导入并注册为全局方法
-import { ElMessage, ElMessageBox, ElNotification, ElLoading } from 'element-plus'
 import { createPinia } from 'pinia'
 import mitt from 'mitt'
 
@@ -23,23 +21,25 @@ import http from './utils/request'
 import common from './utils/common'
 import constant from './utils/constant'
 import initAntiDebug from './utils/anti-debug'
-import { loadFonts } from './utils/font-loader'
 import { getDefaultAvatar, getAvatarUrl } from './utils/default-avatar'
 import animateDirective from './utils/animateDirective'
+import {
+    message,
+    confirm,
+    alert,
+    prompt,
+    msgbox,
+    notification,
+    loading,
+} from './utils/element-command-services'
 
 // 业务模块
 import { notificationManager } from './utils/notification'
-import { initVueErrorHandler, initPromiseErrorHandler } from './utils/error-handler'
+import { initPromiseErrorHandler } from './utils/error-handler'
 import { initGrayMode } from './utils/gray-mode'
-import { initImageLoader } from './utils/image-loader'
-import { registerServiceWorker } from './utils/pwa-manager'
-import { initParticleEffect } from './composables/useParticleEffect'
 
 // Stores - 注意：useMainStore 只能在 app.use(pinia) 之后调用
 import { useMainStore } from './stores/main'
-
-// 组件
-import AsyncNotification from './components/common/AsyncNotification.vue'
 
 // 样式文件
 import './utils/title'
@@ -67,9 +67,6 @@ app.use(router)
 // 在 app.use(pinia) 之后立即创建 store 实例
 const mainStore = useMainStore()
 
-// 注册全局组件
-app.component('AsyncNotification', AsyncNotification)
-
 // 注册全局指令
 app.directive('animate', animateDirective)
 
@@ -82,13 +79,22 @@ app.config.globalProperties.$getDefaultAvatar = getDefaultAvatar
 app.config.globalProperties.$getAvatarUrl = getAvatarUrl
 
 // Element Plus 命令式组件挂载到全局（兼容 this.$message 等用法）
-app.config.globalProperties.$message = ElMessage
-app.config.globalProperties.$confirm = ElMessageBox.confirm
-app.config.globalProperties.$alert = ElMessageBox.alert
-app.config.globalProperties.$prompt = ElMessageBox.prompt
-app.config.globalProperties.$msgbox = ElMessageBox
-app.config.globalProperties.$notification = ElNotification
-app.config.globalProperties.$loading = ElLoading.service
+app.config.globalProperties.$message = message
+app.config.globalProperties.$confirm = confirm
+app.config.globalProperties.$alert = alert
+app.config.globalProperties.$prompt = prompt
+app.config.globalProperties.$msgbox = msgbox
+app.config.globalProperties.$notification = notification
+app.config.globalProperties.$loading = loading
+
+if (typeof window !== 'undefined') {
+    window.$message = message
+    window.ElMessage = message
+    window.ElNotification = notification
+    window.ElLoading = {
+        service: loading,
+    }
+}
 
 // Vue 3 事件总线 - 使用 mitt 替代 Vue 2 的 new Vue()
 const eventBus = mitt()
@@ -119,6 +125,15 @@ if (disposeAntiDebug) {
 // ==================== 挂载应用 ====================
 app.mount('#app')
 
+function deferNonCriticalTask(task) {
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => task(), { timeout: 2000 })
+        return
+    }
+
+    setTimeout(() => task(), 0)
+}
+
 // ==================== 应用挂载后初始化 ====================
 nextTick(() => {
     // 触发应用挂载完成事件
@@ -138,19 +153,36 @@ nextTick(() => {
     document.documentElement.classList.add('loaded')
     document.documentElement.classList.remove('prerender')
 
-    // 初始化图片懒加载
-    initImageLoader()
+    deferNonCriticalTask(async () => {
+        try {
+            const [{ initImageLoader }, { registerServiceWorker }, { initParticleEffect }] = await Promise.all([
+                import('./utils/image-loader'),
+                import('./utils/pwa-manager'),
+                import('./composables/useParticleEffect'),
+            ])
 
-    // 启动当前激活的粒子特效插件
-    initParticleEffect()
+            // 初始化图片懒加载
+            initImageLoader()
 
-    // 注册 PWA Service Worker
-    registerServiceWorker(notificationManager.info)
+            // 启动当前激活的粒子特效插件
+            initParticleEffect()
+
+            // 注册 PWA Service Worker
+            registerServiceWorker(notificationManager.info)
+        } catch (err) {
+            console.error('初始化非关键模块失败:', err)
+        }
+    })
 
     // 字体加载 - 在应用挂载后执行，确保 store 已完全初始化
     if (mainStore.sysConfig) {
-        loadFonts(mainStore.sysConfig).catch(err => {
-            console.error('加载字体失败:', err)
+        deferNonCriticalTask(async () => {
+            try {
+                const { loadFonts } = await import('./utils/font-loader')
+                await loadFonts(mainStore.sysConfig)
+            } catch (err) {
+                console.error('加载字体失败:', err)
+            }
         })
     }
 })

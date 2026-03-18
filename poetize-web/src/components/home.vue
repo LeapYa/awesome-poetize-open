@@ -37,7 +37,7 @@
           @click="toolbarDrawer = !toolbarDrawer"
           :class="{ enter: toolbar.enter }"
         >
-          <el-icon><el-icon-s-operation /></el-icon>
+          <i class="fa fa-bars" aria-hidden="true"></i>
         </div>
 
         <!-- 导航列表 -->
@@ -147,7 +147,7 @@
                 <el-avatar
                   class="user-avatar"
                   :size="36"
-                  style="margin-top: 12px"
+                  style="margin-top: 0.75em"
                   :src="$common.getAvatarUrl(mainStore.currentUser.avatar)"
                 >
                   <img :src="$getDefaultAvatar()" />
@@ -260,9 +260,13 @@
           <div class="my-setting">
             <div>
               <!-- 太阳按钮 - 暗色模式时显示 -->
-              <el-icon v-if="isDark" class="iconRotate" @click="changeColor()" title="切换亮色主题">
-                <el-icon-sunny />
-              </el-icon>
+              <i
+                v-if="isDark"
+                class="fa fa-sun-o iconRotate"
+                aria-hidden="true"
+                title="切换亮色主题"
+                @click="changeColor()"
+              ></i>
               <!-- 月亮按钮 - 亮色模式时显示 -->
               <i
                 v-else
@@ -326,9 +330,11 @@
             <li v-if="item.type === 'dropdown'">
               <div @click="toggleSortMenu" class="sort-menu-header">
                 {{ item.icon }} <span>{{ item.name }}</span>
-                <el-icon class="sort-menu-arrow" :class="{'expanded': sortMenuExpanded}">
-                  <el-icon-arrow-right />
-                </el-icon>
+                <i
+                  class="fa fa-angle-right sort-menu-arrow"
+                  aria-hidden="true"
+                  :class="{ expanded: sortMenuExpanded }"
+                ></i>
               </div>
               <div
                 class="sort-submenu"
@@ -419,21 +425,9 @@
 
 <script>
 import { $on, $off, $once, $emit } from '../utils/gogocodeTransfer'
-import {
-  Operation as ElIconSOperation,
-  Sunny as ElIconSunny,
-  ArrowRight as ElIconArrowRight,
-} from '@element-plus/icons-vue'
 import { useMainStore } from '@/stores/main'
-import { cycleMouseClickEffect, getMouseClickEffectInfo } from '@/composables/useMouseClickEffect'
-import { initPluginLoader } from '@/composables/usePluginLoader'
 
 export default {
-  components: {
-    ElIconSOperation,
-    ElIconSunny,
-    ElIconArrowRight,
-  },
   data() {
     return {
       toolButton: false,
@@ -518,7 +512,10 @@ export default {
     this.syncFloatingUiState()
 
     // 初始化插件加载器（加载已安装的 .zip 插件的前端 JS/CSS）
-    initPluginLoader()
+    this.runWhenIdle(async () => {
+      const { initPluginLoader } = await import('@/composables/usePluginLoader')
+      initPluginLoader()
+    })
 
     // 初始化简化语言切换按钮显示状态（已注释，不再需要）
     // this.updateSimpleLangSwitchVisibility();
@@ -756,6 +753,14 @@ export default {
     },
   },
   methods: {
+    runWhenIdle(task) {
+      if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => task(), { timeout: 1500 })
+        return
+      }
+
+      setTimeout(() => task(), 0)
+    },
     // 处理导航项拖拽开始事件
     handleNavDragStart(event, path, title) {
       // 构建完整URL
@@ -1431,18 +1436,27 @@ if (nextLang) {
     },
     // 循环切换鼠标点击效果
     cycleClickEffect() {
-      const result = cycleMouseClickEffect(this.mainStore)
-      this.currentClickEffectLabel = result.label
-      this.$message({
-        message: `点击效果已切换为: ${result.label}`,
-        type: 'success',
-        duration: 2000,
+      import('@/composables/useMouseClickEffect').then(({ cycleMouseClickEffect }) => {
+        const result = cycleMouseClickEffect(this.mainStore)
+        this.currentClickEffectLabel = result.label
+        this.$message({
+          message: `点击效果已切换为: ${result.label}`,
+          type: 'success',
+          duration: 2000,
+        })
       })
     },
     // 更新当前点击效果标签
     updateClickEffectLabel() {
-      const info = getMouseClickEffectInfo(this.mainStore)
-      this.currentClickEffectLabel = info.label
+      this.runWhenIdle(async () => {
+        try {
+          const { getMouseClickEffectInfo } = await import('@/composables/useMouseClickEffect')
+          const info = getMouseClickEffectInfo(this.mainStore)
+          this.currentClickEffectLabel = info.label
+        } catch (error) {
+          this.currentClickEffectLabel = '无效果'
+        }
+      })
     },
     getWindowWidth() {
       // Implementation of getWindowWidth method

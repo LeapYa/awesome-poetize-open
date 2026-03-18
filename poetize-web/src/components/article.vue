@@ -191,11 +191,11 @@
       <div style="background: var(--background)">
         <div class="article-container my-animation-slide-bottom">
           <div
-            v-if="!$common.isEmpty(article.videoUrl)"
+            v-if="!$common.isEmpty(article.videoUrl) && decryptedVideoUrl"
             style="margin-bottom: 20px"
           >
             <videoPlayer
-              :url="{ src: $common.decrypt(article.videoUrl) }"
+              :url="{ src: decryptedVideoUrl }"
               :cover="article.articleCover"
             >
             </videoPlayer>
@@ -597,28 +597,59 @@ import axios from 'axios'
 import {
   getLanguageMapping,
   preloadLanguageMapping,
-  getTocTitle,
 } from '@/utils/languageUtils'
-// 导入资源加载器
-import {
-  loadMermaidResources,
-  isMermaidLoaded,
-  loadEChartsResources,
-  isEChartsLoaded,
-  loadHighlightResources,
-  isHighlightJsLoaded,
-  loadClipboardResources,
-  isClipboardLoaded,
-  loadKatexResources,
-  isKatexLoadedGlobal,
-} from '@/utils/resourceLoaders/resourceLoader'
-import { parseEChartsOption } from '@/utils/echartsOptionParser'
 import {
   applyThemeFromArticle,
-  getTocEmoji,
   resetTheme,
 } from '@/composables/useArticleTheme'
-import { emitPluginHook } from '@/composables/usePluginLoader'
+import { decrypt } from '@/utils/crypto-utils'
+import { syncTocPosition, getTocbot } from '@/utils/article-toc'
+import {
+  getArticleMeta,
+  setDefaultMetaTags,
+  updateMetaTags,
+  fetchArticleMeta,
+} from '@/utils/article-meta'
+import {
+  setupLanguageSwitchEventDelegation,
+  handleMouseDown,
+  handleTouchStart,
+  handleLanguageSwitch,
+  switchLanguage,
+  fetchTranslation,
+  updateUrlWithLanguage,
+  initializeLanguageSettings,
+  getDefaultTargetLanguage,
+  getArticleAvailableLanguages,
+  generateLanguageButtons,
+} from '@/utils/article-language'
+import {
+  highlight,
+  wrapTables,
+  addLineNumbersWithCSS,
+  addLoadingPlaceholders,
+  detectAndLoadResources,
+  renderMermaid,
+  renderECharts,
+  handleThemeChange,
+  applyZoomButtonTheme,
+  applyMermaidThemeStyles,
+  toggleMermaidZoom,
+  handleMermaidContextMenu,
+  closeMermaidContextMenu,
+  copyMermaidImage,
+  downloadMermaidPNG,
+  inlineSvgStyles,
+  convertSvgToCanvas,
+} from '@/utils/article-rendering'
+import {
+  openShareCardDialog,
+  preloadHtml2Canvas,
+  formatDate,
+  generateQRCode,
+  downloadShareCard,
+  captureAndDownloadCard,
+} from '@/utils/article-share-card'
 
 const CommentLoading = {
   name: 'CommentLoading',
@@ -690,6 +721,7 @@ export default {
       lang: this.$route.params.lang,
       subscribe: false,
       article: {},
+      decryptedVideoUrl: '',
       articleContentHtml: '',
       articleContentKey: Date.now(), // 强制重新渲染的key
       treeHoleList: [],
@@ -1064,6 +1096,20 @@ export default {
           label: true,
           labelAfter: true
         })
+
+      const defaultImageRenderer = md.renderer.rules.image
+      md.renderer.rules.image = (tokens, idx, options, env, self) => {
+        const token = tokens[idx]
+
+        token.attrSet('loading', 'lazy')
+        token.attrSet('decoding', 'async')
+
+        if (defaultImageRenderer) {
+          return defaultImageRenderer(tokens, idx, options, env, self)
+        }
+
+        return self.renderToken(tokens, idx, options)
+      }
       
       // 只有检测到数学公式时才加载 katex
       if (hasMathFormula(content)) {
@@ -1091,7 +1137,19 @@ export default {
     async renderArticleBody(content, { setupCommentObserver = false } = {}) {
       const safeContent = content || ''
       const md = await this.createMarkdownRenderer(safeContent)
-      this.articleContentHtml = md.render(safeContent)
+      // 使用 markdown-it 渲染标准 markdown
+      let renderedHtml = md.render(safeContent)
+      
+      // 额外处理：很多时候文章里会有直接手写的 HTML <img /> 标签，或者 Vditor 插入的 HTML 图片
+      // 这里通过正则确保所有图片都被强行加上 loading="lazy"
+      renderedHtml = renderedHtml.replace(
+        /<img(?![^>]*\bloading=['"]lazy['"])[^>]*>/gi,
+        (match) => {
+          return match.replace('<img', '<img loading="lazy" decoding="async"')
+        }
+      )
+      
+      this.articleContentHtml = renderedHtml
       this.articleContentKey = Date.now()
 
       await this.$nextTick()
@@ -1173,6 +1231,7 @@ export default {
     // 重置组件状态，防止缓存问题
     resetComponentState() {
       this.article = {}
+      this.decryptedVideoUrl = ''
       this.translatedTitle = ''
       this.translatedContent = ''
       this.articleContentHtml = ''
@@ -1542,173 +1601,8 @@ export default {
         }, 50)
       }
     },
-    syncTocPosition() {
-      const scrollingElement =
-        document.scrollingElement || document.documentElement || document.body
-      this.scrollTop = scrollingElement ? scrollingElement.scrollTop : 0
-      const tocElements = document.querySelectorAll('.toc')
-      tocElements.forEach((element) => {
-        if (this.scrollTop < window.innerHeight / 4) {
-          element.style.top = window.innerHeight / 4 + 'px'
-        } else {
-          element.style.top = '90px'
-        }
-      })
-    },
-    getTocbot() {
-      // 检查是否有旧内容（用于判断是否需要过渡效果）
-      const tocContainer = document.getElementById('toc')
-      const hasOldContent = tocContainer && tocContainer.children.length > 0
-
-      // 如果有旧内容，添加过渡效果避免闪烁
-      if (hasOldContent) {
-        const tocElements = document.querySelectorAll('.toc')
-        tocElements.forEach((el) => {
-          el.style.transition = 'opacity 0.15s ease-out'
-          el.style.opacity = '0.3' // 降低透明度而不是完全隐藏
-        })
-      }
-
-      // 销毁之前的实例
-      if (window.tocbot) {
-        try {
-          window.tocbot.destroy()
-        } catch (e) {}
-      }
-
-      const initTocbot = () => {
-        this.$nextTick(() => {
-          // 验证DOM元素
-          const entryContent = document.querySelector('.entry-content')
-          if (!entryContent) {
-            setTimeout(() => initTocbot(), 50)
-            return
-          }
-
-          const headings = entryContent.querySelectorAll('h1, h2, h3, h4, h5')
-          if (headings.length === 0) {
-            setTimeout(() => initTocbot(), 50)
-            return
-          }
-
-          if (window.tocbot) {
-            try {
-              window.tocbot.destroy()
-
-              // 初始化目录
-              window.tocbot.init({
-                tocSelector: '#toc',
-                contentSelector: '.entry-content',
-                headingSelector: 'h1, h2, h3, h4, h5',
-                scrollSmooth: true,
-                fixedSidebarOffset: 'auto',
-                scrollSmoothOffset: -100,
-                hasInnerContainers: false,
-                headingsOffset: 100,
-                scrollSmoothDuration: 420,
-                includeHtml: false,
-              })
-
-              // 动态设置目录标题（根据当前语言 + 文章主题 emoji）
-              this.$nextTick(() => {
-                const tocElement = document.querySelector('.toc')
-                if (tocElement) {
-                  const tocTitle = getTocTitle(this.currentLang || 'zh')
-                  const rawEmoji = getTocEmoji(this.articleThemeConfig)
-                  // null = 未配置主题，用默认 emoji；'' = 用户明确不要 emoji
-                  const prefix = rawEmoji === null ? '🏖️' : rawEmoji
-                  tocElement.setAttribute('data-toc-title', `${prefix}${tocTitle}`)
-                }
-              })
-
-              // 触发插件钩子：文章内容渲染完成
-              this.$nextTick(() => {
-                emitPluginHook('onArticleRender', {
-                  articleId: this.article.id,
-                  title: this.article.articleTitle,
-                  element: document.querySelector('.entry-content'),
-                })
-              })
-
-              // 强制重排并刷新
-              const forceReflow = () => {
-                const toc = document.getElementById('toc')
-                const content = document.querySelector('.entry-content')
-                if (toc) void toc.offsetHeight
-                if (content) void content.offsetHeight
-              }
-
-              this.$nextTick(() => {
-                forceReflow()
-                this.syncTocPosition()
-                if (window.tocbot && window.tocbot.refresh) {
-                  window.tocbot.refresh()
-                }
-
-                // 目录初始化完成，恢复显示
-                requestAnimationFrame(() => {
-                  const tocElements = document.querySelectorAll('.toc')
-                  tocElements.forEach((el) => {
-                    el.style.transition = 'opacity 0.2s ease-in'
-                    el.style.opacity = '1'
-                  })
-                })
-              })
-            } catch (e) {
-              // 即使失败也要恢复显示，避免目录永久半透明
-              const tocElements = document.querySelectorAll('.toc')
-              tocElements.forEach((el) => {
-                el.style.opacity = '1'
-              })
-            }
-          } else {
-            // tocbot还未加载，延迟重试
-            setTimeout(() => initTocbot(), 50)
-          }
-        })
-      }
-
-      // 加载并初始化tocbot
-      if (window.tocbot) {
-        initTocbot()
-      } else {
-        const existingScript = document.querySelector(
-          `script[src="${this.$constant.tocbot}"]`
-        )
-        if (existingScript) {
-          existingScript.addEventListener('load', initTocbot)
-        } else {
-          let script = document.createElement('script')
-          script.type = 'text/javascript'
-          script.src = this.$constant.tocbot
-          script.onload = initTocbot
-          script.onerror = () => {} // 忽略加载失败
-
-          const head = document.getElementsByTagName('head')[0]
-          if (
-            script &&
-            script.nodeType === Node.ELEMENT_NODE &&
-            head &&
-            typeof head.appendChild === 'function'
-          ) {
-            try {
-              head.appendChild(script)
-            } catch (e) {}
-          }
-        }
-      }
-
-      // 移动端隐藏目录
-      if (this.$common.mobile()) {
-        this.$nextTick(() => {
-          const tocElements = document.querySelectorAll('.toc')
-          tocElements.forEach((element) => {
-            element.style.display = 'none'
-          })
-          this.syncTocPosition()
-        })
-      }
-    },
+    syncTocPosition,
+    getTocbot,
     addId() {
       const entryContent = document.querySelector('.entry-content')
       if (entryContent) {
@@ -1720,151 +1614,9 @@ export default {
         })
       }
     },
-    getArticleMeta() {
-      this.isLoadingMeta = true
-      const timeout = setTimeout(() => {
-        if (this.isLoadingMeta) {
-          this.isLoadingMeta = false
-          this.setDefaultMetaTags()
-        }
-      }, 3000)
-
-      // 使用带noCount参数的API，避免增加热度
-      this.$http
-        .get(this.$constant.baseURL + '/article/getArticleByIdNoCount', {
-          id: this.id,
-        })
-        .then((articleRes) => {
-          if (articleRes.code === 200 && articleRes.data) {
-            // 文章信息获取成功后再获取SEO元数据
-            axios
-              .get(
-                this.$constant.baseURL +
-                  `/seo/getArticleMeta?articleId=${this.id}&lang=${this.currentLang}`
-              )
-              .then((res) => {
-                clearTimeout(timeout)
-                this.isLoadingMeta = false
-
-                if (res.data && res.data.code === 200 && res.data.data) {
-                  this.metaTags = res.data.data
-                  this.updateMetaTags()
-                } else {
-                  console.error(
-                    '获取文章元标签失败, 服务返回错误:',
-                    res.data ? res.data.message || '未知错误' : '返回数据为空'
-                  )
-                  this.setDefaultMetaTags()
-                }
-              })
-              .catch((error) => {
-                clearTimeout(timeout)
-                this.isLoadingMeta = false
-                console.error('获取文章元标签失败:', error)
-
-                // 添加简单的自动重试，最多重试2次
-                if (!this.metaTagRetryCount || this.metaTagRetryCount < 2) {
-                  this.metaTagRetryCount = (this.metaTagRetryCount || 0) + 1
-                  setTimeout(() => {
-                    this.getArticleMeta()
-                  }, 1500) // 1.5秒后重试
-                } else {
-                  // 重试失败，使用默认元标签
-                  this.setDefaultMetaTags()
-                }
-              })
-          } else {
-            clearTimeout(timeout)
-            this.isLoadingMeta = false
-            console.error('获取文章信息失败，无法获取元标签')
-            this.setDefaultMetaTags()
-          }
-        })
-        .catch((error) => {
-          clearTimeout(timeout)
-          this.isLoadingMeta = false
-          console.error('获取文章信息失败:', error)
-          this.setDefaultMetaTags()
-        })
-    },
-    setDefaultMetaTags() {
-      if (this.article) {
-        this.metaTags = {
-          title: this.article.articleTitle || 'POETIZE博客',
-          description: this.article.articleTitle
-            ? this.article.articleTitle + ' - POETIZE博客'
-            : 'POETIZE博客',
-          keywords: 'POETIZE,博客,个人网站',
-          author: this.article.username || 'Admin',
-          'og:url': window.location.href,
-          'og:image': this.article.articleCover || '',
-          'twitter:card': 'summary',
-          'article:published_time': this.article.createTime || '',
-          'article:modified_time': this.article.updateTime || '',
-        }
-        this.updateMetaTags()
-      }
-    },
-    updateMetaTags() {
-      if (!this.metaTags) return
-
-      // 设置文章标题，提升SEO效果
-      if (this.metaTags.title) {
-        document.title = this.metaTags.title
-        window.OriginTitile = this.metaTags.title
-      }
-
-      document
-        .querySelectorAll('meta[data-vue-meta="true"]')
-        .forEach((el) => el.remove())
-
-      const addMetaTag = (name, content, isProperty = false) => {
-        if (!content) return
-
-        const meta = document.createElement('meta')
-        if (isProperty) {
-          meta.setAttribute('property', name)
-        } else {
-          meta.setAttribute('name', name)
-        }
-        meta.setAttribute('content', content)
-        meta.setAttribute('data-vue-meta', 'true')
-        // 安全地添加meta元素到head
-        if (
-          meta &&
-          meta.nodeType === Node.ELEMENT_NODE &&
-          document.head &&
-          typeof document.head.appendChild === 'function'
-        ) {
-          try {
-            document.head.appendChild(meta)
-          } catch (e) {}
-        }
-      }
-
-      addMetaTag('description', this.metaTags.description)
-      addMetaTag('keywords', this.metaTags.keywords)
-      addMetaTag('author', this.metaTags.author)
-      addMetaTag('og:title', this.metaTags.title, true)
-      addMetaTag('og:description', this.metaTags.description, true)
-      addMetaTag('og:type', 'article', true)
-      addMetaTag('og:url', this.metaTags['og:url'], true)
-      addMetaTag('og:image', this.metaTags['og:image'], true)
-      addMetaTag('twitter:card', this.metaTags['twitter:card'])
-      addMetaTag('twitter:title', this.metaTags.title)
-      addMetaTag('twitter:description', this.metaTags.description)
-      addMetaTag('twitter:image', this.metaTags['twitter:image'])
-      addMetaTag(
-        'article:published_time',
-        this.metaTags['article:published_time'],
-        true
-      )
-      addMetaTag(
-        'article:modified_time',
-        this.metaTags['article:modified_time'],
-        true
-      )
-    },
+    getArticleMeta,
+    setDefaultMetaTags,
+    updateMetaTags,
     getArticle(password) {
       this.isLoading = true
 
@@ -1903,6 +1655,13 @@ export default {
           // 处理文章数据
           if (!this.$common.isEmpty(articleRes.data)) {
             this.article = articleRes.data
+
+            // 解密视频URL
+            if (this.article.videoUrl) {
+              decrypt(this.article.videoUrl).then(url => {
+                this.decryptedVideoUrl = url || ''
+              })
+            }
 
             // 在渲染内容之前，先同步应用文章主题（从接口合并返回，无额外请求）
             // 这样标题装饰在首次渲染时就是正确的，彻底避免闪烁
@@ -2033,1769 +1792,70 @@ export default {
           })
         })
     },
-    fetchArticleMeta() {
-      return new Promise((resolve, reject) => {
-        this.isLoadingMeta = true
-        const timeout = setTimeout(() => {
-          if (this.isLoadingMeta) {
-            this.isLoadingMeta = false
-            this.setDefaultMetaTags()
-            resolve()
-          }
-        }, 3000)
-
-        axios
-          .get(
-            this.$constant.baseURL +
-              `/seo/getArticleMeta?articleId=${this.id}&lang=${this.currentLang}`
-          )
-          .then((res) => {
-            clearTimeout(timeout)
-            this.isLoadingMeta = false
-
-            if (res.data && res.data.code === 200 && res.data.data) {
-              this.metaTags = res.data.data
-              this.updateMetaTags()
-            } else {
-              console.error(
-                '获取文章元标签失败, 服务返回错误:',
-                res.data ? res.data.message || '未知错误' : '返回数据为空'
-              )
-              this.setDefaultMetaTags()
-            }
-            resolve()
-          })
-          .catch((error) => {
-            clearTimeout(timeout)
-            this.isLoadingMeta = false
-            console.error('获取文章元标签失败:', error)
-            this.setDefaultMetaTags()
-            // 在Promise中，我们应该resolve而不是reject，因为这不算关键路径失败
-            resolve()
-          })
-      })
-    },
-    highlight() {
-      // 如果 hljs 未加载，静默返回（等待按需加载完成后再调用）
-      if (!isHighlightJsLoaded()) {
-        return
-      }
-
-      let attributes = {
-        autocomplete: 'off',
-        autocorrect: 'off',
-        autocapitalize: 'off',
-        spellcheck: 'false',
-        contenteditable: 'false',
-      }
-
-      const entryContent = document.querySelector('.entry-content')
-      if (!entryContent) return
-
-      const preElements = entryContent.querySelectorAll('pre')
-      preElements.forEach((item, i) => {
-        // 避免重复处理已经处理过的代码块
-        if (item.classList.contains('highlight-wrap')) {
-          return
-        }
-
-        const preCode = item.querySelector('code')
-        if (!preCode) {
-          return // 没有code子元素，跳过
-        }
-
-        let classNameStr = preCode.className || ''
-        let classNameArr = classNameStr.split(' ')
-
-        let lang = ''
-        classNameArr.some(function (className) {
-          if (className.indexOf('language-') > -1) {
-            lang = className.substring(
-              className.indexOf('-') + 1,
-              className.length
-            )
-            return true
-          }
-        })
-
-        // 跳过Mermaid代码块，由renderMermaid处理
-        if (lang === 'mermaid') {
-          return
-        }
-
-        // 跳过ECharts代码块，由renderECharts处理
-        if (lang === 'echarts') {
-          return
-        }
-
-        try {
-          let language = hljs.getLanguage(lang.toLowerCase())
-          if (language === undefined) {
-            let autoLanguage = hljs.highlightAuto(preCode.textContent)
-            preCode.classList.remove('language-' + lang)
-            lang = autoLanguage.language
-            if (lang === undefined) {
-              lang = 'java'
-            }
-            preCode.classList.add('language-' + lang)
-          } else {
-            lang = language.name
-          }
-
-          // 移除 loading 状态
-          item.classList.remove('code-loading')
-          item.classList.add('highlight-wrap')
-          // 设置属性
-          Object.keys(attributes).forEach((key) => {
-            item.setAttribute(key, attributes[key])
-          })
-          preCode.setAttribute('data-rel', lang.toUpperCase())
-          preCode.classList.add(lang.toLowerCase())
-
-          // 使用推荐的highlightElement方法替代废弃的highlightBlock
-          if (typeof hljs.highlightElement === 'function') {
-            hljs.highlightElement(preCode)
-          } else if (typeof hljs.highlightBlock === 'function') {
-            hljs.highlightBlock(preCode)
-          }
-
-          // 使用CSS计数器添加行号（替代hljs.lineNumbersBlock插件）
-          this.addLineNumbersWithCSS(preCode)
-        } catch (error) {
-          console.error('Error highlighting code block:', error)
-          // 即使高亮失败，也要保证基本样式
-          item.classList.add('highlight-wrap')
-          Object.keys(attributes).forEach((key) => {
-            item.setAttribute(key, attributes[key])
-          })
-          preCode.setAttribute('data-rel', lang.toUpperCase())
-          preCode.classList.add(lang.toLowerCase())
-        }
-      })
-
-      // 处理复制按钮，避免重复添加
-      const codeBlocks = entryContent.querySelectorAll('pre code')
-      codeBlocks.forEach((block, i) => {
-        // 检查是否已经有复制按钮
-        if (
-          block.nextElementSibling &&
-          block.nextElementSibling.classList.contains('copy-code')
-        ) {
-          return // 已经有复制按钮了
-        }
-
-        block.id = 'hljs-' + i
-
-        // 创建复制按钮
-        const copyButton = document.createElement('a')
-        copyButton.className = 'copy-code'
-        copyButton.href = 'javascript:'
-        copyButton.setAttribute('data-clipboard-target', '#hljs-' + i)
-        copyButton.innerHTML =
-          '<i class="fa fa-clipboard" aria-hidden="true"></i>'
-
-        // 插入复制按钮
-        // 安全地插入复制按钮
-        if (
-          block.parentNode &&
-          copyButton &&
-          copyButton.nodeType === Node.ELEMENT_NODE
-        ) {
-          try {
-            block.parentNode.insertBefore(copyButton, block.nextSibling)
-          } catch (e) {}
-        }
-      })
-
-      // 初始化剪贴板功能
-      if (typeof ClipboardJS !== 'undefined') {
-        const that = this // 保存Vue实例引用
-        const clipboard = new ClipboardJS('.copy-code')
-
-        // 复制成功回调
-        clipboard.on('success', (e) => {
-          that.$message({
-            message: '代码已复制到剪贴板',
-            type: 'success',
-            duration: 2000,
-          })
-        })
-
-        // 复制失败回调
-        clipboard.on('error', (e) => {
-          that.$message({
-            message: '复制失败，请手动复制',
-            type: 'error',
-            duration: 2000,
-          })
-        })
-      }
-
-    },
+    fetchArticleMeta,
+    highlight,
     
     /**
      * 处理表格样式 - 将表格包装到 table-wrapper 中以应用样式
      * 此方法独立于代码高亮，确保无论是否有代码块，表格都能正确显示样式
      */
-    wrapTables() {
-      const entryContent = document.querySelector('.entry-content')
-      if (!entryContent) return
-
-      const tables = entryContent.querySelectorAll('table')
-      tables.forEach((table) => {
-        // 避免重复包装
-        if (!table.parentElement.classList.contains('table-wrapper')) {
-          const wrapper = document.createElement('div')
-          wrapper.className = 'table-wrapper'
-          // 安全地插入wrapper和移动table
-          if (
-            table.parentNode &&
-            wrapper &&
-            wrapper.nodeType === Node.ELEMENT_NODE
-          ) {
-            try {
-              table.parentNode.insertBefore(wrapper, table)
-              if (typeof wrapper.appendChild === 'function') {
-                wrapper.appendChild(table)
-              }
-            } catch (e) {}
-          }
-        }
-      })
-    },
+    wrapTables,
 
     /**
      * 使用CSS计数器添加行号
      */
-    addLineNumbersWithCSS(codeBlock) {
-      if (!codeBlock) return
-
-      // 检查是否已经处理过
-      if (codeBlock.classList.contains('css-line-numbers')) {
-        return
-      }
-
-      try {
-        // 标记已处理
-        codeBlock.classList.add('css-line-numbers')
-
-        // 获取代码内容
-        const codeContent = codeBlock.innerHTML
-
-        // 按行分割（保留HTML标签）
-        let lines = codeContent.split('\n')
-
-        // 移除末尾的空行
-        if (lines.length > 0 && lines[lines.length - 1].trim() === '') {
-          lines.pop()
-        }
-
-        // 创建包裹每一行的HTML
-        const linesHTML = lines
-          .map((line) => {
-            // 如果是空行，用一个空格占位以保持高度
-            const content = line.trim() === '' ? '&nbsp;' : line
-            return `<div class="code-line">${content}</div>`
-          })
-          .join('')
-
-        // 替换内容
-        codeBlock.innerHTML = linesHTML
-
-        // 根据总行数动态调整行号宽度
-        const totalLines = lines.length
-        let lineNumberWidth = '15px' // 默认宽度（1-9行）
-
-        if (totalLines >= 10000) {
-          lineNumberWidth = '40px'
-        } else if (totalLines >= 1000) {
-          lineNumberWidth = '30px'
-        } else if (totalLines >= 100) {
-          lineNumberWidth = '20px'
-        } else if (totalLines >= 10) {
-          lineNumberWidth = '15px'
-        }
-
-        // 设置CSS变量
-        codeBlock.style.setProperty('--line-number-width', lineNumberWidth)
-      } catch (e) {}
-    },
+    addLineNumbersWithCSS,
 
     // 给代码块添加 loading 占位符
-    addLoadingPlaceholders() {
-      const entryContent = document.querySelector('.entry-content')
-      if (!entryContent) return
-
-      // 为 Mermaid 代码块添加 loading
-      const mermaidBlocks = entryContent.querySelectorAll(
-        'pre code.language-mermaid'
-      )
-      mermaidBlocks.forEach((codeBlock) => {
-        const pre = codeBlock.parentElement
-        if (!pre.classList.contains('chart-loading')) {
-          pre.classList.add('chart-loading')
-          pre.setAttribute('data-chart-type', 'Mermaid')
-        }
-      })
-
-      // 为 ECharts 代码块添加 loading
-      const echartsBlocks = entryContent.querySelectorAll(
-        'pre code.language-echarts'
-      )
-      echartsBlocks.forEach((codeBlock) => {
-        const pre = codeBlock.parentElement
-        if (!pre.classList.contains('chart-loading')) {
-          pre.classList.add('chart-loading')
-          pre.setAttribute('data-chart-type', 'ECharts')
-        }
-      })
-
-      // 为普通代码块添加 loading（等待高亮）
-      const codeBlocks = entryContent.querySelectorAll('pre code')
-      codeBlocks.forEach((codeBlock) => {
-        const pre = codeBlock.parentElement
-        const classes = codeBlock.className || ''
-        // 跳过 mermaid 和 echarts
-        if (
-          !classes.includes('language-mermaid') &&
-          !classes.includes('language-echarts') &&
-          !pre.classList.contains('highlight-wrap') &&
-          !pre.classList.contains('code-loading')
-        ) {
-          pre.classList.add('code-loading')
-        }
-      })
-    },
+    addLoadingPlaceholders,
 
     // 检测文章内容中需要加载的资源（异步并行，不阻塞渲染）
     // 注意：此方法应在 $nextTick 中调用，确保 DOM 已渲染
-    detectAndLoadResources() {
-      const content = this.getDisplayedMarkdownContent()
-      const loadTasks = []
+    detectAndLoadResources,
 
-      // 保存当前加载的文章ID（使用loadingArticleId而不是this.id，因为路由切换时this.id会先更新）
-      const articleId = this.loadingArticleId
-
-      // 立即添加 loading 占位符（同步，因为此方法已在 $nextTick 中）
-      this.addLoadingPlaceholders()
-
-      // 检测是否包含代码块（需要代码高亮 + 复制功能）
-      if (content.includes('```') && !isHighlightJsLoaded()) {
-        const highlightTask = loadHighlightResources().then(() => {
-          // 检查文章是否已切换
-          if (this.loadingArticleId !== articleId) {
-            return
-          }
-          // 资源加载是异步的，这里需要 $nextTick
-          this.$nextTick(() => {
-            this.highlight()
-          })
-        })
-        loadTasks.push(highlightTask)
-      } else if (content.includes('```')) {
-        // 如果已加载，立即高亮（同步，因为外层已在 $nextTick）
-        this.highlight()
-      }
-
-      // 检测代码块时同时加载 Clipboard（代码复制功能）
-      if (content.includes('```') && !isClipboardLoaded()) {
-        loadClipboardResources() // 不阻塞，后台加载即可
-      }
-
-      // 检测是否包含数学公式（$...$ 或 $$...$$）
-      if (
-        (content.includes('$') || content.includes('$$')) &&
-        !isKatexLoadedGlobal()
-      ) {
-        loadKatexResources() // 不阻塞，后台加载即可
-      }
-
-      // 检测是否包含 Mermaid 图表
-      if (content.includes('```mermaid') && !isMermaidLoaded()) {
-        const mermaidTask = loadMermaidResources().then(() => {
-          // 检查文章是否已切换
-          if (this.loadingArticleId !== articleId) {
-            return
-          }
-          this.$nextTick(() => {
-            this.renderMermaid()
-          })
-        })
-        loadTasks.push(mermaidTask)
-      } else if (content.includes('```mermaid')) {
-        // 如果已加载，立即渲染（同步）
-        this.renderMermaid()
-      }
-
-      // 检测是否包含 ECharts 图表
-      if (content.includes('```echarts') && !isEChartsLoaded()) {
-        const echartsTask = loadEChartsResources().then(() => {
-          // 检查文章是否已切换
-          if (this.loadingArticleId !== articleId) {
-            return
-          }
-          this.$nextTick(() => {
-            this.renderECharts()
-          })
-        })
-        loadTasks.push(echartsTask)
-      } else if (content.includes('```echarts')) {
-        // 如果已加载，立即渲染（同步）
-        this.renderECharts()
-      }
-
-      // 定义刷新目录的函数
-      const refreshToc = () => {
-        // 检查文章是否已切换（防止旧文章的回调影响新文章）
-        if (this.loadingArticleId !== articleId) {
-          return
-        }
-
-        // 使用MutationObserver监听DOM变化，当变化停止时初始化目录
-        const waitForDOMStable = (callback) => {
-          this.$nextTick(() => {
-            if (this.loadingArticleId !== articleId) {
-              return
-            }
-
-            this.addId()
-
-            const entryContent = document.querySelector('.entry-content')
-            if (!entryContent) {
-              setTimeout(() => waitForDOMStable(callback), 50)
-              return
-            }
-
-            let mutationTimer = null
-            let observer = null
-            let isCallbackCalled = false
-
-            const callCallback = () => {
-              if (isCallbackCalled) return
-              isCallbackCalled = true
-
-              if (observer) {
-                observer.disconnect()
-                observer = null
-              }
-              if (mutationTimer) {
-                clearTimeout(mutationTimer)
-                mutationTimer = null
-              }
-
-              // 使用RAF确保在浏览器渲染完成后执行
-              requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                  if (this.loadingArticleId !== articleId) {
-                    return
-                  }
-                  callback()
-                })
-              })
-            }
-
-            // 监听DOM变化
-            observer = new MutationObserver(() => {
-              // 每次DOM变化都重置定时器
-              if (mutationTimer) {
-                clearTimeout(mutationTimer)
-              }
-              // 如果100ms内没有新的变化，认为DOM已稳定
-              mutationTimer = setTimeout(() => {
-                callCallback()
-              }, 100)
-            })
-
-            // 开始监听
-            observer.observe(entryContent, {
-              childList: true, // 监听子节点变化
-              subtree: true, // 监听所有后代节点
-              attributes: true, // 监听属性变化
-              attributeFilter: ['class', 'style'], // 只监听class和style变化
-            })
-
-            // 触发第一次检测（如果已经没有变化）
-            mutationTimer = setTimeout(() => {
-              callCallback()
-            }, 100)
-
-            // 设置最大等待时间（防止一直等待）
-            setTimeout(() => {
-              if (!isCallbackCalled) {
-                callCallback()
-              }
-            }, 1000)
-          })
-        }
-
-        // 给highlight一些基础时间后开始监听
-        setTimeout(() => {
-          if (this.loadingArticleId !== articleId) {
-            return
-          }
-          waitForDOMStable(() => this.getTocbot())
-        }, 50)
-      }
-
-      // 资源加载完成后的回调
-      if (loadTasks.length > 0) {
-        // 有资源需要异步加载
-        Promise.all(loadTasks).then(() => {
-          refreshToc()
-        })
-      } else {
-        // 资源已全部加载，同步处理完成后也需要刷新目录
-        refreshToc()
-      }
-    },
-
-    async renderMermaid() {
-      // 如果 Mermaid 未加载，静默返回（等待按需加载完成后再调用）
-      if (!isMermaidLoaded()) {
-        return
-      }
-
-      const entryContent = document.querySelector('.entry-content')
-      if (!entryContent) return
-
-      // 查找所有mermaid代码块
-      const mermaidBlocks = entryContent.querySelectorAll(
-        'pre code.language-mermaid'
-      )
-
-      if (mermaidBlocks.length === 0) return
-
-      try {
-        for (let i = 0; i < mermaidBlocks.length; i++) {
-          const codeBlock = mermaidBlocks[i]
-          const pre = codeBlock.parentElement
-
-          // 跳过已经渲染过的
-          if (pre.classList.contains('mermaid-rendered')) {
-            continue
-          }
-
-          const code = codeBlock.textContent
-          const id = `mermaid-${Date.now()}-${i}`
-
-          // 检查父节点是否存在
-          if (!pre.parentNode) {
-            continue
-          }
-
-          // 创建容器
-          const container = document.createElement('div')
-          container.className = 'mermaid-container'
-
-          // 保存原始代码到容器的 data 属性，以便主题切换时重新渲染
-          container.setAttribute('data-mermaid-code', code)
-
-          // 渲染图表
-          const { svg } = await window.mermaid.render(id, code)
-          container.innerHTML = svg
-
-          // 修正深色模式下的背景色（容器 + SVG）
-          this.applyMermaidThemeStyles(container)
-
-          // 创建放大/缩小按钮
-          const zoomButton = document.createElement('button')
-          zoomButton.className = 'mermaid-zoom-btn'
-          zoomButton.setAttribute('aria-label', '放大图表')
-          zoomButton.innerHTML = `
-        <svg class="zoom-icon" viewBox="0 0 1024 1024" width="20" height="20">
-          <path d="M815.4 706.9L695.1 586.6c25.3-45.8 39.8-98.3 39.8-154.3 0-176.5-143.1-319.6-319.6-319.6-176.5 0-319.6 143.1-319.6 319.6s143.1 319.6 319.6 319.6c56 0 108.5-14.5 154.3-39.8l120.3 120.3c34.7 34.7 90.9 34.7 125.6 0 34.6-34.6 34.6-90.8-0.1-125.5z m-631-274.6c0-127.3 103.6-230.8 230.8-230.8S646.1 305 646.1 432.3 542.6 663.1 415.3 663.1 184.4 559.6 184.4 432.3z" fill="currentColor"></path>
-          <path d="M504.1 396.8h-53.3v-53.3c0-19.6-15.9-35.5-35.5-35.5s-35.5 15.9-35.5 35.5v53.3h-53.3c-19.6 0-35.5 15.9-35.5 35.5s15.9 35.5 35.5 35.5h53.3v53.3c0 19.6 15.9 35.5 35.5 35.5s35.5-15.9 35.5-35.5v-53.3h53.3c19.6 0 35.5-15.9 35.5-35.5s-15.9-35.5-35.5-35.5z" fill="currentColor"></path>
-        </svg>
-      `
-
-          // 为容器绑定右键菜单事件
-          container.addEventListener('contextmenu', (e) => {
-            this.handleMermaidContextMenu(e, container)
-          })
-
-          // 添加点击事件处理
-          zoomButton.addEventListener('click', (e) => {
-            e.stopPropagation()
-            this.toggleMermaidZoom(container, zoomButton)
-          })
-
-          // 应用深色模式按钮样式
-          this.applyZoomButtonTheme(zoomButton)
-
-          // 将按钮添加到容器
-          container.appendChild(zoomButton)
-
-          // 移除 loading 状态
-          pre.classList.remove('chart-loading')
-
-          // 替换代码块
-          pre.parentNode.replaceChild(container, pre)
-        }
-      } catch (error) {
-        console.error('Mermaid渲染失败:', error)
-      }
-    },
+    renderMermaid,
 
     // 渲染 ECharts 图表
-    async renderECharts() {
-      // 防止重复执行
-      if (this._isRenderingECharts) {
-        return
-      }
-
-      const entryContent = document.querySelector('.entry-content')
-      if (!entryContent) return
-
-      // 查找所有 echarts 代码块
-      const echartsBlocks = entryContent.querySelectorAll(
-        'pre code.language-echarts'
-      )
-
-      if (echartsBlocks.length === 0) return
-
-      // 如果 ECharts 未加载，先加载
-      if (!isEChartsLoaded()) {
-        await loadEChartsResources()
-      }
-
-      // 确保加载成功
-      if (!window.echarts) {
-        return
-      }
-
-      this._isRenderingECharts = true
-
-      try {
-        for (let i = 0; i < echartsBlocks.length; i++) {
-          const codeBlock = echartsBlocks[i]
-          const pre = codeBlock.parentElement
-
-          // 跳过已经渲染过的
-          if (pre.classList.contains('echarts-rendered')) {
-            continue
-          }
-
-          try {
-            const code = codeBlock.textContent
-            let config
-            try {
-              config = await parseEChartsOption(code)
-            } catch (parseError) {
-              pre.classList.remove('chart-loading')
-              pre.classList.add('echarts-rendered')
-              pre.setAttribute(
-                'data-echarts-error',
-                String(parseError?.message || parseError)
-              )
-              if (!pre.hasAttribute('data-echarts-error-rendered')) {
-                const errorEl = document.createElement('div')
-                errorEl.className = 'echarts-error-message'
-                errorEl.textContent = `ECharts 配置解析失败：${String(
-                  parseError?.message || parseError
-                )}\n请使用纯 JSON/JSON5（支持注释、单引号、尾逗号、未加引号的 key），暂不支持 function/=>`
-                pre.parentNode.insertBefore(errorEl, pre)
-                pre.setAttribute('data-echarts-error-rendered', 'true')
-              }
-              continue
-            }
-
-            // 检查父节点是否存在
-            if (!pre.parentNode) {
-              continue
-            }
-
-            // 标记为已渲染（在替换前标记，避免重复处理）
-            pre.classList.add('echarts-rendered')
-
-            // 创建容器
-            const container = document.createElement('div')
-            container.className = 'echarts-container'
-            container.style.width = '100%'
-            container.style.height = config.height || '400px'
-            container.style.marginBottom = '20px'
-
-            // 保存原始配置到容器的 data 属性，以便主题切换时重新渲染
-            container.setAttribute('data-echarts-config', code)
-
-            // 移除 loading 状态
-            pre.classList.remove('chart-loading')
-
-            // 替换代码块
-            pre.parentNode.replaceChild(container, pre)
-
-            // 延迟初始化，确保DOM已渲染
-            await this.$nextTick()
-
-            // 检测当前主题
-            const isDark =
-              document.documentElement.classList.contains('dark-mode') ||
-              document.body.classList.contains('dark-mode')
-
-            // 初始化图表（传入主题）
-            const chart = window.echarts.init(
-              container,
-              isDark ? 'dark' : 'light'
-            )
-
-            // 设置配置（自动启用动画 + 透明背景）
-            const finalConfig = {
-              animation: true, // 启用动画
-              animationDuration: 1000, // 动画时长
-              animationEasing: 'cubicOut', // 缓动效果
-              animationDelay: 0, // 动画延迟
-              backgroundColor: 'transparent', // 透明背景，融入页面
-              ...config, // 用户配置（可覆盖默认值）
-            }
-
-            chart.setOption(finalConfig)
-
-            // 保存 chart 实例到容器，方便后续操作
-            container._echartsInstance = chart
-
-            // 响应式调整
-            const resizeHandler = () => {
-              if (chart && !chart.isDisposed()) {
-                chart.resize()
-              }
-            }
-            window.addEventListener('resize', resizeHandler)
-
-            // 保存 resize 处理器，便于清理
-            container._resizeHandler = resizeHandler
-          } catch (renderError) {
-            console.error('ECharts渲染失败:', renderError)
-          }
-        }
-      } catch (error) {
-        console.error('ECharts渲染失败:', error)
-      } finally {
-        this._isRenderingECharts = false
-      }
-    },
+    renderECharts,
 
     // 处理主题切换事件
-    async handleThemeChange(themeData) {
-      try {
-        // 查找所有已渲染的Mermaid容器
-        const mermaidContainers =
-          document.querySelectorAll('.mermaid-container')
-
-        if (mermaidContainers.length === 0) {
-        } else {
-          // 遍历每个容器，重新渲染
-          for (let i = 0; i < mermaidContainers.length; i++) {
-            const container = mermaidContainers[i]
-
-            // 从 data 属性中获取原始代码
-            const originalCode = container.getAttribute('data-mermaid-code')
-            if (!originalCode) {
-              continue
-            }
-
-            // 生成新的ID
-            const newId = `mermaid-theme-${Date.now()}-${i}`
-
-            // 重新渲染图表（使用新主题）
-            const { svg } = await window.mermaid.render(newId, originalCode)
-
-            // 保存放大按钮（如果存在）
-            const zoomButton = container.querySelector('.mermaid-zoom-btn')
-
-            // 更新容器内容
-            container.innerHTML = svg
-
-            // 重新添加放大按钮
-            if (zoomButton) {
-              container.appendChild(zoomButton)
-              // 更新按钮的主题样式
-              this.applyZoomButtonTheme(zoomButton)
-            } else {
-              // 如果没有按钮，创建一个新的
-              const newZoomButton = document.createElement('button')
-              newZoomButton.className = 'mermaid-zoom-btn'
-              newZoomButton.setAttribute('aria-label', '放大图表')
-              newZoomButton.innerHTML = `
-            <svg class="zoom-icon zoom-in-icon" viewBox="0 0 1024 1024" width="20" height="20">
-              <path d="M840.824471 180.766118l-178.115765 22.106353a7.469176 7.469176 0 0 0-4.397177 12.709647l51.501177 51.501176-144.504471 144.444235a7.529412 7.529412 0 0 0 0 10.661647l42.465883 42.465883a7.529412 7.529412 0 0 0 10.661647 0l144.564706-144.564706 51.440941 51.440941c4.457412 4.457412 11.986824 1.807059 12.709647-4.397176l22.046117-177.995294a7.408941 7.408941 0 0 0-8.432941-8.372706z m-412.611765 378.578823a7.529412 7.529412 0 0 0-10.661647 0l-144.444235 144.564706-51.501177-51.501176a7.469176 7.469176 0 0 0-12.649412 4.397176L186.729412 834.861176a7.529412 7.529412 0 0 0 8.372706 8.372706l178.055529-22.106353a7.469176 7.469176 0 0 0 4.457412-12.709647l-51.501177-51.501176 144.564706-144.564706a7.529412 7.529412 0 0 0 0-10.601412l-42.526117-42.345412z" fill="currentColor"></path>
-            </svg>
-            <svg class="zoom-icon zoom-out-icon" style="display: none;" viewBox="0 0 1024 1024" width="20" height="20">
-              <path d="M851.2 214.186667l-41.386667-41.386667a7.381333 7.381333 0 0 0-10.368 0L654.933333 317.397333l-50.176-50.176a7.253333 7.253333 0 0 0-12.373333 4.266667l-21.589333 173.525333a7.338667 7.338667 0 0 0 8.192 8.149334l173.568-21.546667c6.058667-0.725333 8.533333-8.106667 4.309333-12.373333L706.688 369.066667l144.597333-144.64a7.338667 7.338667 0 0 0-0.085333-10.24z m-406.186667 356.608l-173.568 21.589333a7.338667 7.338667 0 0 0-4.309333 12.373333l50.176 50.176-144.512 144.512a7.381333 7.381333 0 0 0 0 10.368l41.386667 41.386667a7.381333 7.381333 0 0 0 10.368 0l144.597333-144.64 50.176 50.218667a7.253333 7.253333 0 0 0 12.373333-4.309334l21.461334-173.482666a7.253333 7.253333 0 0 0-8.106667-8.192z" fill="currentColor"></path>
-            </svg>
-          `
-
-              // 添加点击事件
-              newZoomButton.addEventListener('click', (e) => {
-                e.stopPropagation()
-                this.toggleMermaidZoom(container, newZoomButton)
-              })
-
-              // 应用深色模式按钮样式
-              this.applyZoomButtonTheme(newZoomButton)
-
-              container.appendChild(newZoomButton)
-            }
-
-            // 修正深色模式下的背景色（容器 + SVG）
-            this.applyMermaidThemeStyles(container)
-          }
-        }
-      } catch (error) {
-        console.error('主题切换时重新渲染Mermaid失败:', error)
-      }
-
-      // 处理 ECharts 图表主题切换
-      try {
-        const echartsContainers =
-          document.querySelectorAll('.echarts-container')
-
-        if (echartsContainers.length === 0) {
-          return
-        }
-
-        const isDark =
-          (themeData && themeData.theme === 'dark') ||
-          document.body.classList.contains('dark-mode')
-
-        for (let i = 0; i < echartsContainers.length; i++) {
-          const container = echartsContainers[i]
-          const chart = container._echartsInstance
-
-          if (!chart) {
-            continue
-          }
-
-          // 获取原始配置
-          const configStr = container.getAttribute('data-echarts-config')
-          if (!configStr) {
-            continue
-          }
-
-          try {
-            const config = JSON.parse(configStr)
-
-            // 销毁旧实例
-            chart.dispose()
-
-            // 使用新主题重新初始化
-            const newChart = window.echarts.init(
-              container,
-              isDark ? 'dark' : 'light'
-            )
-
-            // 重新设置配置（透明背景）
-            const finalConfig = {
-              animation: true,
-              animationDuration: 1000,
-              animationEasing: 'cubicOut',
-              animationDelay: 0,
-              backgroundColor: 'transparent', // 透明背景
-              ...config,
-            }
-
-            newChart.setOption(finalConfig)
-
-            // 更新实例引用
-            container._echartsInstance = newChart
-
-            // 重新绑定 resize 事件
-            if (container._resizeHandler) {
-              window.removeEventListener('resize', container._resizeHandler)
-            }
-            const resizeHandler = () => newChart.resize()
-            window.addEventListener('resize', resizeHandler)
-            container._resizeHandler = resizeHandler
-          } catch (parseError) {
-            console.error('ECharts 配置解析失败:', parseError)
-          }
-        }
-      } catch (error) {
-        console.error('主题切换时重新渲染ECharts失败:', error)
-      }
-    },
+    handleThemeChange,
 
     // 应用放大按钮主题样式
-    applyZoomButtonTheme(button) {
-      if (!button) return
-
-      const isDark = document.body.classList.contains('dark-mode')
-
-      if (isDark) {
-        // 深色模式样式
-        button.style.background = 'rgba(55, 55, 55, 0.95)'
-        button.style.borderColor = '#555'
-        button.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.3)'
-
-        // 设置图标颜色
-        const icons = button.querySelectorAll('.zoom-icon')
-        icons.forEach((icon) => {
-          icon.style.color = '#e0e0e0'
-        })
-      } else {
-        // 浅色模式样式（清除自定义样式，使用 CSS）
-        button.style.background = ''
-        button.style.borderColor = ''
-        button.style.boxShadow = ''
-
-        const icons = button.querySelectorAll('.zoom-icon')
-        icons.forEach((icon) => {
-          icon.style.color = ''
-        })
-      }
-    },
+    applyZoomButtonTheme,
 
     // 应用 Mermaid 主题样式（容器背景 + 线条/箭头颜色）
     // 注意：使用 default 主题时，节点颜色和文字颜色保持不变，只需调整线条颜色
-    applyMermaidThemeStyles(container) {
-      try {
-        const svg = container.querySelector('svg')
-        if (!svg) return
-
-        // 检查是否为深色模式
-        const isDark = document.body.classList.contains('dark-mode')
-
-        // 1. 设置容器背景色
-        if (isDark) {
-          container.style.backgroundColor = '#2d2d2d'
-        } else {
-          container.style.backgroundColor = '#f8f9fa'
-        }
-
-        // 2. 修改 SVG 内部的背景矩形（如果有）
-        if (isDark) {
-          const backgrounds = svg.querySelectorAll(
-            'rect[fill="#f8f9fa"], rect[fill="#F8F9FA"], rect[fill="rgb(248, 249, 250)"], rect.background, g.background rect'
-          )
-          backgrounds.forEach((rect) => {
-            rect.setAttribute('fill', '#2d2d2d')
-          })
-
-          if (svg.style.backgroundColor && svg.style.backgroundColor !== 'transparent') {
-            svg.style.backgroundColor = '#2d2d2d'
-          }
-
-          if (!backgrounds.length && !svg.style.backgroundColor) {
-            svg.style.backgroundColor = '#2d2d2d'
-          }
-        } else {
-          const backgrounds = svg.querySelectorAll(
-            'rect[fill="#2d2d2d"], rect.background, g.background rect'
-          )
-          backgrounds.forEach((rect) => {
-            rect.setAttribute('fill', '#f8f9fa')
-          })
-
-          if (svg.style.backgroundColor) {
-            svg.style.backgroundColor = ''
-          }
-        }
-
-        // 3. 修改线条和箭头颜色（在暗色模式下使其更明显）
-        if (isDark) {
-          // 修改连接线的颜色
-          const lines = svg.querySelectorAll('path, line, polyline')
-          lines.forEach((line) => {
-            const stroke = line.getAttribute('stroke')
-            // 只修改深色/黑色的线条，保留彩色线条
-            if (stroke === 'black' || stroke === '#000' || stroke === '#000000' || 
-                stroke === '#333' || stroke === '#333333' || stroke === 'rgb(0, 0, 0)') {
-              line.setAttribute('stroke', '#a0a0a0')
-            }
-          })
-
-          // 修改箭头（marker）的颜色
-          const markers = svg.querySelectorAll('marker path, marker polygon')
-          markers.forEach((marker) => {
-            const fill = marker.getAttribute('fill')
-            if (fill === 'black' || fill === '#000' || fill === '#000000' ||
-                fill === '#333' || fill === '#333333') {
-              marker.setAttribute('fill', '#a0a0a0')
-            }
-            const stroke = marker.getAttribute('stroke')
-            if (stroke === 'black' || stroke === '#000' || stroke === '#000000' ||
-                stroke === '#333' || stroke === '#333333') {
-              marker.setAttribute('stroke', '#a0a0a0')
-            }
-          })
-
-          // 修改 SVG 内部 style 标签中的颜色（关键！）
-          // Mermaid 使用 #id .class 高优先级选择器，需要直接修改 style 标签内容
-          // 但不能全局替换所有 fill: black，否则会影响彩色节点背景上的文字
-          const styleTag = svg.querySelector('style')
-          if (styleTag) {
-            let cssText = styleTag.textContent
-            
-            // 只替换 stroke: 黑色系 为浅灰色（线条颜色可以全局替换）
-            cssText = cssText.replace(/stroke:\s*(black|#000000|#000|#333333|#333)/gi, 'stroke: #a0a0a0')
-            
-            // 只替换特定类的 fill 颜色（这些类的文字显示在深色容器背景上）
-            // 需要变亮的类：标题、消息、边标签、图例等
-            const classesToLighten = [
-              'pieTitleText',      // 饼图标题
-              'titleText',         // 通用标题
-              'messageText',       // 序列图消息
-              'labelText',         // 标签文字
-              'loopText',          // 循环标签
-              'sequenceNumber',    // 序列号
-              'sectionTitle',      // 甘特图分区标题
-              'taskTextOutsideRight',  // 甘特图外部标签
-              'taskTextOutsideLeft',   // 甘特图外部标签
-              'noteText',          // 注释文字
-              'legend',            // 图例
-              'legendText',        // 图例文字
-              'slice'              // 饼图切片标签
-            ]
-            
-            // 对每个需要变亮的类，替换其 fill 规则
-            classesToLighten.forEach(className => {
-              // 匹配 .className { ... fill: black/dark ... } 这种模式
-              const regex = new RegExp(
-                `(\\.${className}\\s*\\{[^}]*?)fill:\\s*(black|#000000|#000|#333333|#333|rgb\\s*\\(\\s*51\\s*,\\s*51\\s*,\\s*51\\s*\\))([^}]*\\})`,
-                'gi'
-              )
-              cssText = cssText.replace(regex, '$1fill: #e0e0e0$3')
-            })
-            
-            // 处理嵌套选择器，如 .legend text { fill: black }
-            const nestedSelectorsToLighten = [
-              '\\.legend\\s+text',       // 饼图图例文字
-              '\\.legend\\s+>\\s*text',  // 直接子元素
-              '\\.pie\\s+text',          // 饼图通用文字
-            ]
-            
-            nestedSelectorsToLighten.forEach(selectorPattern => {
-              const regex = new RegExp(
-                `(${selectorPattern}\\s*\\{[^}]*?)fill:\\s*(black|#000000|#000|#333333|#333|rgb\\s*\\(\\s*51\\s*,\\s*51\\s*,\\s*51\\s*\\))([^}]*\\})`,
-                'gi'
-              )
-              cssText = cssText.replace(regex, '$1fill: #e0e0e0$3')
-            })
-            
-            styleTag.textContent = cssText
-          }
-
-          // 修改图表标题（如果有）
-          const titles = svg.querySelectorAll('.titleText, .title, text.title, .pieTitleText')
-          titles.forEach((title) => {
-            const fill = title.getAttribute('fill')
-            if (!fill || fill === 'black' || fill === '#000' || fill === '#000000' || fill === '#333') {
-              title.setAttribute('fill', '#e0e0e0')
-            }
-          })
-
-          // 修改序列图中的消息文字
-          const messageTexts = svg.querySelectorAll('.messageText, .sequenceNumber, .loopText')
-          messageTexts.forEach((text) => {
-            const fill = text.getAttribute('fill')
-            if (!fill || fill === 'black' || fill === '#000' || fill === '#000000' || fill === '#333') {
-              text.setAttribute('fill', '#e0e0e0')
-            }
-          })
-
-          // 修改甘特图的分区标题和任务标签（显示在外部的）
-          const ganttTexts = svg.querySelectorAll('.sectionTitle, .taskTextOutsideRight, .taskTextOutsideLeft')
-          ganttTexts.forEach((text) => {
-            const fill = text.getAttribute('fill')
-            if (!fill || fill === 'black' || fill === '#000' || fill === '#000000' || fill === '#333') {
-              text.setAttribute('fill', '#e0e0e0')
-            }
-          })
-
-          // 修改饼图图例文字（图例 text 元素没有类名，但父元素是 .legend）
-          const legendTexts = svg.querySelectorAll('.legend text')
-          legendTexts.forEach((text) => {
-            const fill = text.getAttribute('fill')
-            const computedFill = window.getComputedStyle(text).fill
-            if (!fill || fill === 'black' || fill === '#000' || fill === '#000000' || fill === '#333' || computedFill === 'rgb(0, 0, 0)') {
-              text.setAttribute('fill', '#e0e0e0')
-            }
-          })
-        } else {
-          // 浅色模式：恢复线条颜色
-          const lines = svg.querySelectorAll('path[stroke="#a0a0a0"], line[stroke="#a0a0a0"], polyline[stroke="#a0a0a0"]')
-          lines.forEach((line) => {
-            line.setAttribute('stroke', '#333')
-          })
-
-          const markers = svg.querySelectorAll('marker path[fill="#a0a0a0"], marker polygon[fill="#a0a0a0"]')
-          markers.forEach((marker) => {
-            marker.setAttribute('fill', '#333')
-          })
-
-          // 恢复边标签和标题文字颜色
-          const edgeLabels = svg.querySelectorAll('.edgeLabel text[fill="#e0e0e0"], .edgeLabel span, .labelText[fill="#e0e0e0"]')
-          edgeLabels.forEach((label) => {
-            label.setAttribute('fill', '#333')
-            label.style.color = ''
-          })
-
-          const titles = svg.querySelectorAll('.titleText[fill="#e0e0e0"], .title[fill="#e0e0e0"], text.title[fill="#e0e0e0"]')
-          titles.forEach((title) => {
-            title.setAttribute('fill', '#333')
-          })
-        }
-      } catch (error) {
-        console.error('应用Mermaid主题样式失败:', error)
-      }
-    },
+    applyMermaidThemeStyles,
 
     // 切换Mermaid图表的放大/缩小状态
-    toggleMermaidZoom(container, button) {
-      // 检查是否已经有放大层
-      let overlay = document.getElementById('mermaid-zoom-overlay')
-
-      if (overlay) {
-        // 关闭放大视图
-        overlay.style.transition = 'opacity 0.3s ease'
-        overlay.style.opacity = '0'
-        setTimeout(() => {
-          if (overlay && overlay.parentNode) {
-            overlay.parentNode.removeChild(overlay)
-          }
-        }, 300)
-        document.body.style.overflow = ''
-        return
-      }
-
-      // 创建放大层
-      overlay = document.createElement('div')
-      overlay.id = 'mermaid-zoom-overlay'
-      overlay.className = 'mermaid-zoom-overlay'
-
-      // 获取SVG内容
-      const svg = container.querySelector('svg')
-      if (!svg) return
-
-      // 创建内容容器
-      const content = document.createElement('div')
-      content.className = 'mermaid-zoom-content'
-
-      // 直接复制HTML内容
-      content.innerHTML = svg.outerHTML
-
-      // 获取插入的SVG元素
-      const insertedSvg = content.querySelector('svg')
-      if (insertedSvg) {
-        // 保留viewBox，但设置合适的宽高
-        const viewBox = insertedSvg.getAttribute('viewBox')
-
-        // 移除限制宽度的内联样式
-        insertedSvg.removeAttribute('style')
-
-        // 从viewBox计算宽高比
-        if (viewBox) {
-          const [x, y, width, height] = viewBox.split(' ').map(Number)
-          const aspectRatio = width / height
-
-          // 设置宽度，高度自动计算
-          insertedSvg.setAttribute('width', '800')
-          insertedSvg.setAttribute('height', `${800 / aspectRatio}`)
-        } else {
-          // 如果没有viewBox，使用固定尺寸
-          insertedSvg.setAttribute('width', '800')
-          insertedSvg.setAttribute('height', '600')
-        }
-
-        // 设置样式
-        insertedSvg.style.display = 'block'
-        insertedSvg.style.maxWidth = '100%'
-        insertedSvg.style.maxHeight = '100%'
-        insertedSvg.style.width = 'auto'
-        insertedSvg.style.height = 'auto'
-        insertedSvg.style.margin = '0 auto'
-      }
-
-      // 为放大后的容器添加右键菜单事件
-      content.addEventListener('contextmenu', (e) => {
-        // 使用 content 作为容器，因为它包含了 SVG
-        this.handleMermaidContextMenu(e, content)
-      })
-
-      // 创建关闭按钮
-      const closeBtn = document.createElement('button')
-      closeBtn.className = 'mermaid-zoom-close'
-      closeBtn.setAttribute('aria-label', '关闭')
-      closeBtn.innerHTML = `
-    <svg viewBox="0 0 1024 1024" width="24" height="24">
-      <path d="M557.312 513.248l265.28-263.904c12.544-12.48 12.608-32.704 0.128-45.248-12.512-12.576-32.704-12.608-45.248-0.128L512.128 467.904 246.72 204.096c-12.48-12.544-32.704-12.608-45.248-0.128-12.576 12.512-12.608 32.704-0.128 45.248l265.344 263.84-265.28 263.872c-12.544 12.48-12.608 32.704-0.128 45.248 6.24 6.272 14.464 9.44 22.688 9.44 8.16 0 16.32-3.104 22.56-9.312l265.344-263.872 265.376 263.904c6.272 6.272 14.464 9.408 22.688 9.408 8.16 0 16.32-3.104 22.56-9.312 12.544-12.48 12.608-32.704 0.128-45.248L557.312 513.248z" fill="currentColor"></path>
-    </svg>
-  `
-
-      // 添加元素到overlay
-      overlay.appendChild(content)
-      overlay.appendChild(closeBtn)
-
-      // 添加到body
-      document.body.appendChild(overlay)
-
-      // 淡入效果
-      overlay.style.opacity = '0'
-      setTimeout(() => {
-        overlay.style.opacity = '1'
-      }, 10)
-
-      // 禁止body滚动
-      document.body.style.overflow = 'hidden'
-
-      // 点击overlay背景或关闭按钮关闭
-      const closeOverlay = () => {
-        overlay.style.transition = 'opacity 0.3s ease'
-        overlay.style.opacity = '0'
-        setTimeout(() => {
-          if (overlay && overlay.parentNode) {
-            overlay.parentNode.removeChild(overlay)
-          }
-        }, 300)
-        document.body.style.overflow = ''
-      }
-
-      overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
-          closeOverlay()
-        }
-      })
-
-      closeBtn.addEventListener('click', closeOverlay)
-    },
+    toggleMermaidZoom,
 
     // 处理 Mermaid 右键菜单
-    handleMermaidContextMenu(event, container) {
-      event.preventDefault() // 阻止默认右键菜单
-
-      this.mermaidContextMenu.visible = true
-      this.mermaidContextMenu.x = event.pageX
-      this.mermaidContextMenu.y = event.pageY
-      this.mermaidContextMenu.currentContainer = container
-    },
+    handleMermaidContextMenu,
 
     // 关闭 Mermaid 右键菜单
-    closeMermaidContextMenu() {
-      this.mermaidContextMenu.visible = false
-      this.mermaidContextMenu.currentContainer = null
-    },
+    closeMermaidContextMenu,
 
     // 复制 Mermaid 图片
-    async copyMermaidImage() {
-      const { currentContainer } = this.mermaidContextMenu
-      if (!currentContainer) return
-
-      try {
-        const svg = currentContainer.querySelector('svg')
-        if (!svg) throw new Error('SVG not found')
-
-        // 创建 canvas 并绘制 SVG
-        const canvas = await this.convertSvgToCanvas(svg)
-
-        // 转换为 Blob 并写入剪贴板
-        canvas.toBlob(async (blob) => {
-          try {
-            // 使用 Clipboard API 写入图片
-            const item = new ClipboardItem({ 'image/png': blob })
-            await navigator.clipboard.write([item])
-            this.$message.success('图片已复制到剪贴板！')
-          } catch (err) {
-            console.error('Copy failed:', err)
-            this.$message.error(
-              '复制失败，请尝试下载 PNG (浏览器可能不支持直接复制图片)'
-            )
-          }
-        })
-      } catch (error) {
-        console.error('Copy processing failed:', error)
-        this.$message.error('图片处理失败')
-      }
-
-      this.closeMermaidContextMenu()
-    },
+    copyMermaidImage,
 
     // 下载 Mermaid PNG
-    async downloadMermaidPNG() {
-      const { currentContainer } = this.mermaidContextMenu
-      if (!currentContainer) return
-
-      try {
-        const svg = currentContainer.querySelector('svg')
-        if (!svg) throw new Error('SVG not found')
-
-        // 创建 canvas 并绘制 SVG
-        const canvas = await this.convertSvgToCanvas(svg)
-
-        // 转换为 Data URL 并下载
-        const imgUrl = canvas.toDataURL('image/png')
-        const downloadLink = document.createElement('a')
-        downloadLink.href = imgUrl
-        downloadLink.download = `mermaid-diagram-${Date.now()}.png`
-        document.body.appendChild(downloadLink)
-        downloadLink.click()
-        document.body.removeChild(downloadLink)
-
-        this.$message.success('PNG 下载已开始')
-      } catch (error) {
-        console.error('PNG download failed:', error)
-        this.$message.error('PNG 下载失败')
-      }
-
-      this.closeMermaidContextMenu()
-    },
+    downloadMermaidPNG,
 
     // 辅助方法：内联 SVG 样式
-    inlineSvgStyles(source, target) {
-      // 仅处理元素节点
-      if (source.nodeType !== 1) return
-
-      const computed = window.getComputedStyle(source)
-      const properties = [
-        // SVG specific
-        'fill',
-        'stroke',
-        'stroke-width',
-        'stroke-dasharray',
-        'stroke-linecap',
-        'stroke-linejoin',
-        'opacity',
-        'text-anchor',
-        'dominant-baseline',
-        'alignment-baseline',
-
-        // Text specific
-        'font-family',
-        'font-size',
-        'font-weight',
-        'font-style',
-        'letter-spacing',
-        'text-decoration',
-        'line-height',
-        'color',
-
-        // CSS Box Model (critical for foreignObject/HTML)
-        'display',
-        'visibility',
-        'margin-top',
-        'margin-right',
-        'margin-bottom',
-        'margin-left',
-        'padding-top',
-        'padding-right',
-        'padding-bottom',
-        'padding-left',
-        'border-top-width',
-        'border-right-width',
-        'border-bottom-width',
-        'border-left-width',
-        'border-top-style',
-        'border-right-style',
-        'border-bottom-style',
-        'border-left-style',
-        'border-top-color',
-        'border-right-color',
-        'border-bottom-color',
-        'border-left-color',
-        'background-color',
-        'width',
-        'height',
-        'box-sizing',
-        'white-space',
-        'overflow',
-        'text-overflow',
-        'word-wrap',
-        'word-break',
-
-        // Flexbox/Grid (if used by mermaid)
-        'flex-direction',
-        'justify-content',
-        'align-items',
-        'border-radius',
-        'z-index',
-      ]
-
-      properties.forEach((prop) => {
-        const val = computed.getPropertyValue(prop)
-        // 只有当样式有值且不为空时才设置
-        if (val && val !== 'initial' && val !== 'none' && val !== 'inherit') {
-          target.style[prop] = val
-        }
-        
-        // 特殊处理: 将关键样式同步设置无法 attribute，以兼容非浏览器查看器
-        // 很多看图软件不支持 style 属性中的 SVG 样式，只支持 presentation attributes
-        const attrMap = [
-          'fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 
-          'font-weight', 'opacity', 'text-anchor', 'dominant-baseline', 'alignment-baseline'
-        ]
-        
-        if (attrMap.includes(prop) && val && val !== 'none' && val !== 'auto' && val !== 'inherit') {
-           target.setAttribute(prop, val)
-        }
-        
-        // 修复：针对看图软件不支持 dominant-baseline: middle 导致的文字偏上问题
-        // 强制改为 auto 并添加 dy 偏移量来模拟垂直居中
-        if (prop === 'dominant-baseline' && (val === 'middle' || val === 'central')) {
-          target.style.dominantBaseline = 'auto'
-          target.setAttribute('dominant-baseline', 'auto')
-          
-          // 仅给 text 元素或没有 dy 的元素添加偏移
-          // 防止破坏已有的 tspan 布局
-          if (source.tagName.toLowerCase() === 'text' && !target.hasAttribute('dy')) {
-             target.setAttribute('dy', '0.35em')
-          }
-        }
-      })
-
-      // 递归处理子元素
-      const sourceChildren = source.children
-      const targetChildren = target.children
-      if (sourceChildren.length === targetChildren.length) {
-        for (let i = 0; i < sourceChildren.length; i++) {
-          this.inlineSvgStyles(sourceChildren[i], targetChildren[i])
-        }
-      }
-    },
+    inlineSvgStyles,
 
     // 辅助方法：SVG 转 Canvas
-    convertSvgToCanvas(svgElement) {
-      return new Promise((resolve, reject) => {
-        // 克隆 SVG 以避免修改原始 DOM
-        const clonedSvg = svgElement.cloneNode(true)
-        this.inlineSvgStyles(svgElement, clonedSvg)
+    convertSvgToCanvas,
 
-        // 获取原始尺寸
-        const bbox = svgElement.getBoundingClientRect()
-        let width = bbox.width
-        let height = bbox.height
-        
-         // 如果 boundingClientRect 为0 (元素隐藏等), 尝试解析 viewBox 或 width/height 属性
-        if (width === 0 || height === 0) {
-             const viewBoxVal = clonedSvg.getAttribute('viewBox');
-             if (viewBoxVal) {
-                 const parts = viewBoxVal.split(/\s+|,/);
-                 if (parts.length === 4) {
-                     width = parseFloat(parts[2]);
-                     height = parseFloat(parts[3]);
-                 }
-             }
-             if (!width) width = parseFloat(clonedSvg.getAttribute('width')) || 800;
-             if (!height) height = parseFloat(clonedSvg.getAttribute('height')) || 600;
-        }
-
-        // 设置明确的宽高，避免 Canvas 绘制不完整
-        clonedSvg.setAttribute('width', width)
-        clonedSvg.setAttribute('height', height)
-        
-        // 处理样式：对于暗色模式，确保背景色正确 (SVG 转图片默认背景透明)
-        // 我们可以给 SVG 添加一个白色或背景色矩形，或者让用户下载透明 PNG
-        // 这里选择保持透明，但为了可见性，设置 fill 为当前计算样式颜色如果它是 'currentColor'
-        
-        // 序列化 SVG
-        const serializer = new XMLSerializer()
-        let svgString = serializer.serializeToString(clonedSvg)
-
-        // 添加 XML 命名空间（如果缺失）
-        if (!svgString.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
-          svgString = svgString.replace(
-            /^<svg/,
-            '<svg xmlns="http://www.w3.org/2000/svg"'
-          )
-        }
-
-        // 创建 Image 对象
-        const img = new Image()
-        img.crossOrigin = 'Anonymous'
-        
-        // 使用 Base64 编码的 Data URI 避免 tainted canvas 问题
-        // 注意：unescape(encodeURIComponent(str)) 用于处理 UTF-8 字符
-        const base64Svg = window.btoa(unescape(encodeURIComponent(svgString)))
-        const url = `data:image/svg+xml;base64,${base64Svg}`
-
-        img.onload = () => {
-          const canvas = document.createElement('canvas')
-          // 增加分辨率以提高清晰度 (2x)
-          const scale = 2
-          canvas.width = width * scale
-          canvas.height = height * scale
-          const ctx = canvas.getContext('2d')
-          ctx.scale(scale, scale)
-
-          // 检测暗色模式
-          const isDark =
-            document.body.classList.contains('dark-mode') ||
-            document.documentElement.classList.contains('dark-mode')
-          const bgColor = isDark ? '#1a1a1a' : '#ffffff'
-
-          // 填充背景色
-          ctx.fillStyle = bgColor
-          ctx.fillRect(0, 0, width, height)
-
-          // 绘制
-          ctx.drawImage(img, 0, 0, width, height)
-          
-          resolve(canvas)
-        }
-
-        img.onerror = (e) => {
-          reject(e)
-        }
-
-        img.src = url
-      })
-    },
-
-    // 设置语言切换按钮的事件委托
-    setupLanguageSwitchEventDelegation() {
-      // 移除可能存在的旧事件监听器
-      if (this.languageSwitchHandler) {
-        document.removeEventListener('click', this.languageSwitchHandler, true)
-        document.removeEventListener(
-          'touchend',
-          this.languageSwitchHandler,
-          true
-        )
-        document.removeEventListener(
-          'mousedown',
-          this.languageSwitchHandler,
-          true
-        )
-        document.removeEventListener(
-          'touchstart',
-          this.languageSwitchHandler,
-          true
-        )
-      }
-
-      // 创建事件处理器
-      this.languageSwitchHandler = (event) => {
-        // 查找最近的语言切换按钮
-        const button = event.target.closest(
-          '.article-language-switch .el-button[data-lang]'
-        )
-        if (button && !button.disabled) {
-          event.preventDefault()
-          event.stopPropagation()
-          event.stopImmediatePropagation()
-
-          const langCode = button.getAttribute('data-lang')
-          if (langCode) {
-            this.handleLanguageSwitch(langCode)
-          }
-          return false
-        }
-      }
-
-      // 使用捕获阶段监听多种事件类型
-      document.addEventListener('click', this.languageSwitchHandler, true)
-      document.addEventListener('touchend', this.languageSwitchHandler, true)
-      document.addEventListener('mousedown', this.languageSwitchHandler, true)
-      document.addEventListener('touchstart', this.languageSwitchHandler, true)
-
-      // 添加直接的DOM事件监听器
-      this.$nextTick(() => {
-        const buttons = document.querySelectorAll(
-          '.article-language-switch .el-button[data-lang]'
-        )
-        buttons.forEach((button) => {
-          button.addEventListener(
-            'click',
-            (e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              const langCode = button.getAttribute('data-lang')
-              if (langCode) {
-                this.handleLanguageSwitch(langCode)
-              }
-            },
-            true
-          )
-        })
-      })
-    },
-
-    // 原生事件处理方法
-    handleMouseDown(event) {
-      event.preventDefault()
-      event.stopPropagation()
-      const langCode = event.target
-        .closest('[data-lang]')
-        ?.getAttribute('data-lang')
-      if (langCode) {
-        this.handleLanguageSwitch(langCode)
-      }
-    },
-
-    handleTouchStart(event) {
-      event.preventDefault()
-      event.stopPropagation()
-      const langCode = event.target
-        .closest('[data-lang]')
-        ?.getAttribute('data-lang')
-      if (langCode) {
-        this.handleLanguageSwitch(langCode)
-      }
-    },
-
-    async handleLanguageSwitch(lang) {
-      // 防止重复点击
-      if (lang === this.currentLang) {
-        return
-      }
-
-      // 验证语言是否在可用列表中
-      const isLanguageAvailable = this.availableLanguageButtons.some(
-        (btn) => btn.code === lang
-      )
-      if (!isLanguageAvailable) {
-        this.$message.warning('该语言版本暂不可用')
-        return
-      }
-
-      // 直接调用switchLanguage，不需要try-catch
-      // 因为switchLanguage内部和fetchTranslation都有完善的错误处理
-      await this.switchLanguage(lang)
-    },
-
-    async switchLanguage(lang) {
-      if (lang === this.currentLang) return
-
-      // 验证语言是否可用
-      const isLanguageAvailable = this.availableLanguageButtons.some(
-        (btn) => btn.code === lang
-      )
-      if (!isLanguageAvailable) {
-        this.$message.warning('该语言版本暂不可用')
-        return
-      }
-
-      this.currentLang = lang
-      this.tocbotRefreshed = false // 重置tocbot刷新标志
-
-      // 将语言偏好与文章ID绑定，避免跨文章的语言记忆问题
-      const articleLangKey = `article_${this.id}_preferredLanguage`
-      if (lang !== this.sourceLanguage) {
-        localStorage.setItem(articleLangKey, lang)
-      } else {
-        // 如果切换回源语言，清除该文章的语言偏好
-        localStorage.removeItem(articleLangKey)
-      }
-
-      // 同时清除全局语言偏好，确保不影响其他文章
-      localStorage.removeItem('preferredLanguage')
-
-      // 更新URL参数，不刷新页面
-      this.updateUrlWithLanguage(lang)
-
-      // 设置HTML元素的lang属性
-      document.documentElement.setAttribute('lang', lang)
-
-      if (lang !== this.sourceLanguage) {
-        // 如果已有翻译内容，直接显示
-        if (this.translatedContent) {
-          await this.renderArticleBody(this.translatedContent)
-        } else {
-          // 没有翻译内容，获取翻译
-          await this.fetchTranslation()
-        }
-      } else if (lang === this.sourceLanguage) {
-        await this.renderArticleBody(this.article.articleContent)
-      }
-    },
-    async fetchTranslation() {
-      if (!this.article || !this.article.id) {
-        return
-      }
-
-      this.isLoading = true
-      try {
-        // 直接使用当前语言获取翻译
-        const response = await this.$http.get(
-          this.$constant.baseURL + '/article/getTranslation',
-          {
-            id: this.article.id,
-            language: this.currentLang,
-          }
-        )
-
-        if (
-          response.code === 200 &&
-          response.data &&
-          response.data.status === 'not_found'
-        ) {
-          // 翻译不存在，自动降级到源语言
-          this.currentLang = this.sourceLanguage
-
-          // 清除该文章的语言偏好，避免下次还是尝试加载不存在的翻译
-          const articleLangKey = `article_${this.id}_preferredLanguage`
-          localStorage.removeItem(articleLangKey)
-
-          // 更新URL为源语言
-          this.updateUrlWithLanguage(this.sourceLanguage)
-
-          await this.renderArticleBody(this.article.articleContent)
-          this.$message.info('该语言版本不存在，已切换到原文显示')
-        } else if (response.code === 200 && response.data) {
-          this.translatedTitle = response.data.title
-          this.translatedContent = response.data.content
-
-          await this.renderArticleBody(this.translatedContent)
-        } else {
-          console.error('获取翻译失败，服务器返回:', response)
-          // 获取失败时自动降级到源语言
-          this.currentLang = this.sourceLanguage
-
-          // 清除该文章的语言偏好
-          const articleLangKey = `article_${this.id}_preferredLanguage`
-          localStorage.removeItem(articleLangKey)
-
-          // 更新URL为源语言
-          this.updateUrlWithLanguage(this.sourceLanguage)
-
-          await this.renderArticleBody(this.article.articleContent)
-          this.$message.error('翻译加载失败，已切换到原文显示')
-        }
-      } catch (error) {
-        console.error('Translation error:', error)
-
-        // 翻译请求失败时，自动降级到源语言显示原文
-        this.currentLang = this.sourceLanguage
-
-        // 清除该文章的语言偏好，避免下次还是加载失败的翻译
-        const articleLangKey = `article_${this.id}_preferredLanguage`
-        localStorage.removeItem(articleLangKey)
-
-        // 更新URL为源语言
-        this.updateUrlWithLanguage(this.sourceLanguage)
-
-        await this.renderArticleBody(this.article.articleContent)
-
-        this.$message.error('翻译加载失败，已切换到原文显示')
-      } finally {
-        this.isLoading = false
-        this.$nextTick(() => {
-          this.normalizeTaskListCheckboxes()
-        })
-      }
-    },
-    updateUrlWithLanguage(lang) {
-      // 生成新的路径格式：/article/lang/id 或 /article/id（源语言）
-      let newPath
-
-      if (lang === this.sourceLanguage) {
-        // 源语言使用简洁格式：/article/id
-        newPath = `/article/${this.id}`
-      } else {
-        // 其他语言使用完整格式：/article/lang/id
-        newPath = `/article/${lang}/${this.id}`
-      }
-
-      // 保留查询参数（如果有的话）
-      const query = { ...this.$route.query }
-
-      // 使用Vue Router进行导航，避免页面刷新
-      this.$router
-        .replace({
-          path: newPath,
-          query: query,
-        })
-        .catch((err) => {
-          if (err.name !== 'NavigationDuplicated') {
-          }
-        })
-    },
+    setupLanguageSwitchEventDelegation,
+    handleMouseDown,
+    handleTouchStart,
+    handleLanguageSwitch,
+    switchLanguage,
+    fetchTranslation,
+    updateUrlWithLanguage,
     /**
      * 检查是否有临时保存的评论
      */
@@ -3958,358 +2018,17 @@ export default {
      * 修复重复调用 /api/translation/default-lang 接口的问题
      * 统一处理语言配置获取和语言设置逻辑
      */
-    async initializeLanguageSettings() {
-      try {
-        // 先获取默认语言配置（只调用一次API）
-        await this.getDefaultTargetLanguage()
+    initializeLanguageSettings,
+    getDefaultTargetLanguage,
+    getArticleAvailableLanguages,
+    generateLanguageButtons,
 
-        // 获取顺序：URL路径参数 > 当前文章的语言偏好 > 默认源语言
-        const langParam = this.$route.params.lang // 从路径参数获取语言
-        const articleLangKey = `article_${this.id}_preferredLanguage`
-        const savedLang = localStorage.getItem(articleLangKey) // 只读取当前文章的语言偏好
-
-        // 重置当前语言为源语言，避免使用上一篇文章的语言设置
-        this.currentLang = this.sourceLanguage
-
-        if (langParam && this.languageMap[langParam]) {
-          // URL路径参数优先，但必须是支持的语言
-          this.currentLang = langParam
-        } else if (
-          savedLang &&
-          this.languageMap[savedLang] &&
-          savedLang !== this.sourceLanguage
-        ) {
-          // 只有当前文章有保存的语言偏好时才使用
-          this.currentLang = savedLang
-        } else {
-          // 使用默认源语言
-          this.currentLang = this.sourceLanguage
-        }
-
-        // 设置HTML元素的lang属性
-        document.documentElement.setAttribute('lang', this.currentLang)
-      } catch (error) {
-        console.error('语言设置初始化失败:', error)
-        // 设置默认值，确保页面能正常工作
-        this.currentLang = 'zh'
-        this.sourceLanguage = 'zh'
-        this.targetLanguage = 'en'
-        document.documentElement.setAttribute('lang', this.currentLang)
-      }
-    },
-
-    async getDefaultTargetLanguage() {
-      try {
-        // 从Java后端获取默认语言配置
-        const response = await this.$http.get(
-          this.$constant.baseURL + '/webInfo/ai/config/articleAi/defaultLang'
-        )
-
-        if (response.code === 200 && response.data) {
-          // 设置默认目标语言
-          this.targetLanguage = response.data.default_target_lang || 'en'
-          this.targetLanguageName =
-            this.languageMap[this.targetLanguage] || 'English'
-
-          // 设置默认源语言
-          this.sourceLanguage = response.data.default_source_lang || 'zh'
-          this.sourceLanguageName =
-            this.languageMap[this.sourceLanguage] || '中文'
-        } else {
-          this.targetLanguage = 'en'
-          this.targetLanguageName = 'English'
-          this.sourceLanguage = 'zh'
-          this.sourceLanguageName = '中文'
-        }
-      } catch (error) {
-        console.error('获取默认语言配置出错:', error)
-        this.targetLanguage = 'en'
-        this.targetLanguageName = 'English'
-        this.sourceLanguage = 'zh'
-        this.sourceLanguageName = '中文'
-      }
-    },
-
-    async getArticleAvailableLanguages() {
-      if (!this.article || !this.article.id) {
-        return
-      }
-
-      try {
-        const response = await this.$http.get(
-          this.$constant.baseURL + '/article/getAvailableLanguages',
-          {
-            id: this.article.id,
-          }
-        )
-
-        if (response.code === 200 && response.data) {
-          this.availableLanguages = response.data || []
-
-          // 生成动态语言按钮
-          this.generateLanguageButtons()
-        } else {
-          this.availableLanguages = []
-          this.generateLanguageButtons()
-        }
-      } catch (error) {
-        console.error('获取文章可用翻译语言出错:', error)
-        this.availableLanguages = []
-        this.generateLanguageButtons()
-      }
-    },
-
-    generateLanguageButtons() {
-      this.availableLanguageButtons = []
-
-      // 始终添加原文语言按钮（通常是中文）
-      this.availableLanguageButtons.push({
-        code: this.sourceLanguage,
-        name: this.sourceLanguageName,
-      })
-
-      // 添加实际存在翻译的语言按钮
-      if (this.availableLanguages && this.availableLanguages.length > 0) {
-        this.availableLanguages.forEach((langCode) => {
-          // 避免重复添加源语言
-          if (langCode !== this.sourceLanguage) {
-            const langName = this.languageMap[langCode] || langCode
-            this.availableLanguageButtons.push({
-              code: langCode,
-              name: langName,
-            })
-          }
-        })
-      }
-
-      // 如果当前语言不在可用语言列表中，切换到源语言
-      const currentLangAvailable = this.availableLanguageButtons.some(
-        (btn) => btn.code === this.currentLang
-      )
-      if (!currentLangAvailable) {
-        this.currentLang = this.sourceLanguage
-
-        // 清除该文章的语言偏好，因为保存的语言已不可用
-        const articleLangKey = `article_${this.id}_preferredLanguage`
-        localStorage.removeItem(articleLangKey)
-
-        this.updateUrlWithLanguage(this.sourceLanguage)
-      }
-    },
-
-    // 打开卡片分享弹窗
-    openShareCardDialog() {
-      this.shareCardDialogVisible = true
-
-      // 性能优化：提前预加载html2canvas库，避免下载时等待
-      this.preloadHtml2Canvas()
-
-      // 延迟生成二维码，确保DOM已渲染
-      this.$nextTick(() => {
-        setTimeout(() => {
-          this.generateQRCode()
-        }, 300)
-      })
-    },
-
-    // 预加载html2canvas库
-    preloadHtml2Canvas() {
-      if (typeof html2canvas === 'undefined' && !window.html2canvasLoading) {
-        window.html2canvasLoading = true
-        const script = document.createElement('script')
-        script.src =
-          'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'
-        script.onload = () => {
-          window.html2canvasLoading = false
-        }
-        script.onerror = () => {
-          window.html2canvasLoading = false
-        }
-        document.head.appendChild(script)
-      }
-    },
-
-    // 格式化日期
-    formatDate(dateStr) {
-      if (!dateStr) return ''
-
-      try {
-        const date = new Date(dateStr)
-        const year = date.getFullYear()
-        const month = String(date.getMonth() + 1).padStart(2, '0')
-        const day = String(date.getDate()).padStart(2, '0')
-
-        return `${year}年${month}月${day}日`
-      } catch (error) {
-        console.error('日期格式化失败:', error)
-        return dateStr
-      }
-    },
-
-    // 生成二维码（调用后端API）
-    generateQRCode() {
-      const qrcodeContainer = this.$refs.qrcode
-      if (!qrcodeContainer) {
-        console.error('二维码容器未找到')
-        return
-      }
-
-      // 检查文章ID是否存在
-      if (!this.article || !this.article.id) {
-        console.error('文章ID不存在')
-        qrcodeContainer.innerHTML =
-          '<div style="width: 60px; height: 60px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #999;">无效文章</div>'
-        return
-      }
-
-      // 清空现有内容
-      qrcodeContainer.innerHTML = ''
-
-      // 显示加载中
-      qrcodeContainer.innerHTML =
-        '<div style="width: 60px; height: 60px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #999;">加载中...</div>'
-
-      // 调用后端API生成二维码
-      const qrcodeApiUrl = `${this.$constant.baseURL}/qrcode/article/${this.article.id}`
-
-      // 创建img元素显示二维码
-      const img = document.createElement('img')
-      img.src = qrcodeApiUrl
-      img.style.width = '60px'
-      img.style.height = '60px'
-      img.style.display = 'block'
-
-      img.onload = () => {
-        qrcodeContainer.innerHTML = ''
-        qrcodeContainer.appendChild(img)
-      }
-
-      img.onerror = () => {
-        console.error('二维码加载失败')
-        qrcodeContainer.innerHTML =
-          '<div style="width: 60px; height: 60px; background: #f0f0f0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #999;">加载失败</div>'
-      }
-    },
-
-    // 下载卡片
-    downloadShareCard() {
-      const shareCard = this.$refs.shareCard
-      if (!shareCard) {
-        this.$message.error('卡片元素未找到')
-        return
-      }
-
-      // 性能优化：检查库是否已加载（通过预加载应该已经完成）
-      if (typeof html2canvas === 'undefined') {
-        if (window.html2canvasLoading) {
-          // 正在加载中，等待加载完成
-          this.$message({
-            message: '正在加载必要组件，请稍候...',
-            type: 'info',
-            duration: 1500,
-          })
-
-          const checkInterval = setInterval(() => {
-            if (typeof html2canvas !== 'undefined') {
-              clearInterval(checkInterval)
-              this.captureAndDownloadCard(shareCard)
-            }
-          }, 100)
-
-          // 超时保护
-          setTimeout(() => {
-            clearInterval(checkInterval)
-            if (typeof html2canvas === 'undefined') {
-              this.$message.error('组件加载超时，请刷新页面重试')
-            }
-          }, 10000)
-        } else {
-          // 未加载也未在加载中，立即加载
-          this.$message({
-            message: '首次使用，正在加载组件...',
-            type: 'info',
-            duration: 2000,
-          })
-
-          const script = document.createElement('script')
-          script.src =
-            'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'
-          script.onload = () => {
-            this.captureAndDownloadCard(shareCard)
-          }
-          script.onerror = () => {
-            this.$message.error('组件加载失败，请检查网络连接')
-          }
-          document.head.appendChild(script)
-        }
-      } else {
-        // 库已加载，直接生成
-        this.captureAndDownloadCard(shareCard)
-      }
-    },
-
-    // 捕获并下载卡片
-    captureAndDownloadCard(element) {
-      // 显示加载中的消息
-      const loadingMsg = this.$message({
-        message: '正在生成卡片图片...',
-        type: 'info',
-        duration: 0, // 不自动关闭
-        showClose: false,
-      })
-
-      // 性能优化：使用requestIdleCallback在空闲时渲染，避免阻塞UI
-      const renderCard = () => {
-        html2canvas(element, {
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: '#F5EFE6',
-          scale: 2, // 提高清晰度
-          logging: false,
-          // 性能优化：忽略不必要的元素
-          ignoreElements: (element) => {
-            return element.classList?.contains('el-loading-mask')
-          },
-          // 性能优化：使用更快的渲染选项
-          removeContainer: true,
-          imageTimeout: 5000, // 图片加载超时
-        })
-          .then((canvas) => {
-            loadingMsg.close() // 关闭加载提示
-            // 转换为图片并下载
-            canvas.toBlob((blob) => {
-              const url = URL.createObjectURL(blob)
-              const link = document.createElement('a')
-              link.href = url
-
-              // 生成文件名
-              const fileName = `${
-                this.article.articleTitle || '文章'
-              }_分享卡片.png`
-              link.download = fileName
-
-              document.body.appendChild(link)
-              link.click()
-              document.body.removeChild(link)
-              URL.revokeObjectURL(url)
-
-              this.$message.success('卡片已下载')
-            }, 'image/png')
-          })
-          .catch((error) => {
-            loadingMsg.close() // 关闭加载提示
-            console.error('生成卡片失败:', error)
-            this.$message.error('生成卡片失败，请重试')
-          })
-      }
-
-      // 使用requestIdleCallback优化，如果不支持则直接执行
-      if (window.requestIdleCallback) {
-        requestIdleCallback(renderCard, { timeout: 1000 })
-      } else {
-        setTimeout(renderCard, 0)
-      }
-    },
+    openShareCardDialog,
+    preloadHtml2Canvas,
+    formatDate,
+    generateQRCode,
+    downloadShareCard,
+    captureAndDownloadCard,
   },
   emits: ['restore-comment', 'restore-page-state'],
 }
@@ -4536,10 +2255,11 @@ blockquote {
   margin-bottom: 20px;
 }
 .article-sort span {
-  padding: 3px 10px;
+  padding: 0.25em 0.7em;
   background-color: var(--themeBackground);
   border-radius: 5px;
   font-size: 14px;
+  line-height: 1.6;
   color: var(--white);
   transition: background-color 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
   margin-right: 25px;
@@ -4568,8 +2288,9 @@ blockquote {
 .subscribe-button {
   background: rgb(119, 48, 152);
   width: 110px;
-  padding: 8px 0;
+  padding: 0.5em 0;
   font-size: 16px;
+  line-height: 1.5;
   text-align: center;
   color: var(--white);
   border-radius: 6px;
@@ -4597,8 +2318,9 @@ blockquote {
 .share-card-button {
   background: #ff416c;
   width: 110px;
-  padding: 8px 0;
+  padding: 0.5em 0;
   font-size: 16px;
+  line-height: 1.5;
   text-align: center;
   color: var(--white);
   border-radius: 6px;
@@ -5104,10 +2826,12 @@ body.dark-mode :deep(.mermaid-zoom-btn:hover .zoom-icon),
 }
 :deep(pre.code-loading){
   position: relative;
-  min-height: 100px;
+  min-height: 60px;
+  transition: min-height 0.3s ease;
 }
 :deep(pre.code-loading code){
   opacity: 0.3;
+  transition: opacity 0.3s ease;
 }
 body.dark-mode :deep(pre:has(code.language-echarts)),
 body.dark-mode :deep(pre:has(code.language-mermaid)),

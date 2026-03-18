@@ -47,6 +47,10 @@ export function loadFrontendPlugin(plugin) {
             try { config = JSON.parse(plugin.pluginConfig) } catch (e) { /* ignore */ }
         }
 
+        if (window.PoetizePlugin) {
+            window.PoetizePlugin._internal.setPluginConfig(key, config)
+        }
+
         // 注入 CSS
         if (plugin.frontendCss) {
             const style = document.createElement('style')
@@ -55,16 +59,11 @@ export function loadFrontendPlugin(plugin) {
             document.head.appendChild(style)
         }
 
-        // 执行 JS（已禁用 —— 安全加固：禁止前端动态执行任意代码）
+        // 执行前端 JS
         if (plugin.pluginCode && window.PoetizePlugin) {
-            console.warn('[PluginLoader] 插件前端 JS 执行已禁用 (' + key + ')，仅加载 CSS/配置')
-            let config = {}
-            if (plugin.pluginConfig) {
-                try { config = JSON.parse(plugin.pluginConfig) } catch (e) { /* ignore */ }
-            }
-            window.PoetizePlugin._internal.setPluginConfig(key, config)
+            window.PoetizePlugin._internal.loadPluginCode(key, plugin.pluginCode, config)
         } else if (plugin.pluginCode) {
-            console.warn('[PluginLoader] 插件前端 JS 执行已禁用 (' + key + ')')
+            console.warn('[PluginLoader] 插件 SDK 不可用，跳过前端 JS 执行 (' + key + ')')
         }
     } catch (e) {
         console.error('[PluginLoader] 插件加载失败 (' + key + '):', e)

@@ -15,6 +15,10 @@
     const _configs = {}
     const _pluginKeys = []
 
+    function createPluginSourceUrl(pluginKey) {
+        return 'poetize-plugin-' + String(pluginKey || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_') + '.js'
+    }
+
     // ===== 公共 API =====
     const PoetizePlugin = {
         // ----------------------------------------------------------------
@@ -129,13 +133,31 @@
             /** 注册插件配置 */
             setPluginConfig(pluginKey, config) {
                 _configs[pluginKey] = config || {}
-                _pluginKeys.push(pluginKey)
+                if (!_pluginKeys.includes(pluginKey)) {
+                    _pluginKeys.push(pluginKey)
+                }
             },
 
-            /** 加载并执行插件 JS 代码 —— 已禁用（安全加固：禁止前端动态执行任意代码） */
+            /** 加载并执行插件前端 JS 代码 */
             loadPluginCode(pluginKey, jsCode, config) {
-                console.warn('[PoetizePlugin] 插件前端代码执行已禁用 (' + pluginKey + ')，仅加载配置和 CSS')
                 PoetizePlugin._internal.setPluginConfig(pluginKey, config)
+
+                if (!jsCode || typeof jsCode !== 'string') {
+                    return
+                }
+
+                try {
+                    const runner = new Function(
+                        'PoetizePlugin',
+                        'window',
+                        'document',
+                        'config',
+                        `${jsCode}\n//# sourceURL=${createPluginSourceUrl(pluginKey)}`
+                    )
+                    runner(PoetizePlugin, global, global.document, config || {})
+                } catch (error) {
+                    console.error('[PoetizePlugin] 插件前端代码执行失败 (' + pluginKey + '):', error)
+                }
             },
 
             /** 加载插件 CSS */

@@ -75,9 +75,28 @@ function shouldIgnoreClick(e) {
  * @returns {Function|null} 编译后的函数
  */
 function compilePluginCode(pluginKey, code) {
-    // 安全加固：禁止前端动态执行任意代码
-    console.warn(`[鼠标点击特效] 插件代码执行已禁用 (${pluginKey})，仅内置特效可用`)
-    return null
+    if (!code || typeof code !== 'string') {
+        return null
+    }
+
+    if (compiledPluginCache[pluginKey]) {
+        return compiledPluginCache[pluginKey]
+    }
+
+    try {
+        const fn = new Function(
+            'x',
+            'y',
+            'config',
+            'anime',
+            `${code}\n//# sourceURL=poetize-admin-mouse-effect-${pluginKey}.js`
+        )
+        compiledPluginCache[pluginKey] = fn
+        return fn
+    } catch (error) {
+        console.error(`[鼠标点击特效] 插件代码编译失败 (${pluginKey}):`, error)
+        return null
+    }
 }
 
 /**

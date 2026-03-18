@@ -96,7 +96,7 @@ export default {
 }
 .timeline-item-time::before {
   position: absolute;
-  top: 5px;
+  top: 0.35em;
   left: -37px;
   width: 6px;
   height: 6px;

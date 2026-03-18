@@ -13,7 +13,7 @@ body {
 }
 
 /* Element UI 图标样式修复 */
-i[class*="el-icon"], i.el-icon-*, [class*="el-icon"], [class^="el-icon-"], 
+i[class*="el-icon"], [class*="el-icon"], [class^="el-icon-"], 
 .el-icon, .el-select-icon, .el-input__icon, .el-step__icon, 
 .el-message__icon, .el-message-box__status, .el-notification__icon,
 .el-tree-node__expand-icon, .el-pagination button i,

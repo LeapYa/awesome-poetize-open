@@ -9,7 +9,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.quality.Strictness;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -26,13 +28,14 @@ import static org.mockito.Mockito.when;
  * 测试从文件验证到压缩的完整流程
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("图片格式支持集成测试")
 class ImageFormatSupportIntegrationTest {
 
     private FileSecurityValidator validator;
 
     // Mock the SysConfigService
-    @Mock(lenient = true)
+    @Mock
     private SysConfigService sysConfigService;
 
     private ImageCompressUtil.CompressResult lastCompressionResult;

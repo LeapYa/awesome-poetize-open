@@ -46,7 +46,7 @@
             viewBox="0 0 1024 1024"
             width="14"
             height="14"
-            style="vertical-align: -2px"
+            style="vertical-align: -0.15em"
           >
             <path
               d="M512 512m-512 0a512 512 0 1 0 1024 0 512 512 0 1 0-1024 0Z"
@@ -73,13 +73,13 @@
         </el-tooltip>
 
         <!-- 信息 -->
-        <div class="post-meta" style="margin-bottom: 8px">
+        <div class="post-meta">
           <span>
             <svg
               viewBox="0 0 1024 1024"
               width="14"
               height="14"
-              style="vertical-align: -2px"
+              style="vertical-align: -0.15em"
             >
               <path
                 d="M14.656 512a497.344 497.344 0 1 0 994.688 0 497.344 497.344 0 1 0-994.688 0z"
@@ -97,7 +97,7 @@
               viewBox="0 0 1024 1024"
               width="14"
               height="14"
-              style="vertical-align: -2px"
+              style="vertical-align: -0.15em"
             >
               <path
                 d="M113.834667 291.84v449.194667a29.013333 29.013333 0 0 0 28.842666 29.013333h252.928v90.453333l160.597334-90.453333h252.928a29.013333 29.013333 0 0 0 29.013333-29.013333V291.84a29.013333 29.013333 0 0 0-29.013333-29.013333h-665.6a29.013333 29.013333 0 0 0-29.696 29.013333z"
@@ -151,7 +151,7 @@
               viewBox="0 0 1024 1024"
               width="15"
               height="15"
-              style="vertical-align: -3px"
+              style="vertical-align: -0.2em"
             >
               <path
                 d="M179.2 153.6m89.6 0l588.8 0q89.6 0 89.6 89.6l0 486.4q0 89.6-89.6 89.6l-588.8 0q-89.6 0-89.6-89.6l0-486.4q0-89.6 89.6-89.6Z"
@@ -187,7 +187,7 @@
               viewBox="0 0 1024 1024"
               width="15"
               height="15"
-              style="vertical-align: -3px"
+              style="vertical-align: -0.2em"
             >
               <path
                 d="M905.0112 560.4352l-342.784 342.784c-56.7808 56.7808-148.7872 56.7808-205.568 0l-231.5776-231.5776c-56.7808-56.7808-56.7808-148.7872 0-205.568l342.9376-342.9376a114.8928 114.8928 0 0 1 84.224-33.5872l266.3936 7.2192c60.7744 1.6384 109.7216 50.3808 111.5648 111.1552l8.2944 267.8272c1.024 31.6928-11.1104 62.3104-33.4848 84.6848z"
@@ -291,12 +291,15 @@ export default {
   text-overflow: ellipsis;
   overflow: hidden;
   max-width: 100%;
-  margin-top: 13px;
-  margin-bottom: 13px;
+  margin-top: 0.7em;
+  margin-bottom: 0.7em;
+  line-height: 1.4;
 }
 .post-meta {
   font-size: 12px;
   color: var(--greyFont);
+  line-height: 1.6;
+  margin-bottom: 0.5em;
 }
 .recent-post-desc {
   font-size: 13px;

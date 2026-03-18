@@ -135,7 +135,7 @@
             :class="{ 'search-active': articleSearch }"
           >
             <svg
-              style="margin-top: 3.5px; margin-left: 18px"
+              style="vertical-align: middle; margin-left: 18px"
               viewBox="0 0 1024 1024"
               width="20"
               height="20"
@@ -1119,17 +1119,19 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
   word-break: break-word;
+  line-height: 1.5;
 }
 .aside-post-date {
-  margin-top: 8px;
-  margin-bottom: 20px;
+  margin-top: 0.5em;
+  margin-bottom: 1.2em;
   color: var(--greyFont);
   font-size: 12px;
+  line-height: 1.5;
 }
 .post-sort {
   border-radius: 1rem;
   margin-bottom: 15px;
-  line-height: 30px;
+  line-height: 1.8;
   transition: color 0.3s ease, background-color 0.3s ease;
 }
 .post-sort:hover {
@@ -1141,14 +1143,16 @@ export default {
 .sort-name {
   font-weight: bold;
   font-size: 25px;
+  position: relative;
+  padding-bottom: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
 }
 .sort-name:after {
-  top: 74px;
+  bottom: 0;
   width: 22px;
-  left: 26px;
+  left: 0;
   height: 2px;
   background: var(--white);
   content: '';
@@ -1224,7 +1228,7 @@ export default {
 }
 .ais-SearchBox-input {
   padding: 0 14px;
-  height: 30px;
+  height: 34px;
   width: calc(100% - 50px);
   outline: 0;
   border: 2px solid var(--lightGreen);
@@ -1232,15 +1236,19 @@ export default {
   border-radius: 40px 0 0 40px;
   color: var(--maxGreyFont);
   background: var(--white);
+  line-height: 34px;
 }
 .ais-SearchBox-submit {
-  height: 30px;
+  height: 34px;
   width: 50px;
   border: 2px solid var(--lightGreen);
   border-left: 0;
   border-radius: 0 40px 40px 0;
   background: var(--white);
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .ais-SearchBox-clear {
   position: absolute;

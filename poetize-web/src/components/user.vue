@@ -570,6 +570,7 @@
 import { defineAsyncComponent } from 'vue'
 import { $on, $off, $once, $emit } from '../utils/gogocodeTransfer'
 import { useMainStore } from '@/stores/main'
+import { encrypt } from '@/utils/crypto-utils'
 
 import { checkCaptchaWithCache } from '@/utils/captchaUtil'
 import { handleLoginRedirect } from '../utils/tokenExpireHandler'
@@ -943,7 +944,7 @@ export default {
       try {
         let user = {
           account: this.account.trim(),
-          password: await this.$common.encrypt(this.password.trim()),
+          password: await encrypt(this.password.trim()),
           isAdmin: false, // 普通用户登录，设置为false
         }
 
@@ -953,7 +954,7 @@ export default {
         }
 
         // 对整个请求体进行加密
-        let encryptedUser = await this.$common.encrypt(JSON.stringify(user))
+        let encryptedUser = await encrypt(JSON.stringify(user))
 
         this.$http
           .post(
@@ -1072,7 +1073,7 @@ export default {
         let user = {
           username: this.username.trim(),
           code: this.code.trim(),
-          password: await this.$common.encrypt(this.password.trim()),
+          password: await encrypt(this.password.trim()),
         }
 
         if (this.dialogTitle === '邮箱验证码') {
@@ -1375,7 +1376,7 @@ export default {
           // 第三方用户没有密码，传空字符串
           password: this.isThirdPartyUser
             ? ''
-            : await this.$common.encrypt(this.password.trim()),
+            : await encrypt(this.password.trim()),
         }
         
         if (this.dialogTitle === '找回密码') {
@@ -1464,8 +1465,8 @@ export default {
 
       try {
         let params = {
-          place: await this.$common.encrypt(this.oldPassword.trim()),
-          password: await this.$common.encrypt(this.newPassword.trim()),
+          place: await encrypt(this.oldPassword.trim()),
+          password: await encrypt(this.newPassword.trim()),
           code: this.code.trim(),
           flag: 3
         }
@@ -1847,6 +1848,8 @@ export default {
   height: 40px;
   outline: none;
   color: var(--fontColor);
+  line-height: 1.5;
+  box-sizing: border-box;
 }
 .password-field {
   position: relative;
@@ -1953,6 +1956,7 @@ export default {
   font-weight: 600 !important;
   letter-spacing: 1px !important;
   transform: translateZ(0);
+  line-height: 1.5 !important;
 }
 
 .auth-button:hover {
@@ -2062,12 +2066,12 @@ export default {
   text-align: left;
 }
 .user-title div {
-  height: 55px;
+  min-height: 55px;
   line-height: 55px;
   text-align: center;
 }
 .user-content > div {
-  height: 55px;
+  min-height: 55px;
   display: flex;
   align-items: center;
 }

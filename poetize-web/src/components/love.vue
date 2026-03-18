@@ -570,6 +570,7 @@
 <script>
 import { defineAsyncComponent } from 'vue'
 import { useMainStore } from '@/stores/main'
+import { timeDiff, countdown as countdownUtil } from '@/utils/date-utils'
 
 
 export default {
@@ -894,7 +895,7 @@ export default {
       if (this.$common.isEmpty(this.love.timing)) {
         return
       }
-      let diff = this.$common.timeDiff(this.love.timing)
+      let diff = timeDiff(this.love.timing)
       this.timing.year = diff.diffYear
       this.timing.month = diff.diffMonth
       this.timing.day = diff.diffDay
@@ -906,7 +907,7 @@ export default {
       if (this.$common.isEmpty(this.love.countdownTime)) {
         return
       }
-      let countdown = this.$common.countdown(this.love.countdownTime)
+      let countdown = countdownUtil(this.love.countdownTime)
       this.countdownChange =
         countdown.d +
         '天' +

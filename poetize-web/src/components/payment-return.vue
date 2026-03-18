@@ -147,6 +147,7 @@ export default {
   margin: 16px 0 8px;
   font-size: 22px;
   font-weight: 600;
+  line-height: 1.5;
 }
 
 .payment-status p {
@@ -157,7 +158,8 @@ export default {
 
 .payment-icon {
   font-size: 56px;
-  margin-bottom: 8px;
+  margin-bottom: 0.5em;
+  line-height: 1.2;
 }
 
 .payment-spinner {

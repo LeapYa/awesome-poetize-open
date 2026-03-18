@@ -3,6 +3,7 @@ import { ElMessageBox } from 'element-plus';
 import {nextTick} from 'vue';
 import {ElMessage} from "element-plus";
 import {reactive, getCurrentInstance, onMounted, onBeforeUnmount, watchEffect, toRefs} from 'vue';
+import { encrypt } from '../../../utils/crypto-utils';
 export default function () {
   const globalProperties = getCurrentInstance().appContext.config.globalProperties;
   const $common = globalProperties.$common;
@@ -76,7 +77,7 @@ export default function () {
       });
     }
   }
-  function submitDialog() {
+  async function submitDialog() {
     if ($common.isEmpty(bindEmailData.email)) {
       ElMessage({
         message: "请输入邮箱！",
@@ -109,7 +110,7 @@ export default function () {
       code: bindEmailData.code.trim(),
       flag: 2,
       place: bindEmailData.email.trim(),
-      password: $common.encrypt(bindEmailData.password.trim())
+      password: await encrypt(bindEmailData.password.trim())
     };
     $http.post($constant.baseURL + "/user/updateSecretInfo", params, false)
       .then((res) => {

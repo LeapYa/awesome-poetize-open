@@ -6,6 +6,7 @@ import { $on, $off, $once, $emit } from './gogocodeTransfer'
 
 import { useMainStore } from '@/stores/main'
 import router from '@/router'
+import { resetSessionValidation } from './sessionValidation'
 
 let handlingTokenExpire = false
 let expireResetTimer = null
@@ -14,11 +15,7 @@ let expireResetTimer = null
  * 清除所有认证相关的状态
  */
 export function clearAuthState() {
-  import('./sessionValidation')
-    .then(({ resetSessionValidation }) => {
-      resetSessionValidation()
-    })
-    .catch(() => {})
+  resetSessionValidation()
 
   localStorage.removeItem('currentUser')
   localStorage.removeItem('currentAdmin')

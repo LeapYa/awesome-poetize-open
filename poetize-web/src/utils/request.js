@@ -1,10 +1,18 @@
 import axios from 'axios'
 import constant from './constant'
-//处理url参数
-import cryptoUtil from './crypto'
 
 import router from '../router'
 import { handleTokenExpire } from './tokenExpireHandler'
+
+// 懒加载 cryptoUtil，仅在需要加解密时才加载 crypto.js
+let _cryptoUtil = null
+async function getCryptoUtil() {
+  if (!_cryptoUtil) {
+    const mod = await import('./crypto')
+    _cryptoUtil = mod.default
+  }
+  return _cryptoUtil
+}
 
 function getCurrentRoutePath() {
   const routeValue = router.currentRoute?.value || router.currentRoute
@@ -236,6 +244,7 @@ axios.interceptors.request.use(
           } else {
             // 加密请求数据
             try {
+              const cryptoUtil = await getCryptoUtil()
               const encryptedData = await cryptoUtil.encrypt(config.data)
               if (encryptedData) {
                 config.data = {
@@ -319,6 +328,7 @@ axios.interceptors.response.use(
         // 检查响应是否加密
         if (response.data.data.encrypted) {
           // 使用decryptBase64方法解密验证码配置响应数据
+          const cryptoUtil = await getCryptoUtil()
           const decryptedData = await cryptoUtil.decryptBase64(
             response.data.data.encrypted
           )
@@ -345,6 +355,7 @@ axios.interceptors.response.use(
         // 检查响应是否加密
         if (response.data.data.encrypted) {
           // 使用decryptBase64方法解密验证码验证响应数据
+          const cryptoUtil = await getCryptoUtil()
           const decryptedData = await cryptoUtil.decryptBase64(
             response.data.data.encrypted
           )
@@ -369,6 +380,7 @@ axios.interceptors.response.use(
     ) {
       try {
         // 使用decryptBase64方法解密登录响应数据
+        const cryptoUtil = await getCryptoUtil()
         const decryptedData = await cryptoUtil.decryptBase64(
           response.data.data.data
         )

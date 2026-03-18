@@ -15,8 +15,8 @@ public class CaptchaServiceImplTokenTest {
 
     @Test
     public void verifyToken_shouldConsumeLegacyToken() {
-        RedisTemplate<String, String> redisTemplate = mock(RedisTemplate.class);
-        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        RedisTemplate<String, String> redisTemplate = mockRedisTemplate();
+        ValueOperations<String, String> valueOps = mockValueOperations();
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
 
         String token = "abc";
@@ -33,8 +33,8 @@ public class CaptchaServiceImplTokenTest {
 
     @Test
     public void verifyToken_shouldAcceptNormalizedAction() {
-        RedisTemplate<String, String> redisTemplate = mock(RedisTemplate.class);
-        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        RedisTemplate<String, String> redisTemplate = mockRedisTemplate();
+        ValueOperations<String, String> valueOps = mockValueOperations();
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
 
         CaptchaProof proof = new CaptchaProof();
@@ -57,8 +57,8 @@ public class CaptchaServiceImplTokenTest {
 
     @Test
     public void verifyToken_shouldRejectActionMismatchAndConsume() {
-        RedisTemplate<String, String> redisTemplate = mock(RedisTemplate.class);
-        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        RedisTemplate<String, String> redisTemplate = mockRedisTemplate();
+        ValueOperations<String, String> valueOps = mockValueOperations();
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
 
         CaptchaProof proof = new CaptchaProof();
@@ -81,8 +81,8 @@ public class CaptchaServiceImplTokenTest {
 
     @Test
     public void verifyToken_shouldReturnFalseWhenMissing() {
-        RedisTemplate<String, String> redisTemplate = mock(RedisTemplate.class);
-        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
+        RedisTemplate<String, String> redisTemplate = mockRedisTemplate();
+        ValueOperations<String, String> valueOps = mockValueOperations();
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
 
         String token = "missing";
@@ -94,5 +94,15 @@ public class CaptchaServiceImplTokenTest {
 
         assertFalse(service.verifyToken("login", token, null, null));
         verify(redisTemplate, never()).delete(anyString());
+    }
+
+    @SuppressWarnings("unchecked")
+    private RedisTemplate<String, String> mockRedisTemplate() {
+        return mock(RedisTemplate.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    private ValueOperations<String, String> mockValueOperations() {
+        return mock(ValueOperations.class);
     }
 }

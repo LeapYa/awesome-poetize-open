@@ -7,7 +7,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.quality.Strictness;
 import org.springframework.mock.web.MockMultipartFile;
 
 import javax.imageio.ImageIO;
@@ -23,11 +25,12 @@ import static org.mockito.Mockito.*;
  * 测试各种图片格式的压缩功能
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("图片压缩工具测试")
 class ImageCompressUtilTest {
 
     // Mock the SysConfigService
-    @Mock(lenient = true)
+    @Mock
     private SysConfigService sysConfigService;
 
     private static final int TEST_WIDTH = 800;

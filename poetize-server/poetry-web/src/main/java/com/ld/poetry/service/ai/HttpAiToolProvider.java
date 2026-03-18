@@ -186,7 +186,7 @@ public class HttpAiToolProvider {
                 StringUtils.hasText(runtimeConfig.getMethod()) ? runtimeConfig.getMethod().toUpperCase() : "GET");
 
         Map<String, Object> resolvedQuery = castMap(resolveTemplateValue(runtimeConfig.getQuery(), args, pluginConfig));
-        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromHttpUrl(runtimeConfig.getUrl());
+        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(runtimeConfig.getUrl());
         appendQueryParams(uriBuilder, resolvedQuery);
 
         HttpHeaders headers = buildHeaders(runtimeConfig, args, pluginConfig);

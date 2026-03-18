@@ -51,6 +51,13 @@ export default defineConfig({
       dts: false, // 不生成 d.ts 文件
     }),
     Components({
+      globs: [
+        'src/components/**/*.vue',
+        '!src/components/im/common/commentBox.vue',
+        '!src/components/im/common/emoji.vue',
+        '!src/components/im/common/proButton.vue',
+        '!src/components/im/common/uploadPicture.vue',
+      ],
       resolvers: [
         // 配置 ElementPlusResolver 不自动导入图标
         // 图标由项目自行手动导入和注册
@@ -59,6 +66,10 @@ export default defineConfig({
           // 排除图标组件的自动导入（以 ElIcon 开头但不是 ElIcon 本身的）
           exclude: /^ElIcon(?!$)/,
         }),
+      ],
+      excludeNames: [
+        /^(AsyncNotification|CaptchaContainer)$/,
+        /^(Loader|Zombie|Printer|SortArticle|MyAside|Danmaku|Card|Process|VideoPlayer|Emoji|ProButton|UploadPicture|Live2DTips|Live2DCanvas|Live2DToolbar|Live2DToggle)$/,
       ],
       dts: false, // 不生成 d.ts 文件
     }),
@@ -99,7 +110,6 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'static',
     sourcemap: false,
-    minify: 'esbuild', // 使用 esbuild 替代 terser，内存效率更高
     chunkSizeWarningLimit: 2000, // 提高 chunk 大小警告阈值
     modulePreload: {
       polyfill: false, // 禁用 modulePreload polyfill
@@ -107,8 +117,6 @@ export default defineConfig({
     cssCodeSplit: true, // 保持 CSS 代码分割
     rollupOptions: {
       output: {
-        // 确保动态导入的模块不会被意外合并
-        inlineDynamicImports: false,
         manualChunks(id) {
           const normalizedId = id.replace(/\\/g, '/')
           if (
@@ -122,13 +130,11 @@ export default defineConfig({
             if (id.match(/[\\/]node_modules[\\/](vue|@vue|pinia|vue-router)/)) {
               return 'framework';
             }
-            // Element Plus 图标库
-            if (id.includes('@element-plus/icons-vue')) {
-              return 'element-plus-icons';
-            }
-            // UI 组件库 (Element Plus)
+            // Element Plus 在不同路由和异步组件中复用很多。
+            // 不再强制合并成单个超大共享 chunk，让 Vite / Rolldown
+            // 根据实际引用关系自动拆分，减少文章页、首页等首屏共享负担。
             if (id.includes('element-plus') || id.includes('@element-plus')) {
-              return 'element-plus';
+              return;
             }
             // ECharts 图表库
             if (id.includes('echarts') || id.includes('zrender')) {
@@ -142,9 +148,10 @@ export default defineConfig({
             if (id.includes('katex')) {
               return 'katex';
             }
-            // 代码高亮库 - 按需加载的语言包打包到一起
+            // 代码高亮库通过动态 import() 按需加载，交由 Vite/Rolldown 自动分块
+            // 避免手动分块后在 Vite 8 / Rolldown 下出现导出绑定异常
             if (id.includes('highlight.js') || id.includes('highlightjs-line-numbers')) {
-              return 'highlight';
+              return;
             }
             // Mermaid 及其依赖 - 不指定 chunk，让 Vite 自动处理动态导入
             // 这些库只通过动态 import() 加载，不需要预先打包

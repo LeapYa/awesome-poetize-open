@@ -6,6 +6,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.nio.charset.StandardCharsets;
+
+import static org.springframework.util.DigestUtils.md5DigestAsHex;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -73,7 +77,7 @@ class PasswordServiceTest {
     @Test
     void testPasswordUpgrade() {
         String rawPassword = "TestPassword123!";
-        String md5Hash = passwordService.encodeMD5(rawPassword);
+        String md5Hash = md5(rawPassword);
         
         assertTrue(passwordService.needsUpgrade(md5Hash));
         
@@ -123,7 +127,7 @@ class PasswordServiceTest {
         assertFalse(passwordService.matches("wrongpassword", bcryptHash));
         
         // MD5匹配测试
-        String md5Hash = passwordService.encodeMD5(rawPassword);
+        String md5Hash = md5(rawPassword);
         assertTrue(passwordService.matches(rawPassword, md5Hash));
         assertFalse(passwordService.matches("wrongpassword", md5Hash));
         
@@ -138,7 +142,7 @@ class PasswordServiceTest {
     void testUpgradePasswordWithWrongPassword() {
         String rawPassword = "TestPassword123!";
         String wrongPassword = "WrongPassword123!";
-        String md5Hash = passwordService.encodeMD5(rawPassword);
+        String md5Hash = md5(rawPassword);
         
         // 使用错误的密码尝试升级应该抛出异常
         assertThrows(IllegalArgumentException.class, () -> {
@@ -158,11 +162,18 @@ class PasswordServiceTest {
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            passwordService.encodeMD5("");
+            md5("");
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            passwordService.encodeMD5(null);
+            md5(null);
         });
+    }
+
+    private String md5(String rawPassword) {
+        if (rawPassword == null || rawPassword.isBlank()) {
+            throw new IllegalArgumentException("密码不能为空");
+        }
+        return md5DigestAsHex(rawPassword.getBytes(StandardCharsets.UTF_8));
     }
 }

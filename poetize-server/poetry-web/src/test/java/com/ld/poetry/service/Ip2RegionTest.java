@@ -9,7 +9,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -44,8 +44,8 @@ public class Ip2RegionTest {
         }
 
         System.out.println("下载测试数据库: " + fileName);
-        URL url = new URL(downloadUrl);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        URI downloadUri = URI.create(downloadUrl);
+        HttpURLConnection conn = (HttpURLConnection) downloadUri.toURL().openConnection();
         conn.setConnectTimeout(30000);
         conn.setReadTimeout(120000);
         conn.setRequestProperty("User-Agent", "Mozilla/5.0");

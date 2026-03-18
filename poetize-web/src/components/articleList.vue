@@ -5,7 +5,7 @@
         viewBox="0 0 1024 1024"
         width="20"
         height="20"
-        style="vertical-align: -2px"
+        style="vertical-align: -0.15em"
       >
         <path
           d="M224.2 472.3c-13-5.7-3.7-23.5 8.2-19 91 34 146.8 108.7 182.4 138.5 5.6 4.7 14 2.9 17.3-3.5 16.8-32 45.8-113.7-57.1-168.6-87.3-46.5-188-53.6-247.3-82.2-14.5-7-31.1 4.6-29.9 20.7 5 69.7 28.9 124.7 62.3 181.5 67.3 114.3 140.6 132.9 216.6 104 2.2-0.9 4.5-1.8 7-3 7-3.4 8.3-12.9 2.5-18.1 0.1 0-45.7-69.3-162-150.3z"
@@ -75,7 +75,7 @@
             viewBox="0 0 1024 1024"
             width="14"
             height="14"
-            style="vertical-align: -2px"
+            style="vertical-align: -0.15em"
           >
             <path
               d="M512 512m-512 0a512 512 0 1 0 1024 0 512 512 0 1 0-1024 0Z"
@@ -101,13 +101,13 @@
         </el-tooltip>
 
         <!-- 信息 -->
-        <div class="post-meta" style="margin-bottom: 15px">
+        <div class="post-meta" style="margin-bottom: 0.9em">
           <span>
             <svg
               viewBox="0 0 1024 1024"
               width="14"
               height="14"
-              style="vertical-align: -2px"
+              style="vertical-align: -0.15em"
             >
               <path
                 d="M14.656 512a497.344 497.344 0 1 0 994.688 0 497.344 497.344 0 1 0-994.688 0z"
@@ -125,7 +125,7 @@
               viewBox="0 0 1024 1024"
               width="14"
               height="14"
-              style="vertical-align: -2px"
+              style="vertical-align: -0.15em"
             >
               <path
                 d="M113.834667 291.84v449.194667a29.013333 29.013333 0 0 0 28.842666 29.013333h252.928v90.453333l160.597334-90.453333h252.928a29.013333 29.013333 0 0 0 29.013333-29.013333V291.84a29.013333 29.013333 0 0 0-29.013333-29.013333h-665.6a29.013333 29.013333 0 0 0-29.696 29.013333z"
@@ -209,7 +209,7 @@
               viewBox="0 0 1024 1024"
               width="15"
               height="15"
-              style="vertical-align: -3px"
+              style="vertical-align: -0.2em"
             >
               <path
                 d="M179.2 153.6m89.6 0l588.8 0q89.6 0 89.6 89.6l0 486.4q0 89.6-89.6 89.6l-588.8 0q-89.6 0-89.6-89.6l0-486.4q0-89.6 89.6-89.6Z"
@@ -245,7 +245,7 @@
               viewBox="0 0 1024 1024"
               width="15"
               height="15"
-              style="vertical-align: -3px"
+              style="vertical-align: -0.2em"
             >
               <path
                 d="M905.0112 560.4352l-342.784 342.784c-56.7808 56.7808-148.7872 56.7808-205.568 0l-231.5776-231.5776c-56.7808-56.7808-56.7808-148.7872 0-205.568l342.9376-342.9376a114.8928 114.8928 0 0 1 84.224-33.5872l266.3936 7.2192c60.7744 1.6384 109.7216 50.3808 111.5648 111.1552l8.2944 267.8272c1.024 31.6928-11.1104 62.3104-33.4848 84.6848z"
@@ -424,8 +424,9 @@ export default {
 .article-first {
   color: var(--greyFont);
   border-bottom: 1px dashed var(--lightGray);
-  padding-bottom: 5px;
+  padding-bottom: 0.5em;
   margin-bottom: 50px;
+  line-height: 1.6;
 }
 .recent-post-container {
   max-width: 780px;
@@ -629,9 +630,10 @@ h3:deep(.search-highlight) {
   user-select: none;
 }
 .view-original {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 0.5em;
+  padding-top: 0.5em;
   border-top: 1px dashed var(--lightGray);
+  line-height: 1.6;
 }
 .view-original .el-button {
   color: var(--greyFont);

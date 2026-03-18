@@ -1086,6 +1086,7 @@ export default {
   counter-increment: line-number;
   position: relative;
   display: block;
+  min-width: fit-content;
   padding-left: calc(var(--line-number-width, 25px) + 17px);
   padding-right: 12px;
   padding-top: 2px;

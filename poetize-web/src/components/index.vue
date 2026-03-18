@@ -52,11 +52,15 @@
           </div>
           <div id="bannerWave1"></div>
           <div id="bannerWave2"></div>
-          <el-icon class="el-icon-arrow-down" @click="navigation('.page-container-wrap')"><el-icon-arrow-down /></el-icon>
+          <i
+            class="fa fa-angle-down el-icon-arrow-down"
+            aria-hidden="true"
+            @click="navigation('.page-container-wrap')"
+          ></i>
         </div>
         <!-- 首页内容 -->
         <div class="page-container-wrap">
-          <div class="page-container">
+          <div v-if="deferredContentReady" class="page-container">
             <div class="aside-content" v-if="showAside">
               <myAside
                 @selectSort="selectSort"
@@ -85,7 +89,7 @@
                           viewBox="0 0 1024 1024"
                           width="20"
                           height="20"
-                          style="vertical-align: -2px; margin-bottom: -2px"
+                          style="vertical-align: -0.15em"
                         >
                           <path
                             d="M367.36 482.304H195.9936c-63.3344 0-114.6368-51.3536-114.6368-114.6368V196.2496c0-63.3344 51.3536-114.6368 114.6368-114.6368h171.4176c63.3344 0 114.6368 51.3536 114.6368 114.6368V367.616c0 63.3344-51.3536 114.688-114.688 114.688zM367.36 938.752H195.9936c-63.3344 0-114.6368-51.3536-114.6368-114.6368v-171.4176c0-63.3344 51.3536-114.6368 114.6368-114.6368h171.4176c63.3344 0 114.6368 51.3536 114.6368 114.6368v171.4176c0 63.3344-51.3536 114.6368-114.688 114.6368zM828.672 938.752h-171.4176c-63.3344 0-114.6368-51.3536-114.6368-114.6368v-171.4176c0-63.3344 51.3536-114.6368 114.6368-114.6368h171.4176c63.3344 0 114.6368 51.3536 114.6368 114.6368v171.4176c0 63.3344-51.3024 114.6368-114.6368 114.6368zM828.672 482.304h-171.4176c-63.3344 0-114.6368-51.3536-114.6368-114.6368V196.2496c0-63.3344 51.3536-114.6368 114.6368-114.6368h171.4176c63.3344 0 114.6368 51.3536 114.6368 114.6368V367.616c0 63.3344-51.3024 114.688-114.6368 114.688z"
@@ -102,7 +106,7 @@
                           viewBox="0 0 1024 1024"
                           width="20"
                           height="20"
-                          style="vertical-align: -2px; margin-bottom: -2px"
+                          style="vertical-align: -0.15em"
                         >
                           <path
                             d="M347.3 897.3H142.2c-30.8 0-51.4-31.7-38.9-59.9l136.1-306.1c4.9-11 4.9-23.6 0-34.6L103.3 190.6c-12.5-28.2 8.1-59.9 38.9-59.9h205.1c16.8 0 32.1 9.9 38.9 25.3l151.4 340.7c4.9 11 4.9 23.6 0 34.6L386.3 872.1c-6.9 15.3-22.1 25.2-39 25.2z"
@@ -143,7 +147,7 @@
           </div>
         </div>
         <!-- 页脚 -->
-        <div style="background: var(--background)">
+        <div v-if="deferredContentReady" style="background: var(--background)">
           <myFooter></myFooter>
         </div>
       </template>
@@ -235,8 +239,8 @@
 <script>
 import { defineAsyncComponent } from 'vue'
 import { $on, $off, $once, $emit } from '../utils/gogocodeTransfer'
-import { ArrowDown as ElIconArrowDown } from '@element-plus/icons-vue'
 import { useMainStore } from '@/stores/main'
+import { pushNotification } from '@/utils/notification-utils'
 
 export default {
   components: {
@@ -247,10 +251,10 @@ export default {
     sortArticle: defineAsyncComponent(() => import('./common/sortArticle')),
     myFooter: defineAsyncComponent(() => import('./common/myFooter')),
     myAside: defineAsyncComponent(() => import('./myAside')),
-    ElIconArrowDown,
   },
   data() {
     return {
+      deferredContentReady: false,
       pushDialogVisible: false,
       push: {},
       loading: false,
@@ -286,11 +290,6 @@ export default {
       }
     },
   },
-  created() {
-    this.getGuShi()
-    // 直接获取文章列表
-    this.getSortArticles()
-  },
   beforeUnmount() {
     // 移除全局事件监听器
     $off(this.$root, 'articleSaved')
@@ -318,6 +317,8 @@ export default {
     },
   },
   mounted() {
+    this.scheduleDeferredContentLoad()
+
     // 监听文章保存成功事件，自动刷新文章列表
     $on(this.$root, 'articleSaved', () => {
       // 先清除本地缓存
@@ -340,7 +341,7 @@ export default {
         const webInfo = this.mainStore.webInfo
         const notices = webInfo && webInfo.notices ? webInfo.notices : null
 
-        this.push = this.$common.pushNotification(notices, false)
+        this.push = pushNotification(notices, false)
         if (!this.$common.isEmpty(this.push)) {
           if (
             '0' !==
@@ -361,6 +362,21 @@ export default {
     }, 2000)
   },
   methods: {
+    runWhenIdle(task) {
+      if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => task(), { timeout: 1200 })
+        return
+      }
+
+      setTimeout(() => task(), 0)
+    },
+    scheduleDeferredContentLoad() {
+      this.runWhenIdle(async () => {
+        this.deferredContentReady = true
+        this.getGuShi()
+        this.getSortArticles()
+      })
+    },
     /**
      * 重置到首页状态
      */
@@ -405,7 +421,7 @@ export default {
       try {
         const webInfo = this.mainStore.webInfo
         const notices = webInfo && webInfo.notices ? webInfo.notices : null
-        return this.$common.pushNotification(notices, true)
+        return pushNotification(notices, true)
       } catch (error) {
         console.error('获取通知列表时发生错误:', error)
         return []
@@ -627,9 +643,11 @@ export default {
   margin: 40px auto 20px;
   display: flex;
   justify-content: space-between;
+  align-items: center;
   color: var(--greyFont);
   border-bottom: 1px dashed var(--lightGray);
-  padding-bottom: 5px;
+  padding-bottom: 0.5em;
+  line-height: 1.6;
 }
 .article-more {
   cursor: pointer;

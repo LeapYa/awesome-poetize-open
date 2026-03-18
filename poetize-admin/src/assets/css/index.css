@@ -156,7 +156,6 @@ video {
 [class^="el-icon-"],
 [class*=" el-icon-"],
 .el-icon,
-.el-icon-*,
 .el-select-dropdown__item [class^="el-icon-"],
 .el-button [class^="el-icon-"],
 .el-menu-item [class^="el-icon-"],

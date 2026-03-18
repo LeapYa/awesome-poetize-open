@@ -18,14 +18,13 @@
     />
     <!-- AI聊天（支持Live2D看板娘模式或简单按钮模式） -->
     <!-- mode从后台配置读取，默认为 'live2d' -->
-    <Live2DAsync :mode="waifuDisplayMode" />
+    <Live2DAsync v-if="showLive2D" :mode="waifuDisplayMode" />
   </div>
 </template>
 
 <script>
 import { useMainStore } from '@/stores/main'
 import globalEmailCollectionMixin from '@/mixins/globalEmailCollection.js'
-import { initMouseClickEffect } from '@/composables/useMouseClickEffect'
 import { defineAsyncComponent } from 'vue'
 import { ensureSessionValid, hasStoredSessionToken } from '@/utils/sessionValidation'
 
@@ -33,6 +32,7 @@ export default {
   name: 'App',
   mixins: [globalEmailCollectionMixin],
   components: {
+    AsyncNotification: defineAsyncComponent(() => import('@/components/common/AsyncNotification.vue')),
     GlobalEmailCollectionAsync: defineAsyncComponent(() => import('@/components/common/GlobalEmailCollection.vue')),
     Live2DAsync: defineAsyncComponent(() => import('@/components/live2d/index.vue')),
   },
@@ -41,6 +41,7 @@ export default {
       currentLang: 'zh', // 默认中文
       captchaContainerComponent: null,
       captchaContainerLoadingPromise: null,
+      showLive2D: false,
     }
   },
 
@@ -115,8 +116,20 @@ export default {
       this.$notify.setInstance(this.$refs.globalNotification)
     }
 
+    this.runWhenIdle(() => {
+      this.showLive2D = true
+    })
+
     // 初始化鼠标点击效果（根据后端配置自动选择效果类型）
-    this.mouseClickEffectCleanup = initMouseClickEffect(this.mainStore)
+    this.runWhenIdle(() => {
+      import('@/composables/useMouseClickEffect')
+        .then(({ initMouseClickEffect }) => {
+          this.mouseClickEffectCleanup = initMouseClickEffect(this.mainStore)
+        })
+        .catch((err) => {
+          console.error('初始化鼠标点击效果失败:', err)
+        })
+    })
 
     document.addEventListener('visibilitychange', this.handleVisibilityChange)
   },
@@ -131,6 +144,14 @@ export default {
   },
 
   methods: {
+    runWhenIdle(task) {
+      if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(() => task(), { timeout: 1500 })
+        return
+      }
+
+      setTimeout(() => task(), 0)
+    },
     ensureCaptchaContainerLoaded() {
       if (this.captchaContainerComponent) {
         return Promise.resolve(this.captchaContainerComponent)

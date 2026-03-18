@@ -258,6 +258,9 @@ export default {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  gap: 0.55rem;
+  padding: 20px 24px 24px;
+  box-sizing: border-box;
 }
 .myFooter.has-bg-image {
   background: transparent !important;
@@ -295,16 +298,18 @@ export default {
   z-index: 1;
 }
 .footer-title {
-  padding-top: 10px;
   font-size: 16px;
+  line-height: 1.7;
   position: relative;
   z-index: 10;
   font-weight: 600;
+  margin: 0;
 }
 .icp,
 .icp a {
   color: var(--white);
   font-size: 14px;
+  line-height: 1.7;
   position: relative;
   z-index: 10;
   font-weight: 400;
@@ -336,8 +341,7 @@ export default {
   color: var(--themeBackground);
 }
 .icp {
-  padding-top: 10px;
-  padding-bottom: 10px;
+  margin: 0;
 }
 .icp a,
 .copyright a {
@@ -359,14 +363,15 @@ export default {
 }
 .copyright {
   font-size: 14px;
+  line-height: 1.7;
   position: relative;
   z-index: 10;
   font-weight: 400;
-  padding-top: 5px;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 8px;
+  margin: 0;
 }
 .copyright-left {
   justify-self: end;
@@ -381,10 +386,11 @@ export default {
 .contact,
 .extra-info {
   font-size: 14px;
+  line-height: 1.8;
   position: relative;
   z-index: 10;
   font-weight: 400;
-  padding-top: 5px;
+  margin: 0;
 }
 .myFooter[style*='--footer-bg-image'] .copyright,
 .myFooter[style*='--footer-bg-image'] .contact,
@@ -396,25 +402,22 @@ export default {
   .myFooter {
     border-radius: 0;
     min-height: 120px;
+    gap: 0.45rem;
+    padding: 16px 18px 20px;
   }
   .myFooter.minimal {
     min-height: 70px;
   }
   .footer-title {
     font-size: 16px;
-    padding-top: 8px;
   }
   .icp,
   .contact,
   .extra-info {
     font-size: 14px;
-    padding-top: 8px;
-    padding-bottom: 8px;
   }
   .copyright {
     font-size: 14px;
-    padding-top: 8px;
-    padding-bottom: 8px;
     gap: 4px;
   }
   .copyright-left,
@@ -425,5 +428,8 @@ export default {
 }
 .myFooter.minimal {
   min-height: 90px;
+  gap: 0.35rem;
+  padding-top: 14px;
+  padding-bottom: 16px;
 }
 </style>

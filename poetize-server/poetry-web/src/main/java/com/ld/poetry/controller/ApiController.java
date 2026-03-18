@@ -245,7 +245,7 @@ public class ApiController {
                 articleVO.setUserId(adminUser.getId());
             }
 
-            PoetryResult result = articleService.saveArticle(articleVO);
+            PoetryResult<?> result = articleService.saveArticle(articleVO);
             if (result.getCode() == 200) {
                 Integer articleId = extractArticleId(result.getData());
                 if (articleId != null) {
@@ -764,22 +764,19 @@ public class ApiController {
             Map<String, Object> existingConfig = paymentService.parsePluginConfig(plugin);
             Map<String, Object> evaluation = paymentService.mergeAndValidateConfig(pluginKey, existingConfig, incomingConfig);
 
-            @SuppressWarnings("unchecked")
-            List<String> validationErrors = (List<String>) evaluation.get("validationErrors");
+            List<String> validationErrors = toStringList(evaluation.get("validationErrors"));
             if (!CollectionUtils.isEmpty(validationErrors)) {
                 return PoetryResult.fail(400, String.join("；", validationErrors),
                         buildPaymentConfigureResponse(plugin, evaluation, false, "配置字段校验失败"));
             }
 
-            @SuppressWarnings("unchecked")
-            List<String> missingFields = (List<String>) evaluation.get("missingFields");
+            List<String> missingFields = toStringList(evaluation.get("missingFields"));
             if (!CollectionUtils.isEmpty(missingFields)) {
                 return PoetryResult.fail(400, "支付插件配置不完整",
                         buildPaymentConfigureResponse(plugin, evaluation, false, "缺少必要配置字段"));
             }
 
-            @SuppressWarnings("unchecked")
-            Map<String, Object> mergedConfig = (Map<String, Object>) evaluation.get("mergedConfig");
+            Map<String, Object> mergedConfig = toObjectMap(evaluation.get("mergedConfig"));
             boolean connectionOk = paymentService.testConnection(pluginKey, mergedConfig);
             if (!connectionOk) {
                 return PoetryResult.fail(400, "支付插件连接测试失败",
@@ -826,22 +823,19 @@ public class ApiController {
             Map<String, Object> incomingConfig = toObjectMap(payload.get("pluginConfig"));
             Map<String, Object> evaluation = paymentService.mergeAndValidateConfig(pluginKey, existingConfig, incomingConfig);
 
-            @SuppressWarnings("unchecked")
-            List<String> validationErrors = (List<String>) evaluation.get("validationErrors");
+            List<String> validationErrors = toStringList(evaluation.get("validationErrors"));
             if (!CollectionUtils.isEmpty(validationErrors)) {
                 return PoetryResult.fail(400, String.join("；", validationErrors),
                         buildPaymentConnectionTestResponse(plugin, evaluation, false, "配置字段校验失败"));
             }
 
-            @SuppressWarnings("unchecked")
-            List<String> missingFields = (List<String>) evaluation.get("missingFields");
+            List<String> missingFields = toStringList(evaluation.get("missingFields"));
             if (!CollectionUtils.isEmpty(missingFields)) {
                 return PoetryResult.fail(400, "支付插件配置不完整",
                         buildPaymentConnectionTestResponse(plugin, evaluation, false, "缺少必要配置字段"));
             }
 
-            @SuppressWarnings("unchecked")
-            Map<String, Object> mergedConfig = (Map<String, Object>) evaluation.get("mergedConfig");
+            Map<String, Object> mergedConfig = toObjectMap(evaluation.get("mergedConfig"));
             boolean connectionOk = paymentService.testConnection(pluginKey, mergedConfig);
             String message = connectionOk ? "连接测试成功" : "连接测试失败，请检查配置";
             Map<String, Object> responseData = buildPaymentConnectionTestResponse(plugin, evaluation, connectionOk, message);
@@ -1096,8 +1090,7 @@ public class ApiController {
                 paymentService.parsePluginConfig(activePlugin),
                 new LinkedHashMap<>()
         );
-        @SuppressWarnings("unchecked")
-        List<String> missingFields = (List<String>) paymentCheck.get("missingFields");
+        List<String> missingFields = toStringList(paymentCheck.get("missingFields"));
         if (!Boolean.TRUE.equals(paymentCheck.get("configured")) || !CollectionUtils.isEmpty(missingFields)) {
             throw new PoetryRuntimeException("请先在插件管理 -> 文章付费中配置付费插件");
         }
@@ -1642,7 +1635,8 @@ public class ApiController {
 
             for (Object record : todayRecords) {
                 try {
-                    Map<String, Object> visitRecord = JSON.parseObject(String.valueOf(record), Map.class);
+                    Object visitRecordObject = JSON.parseObject(String.valueOf(record), Map.class);
+                    Map<String, Object> visitRecord = toObjectMap(visitRecordObject);
                     String ip = valueAsString(visitRecord.get("ip"));
                     if (StringUtils.hasText(ip)) {
                         uniqueIps.add(ip);
@@ -1729,6 +1723,20 @@ public class ApiController {
                 result.put(String.valueOf(key), value);
             }
         });
+        return result;
+    }
+
+    private List<String> toStringList(Object source) {
+        if (!(source instanceof List<?> rawList)) {
+            return List.of();
+        }
+
+        List<String> result = new ArrayList<>(rawList.size());
+        for (Object item : rawList) {
+            if (item != null) {
+                result.add(String.valueOf(item));
+            }
+        }
         return result;
     }
 

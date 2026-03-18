@@ -90,7 +90,7 @@ public class CaptchaController {
             }
             
             // 获取验证数据
-            List<Map<String, Object>> mouseTrack = (List<Map<String, Object>>) data.get("mouseTrack");
+            List<Map<String, Object>> mouseTrack = getObjectMapList(data, "mouseTrack");
             Double straightRatio = getDoubleValue(data, "straightRatio", 1.0);
             Boolean isReplyComment = getBooleanValue(data, "isReplyComment", false);
             Integer retryCount = getIntValue(data, "retryCount", 0);
@@ -194,7 +194,7 @@ public class CaptchaController {
             }
             
             // 获取验证数据
-            List<Map<String, Object>> slideTrack = (List<Map<String, Object>>) data.get("slideTrack");
+            List<Map<String, Object>> slideTrack = getObjectMapList(data, "slideTrack");
             Long totalTime = getLongValue(data, "totalTime", null);
             Double maxDistance = getDoubleValue(data, "maxDistance", null);
             Double finalPosition = getDoubleValue(data, "finalPosition", null);
@@ -256,6 +256,27 @@ public class CaptchaController {
             log.error("获取公共验证码配置失败", e);
             return PoetryResult.fail("获取配置失败: " + e.getMessage());
         }
+    }
+
+    private List<Map<String, Object>> getObjectMapList(Map<String, Object> data, String key) {
+        Object value = data.get(key);
+        if (!(value instanceof List<?> rawList)) {
+            return null;
+        }
+
+        List<Map<String, Object>> result = new java.util.ArrayList<>(rawList.size());
+        for (Object item : rawList) {
+            if (item instanceof Map<?, ?> rawMap) {
+                Map<String, Object> typedMap = new HashMap<>(rawMap.size());
+                for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+                    if (entry.getKey() != null) {
+                        typedMap.put(String.valueOf(entry.getKey()), entry.getValue());
+                    }
+                }
+                result.add(typedMap);
+            }
+        }
+        return result;
     }
     
     /**

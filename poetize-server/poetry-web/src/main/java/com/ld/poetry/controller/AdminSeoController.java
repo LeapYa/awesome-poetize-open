@@ -247,8 +247,8 @@ public class AdminSeoController {
     public PoetryResult<Boolean> clearArticlesCache(@RequestBody Map<String, Object> data) {
         try {
             Object articleIdsObj = data.get("articleIds");
-            if (articleIdsObj instanceof Iterable) {
-                for (Object articleId : (Iterable<?>) articleIdsObj) {
+            if (articleIdsObj instanceof Iterable<?> articleIds) {
+                for (Object articleId : articleIds) {
                     String cacheKey = "seo:article:" + articleId;
                     cacheService.deleteKey(cacheKey);
                 }
@@ -318,7 +318,7 @@ public class AdminSeoController {
                 return PoetryResult.fail(result.get("message").toString());
             }
 
-            return PoetryResult.success((Map<String, Object>) result.get("data"));
+            return PoetryResult.success(getResultData(result));
         } catch (Exception e) {
             log.error("图片处理失败", e);
             return PoetryResult.fail("图片处理失败");
@@ -356,7 +356,7 @@ public class AdminSeoController {
                 return PoetryResult.fail(result.get("message").toString());
             }
 
-            return PoetryResult.success((Map<String, Object>) result.get("data"));
+            return PoetryResult.success(getResultData(result));
         } catch (Exception e) {
             log.error("批量图标处理失败", e);
             return PoetryResult.fail("批量图标处理失败");
@@ -392,7 +392,7 @@ public class AdminSeoController {
                 return PoetryResult.fail(result.get("message").toString());
             }
 
-            return PoetryResult.success((Map<String, Object>) result.get("data"));
+            return PoetryResult.success(getResultData(result));
         } catch (Exception e) {
             log.error("获取图片信息失败", e);
             return PoetryResult.fail("获取图片信息失败");
@@ -414,6 +414,20 @@ public class AdminSeoController {
         // 清理sitemap缓存
         sitemapService.clearSitemapCache();
 
+    }
+
+    private Map<String, Object> getResultData(Map<String, Object> result) {
+        Object data = result.get("data");
+        if (data instanceof Map<?, ?> rawMap) {
+            Map<String, Object> typedData = new HashMap<>(rawMap.size());
+            for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+                if (entry.getKey() instanceof String key) {
+                    typedData.put(key, entry.getValue());
+                }
+            }
+            return typedData;
+        }
+        return Map.of();
     }
 
     private Map<String, Object> performSeoAnalysis(Map<String, Object> seoConfig) {

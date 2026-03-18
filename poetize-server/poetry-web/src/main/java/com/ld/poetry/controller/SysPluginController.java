@@ -45,7 +45,7 @@ public class SysPluginController {
     @GetMapping("/getMouseClickEffects")
     public PoetryResult<List<SysPlugin>> getMouseClickEffects() {
         List<SysPlugin> plugins = sysPluginService.getMouseClickEffectPlugins();
-        plugins.forEach(this::stripSensitiveFields);
+        plugins.forEach(plugin -> stripSensitiveFields(plugin, true));
         return PoetryResult.success(plugins);
     }
 
@@ -62,6 +62,8 @@ public class SysPluginController {
         if (plugin != null) {
             result.put("pluginName", plugin.getPluginName());
             result.put("pluginConfig", plugin.getPluginConfig());
+            result.put("pluginCode", plugin.getPluginCode());
+            result.put("enabled", plugin.getEnabled());
         }
         return PoetryResult.success(result);
     }
@@ -73,7 +75,7 @@ public class SysPluginController {
     @GetMapping("/getActiveWaifuModel")
     public PoetryResult<SysPlugin> getActiveWaifuModel() {
         SysPlugin plugin = sysPluginService.getActivePlugin("waifu_model");
-        return PoetryResult.success(stripSensitiveFields(plugin));
+        return PoetryResult.success(stripSensitiveFields(plugin, false));
     }
 
     /**
@@ -83,7 +85,7 @@ public class SysPluginController {
     @GetMapping("/getActiveArticleTheme")
     public PoetryResult<SysPlugin> getActiveArticleTheme() {
         SysPlugin plugin = sysPluginService.getActivePlugin(SysPlugin.TYPE_ARTICLE_THEME);
-        return PoetryResult.success(stripSensitiveFields(plugin));
+        return PoetryResult.success(stripSensitiveFields(plugin, false));
     }
 
     /**
@@ -112,7 +114,7 @@ public class SysPluginController {
             });
         }
 
-        plugins.forEach(this::stripSensitiveFields);
+        plugins.forEach(plugin -> stripSensitiveFields(plugin, false));
         return PoetryResult.success(plugins);
     }
 
@@ -162,7 +164,7 @@ public class SysPluginController {
         result.put("pluginName", plugin.getPluginName());
         result.put("pluginType", plugin.getPluginType());
         result.put("version", plugin.getVersion());
-        // Security: pluginCode (JS source) is deliberately excluded from public API responses
+        result.put("pluginCode", plugin.getPluginCode());
         result.put("frontendCss", plugin.getFrontendCss());
         result.put("pluginConfig", plugin.getPluginConfig());
         result.put("enabled", plugin.getEnabled());
@@ -173,9 +175,11 @@ public class SysPluginController {
      * 从公开接口返回的 SysPlugin 实体中剥离敏感代码字段。
      * 管理员接口（@LoginCheck）不受影响。
      */
-    private SysPlugin stripSensitiveFields(SysPlugin plugin) {
+    private SysPlugin stripSensitiveFields(SysPlugin plugin, boolean includeFrontendCode) {
         if (plugin == null) return null;
-        plugin.setPluginCode(null);
+        if (!includeFrontendCode) {
+            plugin.setPluginCode(null);
+        }
         plugin.setBackendCode(null);
         plugin.setInstallSql(null);
         plugin.setUninstallSql(null);

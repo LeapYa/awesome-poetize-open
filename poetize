@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-03-10
+## 修改时间: 2026-03-19
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.10.0
+## 版本: 1.11.0
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.10.0"
+POETIZE_VERSION="1.11.0"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -7482,6 +7482,7 @@ modify_docker_compose_for_multi_instance() {
   sed_i "s/container_name: poetize-python/container_name: poetize-python$suffix/g" docker-compose.yml
   sed_i "s/container_name: poetize-java/container_name: poetize-java$suffix/g" docker-compose.yml
   sed_i "s/container_name: poetize-mariadb/container_name: poetize-mariadb$suffix/g" docker-compose.yml
+  sed_i "s/container_name: poetize-redis/container_name: poetize-redis$suffix/g" docker-compose.yml
   sed_i "s/container_name: poetize-prerender/container_name: poetize-prerender$suffix/g" docker-compose.yml
   
   # 修改网络名称
@@ -7489,6 +7490,7 @@ modify_docker_compose_for_multi_instance() {
   
   # 修改卷名称
   sed_i "s/mysql_data:/mysql_data$suffix:/g" docker-compose.yml
+  sed_i "s/redis_data:/redis_data$suffix:/g" docker-compose.yml
   sed_i "s/certbot-etc:/certbot-etc$suffix:/g" docker-compose.yml
   sed_i "s/certbot-var:/certbot-var$suffix:/g" docker-compose.yml
   sed_i "s/web-root:/web-root$suffix:/g" docker-compose.yml
@@ -7497,6 +7499,8 @@ modify_docker_compose_for_multi_instance() {
   # sed_i "s/im_node_modules:/im_node_modules$suffix:/g" docker-compose.yml
   sed_i "s/poetize_ui_dist:/poetize_ui_dist$suffix:/g" docker-compose.yml
   sed_i "s/poetize_im_dist:/poetize_im_dist$suffix:/g" docker-compose.yml
+  sed_i "s/poetize_web_dist:/poetize_web_dist$suffix:/g" docker-compose.yml
+  sed_i "s/poetize_admin_dist:/poetize_admin_dist$suffix:/g" docker-compose.yml
   sed_i "s/poetize_uploads:/poetize_uploads$suffix:/g" docker-compose.yml
   sed_i "s/ollama_data:/ollama_data$suffix:/g" docker-compose.yml
 
@@ -11457,6 +11461,10 @@ show_help() {
     printf "  -version, -v              显示版本信息\n"
     printf "  -help, -h                 显示此帮助信息\n"
     printf "\n"
+    printf "${BLUE}配置管理:${NC}\n"
+    printf "  -oauth-proxy              OAuth 代理配置向导（三步引导配置 GitHub/Google 等海外登录代理）\n"
+    printf "  -enable-https             手动启用 HTTPS（自动检测前置条件并执行 enable-https.sh）\n"
+    printf "\n"
     printf "${BLUE}常用示例:${NC}\n"
     printf "  poetize install --domain example.com --skip-dns-check\n"
     printf "  poetize migrate --version v2.1.1\n"
@@ -11468,6 +11476,7 @@ show_help() {
     printf "  poetize -backup /path/to/backup  备份数据到指定路径\n"
     printf "  poetize -restore          恢复最新备份数据\n"
     printf "  poetize -restore /path/to/backup  从指定路径恢复数据\n"
+    printf "  poetize -oauth-proxy      引导配置 OAuth 海外登录代理\n"
     printf "\n"
 }
 
@@ -11488,12 +11497,12 @@ show_interactive_menu() {
         printf "  ${YELLOW}[1]${NC} 安装项目        ${YELLOW}[2]${NC} 卸载当前项目    ${YELLOW}[3]${NC} 迁移项目\n"
         printf "  ${YELLOW}[4]${NC} 更新项目        ${YELLOW}[5]${NC} 启动服务        ${YELLOW}[6]${NC} 停止服务\n"
         printf "  ${YELLOW}[7]${NC} 重启服务        ${YELLOW}[8]${NC} 查看状态        ${YELLOW}[9]${NC} 备份 / 恢复\n"
-        printf "  ${YELLOW}[0]${NC} 退出\n"
+        printf "  ${YELLOW}[10]${NC} OAuth 代理配置 ${YELLOW}[11]${NC} 启用 HTTPS      ${YELLOW}[0]${NC} 退出\n"
         printf "\n"
         printf "${BLUE}  Tip:${NC} 首次部署建议先执行安装项目，后续统一使用 poetize 命令管理\n"
         printf "\n"
 
-        read -rp "请输入编号 [0-9]: " menu_choice
+        read -rp "请输入编号 [0-11]: " menu_choice
         case "$menu_choice" in
             1)
                 run_deployment
@@ -11566,6 +11575,14 @@ show_interactive_menu() {
             0)
                 info "已退出"
                 return 0
+                ;;
+            10)
+                check_docker
+                configure_oauth_proxy
+                ;;
+            11)
+                check_docker
+                enable_https
                 ;;
             *)
                 warning "无效的菜单选项，请重新输入"
@@ -13306,6 +13323,227 @@ run_update() {
     printf "\n"
 }
 
+# 手动启用 HTTPS
+enable_https() {
+    find_project_dir
+
+    info "正在检查 HTTPS 启用前置条件..."
+
+    # 检查 nginx 容器是否运行
+    if ! sudo docker ps --format '{{.Names}}' | grep -q '^poetize-nginx'; then
+        error "poetize-nginx 容器未运行，请先启动服务：poetize -start"
+        exit 1
+    fi
+
+    # 检查 certbot 容器状态（仅提示，不阻断）
+    local certbot_status=$(sudo docker inspect --format='{{.State.Status}}' poetize-certbot 2>/dev/null || echo "not-found")
+    if [ "$certbot_status" = "not-found" ] || [ "$certbot_status" = "exited" ]; then
+        info "certbot 容器当前状态：$certbot_status"
+        warning "如果证书尚未申请，建议先启动 certbot 并等待约 2 分钟："
+        printf "  ${CYAN}docker start poetize-certbot && sleep 120${NC}\n"
+        printf "\n"
+        read -rp "是否继续尝试启用 HTTPS？(y/N): " _confirm_https
+        case "$_confirm_https" in
+            [Yy]|[Yy][Ee][Ss]) ;;
+            *)
+                info "已取消"
+                return 0
+                ;;
+        esac
+    fi
+
+    info "正在执行 /enable-https.sh ..."
+    printf "\n"
+
+    # 确保脚本有执行权限
+    sudo docker exec --user root poetize-nginx chmod +x /enable-https.sh 2>/dev/null || true
+
+    if sudo docker exec --user root poetize-nginx /enable-https.sh; then
+        printf "\n"
+        success "HTTPS 启用成功！"
+        info "建议执行以下命令确认服务状态："
+        printf "  ${CYAN}poetize -status${NC}\n"
+    else
+        printf "\n"
+        error "HTTPS 启用失败，请检查以下内容："
+        printf "  1. 域名 DNS 是否已解析到本服务器\n"
+        printf "  2. 服务器 80/443 端口是否对公网开放\n"
+        printf "  3. certbot 容器日志：${CYAN}docker logs poetize-certbot${NC}\n"
+        printf "  4. nginx 容器日志：${CYAN}docker logs poetize-nginx${NC}\n"
+        exit 1
+    fi
+}
+
+# OAuth 反向代理配置向导
+configure_oauth_proxy() {
+  find_project_dir
+  printf "\n"
+  printf "${CYAN}────────────────────────────────────────────────────────────────${NC}\n"
+  printf "${GREEN}  OAuth 代理配置向导${NC}\n"
+  printf "${CYAN}────────────────────────────────────────────────────────────────${NC}\n"
+  printf "${BLUE}用于解决国内服务器无法访问 GitHub/Google/X/Yandex 等海外 OAuth 服务的问题${NC}\n"
+  printf "\n"
+
+  # ── 步骤一：在海外 VPS 上配置 Nginx ──────────────────────────────
+  printf "${YELLOW}[ 第一步 ] 在海外 VPS 上配置 Nginx 反向代理${NC}\n"
+  printf "\n"
+  printf "在你的海外 VPS 上部署以下 Nginx 配置（将 auth.example.com 替换为你的实际域名）：\n"
+  printf "\n"
+  printf "${BLUE}┌─ Nginx 配置 (/etc/nginx/conf.d/oauth-proxy.conf) ──────────────────────────────┐${NC}\n"
+  cat <<'__NGINX_CONF__'
+server {
+    listen 443 ssl http2;
+    server_name auth.example.com;   # ← 替换为你的代理域名
+
+    ssl_certificate     /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    proxy_http_version 1.1;
+    proxy_ssl_server_name on;
+    proxy_set_header Connection "";
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_redirect off;
+
+    # ── GitHub ──
+    location = /github/login/oauth/access_token {
+        proxy_set_header Host github.com;
+        proxy_pass https://github.com/login/oauth/access_token;
+    }
+    location /github/api/ {
+        proxy_set_header Host api.github.com;
+        proxy_pass https://api.github.com/;
+    }
+
+    # ── Google ──
+    location /google/oauth2/ {
+        proxy_set_header Host oauth2.googleapis.com;
+        proxy_pass https://oauth2.googleapis.com/;
+    }
+    location = /google/oauth2/v2/userinfo {
+        proxy_set_header Host www.googleapis.com;
+        proxy_pass https://www.googleapis.com/oauth2/v2/userinfo;
+    }
+
+    # ── X (Twitter) ──
+    location /x/api/ {
+        proxy_set_header Host api.twitter.com;
+        proxy_pass https://api.twitter.com/;
+    }
+
+    # ── Yandex ──
+    location = /yandex/token {
+        proxy_set_header Host oauth.yandex.com;
+        proxy_pass https://oauth.yandex.com/token;
+    }
+    location /yandex/login/ {
+        proxy_set_header Host login.yandex.ru;
+        proxy_pass https://login.yandex.ru/;
+    }
+}
+__NGINX_CONF__
+  printf "${BLUE}└───────────────────────────────────────────────────────────────────────────────┘${NC}\n"
+  printf "\n"
+  printf "${YELLOW}配置要点：${NC}\n"
+  printf "  1. 为代理域名申请 SSL 证书（推荐 certbot：certbot --nginx -d auth.example.com）\n"
+  printf "  2. 建议在 Nginx 中添加 IP 白名单，仅允许你的国内服务器 IP 访问\n"
+  printf "     示例：allow YOUR_SERVER_IP; deny all; （加在 server 块内）\n"
+  printf "  3. 验证代理是否正常：\n"
+  printf "     ${CYAN}curl https://auth.example.com/github/api/user${NC}\n"
+  printf "     （应返回 GitHub API 响应，而非连接失败）\n"
+  printf "\n"
+  printf "  详细说明：${CYAN}docs/OAuth代理配置说明.md${NC}\n"
+  printf "\n"
+  read -rp "上述代理服务器已配置完毕？按 Enter 继续，输入 q 退出: " _step1_confirm
+  if [[ "$_step1_confirm" =~ ^[Qq]$ ]]; then
+    info "已退出 OAuth 代理配置向导"
+    return 0
+  fi
+
+  # ── 步骤二：填入代理域名 ──────────────────────────────────────────
+  printf "\n"
+  printf "${YELLOW}[ 第二步 ] 填写代理域名${NC}\n"
+  printf "\n"
+
+  if [ ! -f ".env" ]; then
+    error "未找到 .env 文件，请先完成安装：poetize install"
+    return 1
+  fi
+  if [ ! -f "lib/config.sh" ]; then
+    error "未找到 lib/config.sh，请确认项目完整性"
+    return 1
+  fi
+  source "lib/config.sh"
+
+  local current_domain
+  current_domain=$(grep -E '^OAUTH_PROXY_DOMAIN=' .env 2>/dev/null | cut -d= -f2- || true)
+  if [ -n "$current_domain" ]; then
+    printf "当前配置：${CYAN}%s${NC}\n" "$current_domain"
+  else
+    printf "当前配置：${YELLOW}（未设置）${NC}\n"
+  fi
+  printf "\n"
+  printf "请输入海外代理域名（格式：https://auth.example.com）\n"
+  printf "直接回车保持当前配置不变\n"
+  printf "\n"
+  local new_domain
+  read -rp "代理域名: " new_domain
+
+  # 留空 = 保持不变
+  if [ -z "$new_domain" ]; then
+    if [ -z "$current_domain" ]; then
+      warning "未输入域名，OAuth 代理未配置，退出"
+      return 0
+    fi
+    info "保持当前配置：$current_domain"
+    new_domain="$current_domain"
+  else
+    # 格式校验
+    if [[ ! "$new_domain" =~ ^https?:// ]]; then
+      printf "\n"
+      read -rp "检测到缺少协议前缀，自动补全为 https://${new_domain}？[Y/n]: " _fix
+      if [[ ! "$_fix" =~ ^[Nn]$ ]]; then
+        new_domain="https://${new_domain}"
+      else
+        error "请重新运行并输入完整格式（如 https://auth.example.com）"
+        return 1
+      fi
+    fi
+    # 去掉末尾斜杠
+    new_domain="${new_domain%/}"
+    printf "\n"
+    printf "将配置代理域名为：${CYAN}%s${NC}\n" "$new_domain"
+  fi
+
+  # ── 步骤三：写入 .env 并重启 Java ─────────────────────────────────
+  printf "\n"
+  printf "${YELLOW}[ 第三步 ] 写入配置并重启 Java 服务${NC}\n"
+  printf "\n"
+
+  update_env_var "OAUTH_PROXY_DOMAIN" "$new_domain"
+  success "已更新 .env → OAUTH_PROXY_DOMAIN=$new_domain"
+
+  printf "\n"
+  info "正在重启 Java 服务以使配置生效..."
+  if $DOCKER_COMPOSE_CMD up -d --no-deps --force-recreate java-backend 2>/dev/null; then
+    success "Java 服务已重启"
+    printf "\n"
+    printf "${GREEN}✓ OAuth 代理配置完成！${NC}\n"
+    printf "\n"
+    printf "  代理域名：${CYAN}%s${NC}\n" "$new_domain"
+    printf "\n"
+    printf "  后端 OAuth 请求将通过代理转发，支持平台：\n"
+    printf "  ${CYAN}GitHub / Google / X (Twitter) / Yandex${NC}\n"
+    printf "\n"
+    printf "  若遇问题，查阅：${CYAN}docs/OAuth代理配置说明.md${NC}\n"
+  else
+    warning "Java 服务重启失败，请手动执行："
+    printf "  ${CYAN}docker compose up -d --no-deps --force-recreate java-backend${NC}\n"
+  fi
+  printf "\n"
+}
+
 # 主函数
 parse_version_selector() {
     local selector="${1:-}"
@@ -13468,6 +13706,14 @@ dispatch_command() {
         "-restore")
             check_docker
             restore_data "${1:-}"
+            ;;
+        "-oauth-proxy"|"oauth-proxy")
+            check_docker
+            configure_oauth_proxy
+            ;;
+        "-enable-https"|"enable-https")
+            check_docker
+            enable_https
             ;;
         "-help"|"-h")
             show_help

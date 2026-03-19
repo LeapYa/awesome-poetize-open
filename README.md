@@ -293,27 +293,79 @@ bash <(curl -sL install.leapya.com) -d 域名.com --redis-host Redis地址 --red
 
 ### 5.常用命令
 
+#### 升级项目
 ```bash
-# 容器状态
-docker ps -a
-
-# 查看日志
-docker logs poetize-nginx
-
-# 服务管理（docker-compose旧版本的命令是docker compose）
-docker compose restart
-docker compose down
-docker compose up -d
-
-# HTTPS手动配置
-docker exec poetize-nginx /enable-https.sh
-
 # 升级项目（全量更新，不管项目有没有更新）
 poetize -update
+```
 
+#### 迁移项目
+```bash
 # 迁移博客
 poetize -qy
 ```
+
+<details>
+
+<summary>完整选项</summary>
+
+**管理子命令**
+
+| 命令 | 说明 |
+|------|------|
+| `install [install子命令]` | 安装项目 |
+| `uninstall` | 卸载当前项目 |
+| `uninstall-all` | 完全卸载所有项目 |
+| `-update [版本]` | 更新系统（如 `-update v2.1.1`，默认使用最新稳定版本） |
+| `-update-poetize-command` | 更新 poetize 命令自身 |
+| `-uninstall` | 卸载当前项目的 POETIZE 实例 |
+| `-uninstall-all` | 完全卸载所有 POETIZE 系统 |
+| `-status` | 查看所有服务状态 |
+| `-start`、`-up` | 启动所有服务 |
+| `-stop`、`-down` | 停止所有服务 |
+| `-restart` | 重启所有服务 |
+| `-qianyi`、`-migrate`、`-qy [版本]` | 执行博客迁移（如 `-qy v2.1.1`，默认使用最新稳定版本） |
+| `-logs [服务名]` | 查看服务日志 |
+| `-logs-follow [服务名]` | 实时跟踪服务日志 |
+| `-oauth-proxy`、`oauth-proxy` | OAuth 代理配置向导（三步引导配置 GitHub/Google 等海外登录代理） |
+| `-enable-https`、`enable-https` | 手动启用 HTTPS（自动检测前置条件并执行 enable-https.sh） |
+| `-info` | 显示系统和项目信息 |
+| `-version`、`-v` | 显示版本信息 |
+| `-help`、`-h` | 显示帮助信息 |
+
+**安装/部署选项（`install` 子命令）**
+
+| 选项 | 说明 |
+|------|------|
+| `-d`、`--domain DOMAIN` | 设置域名（支持 `domain:port` 格式，可多次使用添加多个域名） |
+| `-e`、`--email EMAIL` | 设置管理员邮箱（默认：`example@qq.com`） |
+| `-h`、`--help` | 显示帮助信息 |
+| `--config FILE` | 从文件加载配置 |
+| `--save-config [FILE]` | 保存配置到文件（默认为 `.poetize-config`） |
+| `--enable-swap` | 启用 swap 空间（默认启用） |
+| `--swap-size SIZE` | 设置 swap 大小（默认 `1G`） |
+| `-b`、`--background` | 在后台运行脚本，输出重定向到日志文件 |
+| `--log-file FILE` | 指定日志文件（默认为 `deploy.log`） |
+| `--enable-docker-cache` | 启用 Docker 构建缓存（默认禁用以节省空间） |
+| `--httpport PORT` | 设置 HTTP 端口（使用自定义端口时会自动禁用 HTTPS） |
+| `--disable-https` | 禁用 HTTPS（默认启用） |
+| `--skip-dns-check` | 跳过 DNS 校验（用于内网部署或 CDN 配置等特殊场景） |
+| `--db-host HOST` | 设置外部 MariaDB 主机地址 |
+| `--db-port PORT` | 设置外部 MariaDB 端口（默认 `3306`） |
+| `--db-name NAME` | 设置外部数据库名称（默认 `poetize`） |
+| `--db-user USER` | 设置外部数据库用户名（默认 `poetize`） |
+| `--db-pwd PASSWORD` | 设置外部数据库密码 |
+| `--redis-host HOST` | 设置外部 Redis 主机地址 |
+| `--redis-port PORT` | 设置外部 Redis 端口（默认 `6379`） |
+| `--redis-pwd PASSWORD` | 设置外部 Redis 密码 |
+| `--redis-db NUMBER` | 设置 Redis 数据库编号（默认 `0`） |
+| `--keep-git` | 保留 Git 仓库（可选，支持 git 更新） |
+| `--no-git`、`--remove-git` | 删除 Git 仓库（默认，节省磁盘空间） |
+| `--version VERSION` | 指定部署版本（如 `v2.1.1`），默认使用最新稳定版本 |
+| `--list-versions` | 列出所有可用版本 |
+| `--latest`、`--use-main`、`--use-latest` | 使用 main 分支而非稳定版本标签 |
+
+</details>
 
 ### 6.常见问题
 

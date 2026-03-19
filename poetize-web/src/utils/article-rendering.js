@@ -2,7 +2,6 @@ import {
   loadMermaidResources,
   isMermaidLoaded,
   loadEChartsResources,
-  isEChartsLoaded,
   loadHighlightResources,
   isHighlightJsLoaded,
   loadClipboardResources,
@@ -10,7 +9,27 @@ import {
   loadKatexResources,
   isKatexLoadedGlobal,
 } from '@/utils/resourceLoaders/resourceLoader'
-import { parseEChartsOption } from '@/utils/echartsOptionParser'
+import {
+  parseEChartsOption,
+  extractEChartsChartTypes,
+} from '@/utils/echartsOptionParser'
+
+async function collectEChartsChartTypesFromMarkdown(content) {
+  const chartTypes = new Set()
+  const codeBlockRegex = /```echarts[^\n\r]*\r?\n([\s\S]*?)```/g
+  let match
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    try {
+      const types = await extractEChartsChartTypes(match[1])
+      types.forEach((type) => chartTypes.add(type))
+    } catch (error) {
+      // 解析失败留给真正渲染阶段处理，这里只做预加载类型推断
+    }
+  }
+
+  return Array.from(chartTypes)
+}
 
 export function highlight() {
   if (!isHighlightJsLoaded()) {
@@ -295,8 +314,10 @@ export function detectAndLoadResources() {
     this.renderMermaid()
   }
 
-  if (content.includes('```echarts') && !isEChartsLoaded()) {
-    const echartsTask = loadEChartsResources().then(() => {
+  if (content.includes('```echarts')) {
+    const echartsTask = collectEChartsChartTypesFromMarkdown(content)
+      .then((chartTypes) => loadEChartsResources(chartTypes))
+      .then(() => {
       if (this.loadingArticleId !== articleId) {
         return
       }
@@ -305,8 +326,6 @@ export function detectAndLoadResources() {
       })
     })
     loadTasks.push(echartsTask)
-  } else if (content.includes('```echarts')) {
-    this.renderECharts()
   }
 
   const refreshToc = () => {
@@ -476,8 +495,30 @@ export async function renderECharts() {
   const echartsBlocks = entryContent.querySelectorAll('pre code.language-echarts')
   if (echartsBlocks.length === 0) return
 
-  if (!isEChartsLoaded()) {
-    await loadEChartsResources()
+  const parsedConfigs = new Map()
+  const requiredChartTypes = new Set()
+
+  for (let i = 0; i < echartsBlocks.length; i++) {
+    const codeBlock = echartsBlocks[i]
+    const pre = codeBlock.parentElement
+    if (!pre || pre.classList.contains('echarts-rendered')) {
+      continue
+    }
+
+    const code = codeBlock.textContent
+    try {
+      const config = await parseEChartsOption(code)
+      parsedConfigs.set(pre, config)
+
+      const chartTypes = await extractEChartsChartTypes(config)
+      chartTypes.forEach((type) => requiredChartTypes.add(type))
+    } catch (error) {
+      // 解析失败时在实际渲染循环中回显错误提示
+    }
+  }
+
+  if (parsedConfigs.size > 0) {
+    await loadEChartsResources(Array.from(requiredChartTypes))
   }
 
   if (!window.echarts) {
@@ -497,24 +538,26 @@ export async function renderECharts() {
 
       try {
         const code = codeBlock.textContent
-        let config
-        try {
-          config = await parseEChartsOption(code)
-        } catch (parseError) {
-          pre.classList.remove('chart-loading')
-          pre.classList.add('echarts-rendered')
-          pre.setAttribute(
-            'data-echarts-error',
-            String(parseError?.message || parseError)
-          )
-          if (!pre.hasAttribute('data-echarts-error-rendered')) {
-            const errorEl = document.createElement('div')
-            errorEl.className = 'echarts-error-message'
-            errorEl.textContent = `ECharts 配置解析失败：${String(
-              parseError?.message || parseError
-            )}\n请使用纯 JSON/JSON5（支持注释、单引号、尾逗号、未加引号的 key），暂不支持 function/=>`
-            pre.parentNode.insertBefore(errorEl, pre)
-            pre.setAttribute('data-echarts-error-rendered', 'true')
+        const config = parsedConfigs.get(pre)
+        if (!config) {
+          try {
+            await parseEChartsOption(code)
+          } catch (parseError) {
+            pre.classList.remove('chart-loading')
+            pre.classList.add('echarts-rendered')
+            pre.setAttribute(
+              'data-echarts-error',
+              String(parseError?.message || parseError)
+            )
+            if (!pre.hasAttribute('data-echarts-error-rendered')) {
+              const errorEl = document.createElement('div')
+              errorEl.className = 'echarts-error-message'
+              errorEl.textContent = `ECharts 配置解析失败：${String(
+                parseError?.message || parseError
+              )}\n请使用纯 JSON/JSON5（支持注释、单引号、尾逗号、未加引号的 key），暂不支持 function/=>`
+              pre.parentNode.insertBefore(errorEl, pre)
+              pre.setAttribute('data-echarts-error-rendered', 'true')
+            }
           }
           continue
         }

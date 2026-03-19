@@ -7,6 +7,11 @@
 <script>
 import { $on, $off, $once, $emit } from '../utils/gogocodeTransfer'
 import Vditor from 'vditor'
+import { loadEChartsResources } from '@/utils/resourceLoaders/resourceLoader'
+import {
+  parseEChartsOption,
+  extractEChartsChartTypes,
+} from '@/utils/echartsOptionParser'
 // 注意：Vditor CSS 动态加载，只在需要时引入
 let vditorStyleLoaded = false
 
@@ -647,14 +652,9 @@ export default {
       window.addEventListener('storage', this._storageListener)
     },
     // 渲染 ECharts 图表（预览区域）
-    renderEChartsInPreview() {
+    async renderEChartsInPreview() {
       // 防止重复执行
       if (this._isRenderingECharts) {
-        return
-      }
-
-      // 确保 ECharts 已加载
-      if (typeof echarts === 'undefined') {
         return
       }
 
@@ -678,6 +678,44 @@ export default {
         this._echartsInstances = []
       }
 
+      const parsedConfigs = new Map()
+      const requiredChartTypes = new Set()
+
+      for (let i = 0; i < echartsBlocks.length; i++) {
+        const codeBlock = echartsBlocks[i]
+        const pre = codeBlock.parentElement
+
+        if (
+          !pre ||
+          pre.classList.contains('echarts-rendered') ||
+          pre.hasAttribute('data-echarts-rendered')
+        ) {
+          continue
+        }
+
+        try {
+          const code = codeBlock.textContent
+          const config = await parseEChartsOption(code)
+          parsedConfigs.set(pre, config)
+
+          const chartTypes = await extractEChartsChartTypes(config)
+          chartTypes.forEach((type) => requiredChartTypes.add(type))
+        } catch (error) {
+          console.error('Vditor 预览中 ECharts 配置解析失败:', error)
+        }
+      }
+
+      if (parsedConfigs.size === 0) {
+        return
+      }
+
+      await loadEChartsResources(Array.from(requiredChartTypes))
+
+      const echarts = window.echarts
+      if (!echarts) {
+        return
+      }
+
       this._isRenderingECharts = true
 
       try {
@@ -699,7 +737,10 @@ export default {
 
             // 解析 JSON 配置
             const code = codeBlock.textContent
-            const config = JSON.parse(code)
+            const config = parsedConfigs.get(pre)
+            if (!config) {
+              return
+            }
 
             // 创建容器
             const container = document.createElement('div')
@@ -748,6 +789,11 @@ export default {
       if (!this.editor) return
 
       try {
+        const echarts = window.echarts
+        if (!echarts) {
+          return
+        }
+
         // 切换 ECharts 主题
         if (this._echartsInstances && this._echartsInstances.length > 0) {
           const previewElement =

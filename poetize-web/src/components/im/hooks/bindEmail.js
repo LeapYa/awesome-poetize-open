@@ -1,7 +1,8 @@
 import { useMainStore } from '../../../stores/main'; import { useImStore } from '../../../stores/im';
-import { ElMessageBox } from 'element-plus';
+import { confirm as ElMessageBoxConfirm, prompt as ElMessageBoxPrompt } from '@/utils/element-command-services';
+const ElMessageBox = { confirm: ElMessageBoxConfirm, prompt: ElMessageBoxPrompt };
 import {nextTick} from 'vue';
-import {ElMessage} from "element-plus";
+import { message as ElMessage } from '@/utils/element-command-services';
 import {reactive, getCurrentInstance, onMounted, onBeforeUnmount, watchEffect, toRefs} from 'vue';
 import { encrypt } from '../../../utils/crypto-utils';
 export default function () {

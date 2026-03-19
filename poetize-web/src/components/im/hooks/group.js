@@ -1,5 +1,5 @@
 import { useMainStore } from '../../../stores/main'; import { useImStore } from '../../../stores/im';
-import { ElMessage } from "element-plus";
+import { message as ElMessage } from '@/utils/element-command-services';
 import { reactive, getCurrentInstance } from 'vue';
 export default function () {
   const globalProperties = getCurrentInstance().appContext.config.globalProperties;

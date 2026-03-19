@@ -369,7 +369,7 @@
   
   
   import {nextTick} from 'vue';
-  import {ElMessage} from "element-plus";
+  import { message as ElMessage } from '@/utils/element-command-services';
   import emoji from "./emoji";
   import uploadPicture from "./uploadPicture";
   import {ArrowLeft} from "@element-plus/icons-vue";

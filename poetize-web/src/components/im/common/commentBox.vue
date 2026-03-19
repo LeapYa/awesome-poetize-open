@@ -82,7 +82,7 @@
   import proButton from "./proButton";
   import emoji from "./emoji";
   import uploadPicture from "./uploadPicture";
-  import {ElMessage} from "element-plus";
+  import { message as ElMessage } from '@/utils/element-command-services';
   import { useMainStore } from '../../../stores/main';
   
   export default {

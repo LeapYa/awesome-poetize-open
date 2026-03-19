@@ -41,7 +41,7 @@
   </div>
 </template>
 <script>
-  import {ElMessage} from "element-plus";
+  import { message as ElMessage } from '@/utils/element-command-services';
   import upload from '../../../utils/imUtils/ajaxUpload';
   import { ref, computed, getCurrentInstance } from 'vue';
   import { useMainStore } from '../../../stores/main';

@@ -6,7 +6,7 @@ import Tiows from './tiows.js'
 import { WebSocketStateMachine, WsState } from './wsStateMachine.js'
 import { TimerManager, TimerNames } from './timerManager.js'
 import { ReconnectStrategy, ReconnectManager } from './reconnectStrategy.js'
-import { ElMessage } from 'element-plus'
+import { message as ElMessage } from '@/utils/element-command-services';
 import constant from '../constant'
 
 // 全局清理旧实例的引用

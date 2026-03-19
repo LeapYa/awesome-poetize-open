@@ -198,7 +198,7 @@
   
   
   import {nextTick} from 'vue';
-  import {ElMessage} from "element-plus";
+  import { message as ElMessage } from '@/utils/element-command-services';
   import {ArrowLeft} from "@element-plus/icons-vue";
   import {reactive, getCurrentInstance, onMounted, onBeforeUnmount, watchEffect, toRefs} from 'vue';
   export default {

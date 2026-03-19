@@ -630,7 +630,8 @@
   import { useMainStore } from '../../stores/main';
   import { useImStore } from '../../stores/im';
   import {nextTick} from 'vue';
-  import {ElMessage, ElMessageBox, ElNotification} from "element-plus";
+  import { message as ElMessage, confirm as ElMessageBoxConfirm, prompt as ElMessageBoxPrompt, notification as ElNotification } from '@/utils/element-command-services';
+  const ElMessageBox = { confirm: ElMessageBoxConfirm, prompt: ElMessageBoxPrompt };
   import {ArrowLeft} from "@element-plus/icons-vue";
   import bindEmail from "./hooks/bindEmail";
   import friendCircle from "./hooks/friendCircle";

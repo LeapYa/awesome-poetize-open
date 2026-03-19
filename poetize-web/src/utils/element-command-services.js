@@ -7,11 +7,16 @@ let elementCommandServicesPromise
 
 function loadElementCommandServices() {
   if (!elementCommandServicesPromise) {
-    elementCommandServicesPromise = import('element-plus').then((module) => ({
-      message: module.ElMessage,
-      messageBox: module.ElMessageBox,
-      notification: module.ElNotification,
-      loading: module.ElLoading,
+    elementCommandServicesPromise = Promise.all([
+      import('element-plus/es/components/message/index'),
+      import('element-plus/es/components/message-box/index'),
+      import('element-plus/es/components/notification/index'),
+      import('element-plus/es/components/loading/index'),
+    ]).then(([messageModule, messageBoxModule, notificationModule, loadingModule]) => ({
+      message: messageModule.ElMessage,
+      messageBox: messageBoxModule.ElMessageBox,
+      notification: notificationModule.ElNotification,
+      loading: loadingModule.ElLoading,
     }))
   }
 

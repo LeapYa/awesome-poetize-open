@@ -6,9 +6,192 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
-import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+const ELEMENT_PLUS_SHARED_COMPONENT_ROOTS = {
+  ElAside: 'container',
+  ElButtonGroup: 'button',
+  ElCheckboxButton: 'checkbox',
+  ElCheckboxGroup: 'checkbox',
+  ElCollapseItem: 'collapse',
+  ElContainer: 'container',
+  ElDropdownItem: 'dropdown',
+  ElDropdownMenu: 'dropdown',
+  ElFooter: 'container',
+  ElFormItem: 'form',
+  ElHeader: 'container',
+  ElMain: 'container',
+  ElMenuItem: 'menu',
+  ElMenuItemGroup: 'menu',
+  ElOption: 'select',
+  ElOptionGroup: 'select',
+  ElRadioButton: 'radio',
+  ElRadioGroup: 'radio',
+  ElSubMenu: 'menu',
+  ElTabPane: 'tabs',
+  ElTableColumn: 'table',
+  ElTimelineItem: 'timeline',
+  ElTreeSelect: 'tree-select',
+}
+
+function toKebabCase(value) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .toLowerCase()
+}
+
+function getElementPlusDirectImport(componentName) {
+  if (!/^El[A-Z]/.test(componentName)) {
+    return null
+  }
+
+  if (/^ElIcon(?!$)/.test(componentName)) {
+    return null
+  }
+
+  const importName = componentName
+  const rootName =
+    ELEMENT_PLUS_SHARED_COMPONENT_ROOTS[componentName] ||
+    toKebabCase(componentName.slice(2))
+
+  return {
+    name: importName,
+    from: `element-plus/es/components/${rootName}/index`,
+    sideEffects: [`element-plus/es/components/${rootName}/style/css`],
+  }
+}
+
+function createDirectElementPlusResolver() {
+  return {
+    type: 'component',
+    resolve: getElementPlusDirectImport,
+  }
+}
+
+function getElementPlusChunkName(normalizedId) {
+  if (normalizedId.includes('/node_modules/dayjs/')) {
+    return 'dayjs'
+  }
+
+  if (
+    normalizedId.includes('/node_modules/@floating-ui/') ||
+    normalizedId.includes('/node_modules/@popperjs/core/')
+  ) {
+    return 'ep-overlay'
+  }
+
+  if (normalizedId.includes('/node_modules/async-validator/')) {
+    return 'ep-form-input'
+  }
+
+  if (
+    !normalizedId.includes('/node_modules/element-plus/') &&
+    !normalizedId.includes('/node_modules/@element-plus/')
+  ) {
+    return null
+  }
+
+  if (normalizedId.includes('/node_modules/@element-plus/icons-vue/')) {
+    return 'ep-icons'
+  }
+
+  if (
+    normalizedId.includes('/components/message') ||
+    normalizedId.includes('/components/message-box') ||
+    normalizedId.includes('/components/notification') ||
+    normalizedId.includes('/components/loading')
+  ) {
+    return 'ep-feedback'
+  }
+
+  if (
+    normalizedId.includes('/components/dialog') ||
+    normalizedId.includes('/components/drawer') ||
+    normalizedId.includes('/components/popover') ||
+    normalizedId.includes('/components/popconfirm') ||
+    normalizedId.includes('/components/overlay') ||
+    normalizedId.includes('/components/popper') ||
+    normalizedId.includes('/components/popper-content') ||
+    normalizedId.includes('/components/focus-trap') ||
+    normalizedId.includes('/components/tooltip') ||
+    normalizedId.includes('/components/tour')
+  ) {
+    return 'ep-overlay'
+  }
+
+  if (
+    normalizedId.includes('/components/form') ||
+    normalizedId.includes('/components/input') ||
+    normalizedId.includes('/components/input-number')
+  ) {
+    return 'ep-form-input'
+  }
+
+  if (
+    normalizedId.includes('/components/select') ||
+    normalizedId.includes('/components/option') ||
+    normalizedId.includes('/components/option-group') ||
+    normalizedId.includes('/components/checkbox') ||
+    normalizedId.includes('/components/radio') ||
+    normalizedId.includes('/components/switch') ||
+    normalizedId.includes('/components/slider') ||
+    normalizedId.includes('/components/cascader') ||
+    normalizedId.includes('/components/color-picker')
+  ) {
+    return 'ep-form-choice'
+  }
+
+  if (
+    normalizedId.includes('/components/date-picker') ||
+    normalizedId.includes('/components/time-picker') ||
+    normalizedId.includes('/components/time-select') ||
+    normalizedId.includes('/components/calendar')
+  ) {
+    return 'ep-form-picker'
+  }
+
+  if (normalizedId.includes('/components/upload')) {
+    return 'ep-upload'
+  }
+
+  if (
+    normalizedId.includes('/components/image') ||
+    normalizedId.includes('/components/avatar') ||
+    normalizedId.includes('/components/card') ||
+    normalizedId.includes('/components/descriptions') ||
+    normalizedId.includes('/components/empty') ||
+    normalizedId.includes('/components/result') ||
+    normalizedId.includes('/components/skeleton') ||
+    normalizedId.includes('/components/tag') ||
+    normalizedId.includes('/components/text')
+  ) {
+    return 'ep-display'
+  }
+
+  if (
+    normalizedId.includes('/components/collapse') ||
+    normalizedId.includes('/components/tabs') ||
+    normalizedId.includes('/components/dropdown') ||
+    normalizedId.includes('/components/badge') ||
+    normalizedId.includes('/components/divider') ||
+    normalizedId.includes('/components/scrollbar')
+  ) {
+    return 'ep-nav'
+  }
+
+  if (
+    normalizedId.includes('/components/button') ||
+    normalizedId.includes('/components/link') ||
+    normalizedId.includes('/components/progress') ||
+    normalizedId.includes('/components/steps')
+  ) {
+    return 'ep-actions'
+  }
+
+  return 'ep-shared'
+}
 
 function captchaObfuscator() {
   return {
@@ -44,9 +227,8 @@ function captchaObfuscator() {
 export default defineConfig({
   plugins: [
     vue(),
-    // Element Plus 按需自动导入
+    // 仅自动导入 Vue / Vue Router API，避免把 Element Plus JS 标识符重新指回聚合入口
     AutoImport({
-      resolvers: [ElementPlusResolver()],
       imports: ['vue', 'vue-router'],
       dts: false, // 不生成 d.ts 文件
     }),
@@ -59,13 +241,8 @@ export default defineConfig({
         '!src/components/im/common/uploadPicture.vue',
       ],
       resolvers: [
-        // 配置 ElementPlusResolver 不自动导入图标
-        // 图标由项目自行手动导入和注册
-        ElementPlusResolver({
-          importStyle: 'css',
-          // 排除图标组件的自动导入（以 ElIcon 开头但不是 ElIcon 本身的）
-          exclude: /^ElIcon(?!$)/,
-        }),
+        // 直接指向组件子入口，避免统一经过 element-plus/es 聚合入口
+        createDirectElementPlusResolver(),
       ],
       excludeNames: [
         /^(AsyncNotification|CaptchaContainer)$/,
@@ -130,16 +307,15 @@ export default defineConfig({
             if (id.match(/[\\/]node_modules[\\/](vue|@vue|pinia|vue-router)/)) {
               return 'framework';
             }
-            // Element Plus 在不同路由和异步组件中复用很多。
-            // 不再强制合并成单个超大共享 chunk，让 Vite / Rolldown
-            // 根据实际引用关系自动拆分，减少文章页、首页等首屏共享负担。
-            if (id.includes('element-plus') || id.includes('@element-plus')) {
-              return;
+            // Element Plus 的“按需导入”只保证源码层面不整包引入，
+            // 但在大量异步页面共同依赖时，Rolldown 仍可能把它们重新折叠
+            // 成一个超大共享 chunk。这里按能力域继续拆分，避免再次聚合。
+            const elementPlusChunk = getElementPlusChunkName(normalizedId)
+            if (elementPlusChunk) {
+              return elementPlusChunk
             }
-            // ECharts 图表库
-            if (id.includes('echarts') || id.includes('zrender')) {
-              return 'echarts';
-            }
+            // ECharts 通过运行时按图表类型动态导入，交给 Vite 自动拆分
+            // 避免这里强制合并成单个大 chunk
             // Vditor 编辑器
             if (id.includes('vditor')) {
               return 'vditor';

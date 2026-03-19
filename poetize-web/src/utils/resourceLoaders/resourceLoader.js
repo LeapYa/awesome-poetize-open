@@ -169,68 +169,130 @@ export function isEChartsLoaded() {
   return typeof window.echarts !== 'undefined'
 }
 
-/**
- * 加载ECharts图表库（模块化导入优化）
- */
-export async function loadEChartsResources() {
-  if (isEChartsLoaded()) {
-    return true
+const ECHARTS_TYPE_TO_GROUP = {
+  line: 'basic',
+  bar: 'basic',
+  pie: 'basic',
+  scatter: 'advanced',
+  radar: 'advanced',
+  gauge: 'advanced',
+}
+
+const ECHARTS_DEFAULT_GROUPS = ['basic', 'advanced']
+const echartsLoadedGroups = new Set()
+const echartsGroupPromises = new Map()
+let echartsCorePromise = null
+
+function normalizeEChartsChartTypes(chartTypes) {
+  if (!chartTypes) {
+    return []
   }
 
+  if (typeof chartTypes === 'string') {
+    return [chartTypes.trim().toLowerCase()].filter(Boolean)
+  }
+
+  if (Array.isArray(chartTypes)) {
+    return chartTypes
+      .map((item) => String(item ?? '').trim().toLowerCase())
+      .filter(Boolean)
+  }
+
+  if (chartTypes instanceof Set) {
+    return Array.from(chartTypes)
+      .map((item) => String(item ?? '').trim().toLowerCase())
+      .filter(Boolean)
+  }
+
+  return []
+}
+
+function resolveEChartsGroups(chartTypes) {
+  const normalizedTypes = normalizeEChartsChartTypes(chartTypes)
+  if (normalizedTypes.length === 0) {
+    return [...ECHARTS_DEFAULT_GROUPS]
+  }
+
+  const groups = new Set()
+  normalizedTypes.forEach((type) => {
+    const groupName = ECHARTS_TYPE_TO_GROUP[type]
+    if (groupName) {
+      groups.add(groupName)
+    }
+  })
+
+  if (groups.size === 0) {
+    return [...ECHARTS_DEFAULT_GROUPS]
+  }
+
+  return Array.from(groups)
+}
+
+async function ensureEChartsCore() {
+  if (!echartsCorePromise) {
+    echartsCorePromise = import('./echarts-core-loader.js')
+      .then((module) => {
+        const echarts = module.ensureEChartsCore()
+        window.echarts = echarts
+        return echarts
+      })
+      .catch((error) => {
+        echartsCorePromise = null
+        throw error
+      })
+  }
+
+  const echarts = await echartsCorePromise
+  window.echarts = echarts
+  return echarts
+}
+
+const ECHARTS_GROUP_LOADERS = {
+  basic: () => import('./echarts-basic-loader.js'),
+  advanced: () => import('./echarts-advanced-loader.js'),
+}
+
+function loadEChartsChartGroup(groupName) {
+  if (echartsLoadedGroups.has(groupName)) {
+    return Promise.resolve(window.echarts)
+  }
+
+  if (!echartsGroupPromises.has(groupName)) {
+    const loaderPromise = ensureEChartsCore()
+      .then(async (echarts) => {
+        const loadGroupModule = ECHARTS_GROUP_LOADERS[groupName]
+
+        if (!loadGroupModule) {
+          throw new Error(`未知的 ECharts 图表分组: ${groupName}`)
+        }
+
+        const loaderModule = await loadGroupModule()
+
+        loaderModule.registerEChartsChartGroup(echarts)
+        echartsLoadedGroups.add(groupName)
+        return echarts
+      })
+      .catch((error) => {
+        echartsGroupPromises.delete(groupName)
+        throw error
+      })
+
+    echartsGroupPromises.set(groupName, loaderPromise)
+  }
+
+  return echartsGroupPromises.get(groupName)
+}
+
+/**
+ * 加载ECharts图表库（按图表类型拆分加载）
+ */
+export async function loadEChartsResources(chartTypes) {
   try {
-    // 模块化导入 ECharts，只加载需要的组件（Tree Shaking 优化）
-    const echarts = await import('echarts/core')
-
-    // 导入需要的图表类型
-    const {
-      LineChart,
-      BarChart,
-      PieChart,
-      ScatterChart,
-      RadarChart,
-      GaugeChart,
-    } = await import('echarts/charts')
-
-    // 导入需要的组件
-    const {
-      TitleComponent,
-      TooltipComponent,
-      GridComponent,
-      LegendComponent,
-      DataZoomComponent,
-      ToolboxComponent,
-      MarkLineComponent,
-      MarkPointComponent,
-    } = await import('echarts/components')
-
-    // 导入渲染器
-    const { CanvasRenderer } = await import('echarts/renderers')
-
-    // 注册所有模块
-    echarts.use([
-      LineChart,
-      BarChart,
-      PieChart,
-      ScatterChart,
-      RadarChart,
-      GaugeChart,
-      TitleComponent,
-      TooltipComponent,
-      GridComponent,
-      LegendComponent,
-      DataZoomComponent,
-      ToolboxComponent,
-      MarkLineComponent,
-      MarkPointComponent,
-      CanvasRenderer,
-    ])
-
-    // 将echarts挂载到window对象，供其他地方使用
-    window.echarts = echarts
-
+    const groups = resolveEChartsGroups(chartTypes)
+    await Promise.all(groups.map((groupName) => loadEChartsChartGroup(groupName)))
     return true
   } catch (error) {
-    console.error('ECharts模块化加载失败:', error)
+    console.error('ECharts按需加载失败:', error)
     return false
   }
 }

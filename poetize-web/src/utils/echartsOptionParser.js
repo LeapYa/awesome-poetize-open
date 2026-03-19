@@ -26,3 +26,55 @@ export async function parseEChartsOption(rawCode) {
   }
   return JSON5.parse(normalized)
 }
+
+function addSeriesChartTypes(series, chartTypes) {
+  if (!series) {
+    return
+  }
+
+  const seriesList = Array.isArray(series) ? series : [series]
+  seriesList.forEach((item) => {
+    if (!item || typeof item !== 'object') {
+      return
+    }
+
+    if (typeof item.type === 'string' && item.type.trim()) {
+      chartTypes.add(item.type.trim().toLowerCase())
+    }
+  })
+}
+
+function collectOptionChartTypes(option, chartTypes) {
+  if (!option || typeof option !== 'object') {
+    return
+  }
+
+  addSeriesChartTypes(option.series, chartTypes)
+
+  if (option.baseOption) {
+    collectOptionChartTypes(option.baseOption, chartTypes)
+  }
+
+  if (Array.isArray(option.options)) {
+    option.options.forEach((item) => collectOptionChartTypes(item, chartTypes))
+  }
+
+  if (Array.isArray(option.media)) {
+    option.media.forEach((item) => {
+      if (item?.option) {
+        collectOptionChartTypes(item.option, chartTypes)
+      }
+    })
+  }
+}
+
+export async function extractEChartsChartTypes(optionSource) {
+  const option =
+    typeof optionSource === 'string'
+      ? await parseEChartsOption(optionSource)
+      : optionSource
+
+  const chartTypes = new Set()
+  collectOptionChartTypes(option, chartTypes)
+  return Array.from(chartTypes)
+}

@@ -25,9 +25,18 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.ArrayList;
 import java.util.stream.Collectors;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -254,7 +263,13 @@ public class ResourceController {
             re.setStoreType(fileVO.getStoreType());
             re.setOriginalName(fileVO.getOriginalName());
             re.setUserId(PoetryUtil.getUserId());
-            
+            // 读取图片宽高并写入资源记录
+            int[] dims = readImageDimensions(processedFile.getBytes());
+            if (dims != null) {
+                re.setWidth(dims[0]);
+                re.setHeight(dims[1]);
+            }
+
             // 先查询是否已存在相同路径的资源
             Resource existingResource = resourceService.lambdaQuery()
                 .eq(Resource::getPath, result.getVisitPath())
@@ -268,10 +283,14 @@ public class ResourceController {
                 existingResource.setMimeType(processedFile.getContentType());
                 existingResource.setStoreType(fileVO.getStoreType());
                 existingResource.setUserId(PoetryUtil.getUserId());
+                if (dims != null) {
+                    existingResource.setWidth(dims[0]);
+                    existingResource.setHeight(dims[1]);
+                }
                 resourceService.updateById(existingResource);
             } else {
                 // 不存在则保存新记录
-            resourceService.save(re);
+                resourceService.save(re);
             }
             
             return PoetryResult.success(result.getVisitPath());
@@ -642,6 +661,161 @@ public class ResourceController {
         int dotIndex = originalFileName.lastIndexOf('.');
         String baseName = dotIndex > 0 ? originalFileName.substring(0, dotIndex) : originalFileName;
         return baseName + "." + extension;
+    }
+
+
+    /**
+     * 批量查询图片宽高（前台文章渲染时调用）。
+     * 请求体：{ "paths": ["http://...img1.jpg", "http://...img2.webp", ...] }
+     * 响应：{ "data": { "http://...img1.jpg": {"width": 800, "height": 600}, ... } }
+     * 无需登录，任何人均可访问（只读操作）。
+     */
+    @PostMapping("/imageDimensions")
+    public PoetryResult<Map<String, Map<String, Integer>>> getImageDimensions(
+            @RequestBody Map<String, List<String>> body) {
+        List<String> paths = body == null ? null : body.get("paths");
+        if (paths == null || paths.isEmpty()) {
+            return PoetryResult.success(Collections.emptyMap());
+        }
+        // 防止单次请求过大
+        if (paths.size() > 500) {
+            paths = paths.subList(0, 500);
+        }
+
+        List<Resource> resources = resourceService.lambdaQuery()
+                .in(Resource::getPath, paths)
+                .select(Resource::getPath, Resource::getWidth, Resource::getHeight)
+                .list();
+
+        Map<String, Resource> resourceByPath = resources.stream()
+                .collect(Collectors.toMap(Resource::getPath, r -> r, (a, b) -> a));
+
+        Map<String, Map<String, Integer>> result = new ConcurrentHashMap<>();
+        List<String> missingPaths = new ArrayList<>();
+
+        for (String path : paths) {
+            Resource r = resourceByPath.get(path);
+            if (r != null && r.getWidth() != null && r.getHeight() != null) {
+                result.put(path, buildDimensionMap(r.getWidth(), r.getHeight()));
+                continue;
+            }
+
+            missingPaths.add(path);
+        }
+
+        if (!missingPaths.isEmpty()) {
+            try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+                List<Future<?>> futures = new ArrayList<>();
+                for (String path : missingPaths) {
+                    Resource resource = resourceByPath.get(path);
+                    futures.add(executor.submit(() -> {
+                        int[] resolvedDims = resolveAndPersistImageDimensions(path, resource);
+                        if (resolvedDims != null) {
+                            result.put(path, buildDimensionMap(resolvedDims[0], resolvedDims[1]));
+                        }
+                    }));
+                }
+
+                for (Future<?> future : futures) {
+                    future.get();
+                }
+            } catch (Exception e) {
+                log.debug("并发查询图片宽高失败: {}", e.getMessage());
+            }
+        }
+
+        return PoetryResult.success(result);
+    }
+
+    /**
+     * 从 byte[] 读取图片宽高，非图片或解析失败返回 null
+     */
+    private int[] readImageDimensions(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return null;
+        try {
+            BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
+            if (img == null) return null;
+            return new int[]{img.getWidth(), img.getHeight()};
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 从 URL（或本地文件路径）读取图片宽高，失败返回 null（供回填使用）
+     */
+    private int[] readImageDimensionsFromUrl(String path) {
+        if (!StringUtils.hasText(path)) return null;
+        try {
+            java.io.InputStream is;
+            if (path.startsWith("http://") || path.startsWith("https://")) {
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
+                        new java.net.URL(path).openConnection();
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(10000);
+                conn.setRequestProperty("User-Agent", "Poetize-Backfill/1.0");
+                is = conn.getInputStream();
+            } else {
+                java.io.File file = new java.io.File(path);
+                if (!file.exists() || !file.isFile()) return null;
+                is = new java.io.FileInputStream(file);
+            }
+            try (is) {
+                BufferedImage img = ImageIO.read(is);
+                if (img == null) return null;
+                return new int[]{img.getWidth(), img.getHeight()};
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Map<String, Integer> buildDimensionMap(int width, int height) {
+        Map<String, Integer> dims = new HashMap<>();
+        dims.put("width", width);
+        dims.put("height", height);
+        return dims;
+    }
+
+    /**
+     * 首次命中旧文章图片时，现场解析图片尺寸并回写资源表。
+     * 这样无需任何人工触发兼容流程，旧文章会在正常访问中自动完成迁移。
+     */
+    private int[] resolveAndPersistImageDimensions(String path, Resource existingResource) {
+        if (!StringUtils.hasText(path)) {
+            return null;
+        }
+
+        int[] dims = readImageDimensionsFromUrl(path);
+        if (dims == null) {
+            return null;
+        }
+
+        try {
+            if (existingResource != null && existingResource.getId() != null) {
+                Resource update = new Resource();
+                update.setId(existingResource.getId());
+                update.setWidth(dims[0]);
+                update.setHeight(dims[1]);
+                resourceService.updateById(update);
+            } else {
+                Resource matched = resourceService.lambdaQuery()
+                        .eq(Resource::getPath, path)
+                        .select(Resource::getId, Resource::getWidth, Resource::getHeight)
+                        .one();
+                if (matched != null && matched.getId() != null) {
+                    Resource update = new Resource();
+                    update.setId(matched.getId());
+                    update.setWidth(dims[0]);
+                    update.setHeight(dims[1]);
+                    resourceService.updateById(update);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("自动回填图片宽高失败: path={}, err={}", path, e.getMessage());
+        }
+
+        return dims;
     }
 
     /**

@@ -80,6 +80,18 @@ public class Resource implements Serializable {
     private String originalName;
 
     /**
+     * 图片宽度（像素），非图片资源为 null
+     */
+    @TableField("width")
+    private Integer width;
+
+    /**
+     * 图片高度（像素），非图片资源为 null
+     */
+    @TableField("height")
+    private Integer height;
+
+    /**
      * 创建时间
      */
     @TableField("create_time")

@@ -780,14 +780,6 @@ export default {
       isToPage = false,
       isLazyLoad = false
     ) {
-      if (this.$common.isEmpty(floorComment)) {
-        // 🔧 懒加载模式：不清空已有评论，而是追加
-        if (!isLazyLoad) {
-          this.expandedComments = {}
-          this.comments = []
-        }
-      }
-
       this.$http
         .post(this.$constant.baseURL + '/comment/listComment', pagination)
         .then((res) => {
@@ -796,7 +788,7 @@ export default {
             !this.$common.isEmpty(res.data.records)
           ) {
             if (this.$common.isEmpty(floorComment)) {
-              // 🔧 懒加载模式处理
+              // 懒加载模式处理
               if (isLazyLoad) {
                 // 追加新评论到现有列表
                 this.comments = this.comments.concat(res.data.records)
@@ -806,6 +798,8 @@ export default {
                 this.isLoadingMore = false
               } else {
                 // 初始加载或传统分页模式
+                // 在拿到新数据后再清空旧数据，避免网络延迟时评论区短暂变空
+                this.expandedComments = {}
                 this.comments = res.data.records
                 this.hasMoreComments =
                   res.data.records.length === pagination.size
@@ -867,11 +861,16 @@ export default {
             if (this.$common.isEmpty(floorComment)) {
               this.isLoadingMore = false
               this.hasMoreComments = false
+              // 非懒加载模式下接口返回空，才清掉旧评论（正常换页/切文章场景）
+              if (!isLazyLoad) {
+                this.expandedComments = {}
+                this.comments = []
+              }
             }
           }
         })
         .catch((error) => {
-          // 🔧 懒加载错误处理
+          // 懒加载错误处理
           if (isLazyLoad) {
             this.isLoadingMore = false
             this.pagination.current -= 1 // 回退页码

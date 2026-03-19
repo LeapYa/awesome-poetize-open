@@ -218,6 +218,8 @@ CREATE TABLE `poetize`.`resource` (
   `size` int DEFAULT NULL COMMENT '资源内容的大小，单位：字节',
   `original_name` varchar(512) DEFAULT NULL COMMENT '文件名称',
   `mime_type` varchar(256) DEFAULT NULL COMMENT '资源的 MIME 类型',
+  `width` int DEFAULT NULL COMMENT '图片宽度（像素）',
+  `height` int DEFAULT NULL COMMENT '图片高度（像素）',
   `status` tinyint(1) NOT NULL DEFAULT 1 COMMENT '是否启用[0:否，1:是]',
   `store_type` varchar(16) DEFAULT NULL COMMENT '存储平台',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',

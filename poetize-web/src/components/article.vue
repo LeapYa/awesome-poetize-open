@@ -777,6 +777,8 @@ export default {
       this.renderECharts()
       this.addId()
       this.detectAndLoadResources()
+      // 异步注入图片宽高，让浏览器提前预留占位，避免目录跳转偏移
+      this.injectImageDimensions()
 
       if (setupCommentObserver) {
         this.setupCommentIntersectionObserver()
@@ -1426,6 +1428,55 @@ export default {
     // 检测文章内容中需要加载的资源（异步并行，不阻塞渲染）
     // 注意：此方法应在 $nextTick 中调用，确保 DOM 已渲染
     detectAndLoadResources,
+
+    /**
+     * 异步查询文章图片宽高并注入 width/height 属性，使浏览器提前分配占位空间。
+     * 这样在目录跳转时，图片还没加载也不会引起布局偏移（Layout Shift）。
+     * 采用 best-effort 策略：失败不影响正常渲染。
+     */
+    async injectImageDimensions() {
+      await this.$nextTick()
+      const imgs = Array.from(document.querySelectorAll('.entry-content img'))
+      if (!imgs.length) return
+
+      // 只处理尚未有明确尺寸属性的图片
+      const targets = imgs.filter(
+        (img) => !img.getAttribute('width') && !img.getAttribute('height')
+      )
+      if (!targets.length) return
+
+      // 收集所有需要查询的路径（绝对 URL 和 attribute 原始值都发过去）
+      const pathSet = new Set()
+      targets.forEach((img) => {
+        const absSrc = img.src
+        const attrSrc = img.getAttribute('src')
+        if (absSrc) pathSet.add(absSrc)
+        if (attrSrc && attrSrc !== absSrc) pathSet.add(attrSrc)
+      })
+
+      if (!pathSet.size) return
+
+      try {
+        const res = await this.$http.post(
+          this.$constant.baseURL + '/resource/imageDimensions',
+          { paths: Array.from(pathSet) }
+        )
+        const dimMap = res?.data
+        if (!dimMap) return
+
+        targets.forEach((img) => {
+          const absSrc = img.src
+          const attrSrc = img.getAttribute('src')
+          const dims = dimMap[absSrc] || dimMap[attrSrc]
+          if (dims?.width && dims?.height) {
+            img.setAttribute('width', dims.width)
+            img.setAttribute('height', dims.height)
+          }
+        })
+      } catch (e) {
+        // best-effort，静默忽略错误
+      }
+    },
 
     renderMermaid,
 

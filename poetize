@@ -6201,16 +6201,24 @@ apply_memory_optimizations() {
   local JAVA_METASPACE
   local JAVA_CLASS_SPACE
   local JAVA_XSS
+  local JAVA_CODE_CACHE
+  local JAVA_DIRECT_MEM
+  local JAVA_CI_COMPILER_COUNT
   
   local JAVA_LIMIT
+  local JAVA_RESERVATION
   local PYTHON_LIMIT
   local NGINX_LIMIT
   local MYSQL_LIMIT
+  local REDIS_LIMIT
+  local REDIS_RESERVATION
+  local PRERENDER_LIMIT
+  local PRERENDER_RESERVATION
   
   # 根据不同内存模式设置不同的参数，very-low:2G内存以下、low:2-4G内存、medium:4-8G内存、high:8-16G内存、very-high:16G内存以上
   case "$MEMORY_MODE" in
     "very-low")
-      # 总限制约1.9GB (768+512+128+512=1920MB)
+      # 总限制约1.9GB (Java:1024+Nginx:128+MySQL:512+Redis:64+Prerender:192=1920MB，超出物理内存部分依赖swap)
       MYSQL_BUFFER_POOL_SIZE="256M"
       MYSQL_LOG_BUFFER_SIZE="16M"
       MYSQL_QUERY_CACHE_SIZE="32M"
@@ -6223,19 +6231,27 @@ apply_memory_optimizations() {
       DRUID_MIN_IDLE="3"
       DRUID_MAX_ACTIVE="55"        # 60 - 5 = 55 (留5个余量)
       
-      JAVA_XMX="512m"
-      JAVA_XMS="256m"
-      JAVA_METASPACE="160m"
-      JAVA_CLASS_SPACE="144m"
+      JAVA_XMX="768m"
+      JAVA_XMS="512m"
+      JAVA_METASPACE="256m"
+      JAVA_CLASS_SPACE="128m"
       JAVA_XSS="512k"
+      JAVA_CODE_CACHE="80m"
+      JAVA_DIRECT_MEM="96m"
+      JAVA_CI_COMPILER_COUNT="2"
       
-      JAVA_LIMIT="768M"
+      JAVA_LIMIT="1024M"
+      JAVA_RESERVATION="768M"
       PYTHON_LIMIT="512M"
       NGINX_LIMIT="128M"
       MYSQL_LIMIT="512M"
+      REDIS_LIMIT="64M"
+      REDIS_RESERVATION="32M"
+      PRERENDER_LIMIT="192M"
+      PRERENDER_RESERVATION="128M"
       ;;
     "low")
-      # 总限制约2.6GB (960+512+192+896=2560MB)
+      # 总限制约2.9GB (Java:1536+Nginx:192+MySQL:896+Redis:128+Prerender:256=3008MB，超出物理内存部分依赖swap)
       MYSQL_BUFFER_POOL_SIZE="448M"
       MYSQL_LOG_BUFFER_SIZE="32M"
       MYSQL_QUERY_CACHE_SIZE="64M"
@@ -6248,20 +6264,28 @@ apply_memory_optimizations() {
       DRUID_MIN_IDLE="5"
       DRUID_MAX_ACTIVE="75"        # 80 - 5 = 75 (留5个余量)
       
-      JAVA_XMX="768m"
-      JAVA_XMS="512m"
-      JAVA_METASPACE="192m"
+      JAVA_XMX="1024m"
+      JAVA_XMS="768m"
+      JAVA_METASPACE="256m"
       JAVA_CLASS_SPACE="128m"
       JAVA_XSS="512k"
+      JAVA_CODE_CACHE="96m"
+      JAVA_DIRECT_MEM="128m"
+      JAVA_CI_COMPILER_COUNT="2"
       
-      JAVA_LIMIT="960M"
+      JAVA_LIMIT="1536M"
+      JAVA_RESERVATION="1280M"
       PYTHON_LIMIT="512M"
       NGINX_LIMIT="192M"
       MYSQL_LIMIT="896M"
+      REDIS_LIMIT="128M"
+      REDIS_RESERVATION="64M"
+      PRERENDER_LIMIT="256M"
+      PRERENDER_RESERVATION="128M"
       ;;
       
     "medium") 
-      # 总限制约3.8GB (1280+768+256+1536=3840MB)
+      # 总限制约4.25GB (Java:2048+Nginx:256+MySQL:1536+Redis:256+Prerender:256=4352MB)
       MYSQL_BUFFER_POOL_SIZE="768M"
       MYSQL_LOG_BUFFER_SIZE="64M"
       MYSQL_QUERY_CACHE_SIZE="128M"
@@ -6274,20 +6298,28 @@ apply_memory_optimizations() {
       DRUID_MIN_IDLE="10"
       DRUID_MAX_ACTIVE="140"       # 150 - 10 = 140 (留10个余量)
       
-      JAVA_XMX="1024m"
-      JAVA_XMS="768m"
-      JAVA_METASPACE="256m"
+      JAVA_XMX="1536m"
+      JAVA_XMS="1024m"
+      JAVA_METASPACE="384m"
       JAVA_CLASS_SPACE="128m"
       JAVA_XSS="1m"
+      JAVA_CODE_CACHE="128m"
+      JAVA_DIRECT_MEM="192m"
+      JAVA_CI_COMPILER_COUNT="2"
       
-      JAVA_LIMIT="1280M"
+      JAVA_LIMIT="2048M"
+      JAVA_RESERVATION="1536M"
       PYTHON_LIMIT="768M"
       NGINX_LIMIT="256M"
       MYSQL_LIMIT="1536M"
+      REDIS_LIMIT="256M"
+      REDIS_RESERVATION="128M"
+      PRERENDER_LIMIT="256M"
+      PRERENDER_RESERVATION="128M"
       ;;
       
     "high")
-      # 总限制约5.1GB (2048+896+384+1792=5120MB)
+      # 总限制约5.1GB (Java:2560+Nginx:384+MySQL:1792+Redis:256+Prerender:256=5248MB)
       MYSQL_BUFFER_POOL_SIZE="896M"
       MYSQL_LOG_BUFFER_SIZE="64M"
       MYSQL_QUERY_CACHE_SIZE="128M"
@@ -6300,20 +6332,28 @@ apply_memory_optimizations() {
       DRUID_MIN_IDLE="15"
       DRUID_MAX_ACTIVE="190"       # 200 - 10 = 190 (留10个余量)
       
-      JAVA_XMX="1536m"
-      JAVA_XMS="1024m"
-      JAVA_METASPACE="384m"
-      JAVA_CLASS_SPACE="192m"
+      JAVA_XMX="2048m"
+      JAVA_XMS="1536m"
+      JAVA_METASPACE="512m"
+      JAVA_CLASS_SPACE="256m"
       JAVA_XSS="1m"
+      JAVA_CODE_CACHE="160m"
+      JAVA_DIRECT_MEM="256m"
+      JAVA_CI_COMPILER_COUNT="3"
       
-      JAVA_LIMIT="2048M"
+      JAVA_LIMIT="2560M"
+      JAVA_RESERVATION="2048M"
       PYTHON_LIMIT="896M"
       NGINX_LIMIT="384M"
       MYSQL_LIMIT="1792M"
+      REDIS_LIMIT="256M"
+      REDIS_RESERVATION="128M"
+      PRERENDER_LIMIT="256M"
+      PRERENDER_RESERVATION="128M"
       ;;
       
     "very-high")
-      # 总限制约7.2GB (3072+1024+512+2560=7168MB)
+      # 总限制约7.75GB (Java:4096+Nginx:512+MySQL:2560+Redis:512+Prerender:256=7936MB)
       MYSQL_BUFFER_POOL_SIZE="1536M"
       MYSQL_LOG_BUFFER_SIZE="128M"
       MYSQL_QUERY_CACHE_SIZE="256M"
@@ -6326,16 +6366,24 @@ apply_memory_optimizations() {
       DRUID_MIN_IDLE="20"
       DRUID_MAX_ACTIVE="380"       # 400 - 20 = 380 (留20个余量)
       
-      JAVA_XMX="2048m"
-      JAVA_XMS="1536m"
-      JAVA_METASPACE="512m"
-      JAVA_CLASS_SPACE="256m"
+      JAVA_XMX="3072m"
+      JAVA_XMS="2048m"
+      JAVA_METASPACE="768m"
+      JAVA_CLASS_SPACE="384m"
       JAVA_XSS="1m"
+      JAVA_CODE_CACHE="192m"
+      JAVA_DIRECT_MEM="384m"
+      JAVA_CI_COMPILER_COUNT="4"
       
-      JAVA_LIMIT="3072M"
+      JAVA_LIMIT="4096M"
+      JAVA_RESERVATION="3072M"
       PYTHON_LIMIT="1024M"
       NGINX_LIMIT="512M"
       MYSQL_LIMIT="2560M"
+      REDIS_LIMIT="512M"
+      REDIS_RESERVATION="256M"
+      PRERENDER_LIMIT="256M"
+      PRERENDER_RESERVATION="128M"
       ;;
       
     *)
@@ -6542,12 +6590,19 @@ EOF
   info "更新Java服务JVM内存参数..."
   # 使用ZGC垃圾收集器，更适合容器化环境，减少GC停顿时间
   # 添加容器化优化参数，提高在Docker环境中的性能和稳定性
-  local JAVA_OPTS="-Xmx$JAVA_XMX -Xms$JAVA_XMS -XX:MaxMetaspaceSize=$JAVA_METASPACE -XX:CompressedClassSpaceSize=$JAVA_CLASS_SPACE -Xss$JAVA_XSS -XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+ExitOnOutOfMemoryError -XX:MaxRAMPercentage=75.0 -XX:+DisableExplicitGC"
+  local JAVA_OPTS="-Xmx$JAVA_XMX -Xms$JAVA_XMS -XX:MaxMetaspaceSize=$JAVA_METASPACE -XX:CompressedClassSpaceSize=$JAVA_CLASS_SPACE -Xss$JAVA_XSS -XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+ExitOnOutOfMemoryError -XX:MaxRAMPercentage=80.0 -XX:+DisableExplicitGC -XX:ReservedCodeCacheSize=$JAVA_CODE_CACHE -XX:MaxDirectMemorySize=$JAVA_DIRECT_MEM -XX:ZUncommitDelay=120 -XX:CICompilerCount=$JAVA_CI_COMPILER_COUNT"
   
   if [ -f "lib/config.sh" ]; then
     # 新版本：更新 .env 文件
     source "lib/config.sh"
     update_env_var "JAVA_OPTS" "$JAVA_OPTS"
+    # 同步更新容器级 mem_limit / mem_reservation env vars
+    update_env_var "JAVA_MEMORY_LIMIT" "$JAVA_LIMIT"
+    update_env_var "JAVA_MEMORY_RESERVATION" "$JAVA_RESERVATION"
+    update_env_var "REDIS_MEMORY_LIMIT" "$REDIS_LIMIT"
+    update_env_var "REDIS_MEMORY_RESERVATION" "$REDIS_RESERVATION"
+    update_env_var "PRERENDER_MEMORY_LIMIT" "$PRERENDER_LIMIT"
+    update_env_var "PRERENDER_MEMORY_RESERVATION" "$PRERENDER_RESERVATION"
     success "更新Java服务JVM内存参数完成 (通过 .env)"
   else
     # 旧版本：直接修改 docker-compose.yml
@@ -6590,6 +6645,7 @@ EOF
   success "$MEMORY_MODE 内存模式优化配置完成"
   info "系统将使用动态优化的内存设置 (总内存: ${TOTAL_MEM_GB}GB)"
   info "MySQL最大连接数: $MYSQL_MAX_CONNECTIONS, Druid连接池: $DRUID_MAX_ACTIVE"
+  info "Java容器限制: $JAVA_LIMIT (reservation: $JAVA_RESERVATION), Redis限制: $REDIS_LIMIT, Prerender限制: $PRERENDER_LIMIT"
 }
 
 # 添加一个函数用于检查和安装bc命令

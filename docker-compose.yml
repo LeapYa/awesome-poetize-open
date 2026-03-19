@@ -145,6 +145,8 @@ services:
       args:
         - CN_FONT_SPLIT_GH_HOST=${CN_FONT_SPLIT_GH_HOST:-}
     container_name: poetize-java
+    mem_limit: ${JAVA_MEMORY_LIMIT:-1536m}
+    mem_reservation: ${JAVA_MEMORY_RESERVATION:-1024m}
     logging:
       driver: json-file
       options:
@@ -157,7 +159,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
       # Java配置
-      - JAVA_OPTS=${JAVA_OPTS}
+      - JAVA_OPTS=${JAVA_OPTS:--Xmx1024m -Xms512m -XX:MaxMetaspaceSize=256m -XX:CompressedClassSpaceSize=128m -Xss512k -XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+ExitOnOutOfMemoryError -XX:MaxRAMPercentage=80.0 -XX:+DisableExplicitGC -XX:ReservedCodeCacheSize=128m -XX:MaxDirectMemorySize=192m -XX:ZUncommitDelay=120 -XX:CICompilerCount=2}
       # 数据库配置
       - SPRING_DATASOURCE_URL=jdbc:${DB_TYPE:-mariadb}://${DB_HOST:-mysql}:${DB_PORT:-3306}/${DB_NAME:-poetize}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       - SPRING_DATASOURCE_USERNAME=${DB_USER:-poetize}
@@ -216,6 +218,8 @@ services:
     image: redis:7-alpine
     container_name: poetize-redis
     init: true  # 改善信号处理，确保优雅关闭
+    mem_limit: ${REDIS_MEMORY_LIMIT:-256m}
+    mem_reservation: ${REDIS_MEMORY_RESERVATION:-128m}
     logging:
       driver: json-file
       options:
@@ -281,6 +285,8 @@ services:
       context: ./docker/prerender
       dockerfile: Dockerfile
     container_name: poetize-prerender
+    mem_limit: ${PRERENDER_MEMORY_LIMIT:-256m}
+    mem_reservation: ${PRERENDER_MEMORY_RESERVATION:-128m}
     logging:
       driver: json-file
       options:

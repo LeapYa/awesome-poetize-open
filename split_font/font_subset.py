@@ -2,14 +2,15 @@
 # -*- coding: utf-8 -*-
 # 作者: LeapYa
 # 创建日期: 2025-07-15
-# 版本: 1.0
-# 描述: 中文字体子集化工具，将字体切分为base、level1、level2、other四个子集，并生成对应unicode_ranges.json文件，用于CSS @font-face的unicode-range属性或JavaScript动态加载
+# 版本: 2.0
+# 描述: 中文字体子集化工具，将字体切分为base、level1、level2、other四个子集，生成 font.css（@font-face + unicode-range）和兼容用 unicode_ranges.json
 
 # 使用方法: 
 # 1.将font.ttf（字体文件）放在当前目录下
 # 2.执行python font_subset.py
-# 3.在当前目录下生成font_chunks目录，里面包含base、level1、level2、other四个子集字体文件和unicode_ranges.json文件
-# 4.将font_chunks目录（里面需包含字体文件和unicode_ranges.json）文件复制到poetize-web/public/assets和poetize-web/public/static/assets目录下
+# 3.在当前目录下生成font_chunks目录，里面包含base、level1、level2、other四个子集字体文件、font.css 和 unicode_ranges.json
+# 4.将font_chunks目录（里面需包含字体文件和font.css）复制到poetize-web/public/static/assets目录下
+# 注意: font.css 为主方案（@font-face + unicode-range），unicode_ranges.json 作为兼容回退保留
 
 import os
 import subprocess
@@ -202,64 +203,33 @@ def main():
         'other': unicode_ranges_to_js_css(other_ranges)
     }
     
-    # 保存为JSON
+    # 保存为JSON（兼容回退方案）
     with open(os.path.join(OUTPUT_DIR, 'unicode_ranges.json'), 'w', encoding='utf-8') as f:
         json.dump(ranges, f, ensure_ascii=False, indent=2)
-    """
-    # 生成JS文件
-    js_content = [
-        'const UNICODE_RANGES = {',
-        f'  base: "{", ".join(ranges["base"])}",',
-        f'  level1: "{", ".join(ranges["level1"])}",',
-        f'  level2: "{", ".join(ranges["level2"])}",',
-        f'  other: "{", ".join(ranges["other"])}"',
-        '};',
-        '',
-        'export default UNICODE_RANGES;'
+
+    # 生成 font.css（主方案：@font-face + unicode-range，与 cn-font-split 输出格式一致）
+    css_chunks = [
+        ('base',   'font.base.woff2'),
+        ('level1', 'font.level1.woff2'),
+        ('level2', 'font.level2.woff2'),
+        ('other',  'font.other.woff2'),
     ]
-    
-    with open(os.path.join(OUTPUT_DIR, 'unicode_ranges.js'), 'w', encoding='utf-8') as f:
-        f.write('\n'.join(js_content))
-    
-    # 生成CSS @font-face
-    css_content = [
-        '@font-face {',
-        '  font-family: "CustomFont";',
-        f'  src: url("font.base.woff2") format("woff2");',
-        '  font-weight: normal;',
-        '  font-style: normal;',
-        f'  unicode-range: {", ".join(ranges["base"])};',
-        '}',
-        '',
-        '@font-face {',
-        '  font-family: "CustomFont";',
-        f'  src: url("font.level1.woff2") format("woff2");',
-        '  font-weight: normal;',
-        '  font-style: normal;',
-        f'  unicode-range: {", ".join(ranges["level1"])};',
-        '}',
-        '',
-        '@font-face {',
-        '  font-family: "CustomFont";',
-        f'  src: url("font.level2.woff2") format("woff2");',
-        '  font-weight: normal;',
-        '  font-style: normal;',
-        f'  unicode-range: {", ".join(ranges["level2"])};',
-        '}',
-        '',
-        '@font-face {',
-        '  font-family: "CustomFont";',
-        f'  src: url("font.other.woff2") format("woff2");',
-        '  font-weight: normal;',
-        '  font-style: normal;',
-        f'  unicode-range: {", ".join(ranges["other"])};',
-        '}',
-    ]
-    
-    with open(os.path.join(OUTPUT_DIR, 'font_face.css'), 'w', encoding='utf-8') as f:
-        f.write('\n'.join(css_content))
-    """
-    
+    css_lines = []
+    for key, filename in css_chunks:
+        css_lines += [
+            '@font-face {',
+            '  font-family: "MyAwesomeFont";',
+            f'  src: url("{filename}") format("woff2");',
+            '  font-display: swap;',
+            '  font-weight: normal;',
+            '  font-style: normal;',
+            f'  unicode-range: {", ".join(ranges[key])};',
+            '}',
+            '',
+        ]
+    with open(os.path.join(OUTPUT_DIR, 'font.css'), 'w', encoding='utf-8') as f:
+        f.write('\n'.join(css_lines))
+
     print("所有文件已生成完毕！")
 
 if __name__ == '__main__':

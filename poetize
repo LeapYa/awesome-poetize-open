@@ -200,6 +200,51 @@ is_wsl() {
   fi
 }
 
+# 检测是否在容器内运行（Docker / Podman / LXC）
+is_in_container() {
+  # 方法1: /.dockerenv 是 Docker 容器的标志性文件
+  if [ -f /.dockerenv ]; then
+    return 0
+  fi
+  # 方法2: 检查 /proc/1/cgroup 中是否包含容器特征关键字
+  if [ -f /proc/1/cgroup ] && grep -qE 'docker|lxc|libpod|containerd|kubepods' /proc/1/cgroup 2>/dev/null; then
+    return 0
+  fi
+  # 方法3: /run/.containerenv 是 Podman 容器的标志性文件
+  if [ -f /run/.containerenv ]; then
+    return 0
+  fi
+  return 1
+}
+
+# 启动并启用 Docker 服务（自动适配容器/非容器环境）
+# 容器内无法使用 systemctl 管理宿主机 Docker，直接跳过
+start_docker_service() {
+  if is_in_container; then
+    if [ -S /var/run/docker.sock ]; then
+      success "检测到容器内环境，Docker Socket 已挂载，无需在容器内启动服务"
+    else
+      warning "检测到容器内环境，跳过 Docker 服务启动（systemctl 不可用）"
+      warning "如需在容器内使用 Docker，请启动容器时挂载宿主机 Socket:"
+      warning "  docker run -v /var/run/docker.sock:/var/run/docker.sock ..."
+    fi
+    return 0
+  fi
+  # 非容器环境：使用对应服务管理器启动并启用 Docker
+  if command -v systemctl &>/dev/null; then
+    sudo systemctl start docker 2>/dev/null || true
+    sudo systemctl enable docker 2>/dev/null || true
+  elif command -v rc-update &>/dev/null; then
+    # Alpine OpenRC
+    sudo rc-update add docker boot 2>/dev/null || true
+    sudo service docker start 2>/dev/null || true
+  elif command -v service &>/dev/null; then
+    sudo service docker start 2>/dev/null || true
+  else
+    warning "无法确定服务管理器，请手动启动 Docker 服务"
+  fi
+}
+
 # 创建全局poetize命令符号链接（静默执行）
 create_global_poetize_command() {
   local poetize_script="$(pwd)/poetize"
@@ -2042,7 +2087,10 @@ configure_docker_registry() {
     info "已配置多个Docker Registry镜像源作为备用"
     
     # 重启Docker服务使配置生效
-    if systemctl is-active --quiet docker 2>/dev/null; then
+    if is_in_container; then
+        info "容器内环境，Docker Registry 配置已写入，重启宿主机 Docker 后生效"
+        info "如需立即生效，请在宿主机执行: sudo systemctl restart docker"
+    elif systemctl is-active --quiet docker 2>/dev/null; then
         info "重启Docker服务使配置生效..."
         sudo systemctl daemon-reload
         sudo systemctl restart docker
@@ -2092,8 +2140,7 @@ install_docker_china_debian() {
     sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     info "Debian Docker安装完成"
     return 0
@@ -2134,8 +2181,7 @@ install_docker_china_ubuntu() {
     sudo apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     info "Ubuntu Docker安装完成"
     return 0
@@ -2158,8 +2204,7 @@ install_docker_china_centos7() {
     sudo yum install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     info "CentOS 7 Docker安装完成"
     return 0
@@ -2182,8 +2227,7 @@ install_docker_china_centos8() {
     sudo dnf install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     info "CentOS 8/Fedora/Red Hat Docker安装完成"
     return 0
@@ -2206,8 +2250,7 @@ install_docker_china_anolis() {
     sudo dnf install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     info "Anolis OS Docker安装完成"
     return 0
@@ -2318,8 +2361,7 @@ install_docker_china_alinux() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -2363,8 +2405,7 @@ install_docker_china_arch() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     info "Arch Linux Docker安装完成"
     return 0
@@ -2385,8 +2426,7 @@ install_docker_china_alpine() {
     fi
                 
     # 启动Docker服务
-    sudo rc-update add docker boot
-    sudo service docker start
+    start_docker_service
     
     info "Alpine Linux Docker安装完成"
     return 0
@@ -2404,8 +2444,7 @@ install_docker_china_opensuse() {
     fi
     
     # 启动Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     info "openSUSE Docker安装完成"
     return 0
@@ -2447,8 +2486,7 @@ install_docker_china_openeuler() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -2509,8 +2547,7 @@ install_docker_china_deepin() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -2588,8 +2625,7 @@ install_docker_china_centos_stream() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -2676,8 +2712,7 @@ install_docker_china_rhel() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -2764,8 +2799,7 @@ install_docker_china_rocky() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -2852,8 +2886,7 @@ install_docker_china_almalinux() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -3185,14 +3218,14 @@ install_docker_china_amazon() {
     info "使用Amazon Linux系统仓库安装Docker..."
     if [ "$pkg_manager" = "dnf" ]; then
         sudo dnf install -y docker
-        sudo systemctl enable --now docker
+        if ! is_in_container; then sudo systemctl enable --now docker 2>/dev/null || true; fi
 
         local DOCKER_CONFIG=${DOCKER_CONFIG:-/usr/local/lib/docker}
         sudo mkdir -p $DOCKER_CONFIG/cli-plugins
         install_docker_compose $DOCKER_CONFIG/cli-plugins
     else
         sudo yum install -y docker
-        sudo systemctl enable --now docker
+        if ! is_in_container; then sudo systemctl enable --now docker 2>/dev/null || true; fi
 
         local DOCKER_CONFIG=${DOCKER_CONFIG:-/usr/local/lib/docker}
         sudo mkdir -p $DOCKER_CONFIG/cli-plugins
@@ -3200,8 +3233,7 @@ install_docker_china_amazon() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -3288,8 +3320,7 @@ install_docker_china_oracle() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -3388,8 +3419,7 @@ install_docker_china_fedora() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -3459,8 +3489,7 @@ install_docker_china_kylin() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -3595,8 +3624,7 @@ install_docker_china_tencentos() {
     fi
     
     # 启动和启用Docker服务
-    sudo systemctl start docker
-    sudo systemctl enable docker
+    start_docker_service
     
     # 验证安装
     if command -v docker &>/dev/null; then
@@ -3837,7 +3865,31 @@ install_docker_china() {
 # Docker安装函数
 install_docker() {
   info "安装Docker..."
-  
+
+  # 容器内环境特殊处理
+  if is_in_container; then
+    if [ -S /var/run/docker.sock ]; then
+      success "容器内检测到 Docker Socket，无需安装守护进程"
+      return 0
+    else
+      warning "容器内未检测到 Docker Socket"
+      echo ""
+      echo -e "${YELLOW}=== 容器内部署选项 ===${NC}"
+      echo "推荐方式：重启容器并挂载宿主机 Docker Socket"
+      echo "  docker run -v /var/run/docker.sock:/var/run/docker.sock -it debian bash"
+      echo ""
+      echo "备选方式：若容器以 --privileged 启动，可尝试在容器内运行 Docker 守护进程（DinD）"
+      echo ""
+      auto_confirm "是否继继尝试安装 Docker？(y=继续尝试 / n=退出) [y]: " "y" "-n 1 -r"
+      if [[ $REPLY =~ ^[Nn]$ ]]; then
+        error "已取消部署"
+        exit 1
+      fi
+      info "尝试在容器内安装 Docker（需要容器有足够权限，如 --privileged）..."
+      # 继续执行后续正常安装流程
+    fi
+  fi
+
   # 先检查Docker是否已安装且可用
     if command -v docker &>/dev/null; then
       # Docker命令存在，验证守护进程是否正常工作
@@ -3848,7 +3900,7 @@ install_docker() {
       fi
       
       # Docker命令存在但守护进程不可用，尝试启动服务
-      if command -v systemctl &>/dev/null; then
+      if ! is_in_container && command -v systemctl &>/dev/null; then
         info "Docker命令存在但守护进程未运行，尝试启动服务..."
         sudo systemctl start docker 2>/dev/null || true
         sudo systemctl enable docker 2>/dev/null || true
@@ -3940,6 +3992,11 @@ install_docker() {
 
 # 创建并启用swap空间
 setup_swap() {
+  # 容器内无法操作宿主机 swap，直接跳过
+  if is_in_container; then
+    warning "检测到容器内环境，跳过 swap 配置（容器内不支持创建 swap）"
+    return 0
+  fi
   if [ "$ENABLE_SWAP" = true ]; then
     info "检查并配置swap空间..."
     
@@ -9065,15 +9122,38 @@ main() {
   info "检查Docker环境..."
   if ! docker info &>/dev/null 2>&1 && ! sudo docker info &>/dev/null 2>&1; then
     # Docker不可用，可能是未安装，也可能是已安装但服务未启动
-    # 先尝试启动Docker服务（CentOS等系统安装Docker后服务可能未自动启动）
-    if command -v docker &>/dev/null && command -v systemctl &>/dev/null; then
-      info "Docker命令存在但守护进程未运行，尝试启动Docker服务..."
-      sudo systemctl start docker 2>/dev/null || true
-      sudo systemctl enable docker 2>/dev/null || true
-      sleep 2
-      
-      if sudo docker info &>/dev/null 2>&1; then
-        success "Docker服务已成功启动"
+    if is_in_container; then
+      # 容器内环境：优先检查 Docker Socket 是否挂载
+      if [ -S /var/run/docker.sock ]; then
+        export DOCKER_HOST="unix:///var/run/docker.sock"
+        if docker info &>/dev/null 2>&1 || sudo docker info &>/dev/null 2>&1; then
+          success "检测到容器内环境，通过宿主机 Docker Socket 连接成功"
+        fi
+      else
+        warning "检测到容器内环境，未找到 Docker Socket"
+        echo ""
+        echo -e "${YELLOW}=== 容器内部署选项 ===${NC}"
+        echo "推荐：重启容器并挂载 Socket 以获得完整支持"
+        echo "  docker run -v /var/run/docker.sock:/var/run/docker.sock -it debian bash"
+        echo ""
+        auto_confirm "是否继续安装 Docker（--privileged 容器可能成功）？(y=继续 / n=退出) [y]: " "y" "-n 1 -r"
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+          error "已取消部署"
+          exit 1
+        fi
+        info "尝试安装 Docker（需要容器具备足够权限）..."
+      fi
+    else
+      # 非容器环境：尝试启动Docker服务（CentOS等系统安装后服务可能未自动启动）
+      if command -v docker &>/dev/null && command -v systemctl &>/dev/null; then
+        info "Docker命令存在但守护进程未运行，尝试启动Docker服务..."
+        sudo systemctl start docker 2>/dev/null || true
+        sudo systemctl enable docker 2>/dev/null || true
+        sleep 2
+        
+        if sudo docker info &>/dev/null 2>&1; then
+          success "Docker服务已成功启动"
+        fi
       fi
     fi
   fi

@@ -1,10 +1,24 @@
 # OAuth代理配置说明
 
-为了解决国内服务器无法访问Google、GitHub、X(Twitter)、Yandex等海外OAuth服务的问题，系统提供了两种代理方式：**域名级反向代理**（推荐）和 **HTTP正向代理**。通过境外反向代理服务器来访问这些服务，但需要准备一台海外vps。
+为了解决国内服务器无法访问Google、GitHub、X(Twitter)、Yandex等海外OAuth服务的问题，系统提供了两种代理方式：**域名级反向代理**（推荐）和 **HTTP正向代理**。通过境外反向代理服务器来访问这些服务，但需要准备一台海外VPS。
+
+## 支持的平台
+
+**需要代理的海外平台：**
+
+- GitHub
+- Google
+- X (Twitter)
+- Yandex
+
+**不需要代理的国内平台：**
+
+- Gitee
+- QQ
+- 百度
+- 爱发电
 
 ## 方案原理与网络封锁类型
-
-### 能解决哪些封锁？
 
 OAuth 登录流程分为两段网络连接，封锁的影响各不相同：
 
@@ -24,55 +38,13 @@ OAuth 登录流程分为两段网络连接，封锁的影响各不相同：
 > [!IMPORTANT]
 > **阶段①（用户授权页）** 需要用户浏览器直接访问 `github.com` 等官方域名，无法通过服务端代理解决，需要用户自行解决不能访问官方授权页的问题（如使用科学上网）。
 
-## 代理方式
-
-系统支持两种代理方式，**任选其一**即可：
-
-### 方式一：域名级反向代理（推荐）
+## 方式一：域名级反向代理（推荐）
 
 通过境外VPS上的Nginx反向代理，将API请求转发到目标服务。
 
 **优点**：无需在国内服务器配置额外软件，只需一个域名和VPS。
 
-```bash
-# docker-compose.yml 环境变量
-OAUTH_PROXY_DOMAIN=https://auth.example.com
-```
-
-### 方式二：HTTP正向代理
-
-通过 HTTP 代理服务器（如 Squid、3proxy 等）转发请求。
-
-**优点**：不需要额外域名，配置简单。
-
-```bash
-# docker-compose.yml 环境变量
-OAUTH_PROXY_HOST=your-proxy-host
-OAUTH_PROXY_PORT=8080
-```
-
-> [!NOTE]
-> 方式一通过 URL 路径替换实现代理（代码中 `getProxiedUrl()` 方法），方式二通过 Java `RestTemplate` 的 HTTP 代理设置实现（`OAuthRestTemplateConfig` 类）。两者可以同时配置，但建议只用一种。
-
-## 支持的平台
-
-**需要代理的海外平台：**
-
-- GitHub
-- Google
-- X (Twitter)
-- Yandex
-
-**不需要代理的国内平台：**
-
-- Gitee
-- QQ
-- 百度
-- 爱发电
-
-## 海外VPS配置（方式一）
-
-### Nginx配置示例
+### 第一步：在海外VPS上配置Nginx
 
 部署Nginx后，配置如下路径映射：
 
@@ -154,11 +126,47 @@ server {
 }
 ```
 
-## HTTP正向代理配置（方式二）
+配置要点：
 
-方式二不需要额外域名，在境外VPS上搭建一个HTTP正向代理即可。后端的 `OAuthRestTemplateConfig` 会自动通过该代理发送所有OAuth请求。
+- 为代理域名申请SSL证书（推荐 certbot：`certbot --nginx -d auth.example.com`）
+- 建议在 Nginx 中添加 IP 白名单，仅允许你的国内服务器IP访问：在 `server` 块内加 `allow YOUR_SERVER_IP; deny all;`
 
-### 以 Squid 为例
+### 第二步：在 poetize 脚本中配置代理域名
+
+Nginx 配置就绪后，需要将代理域名写入国内服务器的配置。在项目目录下运行：
+
+```bash
+poetize -oauth-proxy
+```
+
+脚本会启动交互式向导，依次引导你：
+
+1. 确认海外VPS的Nginx已配置完毕
+2. 输入代理域名（格式：`https://auth.example.com`）
+3. 自动将 `OAUTH_PROXY_DOMAIN` 写入 `.env` 文件，并重启 Java 服务使配置生效
+
+> [!NOTE]
+> 也可以直接编辑项目根目录下的 `.env` 文件，手动设置 `OAUTH_PROXY_DOMAIN=https://auth.example.com`，然后执行 `docker compose up -d --no-deps --force-recreate java-backend` 重启 Java 服务。
+
+### 第三步：验证配置
+
+```bash
+# 从国内服务器测试代理端点是否可访问
+curl https://auth.example.com/github/api/user
+curl https://auth.example.com/google/oauth2/token
+```
+
+应返回 GitHub/Google API 的响应内容（即便未携带有效 token，也应返回 JSON 错误信息而非连接失败）。
+
+## 方式二：HTTP正向代理
+
+通过 HTTP 代理服务器（如 Squid、3proxy 等）转发请求。
+
+**优点**：不需要额外域名，配置简单。
+
+### 第一步：在海外VPS上搭建HTTP正向代理
+
+以 Squid 为例：
 
 1. **安装 Squid**：
 
@@ -203,16 +211,30 @@ server {
    systemctl start squid
    ```
 
-4. **配置环境变量**：
-
-   ```bash
-   # docker-compose.yml
-   OAUTH_PROXY_HOST=your-vps-ip
-   OAUTH_PROXY_PORT=8080
-   ```
-
 > [!WARNING]
 > HTTP正向代理必须限制访问来源IP，否则可能被滥用为开放代理。务必在 `squid.conf` 中配置 `acl allowed_servers` 或使用防火墙规则限制。
+
+### 第二步：在 docker-compose.yml 中配置环境变量
+
+编辑项目根目录下的 `docker-compose.yml`，在 Java 服务的环境变量中添加：
+
+```bash
+OAUTH_PROXY_HOST=your-vps-ip
+OAUTH_PROXY_PORT=8080
+```
+
+### 第三步：重启 Java 服务
+
+```bash
+docker compose up -d --no-deps --force-recreate java-backend
+```
+
+### 第四步：验证配置
+
+```bash
+# 从国内服务器测试，通过代理访问 GitHub API
+curl -x http://your-vps-ip:8080 https://api.github.com/user
+```
 
 ## 工作流程
 
@@ -249,33 +271,45 @@ server {
 
 ## 注意事项
 
-1. **域名证书**: 境外代理域名需要配置有效的SSL证书
-2. **简化配置**: 只需要代理API端点，不需要Cookie重写和HTML处理
-3. **回调配置**: OAuth应用的回调URL直接配置为国内域名
-4. **网络稳定**: 境外代理服务器需要稳定的网络连接
-5. **路径精确**: 确保代理路径与代码中的URL映射完全一致
-6. **安全建议**: 建议在Nginx中限制代理域名的访问来源IP，仅允许你的国内服务器访问
+1. **两种方式互斥**：方式一和方式二可以同时配置，但建议只启用一种，避免行为混乱
+2. **域名证书**：方式一的境外代理域名需要配置有效的SSL证书
+3. **回调配置**：OAuth应用的回调URL直接配置为国内域名，无需改动
+4. **路径精确**：方式一的Nginx路径映射必须与代码中的URL规则完全一致
+5. **安全建议**：建议在Nginx中限制代理域名的访问来源IP，仅允许你的国内服务器访问
+6. **网络稳定**：境外代理服务器需要稳定的网络连接
 
-## 测试验证
+## 工作原理
 
-配置完成后，可以通过以下方式测试：
+以 GitHub 为例，完整的 OAuth 登录流程：
 
-1. **测试后端API代理**:
+```
+用户浏览器                    国内服务器                    境外VPS (auth.example.com)       GitHub
+    |                            |                              |                            |
+    |-- 1. 点击GitHub登录 ------>|                              |                            |
+    |<- 2. 返回授权URL ----------|                              |                            |
+    |                            |                              |                            |
+    |-- 3. 直接访问授权页 ------------------------------------------------>  授权页面          |
+    |<- 4. 用户授权，GitHub回调 --|--------- 回调到国内 -------->|                            |
+    |                            |                              |                            |
+    |                            |-- 5. Token交换 ------------->|-- 转发 ------------------>|
+    |                            |<- 6. 返回access_token -------|<- 返回 -------------------|
+    |                            |                              |                            |
+    |                            |-- 7. 获取用户信息 ----------->|-- 转发 ------------------>|
+    |                            |<- 8. 返回用户信息 ------------|<- 返回 -------------------|
+    |                            |                              |                            |
+    |<- 9. 登录成功 -------------|                              |                            |
+```
 
-   ```bash
-   # 方式一：域名级反代
-   curl https://auth.example.com/github/api/user
-   curl https://auth.example.com/google/oauth2/token
+- **步骤3**：用户浏览器直接访问 `https://github.com/login/oauth/authorize`（需要用户自行解决网络问题）
+- **步骤5-8**：后端通过代理完成，**用户无需任何额外配置**
 
-   # 方式二：HTTP正向代理（从国内服务器上测试）
-   curl -x http://your-proxy-host:8080 https://api.github.com/user
-   ```
-2. **测试完整OAuth流程**:
+### 后端代码架构
 
-   - 访问你的登录页面，点击GitHub/Google登录
-   - 用户浏览器会直接跳转到官方授权页面
-   - 授权后回调到你的国内服务器
-   - 检查后端日志，确认token和用户信息获取成功
+系统通过两层架构处理 OAuth 代理：
+
+- **Provider层**：`OAuth2Provider`（OAuth 2.0）和 `OAuth1Provider`（OAuth 1.0）基类提供 `getProxiedUrl()` 方法，各平台 Provider（如 `GitHubOAuthProvider`）在 `getTokenUrl()` 和 `getUserInfoUrl()` 中调用
+- **兼容层**：`OAuthClientServiceImpl` 中的 `getTokenUrl()` 和 `getUserInfoUrl()` 也独立支持代理URL映射
+- **网络层**：`OAuthRestTemplateConfig` 配置 HTTP 正向代理（方式二）
 
 ## 故障排除
 
@@ -285,4 +319,4 @@ server {
 | Token获取失败 | 代理路径配置错误或VPS不通 | 检查 `OAUTH_PROXY_DOMAIN` 配置和Nginx路径映射 |
 | 用户信息获取失败 | 用户信息API代理路径不正确 | 用 `curl` 直接测试代理端点是否可访问 |
 | 代理连接超时 | VPS网络不稳定或SSL证书问题 | 检查VPS连通性和证书有效期 |
-| 配置了代理但未生效 | 环境变量未正确传递 | 检查后端启动日志中的 `OAuth RestTemplate配置完成` 输出 |
+| 配置了代理但未生效 | 环境变量未正确写入 | 检查 `.env` 文件中 `OAUTH_PROXY_DOMAIN` 是否存在，并确认 Java 服务已重启 |

@@ -12433,7 +12433,7 @@ resolve_compose_container_name() {
     local container_id=""
     local container_name=""
 
-    container_id=$($DOCKER_COMPOSE_CMD ps -q "$service_name" 2>/dev/null | head -n 1)
+    container_id=$($DOCKER_COMPOSE_CMD ps -a -q "$service_name" 2>/dev/null | head -n 1)
     if [ -n "$container_id" ]; then
         container_name=$(sudo docker inspect --format '{{.Name}}' "$container_id" 2>/dev/null | sed 's#^/##')
         if [ -n "$container_name" ]; then
@@ -12528,6 +12528,145 @@ resolve_db_root_password() {
     fi
 
     printf "%s\n" "${candidates[0]}"
+}
+
+resolve_redis_password() {
+    local config_password=""
+    local env_password=""
+
+    if [ -f ".config/redis_config.txt" ]; then
+        config_password=$(grep "Redis密码:" .config/redis_config.txt | head -n 1 | cut -d':' -f2- | tr -d ' \r')
+        if [ -n "$config_password" ]; then
+            printf "%s\n" "$config_password"
+            return 0
+        fi
+    fi
+
+    if [ -f ".env" ]; then
+        env_password=$(grep -E '^REDIS_PASSWORD=' .env 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '\r')
+        if [ -n "$env_password" ]; then
+            printf "%s\n" "$env_password"
+            return 0
+        fi
+    fi
+
+    if [ -n "$REDIS_PASSWORD" ]; then
+        printf "%s\n" "$REDIS_PASSWORD"
+        return 0
+    fi
+
+    if [ -n "$REDIS_PWD" ]; then
+        printf "%s\n" "$REDIS_PWD"
+        return 0
+    fi
+
+    printf "%s\n" "poetize_redis_2025"
+}
+
+clear_volume_contents() {
+    local volume_name="$1"
+    local volume_label="$2"
+
+    if [ -z "$volume_name" ]; then
+        return 1
+    fi
+
+    info "清空${volume_label} volume 现有数据: $volume_name"
+    if sudo docker run --rm -v "$volume_name":/data alpine sh -c 'rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null || true'; then
+        success "${volume_label} volume 清理完成"
+        return 0
+    fi
+
+    warning "${volume_label} volume 清理失败，后续将继续尝试恢复"
+    return 1
+}
+
+wait_for_redis_ready() {
+    local redis_container="$1"
+    local redis_password="$2"
+    local max_attempts=30
+    local attempt=1
+
+    if [ -z "$redis_container" ]; then
+        return 1
+    fi
+
+    while [ $attempt -le $max_attempts ]; do
+        if sudo docker exec -e POETIZE_REDIS_PASSWORD="$redis_password" "$redis_container" sh -lc '
+            if [ -n "$POETIZE_REDIS_PASSWORD" ]; then
+                redis-cli -a "$POETIZE_REDIS_PASSWORD" --no-auth-warning ping >/dev/null 2>&1
+            else
+                redis-cli ping >/dev/null 2>&1
+            fi
+        '; then
+            return 0
+        fi
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+
+    return 1
+}
+
+cleanup_restored_redis_cache() {
+    local redis_container="$1"
+    local redis_password="$2"
+    local pattern=""
+    local patterns=(
+        "poetize:webinfo"
+        "poetize:config:*"
+        "poetize:sort:article:list"
+        "poetize:article:list:*"
+        "poetize:user:article:list:*"
+        "poetize:label:list:*"
+        "poetize:article:hot"
+        "poetize:search:article:*"
+        "poetize:admin"
+        "poetize:family:list"
+        "poetize:admire:list"
+    )
+
+    if [ -z "$redis_container" ]; then
+        return 0
+    fi
+
+    info "清理可重建的Redis缓存，确保恢复后优先使用数据库中的最新数据..."
+
+    for pattern in "${patterns[@]}"; do
+        case "$pattern" in
+            *"*"*|*"?"*|*"["*)
+                sudo docker exec \
+                    -e POETIZE_REDIS_PASSWORD="$redis_password" \
+                    -e POETIZE_REDIS_PATTERN="$pattern" \
+                    "$redis_container" sh -lc '
+                        redis_cmd() {
+                            if [ -n "$POETIZE_REDIS_PASSWORD" ]; then
+                                redis-cli -a "$POETIZE_REDIS_PASSWORD" --no-auth-warning "$@"
+                            else
+                                redis-cli "$@"
+                            fi
+                        }
+                        redis_cmd --scan --pattern "$POETIZE_REDIS_PATTERN" | while IFS= read -r key; do
+                            [ -n "$key" ] && redis_cmd del "$key" >/dev/null
+                        done
+                    ' >/dev/null 2>&1 || warning "清理Redis缓存模式失败: $pattern"
+                ;;
+            *)
+                sudo docker exec \
+                    -e POETIZE_REDIS_PASSWORD="$redis_password" \
+                    -e POETIZE_REDIS_KEY="$pattern" \
+                    "$redis_container" sh -lc '
+                        if [ -n "$POETIZE_REDIS_PASSWORD" ]; then
+                            redis-cli -a "$POETIZE_REDIS_PASSWORD" --no-auth-warning del "$POETIZE_REDIS_KEY" >/dev/null
+                        else
+                            redis-cli del "$POETIZE_REDIS_KEY" >/dev/null
+                        fi
+                    ' >/dev/null 2>&1 || warning "清理Redis缓存键失败: $pattern"
+                ;;
+        esac
+    done
+
+    success "Redis可重建缓存清理完成"
 }
 
 # 创建完整数据备份
@@ -13310,8 +13449,36 @@ restore_data() {
 perform_restore_operations() {
     local backup_dir="$1"
     local skip_db_credentials="${2:-false}"  # 默认为false，即恢复数据库凭据
+    local runtime_containers=()
+    local app_containers_to_resume=()
+    local service_name=""
+    local container_name=""
+    local mariadb_container=""
+    local redis_container=""
+    local db_root_password=""
+    local redis_password=""
 
     info "开始从 $backup_dir 恢复数据..."
+
+    # 在恢复前暂停会持续写入缓存的运行时服务，避免新安装默认数据覆盖恢复结果
+    for service_name in nginx java-backend python-backend prerender-worker redis; do
+        container_name=$(resolve_compose_container_name "$service_name" 2>/dev/null || true)
+        if [ -n "$container_name" ]; then
+            runtime_containers+=("$container_name")
+            if [ "$service_name" = "redis" ]; then
+                redis_container="$container_name"
+            fi
+        fi
+    done
+
+    if [ ${#runtime_containers[@]} -gt 0 ]; then
+        info "暂停运行时服务，防止恢复期间写入默认缓存..."
+        if sudo docker stop "${runtime_containers[@]}" >/dev/null 2>&1; then
+            success "运行时服务已暂停"
+        else
+            warning "部分运行时服务暂停失败，恢复流程将继续执行"
+        fi
+    fi
 
     # 1. 恢复数据库凭据
     if [ "$skip_db_credentials" = "true" ]; then
@@ -13330,8 +13497,7 @@ perform_restore_operations() {
     # 2. 恢复数据库
     info "恢复数据库数据..."
     if [ -f "$backup_dir/poetry.sql" ]; then
-        local mariadb_container=$(resolve_compose_container_name "mysql" 2>/dev/null || true)
-        local db_root_password=""
+        mariadb_container=$(resolve_compose_container_name "mysql" 2>/dev/null || true)
         if [ -n "$mariadb_container" ]; then
             db_root_password=$(resolve_db_root_password "$mariadb_container" 2>/dev/null || true)
         fi
@@ -13343,6 +13509,10 @@ perform_restore_operations() {
                     success "数据库恢复完成"
                 else
                     error "数据库恢复失败"
+                    if [ ${#runtime_containers[@]} -gt 0 ]; then
+                        warning "恢复失败，正在尝试重新启动之前暂停的服务..."
+                        sudo docker start "${runtime_containers[@]}" >/dev/null 2>&1 || warning "自动恢复服务失败，请手动启动相关容器"
+                    fi
                     return 1
                 fi
             else
@@ -13382,7 +13552,8 @@ perform_restore_operations() {
             info "创建用户上传文件volume: $actual_uploads_volume"
             sudo docker volume create "$actual_uploads_volume" >/dev/null
         fi
-        
+
+        clear_volume_contents "$actual_uploads_volume" "用户上传文件" || true
         info "恢复到volume: $actual_uploads_volume"
         if sudo docker run --rm -v "$actual_uploads_volume":/data -v "$backup_dir":/backup alpine sh -c "cd /data && tar -xzf /backup/uploads_backup.tar.gz"; then
             success "用户上传文件恢复完成"
@@ -13407,7 +13578,8 @@ perform_restore_operations() {
             info "创建Redis数据volume: $actual_redis_volume"
             sudo docker volume create "$actual_redis_volume" >/dev/null
         fi
-        
+
+        clear_volume_contents "$actual_redis_volume" "Redis数据" || true
         info "恢复到volume: $actual_redis_volume"
         if sudo docker run --rm -v "$actual_redis_volume":/data -v "$backup_dir":/backup alpine sh -c "cd /data && tar -xzf /backup/redis_backup.tar.gz"; then
             success "Redis数据恢复完成"
@@ -13427,15 +13599,36 @@ perform_restore_operations() {
         warning "新增SQL脚本执行过程中出现问题，但系统仍可正常使用"
     fi
     
-    # 7. 重启相关服务以应用恢复的配置
-    info "重启相关服务以应用恢复的配置..."
-    
-    # 只重启需要应用配置的服务
-    local services_to_restart="nginx java-backend python-backend mysql redis"
-    if $DOCKER_COMPOSE_CMD restart $services_to_restart; then
-        success "相关服务重启完成"
-    else
-        warning "部分服务重启失败，可能需要手动重启"
+    # 7. 重新启动相关服务并清理可重建缓存
+    info "启动相关服务以应用恢复后的配置..."
+
+    if [ -n "$redis_container" ]; then
+        info "优先启动Redis服务，准备清理可重建缓存..."
+        if sudo docker start "$redis_container" >/dev/null 2>&1; then
+            redis_password=$(resolve_redis_password 2>/dev/null || true)
+            if wait_for_redis_ready "$redis_container" "$redis_password"; then
+                cleanup_restored_redis_cache "$redis_container" "$redis_password"
+            else
+                warning "Redis未在预期时间内就绪，跳过自动缓存清理"
+            fi
+        else
+            warning "Redis服务启动失败，可能需要手动启动"
+        fi
+    fi
+
+    for service_name in java-backend python-backend nginx prerender-worker; do
+        container_name=$(resolve_compose_container_name "$service_name" 2>/dev/null || true)
+        if [ -n "$container_name" ]; then
+            app_containers_to_resume+=("$container_name")
+        fi
+    done
+
+    if [ ${#app_containers_to_resume[@]} -gt 0 ]; then
+        if sudo docker start "${app_containers_to_resume[@]}" >/dev/null 2>&1; then
+            success "相关服务启动完成"
+        else
+            warning "部分服务启动失败，可能需要手动启动"
+        fi
     fi
     
     success "用户数据和配置恢复完成"

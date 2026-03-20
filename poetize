@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-03-19
+## 修改时间: 2026-03-20
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.11.0
+## 版本: 1.11.1
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.11.0"
+POETIZE_VERSION="1.11.1"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -7849,22 +7849,17 @@ EOF
 find_directory() {
   DIR_NAME="$1"
   sudo find / \
-    -path /proc -prune -o \
-    -path /sys -prune -o \
-    -path /dev -prune -o \
-    -type d -name "$DIR_NAME" -print
+    \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o \
+    -type d -iname "$DIR_NAME" -print 2>/dev/null
 }
 
 find_directory_num() {
   # 查找目录，找到最大数字，如果没有，默认为1+1=2
   pattern="awesome-poetize-open-blog[0-9]*"
   local last_number=$(sudo find / \
-    -path /proc -prune -o \
-    -path /sys -prune -o \
-    -path /dev -prune -o \
-    -path /run -prune -o \
-    -type d -name "$pattern" -print 2>/dev/null \
-    | grep -oE 'awesome-poetize-open-blog[0-9]+' \
+    \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o \
+    -type d -iname "$pattern" -print 2>/dev/null \
+    | grep -ioE 'awesome-poetize-open-blog[0-9]+' \
     | sed -E 's/.*blog([0-9]+)/\1/' \
     | sort -n \
     | tail -n 1)
@@ -7962,9 +7957,6 @@ handle_environment_status() {
       auto_confirm "请输入选择 (1/2/3/4): " "1" "-n 1 -r"
       # 找到项目目录及其完整路径，如/root/awesome-poetize-open
       local DIR=$(find_directory "awesome-poetize-open" | head -n 1)
-      if [ -z "$DIR" ]; then
-        DIR=$(find_directory "Awesome-poetize-open" | head -n 1)  # 向后兼容旧版大写目录名
-      fi
 
       if [ -z "$DIR" ]; then
         error "未找到已经安装的项目目录，如果你认为这是一个错误，请提交issue，将在当前目录下安装..."
@@ -7996,12 +7988,9 @@ handle_environment_status() {
         4)
           info "用户选择继续安装,忽略容器检测..."
           # 继续正常的安装流程：检测是否需要下载项目
-          if sudo find / -type d -name "awesome-poetize-open-blog*" -o -name "awesome-poetize-open" -o -name "Awesome-poetize-open" 2>/dev/null | grep -q . > /dev/null; then
+          if sudo find / \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o -type d \( -iname "awesome-poetize-open-blog*" -o -iname "awesome-poetize-open" \) -print 2>/dev/null | grep -q . > /dev/null; then
             info "检测到已存在的博客项目目录，将进入博客目录以继续安装..."
             local PROJ_DIR=$(find_directory "awesome-poetize-open" | head -n 1)
-            if [ -z "$PROJ_DIR" ]; then
-              PROJ_DIR=$(find_directory "Awesome-poetize-open" | head -n 1)  # 向后兼容旧版大写目录名
-            fi
             if [ -n "$PROJ_DIR" ]; then
               cd "$PROJ_DIR"
               info "当前目录: $(pwd)"
@@ -8024,12 +8013,9 @@ handle_environment_status() {
       esac
     else
       # 检测是否有项目环境目录
-      if sudo find / -type d -name "awesome-poetize-open-blog*" -o -name "Awesome-poetize-open-blog*" | grep -q . > /dev/null; then
+      if sudo find / \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o -type d -iname "awesome-poetize-open-blog*" -print 2>/dev/null | grep -q . > /dev/null; then
         info "检测到已存在的博客项目目录，将进入博客目录以继续安装..."
         local DIR=$(find_directory "awesome-poetize-open-blog*" 2>/dev/null | tail -n 1)
-        if [ -z "$DIR" ]; then
-          DIR=$(find_directory "Awesome-poetize-open-blog*" 2>/dev/null | tail -n 1)  # 向后兼容旧版大写目录名
-        fi
         cd "$DIR"
         info "当前目录: $(pwd)"
       else
@@ -11705,8 +11691,8 @@ find_project_dir() {
     while IFS= read -r dir; do
     dirs+=("$dir")
     done < <(sudo find / \
-    \( -path /proc -o -path /sys -o -path /dev -o -path /run \) -prune -o \
-    -type d -name "awesome-poetize-open*" -print 2>/dev/null)
+    \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o \
+    -type d \( -iname "awesome-poetize-open" -o -iname "awesome-poetize-open-blog*" \) -print 2>/dev/null)
 
     if [ ${#dirs[@]} -eq 0 ]; then
         echo "未发现poetize博客相关目录"

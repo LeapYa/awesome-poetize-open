@@ -14,8 +14,8 @@ Use `{baseDir}` in commands so the installed skill can run from any OpenClaw wor
 ## 中文说明
 
 - 这是一个给 POETIZE 博客使用的 OpenClaw skill，通过站点已经提供的 `/api/*` 接口完成文章和运营动作。
-- 它不是 POETIZE 官方插件，而是面向 `Awesome-poetize-open v3.1.0` 整理的非官方集成。
-- 只有 `Awesome-poetize-open v3.1.0` 才兼容这个 skill，更早版本不要直接接入。
+- 它不是 POETIZE 官方插件，而是面向 `awesome-poetize-open v3.1.0` 整理的非官方集成。
+- 只有 `awesome-poetize-open v3.1.0` 才兼容这个 skill，更早版本不要直接接入。
 - 运行时只需要两个关键值：站点域名 `base_url` 和后台生成的 `api_key`。
 - 推荐在发布前先跑一次只读 smoke test，确认 OpenClaw、域名配置和 API 权限都正常。
 
@@ -32,7 +32,7 @@ Use `{baseDir}` in commands so the installed skill can run from any OpenClaw wor
 
 若已安装，则直接尝试安装技能 `awesome-poetize-open-blog-automation`。
 
-如果该技能尚未发布、在 ClawHub 中搜索不到，或者遇到 ClawHub 限流，请改为克隆项目 `https://github.com/LeapYa/Awesome-poetize-open.git`，然后按手动安装方式把 `openclaw-skills/poetize-blog-automation` 复制到 OpenClaw 的 `skills/` 目录中完成安装。
+如果该技能尚未发布、在 ClawHub 中搜索不到，或者遇到 ClawHub 限流，请改为克隆项目 `https://github.com/LeapYa/awesome-poetize-open.git`，然后按手动安装方式把 `openclaw-skills/poetize-blog-automation` 复制到 OpenClaw 的 `skills/` 目录中完成安装。
 
 安装目标默认使用 OpenClaw 的 `~/.openclaw/workspace/skills/` 目录，配置默认写入 `~/.openclaw/openclaw.json`。
 ```
@@ -152,7 +152,7 @@ When wiring this into OpenClaw, map those values to `POETIZE_BASE_URL` and `POET
 
 ## Version Requirement
 
-- This skill is intended for `Awesome-poetize-open v3.1.0`.
+- This skill is intended for `awesome-poetize-open v3.1.0`.
 - Do not connect it to earlier project versions.
 
 ## Base URL Rules

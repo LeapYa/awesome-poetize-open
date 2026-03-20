@@ -4,7 +4,7 @@ export default {
   APP_VERSION: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev',
 
   // GitHub 仓库地址（用于检查更新）
-  GITHUB_REPO: 'LeapYa/Awesome-poetize-open',
+  GITHUB_REPO: 'LeapYa/awesome-poetize-open',
 
   // Gitee 仓库地址（国内服务器 GitHub 不可达时降级）
   GITEE_REPO: 'leapya/poetize',

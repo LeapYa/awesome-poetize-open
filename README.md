@@ -7,7 +7,7 @@
   OAuth2登录, 第三方登录, 看板娘, 最美博客, poetize, 表白墙, 相册, 
   markdown博客, 博客模板, blog template, docker-compose
   
-  GitHub: https://github.com/LeapYa/Awesome-poetize-open
+  GitHub: https://github.com/LeapYa/awesome-poetize-open
   Demo: https://leapya.com
 -->
 
@@ -28,14 +28,14 @@
     <a href="#-开发指南">二次开发</a>
   </p>
   <p align="center">
-   <img src="https://img.shields.io/github/license/LeapYa/Awesome-poetize-open" alt="License">
+   <img src="https://img.shields.io/github/license/LeapYa/awesome-poetize-open" alt="License">
    <img src="https://img.shields.io/badge/Vue.js-35495e.svg?logo=vue.js&logoColor=4FC08D" alt="Vue.js">
    <img src="https://img.shields.io/badge/Java-%23ED8B00.svg?logo=openjdk&logoColor=white" alt="Java">
    <img src="https://img.shields.io/badge/Spring-6DB33F.svg?logo=spring&logoColor=white" alt="Spring">
    <img src="https://img.shields.io/badge/MariaDB-003545?logo=mariadb&logoColor=white" alt="MariaDB">
    <img src="https://img.shields.io/badge/Redis-DC382D.svg?logo=redis&logoColor=white" alt="Redis">
    <img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white" alt="Docker">
-   <img src="https://img.shields.io/github/stars/LeapYa/Awesome-poetize-open?style=social" alt="GitHub Stars">
+   <img src="https://img.shields.io/github/stars/LeapYa/awesome-poetize-open?style=social" alt="GitHub Stars">
   </p>
 </p>
 
@@ -54,7 +54,7 @@
 
 ## 📖 项目简介
 
-本项目**Awesome-poetize-open**是基于开源项目 [POETIZE最美博客](https://gitee.com/littledokey/poetize) 功能扩展和定制化开发，改造历时一年，这是一个集内容创作、社交互动与技术优化于一体的现代化博客系统。本项目主要用于自用，旨在为不愿支付高昂闭源版费用的开发者提供一个更现代、更好看、更轻量的开源替代方案，可能有些地方与商业化的最美博客有点差异，我当初也是被它的颜值吸引，想着自己也改一个自己满意的分享出来，我每个月都会进行不定时更新，如果你有什么好的想法或者功能建议，欢迎提issue或pr。
+本项目**awesome-poetize-open**是基于开源项目 [POETIZE最美博客](https://gitee.com/littledokey/poetize) 功能扩展和定制化开发，改造历时一年，这是一个集内容创作、社交互动与技术优化于一体的现代化博客系统。本项目主要用于自用，旨在为不愿支付高昂闭源版费用的开发者提供一个更现代、更好看、更轻量的开源替代方案，可能有些地方与商业化的最美博客有点差异，我当初也是被它的颜值吸引，想着自己也改一个自己满意的分享出来，我每个月都会进行不定时更新，如果你有什么好的想法或者功能建议，欢迎提issue或pr。
 
 <p align="center">
   <img src="poetize_picture/首页.png" alt="首页" width="100%">
@@ -84,7 +84,7 @@
 1. ✅ 页脚优化 —— 页脚信息更丰富、可自定义
 1. ✅ 图片压缩和转换WebP格式 —— 自动压缩图片，提升网站加载速度
 1. ✅ 智能摘要 —— 自动生成文章摘要，提升阅读体验
-1. ✅ OpenClaw 博客自动化 —— 支持通过仓库内置的 OpenClaw skill 使用站点 API 完成文章发布、更新、隐藏、主题切换、SEO运维与博客运营自动化（当前仅兼容 `Awesome-poetize-open v3.1.0`）
+1. ✅ OpenClaw 博客自动化 —— 支持通过仓库内置的 OpenClaw skill 使用站点 API 完成文章发布、更新、隐藏、主题切换、SEO运维与博客运营自动化（当前仅兼容 `awesome-poetize-open v3.1.0`）
 1. ✅ 暗色模式优化、定时暗色模式 —— 支持夜间自动切换暗色主题，优化暗色模式
 1. ✅ 灰色模式 —— 支持全站灰色纪念模式
 1. ✅ 自定义错误页面 —— 提供友好的404、403等错误页面
@@ -188,10 +188,10 @@ bash <(curl -sL install.leapya.com)
 bash <(curl -sL install.leapya.com) install -d 域名.com -d www.域名.com
 
 # 方式三：克隆本仓库部署（交互模式）
-git clone https://github.com/LeapYa/Awesome-poetize-open.git && cd Awesome-poetize-open && sudo chmod +x poetize && sudo ./poetize install
+git clone https://github.com/LeapYa/awesome-poetize-open.git && cd awesome-poetize-open && sudo chmod +x poetize && sudo ./poetize install
 
 # 方式四：克隆本仓库部署（非交互模式）
-git clone https://github.com/LeapYa/Awesome-poetize-open.git && cd Awesome-poetize-open && sudo chmod +x poetize && sudo ./poetize install -d 域名.com -d www.域名.com
+git clone https://github.com/LeapYa/awesome-poetize-open.git && cd awesome-poetize-open && sudo chmod +x poetize && sudo ./poetize install -d 域名.com -d www.域名.com
 ```
 
 > 部署脚本已经做好了错误处理和重试机制，如果仍然部署失败，请查看[常见问题](#6常见问题)
@@ -361,7 +361,7 @@ poetize -qy
 项目在部署时可能因任何原因（网络波动、资源不足等）导致部署失败，在1核1G服务器较常见，如果部署失败，可执行以下命令清理并重新部署：
 
 ```bash
-sudo docker system prune -af && cd .. && sudo rm -rf Awesome-poetize-open && bash <(curl -sL install.leapya.com)
+sudo docker system prune -af && cd .. && sudo rm -rf awesome-poetize-open && bash <(curl -sL install.leapya.com)
 ```
 
 更多详见[排障指南](#-排障指南)
@@ -415,9 +415,9 @@ bash <(curl -sL install.leapya.com)
 
 ## 🤖 OpenClaw 博客自动化
 
-项目在 `Awesome-poetize-open v3.1.0` 中提供了面向 OpenClaw 的博客自动化能力。你可以通过仓库内置的 skill，让 OpenClaw 直接调用站点 API 来完成文章发布、异步更新、隐藏文章、分类标签安全维护、主题切换、SEO状态查询，以及部分受控 SEO 运维动作。
+项目在 `awesome-poetize-open v3.1.0` 中提供了面向 OpenClaw 的博客自动化能力。你可以通过仓库内置的 skill，让 OpenClaw 直接调用站点 API 来完成文章发布、异步更新、隐藏文章、分类标签安全维护、主题切换、SEO状态查询，以及部分受控 SEO 运维动作。
 
-**注意：该能力当前仅兼容 `Awesome-poetize-open v3.1.0`，更早版本和其他版本不要直接接入。**
+**注意：该能力当前仅兼容 `awesome-poetize-open v3.1.0`，更早版本和其他版本不要直接接入。**
 
 ### 适合做什么
 
@@ -428,7 +428,7 @@ bash <(curl -sL install.leapya.com)
 
 ### 接入前准备
 
-1. 使用 `Awesome-poetize-open v3.1.0`
+1. 使用 `awesome-poetize-open v3.1.0`
 2. 进入后台管理的 `API 配置` 页面，开启 API 并生成 API 密钥
 3. 如果开启了 API IP 白名单，需要把 OpenClaw 服务器出口 IP 或 CIDR 加进去
 4. 将 `POETIZE_BASE_URL` 设置为站点公网根地址，例如 `https://your-blog.example.com`
@@ -447,7 +447,7 @@ bash <(curl -sL install.leapya.com)
 
 若已安装，则直接尝试安装技能 `awesome-poetize-open-blog-automation`。
 
-如果该技能尚未发布、在 ClawHub 中搜索不到，或者遇到 ClawHub 限流，请改为克隆项目 `https://github.com/LeapYa/Awesome-poetize-open.git`，然后按手动安装方式把 `openclaw-skills/poetize-blog-automation` 复制到 OpenClaw 的 `skills/` 目录中完成安装。
+如果该技能尚未发布、在 ClawHub 中搜索不到，或者遇到 ClawHub 限流，请改为克隆项目 `https://github.com/LeapYa/awesome-poetize-open.git`，然后按手动安装方式把 `openclaw-skills/poetize-blog-automation` 复制到 OpenClaw 的 `skills/` 目录中完成安装。
 
 安装目标默认使用 OpenClaw 的 `~/.openclaw/workspace/skills/` 目录，配置默认写入 `~/.openclaw/openclaw.json`。
 ```
@@ -604,7 +604,7 @@ clawhub update awesome-poetize-open-blog-automation --force
 #### 4. 版本策略建议
 
 - skill 版本号和项目版本号可以分开管理
-- 兼容性说明要写清楚，例如当前 skill 文档里已经写明仅兼容 `Awesome-poetize-open v3.1.0`
+- 兼容性说明要写清楚，例如当前 skill 文档里已经写明仅兼容 `awesome-poetize-open v3.1.0`
 - 如果未来某个 skill 版本只支持新的项目版本，直接在 `SKILL.md` 和 README 里写明对应关系
 - 只要 `slug` 和 `skillKey` 不乱改，后续升级路径就不会断
 
@@ -634,8 +634,8 @@ clawhub update awesome-poetize-open-blog-automation --force
         <sub><b>mikutea</b></sub>
       </a>
       <br />
-      <a href="https://github.com/LeapYa/Awesome-poetize-open/issues?q=author%3Amikutea+label%3Aenhancement" title="Ideas & suggestions">🤔</a>
-      <a href="https://github.com/LeapYa/Awesome-poetize-open/issues?q=author%3Amikutea+label%3Abug" title="Bug reports">🐛</a>
+      <a href="https://github.com/LeapYa/awesome-poetize-open/issues?q=author%3Amikutea+label%3Aenhancement" title="Ideas & suggestions">🤔</a>
+      <a href="https://github.com/LeapYa/awesome-poetize-open/issues?q=author%3Amikutea+label%3Abug" title="Bug reports">🐛</a>
     </td>
   </tr>
 </table>
@@ -700,7 +700,7 @@ cd poetize-admin && npm install && npm run dev
 ## 📧 联系方式
 
 * **邮箱** - enable_lazy@qq.com 或 hi@leapya.com
-* **问题反馈** - [GitHub Issues](https://github.com/LeapYa/Awesome-poetize-open/issues)
+* **问题反馈** - [GitHub Issues](https://github.com/LeapYa/awesome-poetize-open/issues)
 
 所有项目贡献者信息请参阅[贡献者](#-贡献与许可)部分。
 

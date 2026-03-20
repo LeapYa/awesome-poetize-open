@@ -1,7 +1,7 @@
 ---
 name: poetize-blog-automation
-description: 通过 POETIZE `/api/*` 接口操作博客，适用于文章发布、更新、隐藏、分类标签安全维护、主题切换、数据分析和 SEO 运维。Requires Awesome-poetize-open v3.1.0. Use only when the task explicitly targets a POETIZE site or POETIZE admin API workflow. Do not use for generic writing, generic SEO advice, non-POETIZE CMS work, or Awesome-poetize-open versions earlier than v3.1.0.
-homepage: https://github.com/LeapYa/Awesome-poetize-open/tree/main/openclaw-skills/poetize-blog-automation
+description: 通过 POETIZE `/api/*` 接口操作博客，适用于文章发布、更新、隐藏、分类标签安全维护、主题切换、数据分析和 SEO 运维。Requires awesome-poetize-open v3.1.0. Use only when the task explicitly targets a POETIZE site or POETIZE admin API workflow. Do not use for generic writing, generic SEO advice, non-POETIZE CMS work, or awesome-poetize-open versions earlier than v3.1.0.
+homepage: https://github.com/LeapYa/awesome-poetize-open/tree/main/openclaw-skills/poetize-blog-automation
 metadata: {"openclaw":{"skillKey":"poetize-blog-automation","emoji":"✍️","primaryEnv":"POETIZE_API_KEY","requires":{"anyBins":["python","python3"],"env":["POETIZE_BASE_URL","POETIZE_API_KEY"]},"install":[{"id":"brew-python","kind":"brew","formula":"python","bins":["python3"],"label":"Install Python 3 (brew)"}]}}
 user-invocable: true
 disable-model-invocation: false
@@ -17,13 +17,13 @@ It is not monetization-first.
 ## 中文简介
 
 - 这是一个面向 POETIZE 博客的 OpenClaw skill，用来通过 POETIZE API 进行文章发布、更新、隐藏、分类标签维护、主题切换、数据分析和 SEO 运维。
-- 目前仅支持 `Awesome-poetize-open v3.1.0`，更早版本暂不兼容。
+- 目前仅支持 `awesome-poetize-open v3.1.0`，更早版本暂不兼容。
 - 它不是 POETIZE 官方 skill，而是基于 LeapYa 维护分支整理的非官方集成。
 - 它更适合“个人博客运营”而不是“泛内容生成”，默认坚持免费优先、维护优先、质量优先。
 
 ## Public Distribution Position
 
-- Treat this as an unofficial OpenClaw integration for LeapYa's AGPL-maintained Awesome-poetize-open v3.1.0 release.
+- Treat this as an unofficial OpenClaw integration for LeapYa's AGPL-maintained awesome-poetize-open v3.1.0 release.
 - Do not present it as the official POETIZE skill or an official OpenClaw partner package.
 - Before publishing to ClawHub, remove secrets, local machine paths, and private content from any bundled files.
 - When publishing publicly, link back to the source repository and keep the applicable license and attribution notices intact.
@@ -31,9 +31,9 @@ It is not monetization-first.
 
 ## Compatibility
 
-- Required project version: `Awesome-poetize-open v3.1.0`.
+- Required project version: `awesome-poetize-open v3.1.0`.
 - Expected API surface: the POETIZE admin API routes documented in [references/poetize-api.md](references/poetize-api.md).
-- Do not use this skill with versions earlier than `Awesome-poetize-open v3.1.0`.
+- Do not use this skill with versions earlier than `awesome-poetize-open v3.1.0`.
 - For other forks, verify endpoint names and payload shapes before the first write action.
 
 ## OpenClaw-First Execution Rules

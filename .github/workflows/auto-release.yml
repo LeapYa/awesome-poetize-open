@@ -222,7 +222,7 @@ jobs:
             NOTES="${NOTES}\`\`\`bash\n# 执行此命令Java启动失败，这是正常的，主要是为了升级数据库\npoetize -update\n# 升级poetize脚本\npoetize -update-poetize-command\n# 完整启动项目\npoetize -update\n\`\`\`\n\n"
             
             NOTES="${NOTES}**如果从v3.0.0升级：**\n\n"
-            NOTES="${NOTES}\`\`\`bash\n# 先更新 poetize 脚本\n\n# GitHub（海外服务器）\nsudo curl -fsSL https://raw.githubusercontent.com/LeapYa/Awesome-poetize-open/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n# Gitee（国内服务器，如访问 GitHub 失败使用此命令）\nsudo curl -fsSL https://gitee.com/leapya/poetize/raw/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n\n# 执行此命令Java启动失败，这是正常的，主要是为了升级数据库\npoetize -update\n# 升级poetize脚本\npoetize -update-poetize-command\n# 完整启动项目\npoetize -update\n\`\`\`\n\n"
+            NOTES="${NOTES}\`\`\`bash\n# 先更新 poetize 脚本\n\n# GitHub（海外服务器）\nsudo curl -fsSL https://raw.githubusercontent.com/LeapYa/awesome-poetize-open/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n# Gitee（国内服务器，如访问 GitHub 失败使用此命令）\nsudo curl -fsSL https://gitee.com/leapya/poetize/raw/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n\n# 执行此命令Java启动失败，这是正常的，主要是为了升级数据库\npoetize -update\n# 升级poetize脚本\npoetize -update-poetize-command\n# 完整启动项目\npoetize -update\n\`\`\`\n\n"
             
             NOTES="${NOTES}**如果从更早版本升级：**\n\n"
             NOTES="${NOTES}\`\`\`bash\n# 执行此命令Java启动失败，这是正常的，主要是为了升级数据库\npoetize -update\n# 升级poetize脚本\npoetize -update-poetize-command\n# 完整启动项目\npoetize -update\n\`\`\`\n\n"
@@ -234,7 +234,7 @@ jobs:
             NOTES="${NOTES}\`\`\`bash\npoetize -update && poetize -update-poetize-command\n\`\`\`\n\n"
             
             NOTES="${NOTES}**如果从v3.0.0升级：**\n\n"
-            NOTES="${NOTES}\`\`\`bash\n# 1. 先更新 poetize 脚本（修复端口备份问题）\n\n# GitHub（海外服务器）\nsudo curl -fsSL https://raw.githubusercontent.com/LeapYa/Awesome-poetize-open/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n# Gitee（国内服务器，如访问 GitHub 失败使用此命令）\nsudo curl -fsSL https://gitee.com/leapya/poetize/raw/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n\n# 2. 执行系统升级\npoetize -update\n\`\`\`\n\n"
+            NOTES="${NOTES}\`\`\`bash\n# 1. 先更新 poetize 脚本（修复端口备份问题）\n\n# GitHub（海外服务器）\nsudo curl -fsSL https://raw.githubusercontent.com/LeapYa/awesome-poetize-open/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n# Gitee（国内服务器，如访问 GitHub 失败使用此命令）\nsudo curl -fsSL https://gitee.com/leapya/poetize/raw/main/poetize -o /usr/local/bin/poetize && sudo chmod +x /usr/local/bin/poetize\n\n# 2. 执行系统升级\npoetize -update\n\`\`\`\n\n"
             
             NOTES="${NOTES}**如果从v3.0.0以前的版本升级：**\n\n"
             NOTES="${NOTES}\`\`\`bash\n# 执行此命令Java启动失败，这是正常的，主要是为了升级数据库\npoetize -update\n# 升级poetize脚本\npoetize -update-poetize-command\n# 完整启动项目\npoetize -update\n\`\`\`\n\n"
@@ -267,8 +267,8 @@ jobs:
           dst: gitee/leapya
           dst_key: ${{ secrets.GITEE_PRIVATE_KEY }}
           dst_token: ${{ secrets.GITEE_TOKEN }}
-          static_list: "Awesome-poetize-open"
-          mappings: "Awesome-poetize-open=>poetize"
+          static_list: "awesome-poetize-open"
+          mappings: "awesome-poetize-open=>poetize"
           force_update: true
           debug: true
 

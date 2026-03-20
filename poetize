@@ -2,7 +2,7 @@
 ## 作者: LeapYa
 ## 修改时间: 2026-03-20
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.11.1
+## 版本: 1.11.2
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.11.1"
+POETIZE_VERSION="1.11.2"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -9705,6 +9705,9 @@ USE_EXTERNAL_DB=false  # 是否使用外部数据库
 USE_EXTERNAL_REDIS=false  # 是否使用外部Redis
 UPDATE_VERSION=""  # 迁移到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
+POETIZE_PROJECT_DIR=""
+POETIZE_PROJECT_PARENT_DIR=""
+POETIZE_PROJECT_NAME=""
 
 # 动态生成volume名称的函数
 get_volume_name() {
@@ -11671,10 +11674,24 @@ show_version() {
     printf "项目: awesome-poetize-open\n"
 }
 
+set_project_context() {
+    local target_dir="${1:-$(pwd)}"
+    local resolved_dir=""
+
+    resolved_dir=$(cd "$target_dir" 2>/dev/null && pwd -P) || return 1
+
+    POETIZE_PROJECT_DIR="$resolved_dir"
+    POETIZE_PROJECT_PARENT_DIR="$(dirname "$resolved_dir")"
+    POETIZE_PROJECT_NAME="$(basename "$resolved_dir")"
+    return 0
+}
+
 find_project_dir() {
+
     # 0. 优先检查环境变量 (CI环境)
     if [ -n "$POETIZE_PROJECT_DIR" ] && [ -d "$POETIZE_PROJECT_DIR" ]; then
         cd "$POETIZE_PROJECT_DIR" || exit 1
+        set_project_context "$POETIZE_PROJECT_DIR"
         load_config_lib
         return 0
     fi
@@ -11682,6 +11699,7 @@ find_project_dir() {
     # 1. 优先检查当前目录
     if [ -f "docker-compose.yml" ] && [ -f "poetize" ]; then
         # 简单确认为 poetize 项目
+        set_project_context "$(pwd)"
         load_config_lib
         return 0
     fi
@@ -11694,12 +11712,37 @@ find_project_dir() {
     \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o \
     -type d \( -iname "awesome-poetize-open" -o -iname "awesome-poetize-open-blog*" \) -print 2>/dev/null)
 
+    # 过滤掉嵌套在另一个项目目录里的同名目录，避免更新时误选子目录后再次拉取一层项目
+    local sorted_dirs=()
+    local filtered_dirs=()
+    while IFS= read -r dir; do
+        sorted_dirs+=("$dir")
+    done < <(printf "%s\n" "${dirs[@]}" | awk 'NF { print length($0) "\t" $0 }' | sort -n | cut -f2-)
+    dirs=("${sorted_dirs[@]}")
+    for dir in "${dirs[@]}"; do
+        local is_nested=false
+        for kept_dir in "${filtered_dirs[@]}"; do
+            case "$dir" in
+                "$kept_dir"/*)
+                    is_nested=true
+                    break
+                    ;;
+            esac
+        done
+
+        if [ "$is_nested" = false ]; then
+            filtered_dirs+=("$dir")
+        fi
+    done
+    dirs=("${filtered_dirs[@]}")
+
     if [ ${#dirs[@]} -eq 0 ]; then
         echo "未发现poetize博客相关目录"
         exit 1
     elif [ ${#dirs[@]} -eq 1 ]; then
         echo "发现一个博客目录: ${dirs[0]}"
         cd "${dirs[0]}" || { echo "切换目录失败: ${dirs[0]}"; exit 1; }
+        set_project_context "${dirs[0]}"
         load_config_lib  # 加载配置管理库
     else
         echo "发现多个博客目录："
@@ -11719,6 +11762,7 @@ find_project_dir() {
         target_dir="${dirs[$((choice-1))]}"
         echo "迁移目录: $target_dir"
         cd "$target_dir" || { echo "切换目录失败: $target_dir"; exit 1; }
+        set_project_context "$target_dir"
         load_config_lib  # 加载配置管理库
     fi
 }
@@ -11895,10 +11939,18 @@ uninstall_services() {
     
     # 如果是跳过确认模式（用于更新流程），则删除项目目录
     if [ "$skip_confirm" = true ]; then
-        local current_dir=$(pwd)
-        info "正在删除项目目录..."
-        cd ..
-        sudo rm -rf "$(basename "$current_dir")"
+        local current_dir="${POETIZE_PROJECT_DIR:-$(pwd)}"
+        local current_parent_dir="${POETIZE_PROJECT_PARENT_DIR:-$(dirname "$current_dir")}"
+        info "正在删除项目目录: $current_dir"
+        cd "$current_parent_dir" || {
+            error "无法切换到项目父目录: $current_parent_dir"
+            return 1
+        }
+        sudo rm -rf "$current_dir"
+        if [ -e "$current_dir" ]; then
+            error "项目目录删除失败，已停止更新以避免在旧目录内再次拉取新项目: $current_dir"
+            return 1
+        fi
         info "项目目录已删除"
     else
         warning "如需重新安装，请运行: poetize -deploy"
@@ -12351,7 +12403,7 @@ create_full_backup() {
     
     # 创建备份目录（放在项目目录外的安全位置）
     local backup_timestamp=$(date +%Y%m%d_%H%M%S)
-    local project_name=$(basename "$(pwd)")
+    local project_name="${POETIZE_PROJECT_NAME:-$(basename "$(pwd)")}"
     BACKUP_PROJECT_NAME="$project_name"
     BACKUP_DIR="/tmp/poetize_update_backup_${project_name}_${backup_timestamp}"
     mkdir -p "$BACKUP_DIR"
@@ -12713,17 +12765,28 @@ pull_code_on_target() {
 
     info "使用仓库地址: $RESOLVED_GIT_URL"
 
+    local target_parent_dir="${POETIZE_PROJECT_PARENT_DIR:-$(pwd)}"
+    local target_project_name="${BACKUP_PROJECT_NAME:-${POETIZE_PROJECT_NAME:-awesome-poetize-open}}"
+    local target_dir="${target_parent_dir}/${target_project_name}"
+
+    if [ -e "$target_dir" ]; then
+        error "更新目标目录仍然存在，已停止以避免在旧目录内再次拉取同名项目: $target_dir"
+        error "请先确认旧项目目录是否已删除，再重新执行 poetize -update"
+        return 1
+    fi
+
     # 克隆项目
-    git clone --depth 1 $RESOLVED_BRANCH_OPT "$RESOLVED_GIT_URL" "$BACKUP_PROJECT_NAME"
+    git clone --depth 1 $RESOLVED_BRANCH_OPT "$RESOLVED_GIT_URL" "$target_dir"
     
     # 检查是否成功
-    if [ -d "$BACKUP_PROJECT_NAME" ] && [ -f "$BACKUP_PROJECT_NAME/poetize" ]; then
+    if [ -d "$target_dir" ] && [ -f "$target_dir/poetize" ]; then
         success "项目代码拉取成功${RESOLVED_TARGET_VERSION:+: $RESOLVED_TARGET_VERSION}"
-        cd "$BACKUP_PROJECT_NAME"
+        cd "$target_dir"
+        set_project_context "$target_dir"
         return 0
     else
         error '项目代码拉取失败'
-        exit 1
+        return 1
     fi
 }
 

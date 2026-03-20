@@ -7889,6 +7889,140 @@ find_directory_num() {
   echo "$last_number"
 }
 
+find_existing_project_dir() {
+  local project_dir=""
+
+  project_dir=$(find_directory "awesome-poetize-open" 2>/dev/null | head -n 1)
+  if [ -z "$project_dir" ]; then
+    project_dir=$(find_directory "awesome-poetize-open-blog*" 2>/dev/null | tail -n 1)
+  fi
+
+  if [ -n "$project_dir" ]; then
+    printf '%s\n' "$project_dir"
+    return 0
+  fi
+
+  return 1
+}
+
+get_project_instance_suffix() {
+  local project_dir="$1"
+  local project_name=""
+
+  if [ -z "$project_dir" ]; then
+    printf '%s\n' ""
+    return 0
+  fi
+
+  project_name=$(basename "$project_dir")
+  if [[ "$project_name" =~ ^awesome-poetize-open-blog([0-9]+)$ ]]; then
+    printf '%s\n' "-blog${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  printf '%s\n' ""
+}
+
+resolve_existing_poetize_container_name() {
+  local base_name="$1"
+  local project_dir="${2:-}"
+  local suffix=""
+  local candidate=""
+
+  suffix=$(get_project_instance_suffix "$project_dir")
+  candidate="${base_name}${suffix}"
+
+  if [ -n "$candidate" ] && sudo docker inspect "$candidate" >/dev/null 2>&1; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  if [ -z "$suffix" ] && sudo docker inspect "$base_name" >/dev/null 2>&1; then
+    printf '%s\n' "$base_name"
+    return 0
+  fi
+
+  sudo docker ps -a --format "{{.Names}}" 2>/dev/null | grep -E "^${base_name}(-blog[0-9]+)?$" | head -n 1
+}
+
+capture_reinstall_runtime_db_credentials() {
+  local project_dir="${1:-}"
+  local mariadb_container=""
+
+  REINSTALL_DB_ROOT_PASSWORD=""
+  REINSTALL_DB_USER_PASSWORD=""
+
+  mariadb_container=$(resolve_existing_poetize_container_name "poetize-mariadb" "$project_dir")
+  if [ -z "$mariadb_container" ]; then
+    return 1
+  fi
+
+  REINSTALL_DB_ROOT_PASSWORD=$(sudo docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$mariadb_container" 2>/dev/null | grep '^MARIADB_ROOT_PASSWORD=' | tail -n 1 | cut -d'=' -f2- | tr -d '\r')
+  REINSTALL_DB_USER_PASSWORD=$(sudo docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$mariadb_container" 2>/dev/null | grep '^MARIADB_PASSWORD=' | tail -n 1 | cut -d'=' -f2- | tr -d '\r')
+
+  if [ -n "$REINSTALL_DB_ROOT_PASSWORD" ] && [ -n "$REINSTALL_DB_USER_PASSWORD" ]; then
+    info "已从运行中的 MariaDB 容器提取当前数据库凭据，重新安装时将复用现有数据卷密码"
+    return 0
+  fi
+
+  REINSTALL_DB_ROOT_PASSWORD=""
+  REINSTALL_DB_USER_PASSWORD=""
+  warning "未能从现有 MariaDB 容器提取完整凭据，重新安装时将按当前项目配置继续"
+  return 1
+}
+
+seed_reinstall_db_credentials() {
+  if [ -z "${REINSTALL_DB_ROOT_PASSWORD:-}" ] || [ -z "${REINSTALL_DB_USER_PASSWORD:-}" ]; then
+    return 0
+  fi
+
+  if [ -f ".config/db_credentials.txt" ] && grep -q "数据库外部模式: true" ".config/db_credentials.txt" 2>/dev/null; then
+    return 0
+  fi
+
+  ROOT_PASSWORD="$REINSTALL_DB_ROOT_PASSWORD"
+  USER_PASSWORD="$REINSTALL_DB_USER_PASSWORD"
+  save_db_file
+  chmod 600 .config/db_credentials.txt 2>/dev/null || true
+  success "已写入重装复用的数据库凭据"
+
+  REINSTALL_DB_ROOT_PASSWORD=""
+  REINSTALL_DB_USER_PASSWORD=""
+}
+
+prepare_project_directory_for_install() {
+  local project_dir=""
+
+  if check_project_environment; then
+    info "检测到当前目录已在博客项目中，使用当前目录继续安装..."
+    info "当前目录: $(pwd)"
+    return 0
+  fi
+
+  project_dir=$(find_existing_project_dir)
+  if [ -n "$project_dir" ]; then
+    info "检测到已存在的博客项目目录，将进入博客目录以继续安装..."
+    cd "$project_dir" || {
+      error "进入项目目录失败: $project_dir"
+      return 1
+    }
+    seed_reinstall_db_credentials
+    info "当前目录: $(pwd)"
+    return 0
+  fi
+
+  info "未检测到本地项目目录，正在下载项目源码..."
+  if download_and_extract_project "awesome-poetize-open"; then
+    seed_reinstall_db_credentials
+    success "✅ 源码下载和解压完成，继续部署安装..."
+    echo ""
+    return 0
+  fi
+
+  error "❌ 源码下载失败，部署终止"
+  return 1
+}
+
 # ==================== 环境检测后的处理逻辑 ====================
 # 根据环境状态执行不同的操作：
 #
@@ -7938,8 +8072,10 @@ handle_environment_status() {
           handle_multi_instance_deployment "$DIR" "$last_number"
           ;;
         2)
+          capture_reinstall_runtime_db_credentials "$(pwd)" || true
           info "选择重新安装，将下线已运行的容器..."
           stop_existing_poetize_containers
+          seed_reinstall_db_credentials
           ;;
         3)
           info "用户取消安装"
@@ -7973,31 +8109,27 @@ handle_environment_status() {
       echo ""
       
       auto_confirm "请输入选择 (1/2/3/4): " "1" "-n 1 -r"
-      # 找到项目目录及其完整路径，如/root/awesome-poetize-open
-      local DIR=$(find_directory "awesome-poetize-open" | head -n 1)
+      local PROJECT_DIR=""
+      local INSTALL_ROOT_DIR=$(pwd)
 
-      if [ -z "$DIR" ]; then
-        error "未找到已经安装的项目目录，如果你认为这是一个错误，请提交issue，将在当前目录下安装..."
-        DIR=$(pwd)
-      # 检测当前目录是否在项目中（包含项目特征文件/目录）- 支持新旧版本
-      elif [ -d "poetize-web" ] || [ -d "poetize-admin" ] || [ -d "poetize-ui" ] || [ -d "py" ] || [ -d "docker" ] || [ -f "poetize" ]; then
-        info "检测到当前目录已在项目中，使用当前目录..."
-        DIR=$(pwd)
-      else
-        # 项目所在目录，/root/awesome-poetize-open -> /root
-        DIR=$(dirname "$DIR")
+      PROJECT_DIR=$(find_existing_project_dir)
+      if [ -n "$PROJECT_DIR" ]; then
+        INSTALL_ROOT_DIR=$(dirname "$PROJECT_DIR")
       fi
 
       case "$REPLY" in
         1)
           local last_number=$(find_directory_num)
           info "选择二次安装，将创建新的博客实例..."
-          handle_multi_instance_deployment "$DIR" "$last_number"
+          handle_multi_instance_deployment "$INSTALL_ROOT_DIR" "$last_number"
           ;;
         2)
+          capture_reinstall_runtime_db_credentials "$PROJECT_DIR" || true
           info "选择重新安装，将下线已运行的容器..."
           stop_existing_poetize_containers
-          sudo cd "$DIR"
+          if ! prepare_project_directory_for_install; then
+            exit 1
+          fi
           ;;
         3)
           info "用户取消安装"
@@ -8005,51 +8137,19 @@ handle_environment_status() {
           ;;
         4)
           info "用户选择继续安装,忽略容器检测..."
-          # 继续正常的安装流程：检测是否需要下载项目
-          if sudo find / \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o -type d \( -iname "awesome-poetize-open-blog*" -o -iname "awesome-poetize-open" \) -print 2>/dev/null | grep -q . > /dev/null; then
-            info "检测到已存在的博客项目目录，将进入博客目录以继续安装..."
-            local PROJ_DIR=$(find_directory "awesome-poetize-open" | head -n 1)
-            if [ -n "$PROJ_DIR" ]; then
-              cd "$PROJ_DIR"
-              info "当前目录: $(pwd)"
-            fi
-          else
-            if download_and_extract_project "awesome-poetize-open"; then
-              success "✅ 源码下载和解压完成，继续部署安装..."
-              echo ""
-            else
-              error "❌ 源码下载失败，部署终止"
-              exit 1
-            fi
+          if ! prepare_project_directory_for_install; then
+            exit 1
           fi
           ;;
         *)
           local last_number=$(find_directory_num)
           warning "无效选择，默认选择二次安装"
-          handle_multi_instance_deployment "$DIR" "$last_number"
+          handle_multi_instance_deployment "$INSTALL_ROOT_DIR" "$last_number"
           ;;
       esac
     else
-      # 检测是否有项目环境目录
-      if [ -d "docker" ] && [ -f "docker-compose.yml" ] && [ -f "poetize" ] && { [ -d "poetize-web" ] || [ -d "poetize-admin" ] || [ -d "poetize-ui" ]; }; then
-        info "检测到当前目录已在博客项目中，使用当前目录继续安装..."
-        info "当前目录: $(pwd)"
-      elif sudo find / \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o -type d \( -iname "awesome-poetize-open-blog*" -o -iname "awesome-poetize-open" \) -print 2>/dev/null | grep -q . > /dev/null; then
-        info "检测到已存在的博客项目目录，将进入博客目录以继续安装..."
-        local DIR=$(find_directory "awesome-poetize-open" 2>/dev/null | head -n 1)
-        if [ -z "$DIR" ]; then
-          DIR=$(find_directory "awesome-poetize-open-blog*" 2>/dev/null | tail -n 1)
-        fi
-        cd "$DIR"
-        info "当前目录: $(pwd)"
-      else
-        if download_and_extract_project "awesome-poetize-open"; then
-          success "✅ 源码下载和解压完成，继续部署安装..."
-          echo ""
-        else
-          error "❌ 源码下载失败，部署终止"
-          exit 1
-        fi
+      if ! prepare_project_directory_for_install; then
+        exit 1
       fi
     fi
   fi
@@ -10759,7 +10859,7 @@ deploy_on_target() {
     # 执行部署脚本，保持实时输出和交互性
     if [ "$TARGET_USER" = "root" ]; then
         sshpass -p "$TARGET_PASSWORD" ssh -t -p $TARGET_PORT -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -o ServerAliveCountMax=3 "$TARGET_USER@$TARGET_IP" "
-            cd $target_path && \
+            cd \"$target_path\" && \
             echo '========================================' && \
             echo '开始执行部署脚本...' && \
             echo '部署过程中请耐心等待，不要中断连接' && \
@@ -10769,7 +10869,7 @@ deploy_on_target() {
         "
     else
         sshpass -p "$TARGET_PASSWORD" ssh -t -p $TARGET_PORT -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -o ServerAliveCountMax=3 "$TARGET_USER@$TARGET_IP" "
-            sudo cd $target_path && \
+            cd \"$target_path\" && \
             echo '========================================' && \
             echo '开始执行部署脚本...' && \
             echo '部署过程中请耐心等待，不要中断连接' && \

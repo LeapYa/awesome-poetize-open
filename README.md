@@ -84,7 +84,7 @@
 1. ✅ 页脚优化 —— 页脚信息更丰富、可自定义
 1. ✅ 图片压缩和转换WebP格式 —— 自动压缩图片，提升网站加载速度
 1. ✅ 智能摘要 —— 自动生成文章摘要，提升阅读体验
-1. ✅ OpenClaw 博客自动化 —— 支持通过仓库内置的 OpenClaw skill 使用站点 API 完成文章发布、更新、隐藏、主题切换、SEO运维与博客运营自动化（当前仅兼容 `awesome-poetize-open v3.1.0`）
+1. ✅ OpenClaw 博客自动化 —— 支持通过仓库内置的 OpenClaw skill 使用站点 API 完成文章发布、更新、隐藏、主题切换、SEO运维与博客运营自动化（要求 `awesome-poetize-open v4.0.0` 及以上版本）
 1. ✅ 暗色模式优化、定时暗色模式 —— 支持夜间自动切换暗色主题，优化暗色模式
 1. ✅ 灰色模式 —— 支持全站灰色纪念模式
 1. ✅ 自定义错误页面 —— 提供友好的404、403等错误页面
@@ -413,9 +413,9 @@ bash <(curl -sL install.leapya.com)
 
 ## 🤖 OpenClaw 博客自动化
 
-项目在 `awesome-poetize-open v3.1.0` 中提供了面向 OpenClaw 的博客自动化能力。你可以通过仓库内置的 skill，让 OpenClaw 直接调用站点 API 来完成文章发布、异步更新、隐藏文章、分类标签安全维护、主题切换、SEO状态查询，以及部分受控 SEO 运维动作。
+项目在 `awesome-poetize-open v4.0.0` 中引入了面向 OpenClaw 的博客自动化能力。你可以通过仓库内置的 skill，让 OpenClaw 直接调用站点 API 来完成文章发布、异步更新、隐藏文章、分类标签安全维护、主题切换、SEO状态查询，以及部分受控 SEO 运维动作。
 
-**注意：该能力当前仅兼容 `awesome-poetize-open v3.1.0`，更早版本和其他版本不要直接接入。**
+**注意：该能力当前要求 `awesome-poetize-open v4.0.0` 及以上版本，更早版本不要直接接入。**
 
 ### 适合做什么
 
@@ -426,7 +426,7 @@ bash <(curl -sL install.leapya.com)
 
 ### 接入前准备
 
-1. 使用 `awesome-poetize-open v3.1.0`
+1. 使用 `awesome-poetize-open v4.0.0` 或更高版本
 2. 进入后台管理的 `API 配置` 页面，开启 API 并生成 API 密钥
 3. 如果开启了 API IP 白名单，需要把 OpenClaw 服务器出口 IP 或 CIDR 加进去
 4. 将 `POETIZE_BASE_URL` 设置为站点公网根地址，例如 `https://your-blog.example.com`
@@ -602,7 +602,7 @@ clawhub update awesome-poetize-open-blog-automation --force
 #### 4. 版本策略建议
 
 - skill 版本号和项目版本号可以分开管理
-- 兼容性说明要写清楚，例如当前 skill 文档里已经写明仅兼容 `awesome-poetize-open v3.1.0`
+- 兼容性说明要写清楚，例如当前 skill 文档里已经写明要求 `awesome-poetize-open v4.0.0` 及以上版本
 - 如果未来某个 skill 版本只支持新的项目版本，直接在 `SKILL.md` 和 README 里写明对应关系
 - 只要 `slug` 和 `skillKey` 不乱改，后续升级路径就不会断
 

@@ -7330,7 +7330,7 @@ verify_https_status() {
 # 检查项目环境
 check_project_environment() {
   # 基础目录（新旧版本都需要）
-  local base_directories=("docker" "poetize-server" "py")
+  local base_directories=("docker" "poetize-server")
   local files=("docker-compose.yml")
   
   # 静默检测基础目录
@@ -7341,6 +7341,7 @@ check_project_environment() {
   done
   
   # 检测前端目录：新版使用 poetize-web + poetize-admin，旧版使用 poetize-ui
+  # py 目录在新版本中已不是项目根目录的必需条件
   # 只要满足其中一种即可
   local has_new_frontend=false
   local has_old_frontend=false
@@ -8030,9 +8031,15 @@ handle_environment_status() {
       esac
     else
       # 检测是否有项目环境目录
-      if sudo find / \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o -type d -iname "awesome-poetize-open-blog*" -print 2>/dev/null | grep -q . > /dev/null; then
+      if [ -d "docker" ] && [ -f "docker-compose.yml" ] && [ -f "poetize" ] && { [ -d "poetize-web" ] || [ -d "poetize-admin" ] || [ -d "poetize-ui" ]; }; then
+        info "检测到当前目录已在博客项目中，使用当前目录继续安装..."
+        info "当前目录: $(pwd)"
+      elif sudo find / \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o -type d \( -iname "awesome-poetize-open-blog*" -o -iname "awesome-poetize-open" \) -print 2>/dev/null | grep -q . > /dev/null; then
         info "检测到已存在的博客项目目录，将进入博客目录以继续安装..."
-        local DIR=$(find_directory "awesome-poetize-open-blog*" 2>/dev/null | tail -n 1)
+        local DIR=$(find_directory "awesome-poetize-open" 2>/dev/null | head -n 1)
+        if [ -z "$DIR" ]; then
+          DIR=$(find_directory "awesome-poetize-open-blog*" 2>/dev/null | tail -n 1)
+        fi
         cd "$DIR"
         info "当前目录: $(pwd)"
       else
@@ -12497,19 +12504,36 @@ resolve_db_root_password() {
     local mariadb_container="${1:-}"
     local env_password=""
     local config_password=""
+    local container_password=""
     local candidates=()
     local candidate=""
 
+    add_db_password_candidate() {
+        local new_candidate="$1"
+        local existing=""
+
+        [ -n "$new_candidate" ] || return 0
+        for existing in "${candidates[@]}"; do
+            if [ "$existing" = "$new_candidate" ]; then
+                return 0
+            fi
+        done
+        candidates+=("$new_candidate")
+    }
+
     if [ -f ".env" ] && type read_env_config &>/dev/null; then
         env_password=$(read_env_config "DB_ROOT_PASSWORD" "")
-        [ -n "$env_password" ] && candidates+=("$env_password")
+        add_db_password_candidate "$env_password"
     fi
 
     if [ -f ".config/db_credentials.txt" ]; then
         config_password=$(grep "数据库ROOT密码:" .config/db_credentials.txt | cut -d':' -f2 | tr -d ' ')
-        if [ -n "$config_password" ] && [ "$config_password" != "$env_password" ]; then
-            candidates+=("$config_password")
-        fi
+        add_db_password_candidate "$config_password"
+    fi
+
+    if [ -n "$mariadb_container" ]; then
+        container_password=$(sudo docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$mariadb_container" 2>/dev/null | grep '^MARIADB_ROOT_PASSWORD=' | tail -n 1 | cut -d'=' -f2- | tr -d '\r')
+        add_db_password_candidate "$container_password"
     fi
 
     if [ ${#candidates[@]} -eq 0 ]; then
@@ -12518,7 +12542,7 @@ resolve_db_root_password() {
 
     if [ -n "$mariadb_container" ]; then
         for candidate in "${candidates[@]}"; do
-            if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$candidate" "$mariadb_container" sh -lc 'mariadb-admin ping -h localhost -u root -p"$POETIZE_DB_ROOT_PASSWORD" >/dev/null 2>&1'; then
+            if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$candidate" "$mariadb_container" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" -N -e "SELECT 1" >/dev/null 2>&1'; then
                 printf "%s\n" "$candidate"
                 return 0
             fi
@@ -13368,9 +13392,11 @@ restore_full_backup() {
     info "使用备份目录: $latest_backup"
 
     # 执行实际恢复操作，传入false表示恢复数据库凭据（用于更新流程）
-    perform_restore_operations "$latest_backup" "false"
+    if perform_restore_operations "$latest_backup" "false"; then
+        return 0
+    fi
 
-    return 0
+    return 1
 }
 
 # 用户手动恢复数据

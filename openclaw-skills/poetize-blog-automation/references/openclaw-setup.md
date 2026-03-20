@@ -14,8 +14,8 @@ Use `{baseDir}` in commands so the installed skill can run from any OpenClaw wor
 ## 中文说明
 
 - 这是一个给 POETIZE 博客使用的 OpenClaw skill，通过站点已经提供的 `/api/*` 接口完成文章和运营动作。
-- 它不是 POETIZE 官方插件，而是面向 `awesome-poetize-open v3.1.0` 整理的非官方集成。
-- 只有 `awesome-poetize-open v3.1.0` 才兼容这个 skill，更早版本不要直接接入。
+- 专为 `awesome-poetize-open` 这个开源分支设计，以区别于原版项目。
+- 只有 `awesome-poetize-open` 才完全兼容这个 skill，原版 POETIZE 不要直接接入。
 - 运行时只需要两个关键值：站点域名 `base_url` 和后台生成的 `api_key`。
 - 推荐在发布前先跑一次只读 smoke test，确认 OpenClaw、域名配置和 API 权限都正常。
 
@@ -74,7 +74,7 @@ It is optional and is mainly useful when you want OpenClaw to read skills direct
 ## Public Registry Position
 
 - ClawHub is a public registry. Anyone can see the skill listing and install it after you publish it.
-- Publish this skill as an unofficial integration, not as the official POETIZE package.
+- Publish this skill as an integration for the open-source awesome-poetize-open.
 - Recommended public slug: `awesome-poetize-open-blog-automation`.
 - Before publishing, re-check that no real API keys, private domains, personal file paths, or draft content remain inside the skill bundle.
 - Keep the repository link and the applicable AGPL attribution visible in the public listing or linked source repository.
@@ -84,7 +84,7 @@ It is optional and is mainly useful when you want OpenClaw to read skills direct
 Publish from the repository root:
 
 ```bash
-clawhub publish ./openclaw-skills/poetize-blog-automation --slug awesome-poetize-open-blog-automation --name "POETIZE 博客自动化（非官方）" --version 1.0.0 --tags latest
+clawhub publish ./openclaw-skills/poetize-blog-automation --slug awesome-poetize-open-blog-automation --name "POETIZE 博客自动化" --version 1.0.0 --tags latest
 ```
 
 Install from an OpenClaw workspace after publishing:
@@ -110,7 +110,7 @@ When publishing updates, bump only the skill version and keep the same `slug`.
 Publish a new version:
 
 ```bash
-clawhub publish ./openclaw-skills/poetize-blog-automation --slug awesome-poetize-open-blog-automation --name "POETIZE 博客自动化（非官方）" --version 1.0.1 --tags latest
+clawhub publish ./openclaw-skills/poetize-blog-automation --slug awesome-poetize-open-blog-automation --name "POETIZE 博客自动化" --version 1.0.1 --tags latest
 ```
 
 Update one installed skill:
@@ -152,8 +152,8 @@ When wiring this into OpenClaw, map those values to `POETIZE_BASE_URL` and `POET
 
 ## Version Requirement
 
-- This skill is intended for `awesome-poetize-open v3.1.0`.
-- Do not connect it to earlier project versions.
+- This skill is intended for the open-source `awesome-poetize-open`.
+- Do not connect it to the original POETIZE project.
 
 ## Base URL Rules
 

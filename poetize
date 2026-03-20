@@ -2,7 +2,7 @@
 ## 作者: LeapYa
 ## 修改时间: 2026-03-20
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.11.2
+## 版本: 1.11.3
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.11.2"
+POETIZE_VERSION="1.11.3"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -7849,15 +7849,32 @@ EOF
 find_directory() {
   DIR_NAME="$1"
   sudo find / \
-    \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o \
-    -type d -iname "$DIR_NAME" -print 2>/dev/null
+    \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o \
+    -type d -iname "$DIR_NAME" -print 2>/dev/null | \
+    awk 'NF { print length($0) "\t" $0 }' | sort -n | cut -f2- | \
+    awk '
+      BEGIN { keep_count = 0 }
+      {
+        nested = 0
+        for (i = 1; i <= keep_count; i++) {
+          if (index($0, kept[i] "/") == 1) {
+            nested = 1
+            break
+          }
+        }
+        if (!nested) {
+          kept[++keep_count] = $0
+          print $0
+        }
+      }
+    '
 }
 
 find_directory_num() {
   # 查找目录，找到最大数字，如果没有，默认为1+1=2
   pattern="awesome-poetize-open-blog[0-9]*"
   local last_number=$(sudo find / \
-    \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o \
+    \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o \
     -type d -iname "$pattern" -print 2>/dev/null \
     | grep -ioE 'awesome-poetize-open-blog[0-9]+' \
     | sed -E 's/.*blog([0-9]+)/\1/' \
@@ -7988,7 +8005,7 @@ handle_environment_status() {
         4)
           info "用户选择继续安装,忽略容器检测..."
           # 继续正常的安装流程：检测是否需要下载项目
-          if sudo find / \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o -type d \( -iname "awesome-poetize-open-blog*" -o -iname "awesome-poetize-open" \) -print 2>/dev/null | grep -q . > /dev/null; then
+          if sudo find / \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o -type d \( -iname "awesome-poetize-open-blog*" -o -iname "awesome-poetize-open" \) -print 2>/dev/null | grep -q . > /dev/null; then
             info "检测到已存在的博客项目目录，将进入博客目录以继续安装..."
             local PROJ_DIR=$(find_directory "awesome-poetize-open" | head -n 1)
             if [ -n "$PROJ_DIR" ]; then
@@ -8013,7 +8030,7 @@ handle_environment_status() {
       esac
     else
       # 检测是否有项目环境目录
-      if sudo find / \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o -type d -iname "awesome-poetize-open-blog*" -print 2>/dev/null | grep -q . > /dev/null; then
+      if sudo find / \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o -type d -iname "awesome-poetize-open-blog*" -print 2>/dev/null | grep -q . > /dev/null; then
         info "检测到已存在的博客项目目录，将进入博客目录以继续安装..."
         local DIR=$(find_directory "awesome-poetize-open-blog*" 2>/dev/null | tail -n 1)
         cd "$DIR"
@@ -11709,7 +11726,7 @@ find_project_dir() {
     while IFS= read -r dir; do
     dirs+=("$dir")
     done < <(sudo find / \
-    \( -path /proc -o -path /sys -o -path /dev -o -path /run -o -path /var/lib/docker \) -prune -o \
+    \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o \
     -type d \( -iname "awesome-poetize-open" -o -iname "awesome-poetize-open-blog*" \) -print 2>/dev/null)
 
     # 过滤掉嵌套在另一个项目目录里的同名目录，避免更新时误选子目录后再次拉取一层项目
@@ -11751,7 +11768,7 @@ find_project_dir() {
         done
 
         # 交互输入
-        read -rp "请选择要迁移的目录序号: " choice
+        read -rp "请选择要操作的项目目录序号: " choice
 
         # 判断输入有效性
         if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#dirs[@]} )); then
@@ -11760,7 +11777,7 @@ find_project_dir() {
         fi
 
         target_dir="${dirs[$((choice-1))]}"
-        echo "迁移目录: $target_dir"
+        echo "已选择项目目录: $target_dir"
         cd "$target_dir" || { echo "切换目录失败: $target_dir"; exit 1; }
         set_project_context "$target_dir"
         load_config_lib  # 加载配置管理库
@@ -12397,6 +12414,122 @@ check_health() {
 
 # ================================ UPDATE 命令相关函数 ================================
 
+escape_regex() {
+    printf "%s" "$1" | sed 's/[][(){}.^$*+?|\\/]/\\&/g'
+}
+
+get_compose_project_name() {
+    if [ -n "$COMPOSE_PROJECT_NAME" ]; then
+        printf "%s\n" "$COMPOSE_PROJECT_NAME"
+    elif [ -n "$POETIZE_PROJECT_NAME" ]; then
+        printf "%s\n" "$(printf "%s" "$POETIZE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]')"
+    else
+        basename "$(pwd)" | tr '[:upper:]' '[:lower:]'
+    fi
+}
+
+resolve_compose_container_name() {
+    local service_name="$1"
+    local container_id=""
+    local container_name=""
+
+    container_id=$($DOCKER_COMPOSE_CMD ps -q "$service_name" 2>/dev/null | head -n 1)
+    if [ -n "$container_id" ]; then
+        container_name=$(sudo docker inspect --format '{{.Name}}' "$container_id" 2>/dev/null | sed 's#^/##')
+        if [ -n "$container_name" ]; then
+            printf "%s\n" "$container_name"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+resolve_project_volume_name() {
+    local logical_volume="$1"
+    local compose_project_name=""
+    local escaped_project_name=""
+    local escaped_logical_volume=""
+    local volume_name=""
+
+    compose_project_name=$(get_compose_project_name)
+
+    if [ -n "$compose_project_name" ]; then
+        volume_name="${compose_project_name}_${logical_volume}"
+        if sudo docker volume inspect "$volume_name" >/dev/null 2>&1; then
+            printf "%s\n" "$volume_name"
+            return 0
+        fi
+    fi
+
+    if sudo docker volume inspect "$logical_volume" >/dev/null 2>&1; then
+        printf "%s\n" "$logical_volume"
+        return 0
+    fi
+
+    escaped_project_name=$(escape_regex "$compose_project_name")
+    escaped_logical_volume=$(escape_regex "$logical_volume")
+    sudo docker volume ls --format "{{.Name}}" | \
+        grep -E "^${escaped_project_name}_${escaped_logical_volume}([_-].*)?$|^${escaped_logical_volume}([_-].*)?$" | \
+        head -n 1
+}
+
+resolve_service_volume_name() {
+    local service_name="$1"
+    local mount_destination="$2"
+    local logical_volume="$3"
+    local container_name=""
+    local volume_name=""
+
+    container_name=$(resolve_compose_container_name "$service_name" 2>/dev/null || true)
+    if [ -n "$container_name" ]; then
+        volume_name=$(sudo docker inspect --format "{{range .Mounts}}{{if eq .Destination \"$mount_destination\"}}{{.Name}}{{end}}{{end}}" "$container_name" 2>/dev/null)
+        if [ -n "$volume_name" ]; then
+            printf "%s\n" "$volume_name"
+            return 0
+        fi
+    fi
+
+    resolve_project_volume_name "$logical_volume"
+}
+
+resolve_db_root_password() {
+    local mariadb_container="${1:-}"
+    local env_password=""
+    local config_password=""
+    local candidates=()
+    local candidate=""
+
+    if [ -f ".env" ] && type read_env_config &>/dev/null; then
+        env_password=$(read_env_config "DB_ROOT_PASSWORD" "")
+        [ -n "$env_password" ] && candidates+=("$env_password")
+    fi
+
+    if [ -f ".config/db_credentials.txt" ]; then
+        config_password=$(grep "数据库ROOT密码:" .config/db_credentials.txt | cut -d':' -f2 | tr -d ' ')
+        if [ -n "$config_password" ] && [ "$config_password" != "$env_password" ]; then
+            candidates+=("$config_password")
+        fi
+    fi
+
+    if [ ${#candidates[@]} -eq 0 ]; then
+        return 1
+    fi
+
+    if [ -n "$mariadb_container" ]; then
+        for candidate in "${candidates[@]}"; do
+            if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$candidate" "$mariadb_container" sh -lc 'mariadb-admin ping -h localhost -u root -p"$POETIZE_DB_ROOT_PASSWORD" >/dev/null 2>&1'; then
+                printf "%s\n" "$candidate"
+                return 0
+            fi
+        done
+
+        warning "未能验证数据库ROOT密码，优先使用当前项目配置继续尝试"
+    fi
+
+    printf "%s\n" "${candidates[0]}"
+}
+
 # 创建完整数据备份
 create_full_backup() {
     info "开始创建完整数据备份..."
@@ -12471,20 +12604,16 @@ perform_backup_operations() {
         warning "数据库凭据文件不存在，跳过备份"
     fi
     
-    # 2. 读取数据库密码
-    local db_root_password=""
-    local db_user_password=""
-    if [ -f ".config/db_credentials.txt" ]; then
-        db_root_password=$(grep "数据库ROOT密码:" .config/db_credentials.txt | cut -d':' -f2 | tr -d ' ')
-        db_user_password=$(grep "数据库poetize用户密码:" .config/db_credentials.txt | cut -d':' -f2 | tr -d ' ')
-    fi
-    
     # 3. 备份数据库
     info "备份数据库数据..."
-    local mariadb_container=$(sudo docker ps --format "{{.Names}}" | grep "mariadb" | head -1)
+    local mariadb_container=$(resolve_compose_container_name "mysql" 2>/dev/null || true)
+    local db_root_password=""
+    if [ -n "$mariadb_container" ]; then
+        db_root_password=$(resolve_db_root_password "$mariadb_container" 2>/dev/null || true)
+    fi
     if [ -n "$mariadb_container" ] && [ -n "$db_root_password" ]; then
         info "使用MariaDB容器: $mariadb_container"
-        if sudo docker exec "$mariadb_container" mariadb-dump -u root -p"$db_root_password" --single-transaction --routines --triggers --databases poetize > "$backup_dir/poetry.sql"; then
+        if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc 'mariadb-dump -u root -p"$POETIZE_DB_ROOT_PASSWORD" --single-transaction --routines --triggers --databases poetize' > "$backup_dir/poetry.sql"; then
             success "数据库备份完成"
         else
             error "数据库备份失败"
@@ -12506,11 +12635,10 @@ perform_backup_operations() {
     
     # 5. 备份用户上传文件
     info "备份用户上传文件..."
-    local project_name=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]')
-    local uploads_volume="${project_name}_poetize_uploads"
-    
-    # 检查uploads volume是否存在
-    local actual_uploads_volume=$(sudo docker volume ls --format "{{.Name}}" | grep "$uploads_volume" | head -1)
+    local actual_uploads_volume=$(resolve_service_volume_name "nginx" "/usr/share/nginx/html/uploads" "poetize_uploads" 2>/dev/null || true)
+    if [ -z "$actual_uploads_volume" ]; then
+        actual_uploads_volume=$(resolve_service_volume_name "java-backend" "/app/static" "poetize_uploads" 2>/dev/null || true)
+    fi
     if [ -n "$actual_uploads_volume" ]; then
         info "找到用户上传文件volume: $actual_uploads_volume"
         # 检查volume中是否有数据
@@ -12530,8 +12658,7 @@ perform_backup_operations() {
     
     # 6. 备份Redis数据
     info "备份Redis数据..."
-    local redis_volume="${project_name}_redis_data"
-    local actual_redis_volume=$(sudo docker volume ls --format "{{.Name}}" | grep "redis_data" | head -1)
+    local actual_redis_volume=$(resolve_service_volume_name "redis" "/data" "redis_data" 2>/dev/null || true)
     if [ -n "$actual_redis_volume" ]; then
         info "找到Redis数据volume: $actual_redis_volume"
         # 检查volume中是否有数据
@@ -12904,9 +13031,10 @@ execute_additional_sql_scripts() {
     info "检查并执行新增的SQL脚本..."
     
     # 获取数据库连接信息
+    local mariadb_container=$(resolve_compose_container_name "mysql" 2>/dev/null || true)
     local db_root_password=""
-    if [ -f ".config/db_credentials.txt" ]; then
-        db_root_password=$(grep "数据库ROOT密码:" .config/db_credentials.txt | cut -d':' -f2 | tr -d ' ')
+    if [ -n "$mariadb_container" ]; then
+        db_root_password=$(resolve_db_root_password "$mariadb_container" 2>/dev/null || true)
     fi
     
     if [ -z "$db_root_password" ]; then
@@ -12918,8 +13046,6 @@ execute_additional_sql_scripts() {
     info "等待数据库容器启动..."
     sleep 15
     
-    # 查找MariaDB容器
-    local mariadb_container=$(sudo docker ps --format "{{.Names}}" | grep "mariadb" | head -1)
     if [ -z "$mariadb_container" ]; then
         warning "未找到MariaDB容器，跳过额外SQL脚本执行"
         return 1
@@ -12936,7 +13062,7 @@ execute_additional_sql_scripts() {
         
         # 检查 db_migrations 表是否存在
         local has_migrations_table=false
-        if sudo docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1" 2>/dev/null | grep -q "1"; then
+        if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1"' 2>/dev/null | grep -q "1"; then
             has_migrations_table=true
             info "检测到版本跟踪表，将只执行未记录的脚本"
         fi
@@ -12965,7 +13091,7 @@ execute_additional_sql_scripts() {
             
             # 如果有版本跟踪表，检查是否已执行
             if [ "$has_migrations_table" = true ]; then
-                local already_executed=$(sudo docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT COUNT(*) FROM db_migrations WHERE version='$version' AND success=1" 2>/dev/null | tr -d '[:space:]')
+                local already_executed=$(sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc "mariadb -u root -p\"\$POETIZE_DB_ROOT_PASSWORD\" poetize -N -e \"SELECT COUNT(*) FROM db_migrations WHERE version='$version' AND success=1\"" 2>/dev/null | tr -d '[:space:]')
                 if [ "$already_executed" = "1" ]; then
                     skip_count=$((skip_count + 1))
                     continue
@@ -12976,13 +13102,13 @@ execute_additional_sql_scripts() {
             info "执行SQL脚本: $sql_file"
             local start_time=$(date +%s%3N 2>/dev/null || date +%s)
             
-            if sudo docker exec -i "$mariadb_container" mariadb -u root -p"$db_root_password" poetize < "$sql_file" 2>/dev/null; then
+            if sudo docker exec -i -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize' < "$sql_file" 2>/dev/null; then
                 local end_time=$(date +%s%3N 2>/dev/null || date +%s)
                 local exec_time=$((end_time - start_time))
                 
                 # 如果刚执行的是版本表初始化脚本，重新检查表是否存在
                 if [ "$version" = "000000000000" ] && [ "$has_migrations_table" = false ]; then
-                    if sudo docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1" 2>/dev/null | grep -q "1"; then
+                    if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1"' 2>/dev/null | grep -q "1"; then
                         has_migrations_table=true
                         info "版本跟踪表已创建，后续脚本执行将被记录"
                     fi
@@ -12990,8 +13116,7 @@ execute_additional_sql_scripts() {
                 
                 # 记录到版本表（如果表存在）
                 if [ "$has_migrations_table" = true ]; then
-                    sudo docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -e \
-                        "INSERT IGNORE INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '自动执行', $exec_time, 1)" 2>/dev/null
+                    sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc "mariadb -u root -p\"\$POETIZE_DB_ROOT_PASSWORD\" poetize -e \"INSERT IGNORE INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '自动执行', $exec_time, 1)\"" 2>/dev/null
                 fi
                 
                 success "SQL脚本执行成功: $sql_file (${exec_time}ms)"
@@ -12999,8 +13124,7 @@ execute_additional_sql_scripts() {
             else
                 # 记录失败（如果表存在）
                 if [ "$has_migrations_table" = true ]; then
-                    sudo docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -e \
-                        "INSERT IGNORE INTO db_migrations (version, description, success) VALUES ('$version', '执行失败', 0)" 2>/dev/null
+                    sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc "mariadb -u root -p\"\$POETIZE_DB_ROOT_PASSWORD\" poetize -e \"INSERT IGNORE INTO db_migrations (version, description, success) VALUES ('$version', '执行失败', 0)\"" 2>/dev/null
                 fi
                 
                 warning "SQL脚本执行失败或已存在: $sql_file（这通常是正常的，如果表已存在）"
@@ -13024,9 +13148,11 @@ reinstall_latest_system() {
     pull_code_on_target
     
     # 恢复数据库
-    cp $BACKUP_DIR/poetry.sql poetize-server/sql/poetry.sql
+    cp "$BACKUP_DIR/poetry.sql" "poetize-server/sql/poetry.sql"
     # 恢复Python文件配置
-    cp -r $BACKUP_DIR/.config ./
+    if [ -d "$BACKUP_DIR/.config" ]; then
+        cp -r "$BACKUP_DIR/.config" ./
+    fi
 
     # 构建poetize系统安装命令
     local domains=""
@@ -13115,13 +13241,13 @@ restore_data() {
     # 查找项目目录
     find_project_dir
 
-    local project_name=$(basename "$(pwd)")
+    local project_name="${POETIZE_PROJECT_NAME:-$(basename "$(pwd)")}"
     # 如果未指定备份路径，查找最新的备份目录
     if [ -z "$backup_path" ]; then
         info "未指定备份路径，正在查找最新的备份目录..."
         
         # 查找/tmp目录中的poetize备份目录
-        local latest_backup=$(find /tmp -maxdepth 1 -type d -name "poetize_update_backup_${project_name}*" -printf "%T@ %p\n" 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
+        local latest_backup=$(find /tmp -maxdepth 1 -type d -iname "poetize_update_backup_${project_name}*" -printf "%T@ %p\n" 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
         
         if [ -z "$latest_backup" ]; then
             error "未找到任何备份目录"
@@ -13204,18 +13330,16 @@ perform_restore_operations() {
     # 2. 恢复数据库
     info "恢复数据库数据..."
     if [ -f "$backup_dir/poetry.sql" ]; then
-        # 获取数据库密码
+        local mariadb_container=$(resolve_compose_container_name "mysql" 2>/dev/null || true)
         local db_root_password=""
-        if [ -f ".config/db_credentials.txt" ]; then
-            db_root_password=$(grep "数据库ROOT密码:" .config/db_credentials.txt | cut -d':' -f2 | tr -d ' ')
+        if [ -n "$mariadb_container" ]; then
+            db_root_password=$(resolve_db_root_password "$mariadb_container" 2>/dev/null || true)
         fi
         
         if [ -n "$db_root_password" ]; then
-            # 查找MariaDB容器
-            local mariadb_container=$(sudo docker ps --format "{{.Names}}" | grep "mariadb" | head -1)
             if [ -n "$mariadb_container" ]; then
                 info "使用MariaDB容器: $mariadb_container"
-                if sudo docker exec -i "$mariadb_container" mariadb -u root -p"$db_root_password" poetize < "$backup_dir/poetry.sql"; then
+                if sudo docker exec -i -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize' < "$backup_dir/poetry.sql"; then
                     success "数据库恢复完成"
                 else
                     error "数据库恢复失败"
@@ -13244,15 +13368,19 @@ perform_restore_operations() {
     # 4. 恢复用户上传文件
     info "恢复用户上传文件..."
     if [ -f "$backup_dir/uploads_backup.tar.gz" ]; then
-        local project_name=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]')
-        local uploads_volume="${project_name}_poetize_uploads"
-        
-        # 等待并确保uploads volume存在
-        local actual_uploads_volume=$(sudo docker volume ls --format "{{.Name}}" | grep "$uploads_volume" | head -1)
+        local actual_uploads_volume=$(resolve_service_volume_name "nginx" "/usr/share/nginx/html/uploads" "poetize_uploads" 2>/dev/null || true)
         if [ -z "$actual_uploads_volume" ]; then
-            info "创建用户上传文件volume: $uploads_volume"
-            sudo docker volume create "$uploads_volume"
-            actual_uploads_volume="$uploads_volume"
+            actual_uploads_volume=$(resolve_service_volume_name "java-backend" "/app/static" "poetize_uploads" 2>/dev/null || true)
+        fi
+        if [ -z "$actual_uploads_volume" ]; then
+            actual_uploads_volume=$(resolve_project_volume_name "poetize_uploads" 2>/dev/null || true)
+        fi
+        if [ -z "$actual_uploads_volume" ]; then
+            local compose_project_name
+            compose_project_name=$(get_compose_project_name)
+            actual_uploads_volume="${compose_project_name}_poetize_uploads"
+            info "创建用户上传文件volume: $actual_uploads_volume"
+            sudo docker volume create "$actual_uploads_volume" >/dev/null
         fi
         
         info "恢复到volume: $actual_uploads_volume"
@@ -13268,15 +13396,16 @@ perform_restore_operations() {
     # 5. 恢复Redis数据
     info "恢复Redis数据..."
     if [ -f "$backup_dir/redis_backup.tar.gz" ]; then
-        local project_name=$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]')
-        local redis_volume="${project_name}_redis_data"
-        
-        # 等待并确保redis volume存在
-        local actual_redis_volume=$(sudo docker volume ls --format "{{.Name}}" | grep "redis_data" | head -1)
+        local actual_redis_volume=$(resolve_service_volume_name "redis" "/data" "redis_data" 2>/dev/null || true)
         if [ -z "$actual_redis_volume" ]; then
-            info "创建Redis数据volume: $redis_volume"
-            sudo docker volume create "$redis_volume"
-            actual_redis_volume="$redis_volume"
+            actual_redis_volume=$(resolve_project_volume_name "redis_data" 2>/dev/null || true)
+        fi
+        if [ -z "$actual_redis_volume" ]; then
+            local compose_project_name
+            compose_project_name=$(get_compose_project_name)
+            actual_redis_volume="${compose_project_name}_redis_data"
+            info "创建Redis数据volume: $actual_redis_volume"
+            sudo docker volume create "$actual_redis_volume" >/dev/null
         fi
         
         info "恢复到volume: $actual_redis_volume"

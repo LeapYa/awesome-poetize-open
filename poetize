@@ -13648,13 +13648,13 @@ dispatch_command() {
     shift || true
 
     case "$command" in
-        "install")
+        "install"|"-install"|"--install"|"-deploy"|"-bushu"|"-bs"|"--deploy")
             run_deployment_with_args "$@"
             ;;
-        "migrate")
+        "migrate"|"-migrate"|"--migrate"|"-qianyi"|"-qy"|"--qianyi"|"--qy")
             run_migration_with_args "$@"
             ;;
-        "update")
+        "update"|"-update"|"--update")
             check_docker
             parse_version_selector "${1:-}"
             if [ -n "$UPDATE_VERSION" ]; then
@@ -13665,144 +13665,68 @@ dispatch_command() {
             ensure_latest_poetize_for_update "${1:-}"
             run_update
             ;;
-        "uninstall")
-            check_docker
-            uninstall_services
-            ;;
-        "uninstall-all")
-            check_docker
-            uninstall_all_services
-            ;;
-        "status")
-            check_docker
-            show_status
-            ;;
-        "start")
-            check_docker
-            start_services
-            ;;
-        "stop")
-            check_docker
-            stop_services
-            ;;
-        "restart")
-            check_docker
-            restart_services
-            ;;
-        "logs")
-            check_docker
-            show_logs "${1:-}" "false"
-            ;;
-        "logs-follow")
-            check_docker
-            show_logs "${1:-}" "true"
-            ;;
-        "backup")
-            check_docker
-            backup_data "${1:-}"
-            ;;
-        "restore")
-            check_docker
-            restore_data "${1:-}"
-            ;;
-        "health")
-            check_docker
-            check_health
-            ;;
-        "info")
-            show_info
-            ;;
-        "version")
-            show_version
-            ;;
-        "help")
-            show_help
-            ;;
-        "-qianyi"|"-migrate"|"-qy")
-            parse_version_selector "${1:-}"
-            if [ -n "$UPDATE_VERSION" ]; then
-                info "迁移到指定版本: $UPDATE_VERSION"
-            elif [ "$USE_LATEST_TAG" = "false" ]; then
-                info "迁移使用main分支"
-            fi
-            run_migration
-            ;;
-        "-status")
-            check_docker
-            show_status
-            ;;
-        "-start"|"-up")
-            check_docker
-            start_services
-            ;;
-        "-stop"|"-down")
-            check_docker
-            stop_services
-            ;;
-        "-restart")
-            check_docker
-            restart_services
-            ;;
-        "-update")
-            check_docker
-            parse_version_selector "${1:-}"
-            if [ -n "$UPDATE_VERSION" ]; then
-                info "更新到指定版本: $UPDATE_VERSION"
-            elif [ "$USE_LATEST_TAG" = "false" ]; then
-                info "更新使用main分支"
-            fi
-            ensure_latest_poetize_for_update "${1:-}"
-            run_update
-            ;;
-        "-update-poetize-command")
+        "update-poetize-command"|"-update-poetize-command"|"--update-poetize-command")
             update_poetize_command
             ;;
-        "-uninstall")
+        "uninstall"|"-uninstall"|"--uninstall")
             check_docker
             uninstall_services
             ;;
-        "-uninstall-all")
+        "uninstall-all"|"-uninstall-all"|"--uninstall-all")
             check_docker
             uninstall_all_services
             ;;
-        "-deploy"|"-bushu"|"-bs")
-            run_deployment
+        "status"|"-status"|"--status")
+            check_docker
+            show_status
             ;;
-        "-logs")
+        "start"|"-start"|"--start"|"-up"|"--up")
+            check_docker
+            start_services
+            ;;
+        "stop"|"-stop"|"--stop"|"-down"|"--down")
+            check_docker
+            stop_services
+            ;;
+        "restart"|"-restart"|"--restart")
+            check_docker
+            restart_services
+            ;;
+        "logs"|"-logs"|"--logs")
             check_docker
             show_logs "${1:-}" "false"
             ;;
-        "-logs-follow")
+        "logs-follow"|"-logs-follow"|"--logs-follow")
             check_docker
             show_logs "${1:-}" "true"
             ;;
-        "-info")
-            show_info
-            ;;
-        "-health")
-            check_docker
-            check_health
-            ;;
-        "-version"|"-v")
-            show_version
-            ;;
-        "-backup")
+        "backup"|"-backup"|"--backup")
             check_docker
             backup_data "${1:-}"
             ;;
-        "-restore")
+        "restore"|"-restore"|"--restore")
             check_docker
             restore_data "${1:-}"
             ;;
-        "-oauth-proxy"|"oauth-proxy")
+        "health"|"-health"|"--health")
+            check_docker
+            check_health
+            ;;
+        "info"|"-info"|"--info")
+            show_info
+            ;;
+        "version"|"-version"|"--version"|"-v")
+            show_version
+            ;;
+        "-oauth-proxy"|"oauth-proxy"|"--oauth-proxy")
             check_docker
             configure_oauth_proxy
             ;;
-        "-enable-https"|"enable-https")
+        "-enable-https"|"enable-https"|"--enable-https")
             check_docker
             enable_https
             ;;
-        "-help"|"-h")
+        "help"|"-help"|"--help"|"-h")
             show_help
             ;;
         "")

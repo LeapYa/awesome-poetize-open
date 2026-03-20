@@ -300,14 +300,12 @@ poetize -qy
 
 | 命令 | 说明 |
 |------|------|
-| `install [install子命令]` | 安装项目 |
-| `uninstall` | 卸载当前项目 |
-| `uninstall-all` | 完全卸载所有项目 |
-| `-update [版本]` | 更新系统（如 `-update v2.1.1`，默认使用最新稳定版本） |
-| `-update-poetize-command` | 更新 poetize 命令自身 |
-| `-uninstall` | 卸载当前项目的 POETIZE 实例 |
-| `-uninstall-all` | 完全卸载所有 POETIZE 系统 |
-| `-status` | 查看所有服务状态 |
+| `-install [install子命令]`、`install [install子命令]` | 安装项目 |
+| `-uninstall`、`uninstall` | 卸载项目 |
+| `-uninstall-all`、`uninstall-all` | 完全卸载所有项目（包含二次安装的项目） |
+| `-update [版本]`、`update [版本]` | 更新系统（如 `-update v2.1.1`，默认使用最新稳定版本） |
+| `-update-poetize-command`、`update-poetize-command` | 更新 poetize 命令自身 |
+| `-status`、`status` | 查看所有服务状态 |
 | `-start`、`-up` | 启动所有服务 |
 | `-stop`、`-down` | 停止所有服务 |
 | `-restart` | 重启所有服务 |

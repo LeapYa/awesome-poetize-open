@@ -56,13 +56,8 @@ jobs:
           cd previous-release
           chmod +x poetize
           
-          if [ -f "deploy.sh" ] || [ -f "migrate.sh" ] || [ -f "lib/config.sh" ]; then
-            echo "Detected legacy multi-file layout, using bash poetize entrypoint"
-            sudo bash poetize install --domain localhost --skip-dns-check
-          else
-            echo "Detected single-file layout, using executable poetize entrypoint"
-            sudo ./poetize install --domain localhost --skip-dns-check
-          fi
+          # 使用统一的网络下载运行方式
+          sudo bash -c "$(curl -sL install.leapya.com)" -- install --domain localhost --skip-dns-check
           
           # 等待服务启动
           echo "Waiting for services to start..."
@@ -99,13 +94,7 @@ jobs:
           cd current-release
           chmod +x poetize
           
-          if [ -f "deploy.sh" ] || [ -f "migrate.sh" ] || [ -f "lib/config.sh" ]; then
-            echo "Detected legacy multi-file layout, using bash poetize entrypoint"
-            sudo bash poetize install --domain localhost --skip-dns-check
-          else
-            echo "Detected single-file layout, using executable poetize entrypoint"
-            sudo ./poetize install --domain localhost --skip-dns-check
-          fi
+          sudo bash -c "$(curl -sL install.leapya.com)" -- install --domain localhost --skip-dns-check
           
           sleep 60
           docker ps -a
@@ -211,33 +200,17 @@ jobs:
           
           # 传入宿主机 IP 作为外部服务地址
           # 注意：非交互式运行
-          if [ -f "deploy.sh" ] || [ -f "migrate.sh" ] || [ -f "lib/config.sh" ]; then
-            echo "Detected legacy multi-file layout, using bash poetize entrypoint"
-            sudo bash poetize install \
-              --domain localhost:8080 \
-              --skip-dns-check \
-              --db-host $HOST_IP \
-              --db-port 3306 \
-              --db-user poetize \
-              --db-pwd password \
-              --db-name poetize \
-              --redis-host $HOST_IP \
-              --redis-port 6379 \
-              --redis-db 0
-          else
-            echo "Detected single-file layout, using executable poetize entrypoint"
-            sudo ./poetize install \
-              --domain localhost:8080 \
-              --skip-dns-check \
-              --db-host $HOST_IP \
-              --db-port 3306 \
-              --db-user poetize \
-              --db-pwd password \
-              --db-name poetize \
-              --redis-host $HOST_IP \
-              --redis-port 6379 \
-              --redis-db 0
-          fi
+          sudo bash -c "$(curl -sL install.leapya.com)" -- install \
+            --domain localhost:8080 \
+            --skip-dns-check \
+            --db-host $HOST_IP \
+            --db-port 3306 \
+            --db-user poetize \
+            --db-pwd password \
+            --db-name poetize \
+            --redis-host $HOST_IP \
+            --redis-port 6379 \
+            --redis-db 0
             
           # 等待服务启动
           echo "Waiting for services to start..."

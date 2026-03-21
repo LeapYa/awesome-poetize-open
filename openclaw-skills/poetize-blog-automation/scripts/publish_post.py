@@ -71,7 +71,9 @@ def normalize_base_url(base_url: str) -> str:
         return ""
 
     sanitized = sanitized.rstrip("/")
-    if sanitized.lower().endswith("/api"):
+    if sanitized.lower().endswith("/api/api"):
+        sanitized = sanitized[:-8].rstrip("/")
+    elif sanitized.lower().endswith("/api"):
         sanitized = sanitized[:-4].rstrip("/")
     return sanitized
 
@@ -302,8 +304,8 @@ def ensure_taxonomy_ready(
     sort_name = payload.get("sortName")
     label_name = payload.get("labelName")
 
-    sorts = fetch_taxonomy(args.base_url, args.api_key, "/api/categories")
-    labels = fetch_taxonomy(args.base_url, args.api_key, "/api/tags")
+    sorts = fetch_taxonomy(args.base_url, args.api_key, "/api/api/categories")
+    labels = fetch_taxonomy(args.base_url, args.api_key, "/api/api/tags")
 
     resolved_sort_id = payload.get("sortId")
     new_sort_pending = False
@@ -409,7 +411,7 @@ def poll_task(
     interval_seconds: float,
     timeout_seconds: int,
 ) -> dict[str, Any]:
-    status_url = f"{base_url.rstrip('/')}/api/article/task/{urllib.parse.quote(task_id, safe='')}"
+    status_url = f"{base_url.rstrip('/')}/api/api/article/task/{urllib.parse.quote(task_id, safe='')}"
     deadline = time.time() + timeout_seconds
 
     while True:
@@ -474,7 +476,7 @@ def upload_resource(
     if store_type:
         fields["storeType"] = store_type
 
-    upload_url = f"{base_url.rstrip('/')}/api/resource/upload"
+    upload_url = f"{base_url.rstrip('/')}/api/api/resource/upload"
     body, boundary = encode_multipart(fields, "file", file_path)
     request = urllib.request.Request(
         url=upload_url,
@@ -767,7 +769,7 @@ def ensure_payment_plugin_ready(
 
     requested_plugin_key = args.payment_plugin_key or meta.get("paymentPluginKey")
     strict_paid = bool(args.require_paid or meta.get("requirePaid"))
-    status_url = f"{args.base_url.rstrip('/')}/api/payment/plugin/status"
+    status_url = f"{args.base_url.rstrip('/')}/api/api/payment/plugin/status"
     if isinstance(requested_plugin_key, str) and requested_plugin_key:
         status_url = (
             f"{status_url}?pluginKey="
@@ -808,7 +810,7 @@ def ensure_payment_plugin_ready(
         config_payload = read_json_file(str(payment_config_file))
         configure_response = request_json(
             "POST",
-            f"{args.base_url.rstrip('/')}/api/payment/plugin/configure",
+            f"{args.base_url.rstrip('/')}/api/api/payment/plugin/configure",
             args.api_key,
             {
                 "pluginKey": plugin_key,
@@ -837,7 +839,7 @@ def ensure_payment_plugin_ready(
     if target_plugin.get("active") is not True:
         activation_response = request_json(
             "POST",
-            f"{args.base_url.rstrip('/')}/api/payment/plugin/configure",
+            f"{args.base_url.rstrip('/')}/api/api/payment/plugin/configure",
             args.api_key,
             {
                 "pluginKey": plugin_key,
@@ -853,7 +855,7 @@ def ensure_payment_plugin_ready(
 
     test_response = request_json(
         "POST",
-        f"{args.base_url.rstrip('/')}/api/payment/plugin/testConnection",
+        f"{args.base_url.rstrip('/')}/api/api/payment/plugin/testConnection",
         args.api_key,
         {"pluginKey": plugin_key},
     )
@@ -1064,7 +1066,7 @@ def main() -> None:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return
 
-        endpoint = "/api/article/updateAsync" if args.article_id is not None else "/api/article/createAsync"
+        endpoint = "/api/api/article/updateAsync" if args.article_id is not None else "/api/api/article/createAsync"
         response = request_json("POST", f"{args.base_url.rstrip('/')}{endpoint}", args.api_key, payload)
 
         if response.get("code") != 200:

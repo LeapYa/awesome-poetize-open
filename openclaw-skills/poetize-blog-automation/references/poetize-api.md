@@ -22,33 +22,33 @@ The backend API itself is unchanged, but this skill now adds a strategy layer on
 
 ## Primary Endpoints
 
-- Create article: `POST /api/article/create`
-- Create article async: `POST /api/article/createAsync`
-- Update article: `POST /api/article/update`
-- Update article async: `POST /api/article/updateAsync`
-- Query article task: `GET /api/article/task/{taskId}`
-- Payment plugin status: `GET /api/payment/plugin/status`
-- Configure payment plugin: `POST /api/payment/plugin/configure`
-- Test payment plugin connection: `POST /api/payment/plugin/testConnection`
-- Article theme status: `GET /api/article-theme/status`
-- Activate article theme: `POST /api/article-theme/activate`
-- Article analytics: `GET /api/article/analytics/{id}`
-- Site visit trends: `GET /api/analytics/site/visits?days=7|30`
-- SEO status: `GET /api/seo/status`
-- Controlled SEO config: `GET /api/seo/config`
-- Update controlled SEO config: `POST /api/seo/config`
-- Trigger sitemap update: `POST /api/seo/sitemap/update`
-- Upload cover/resource: `POST /api/resource/upload`
-- Get article detail: `GET /api/article/{id}`
-- List categories: `GET /api/categories`
-- List tags: `GET /api/tags`
+- Create article: `POST /api/api/article/create`
+- Create article async: `POST /api/api/article/createAsync`
+- Update article: `POST /api/api/article/update`
+- Update article async: `POST /api/api/article/updateAsync`
+- Query article task: `GET /api/api/article/task/{taskId}`
+- Payment plugin status: `GET /api/api/payment/plugin/status`
+- Configure payment plugin: `POST /api/api/payment/plugin/configure`
+- Test payment plugin connection: `POST /api/api/payment/plugin/testConnection`
+- Article theme status: `GET /api/api/article-theme/status`
+- Activate article theme: `POST /api/api/article-theme/activate`
+- Article analytics: `GET /api/api/article/analytics/{id}`
+- Site visit trends: `GET /api/api/analytics/site/visits?days=7|30`
+- SEO status: `GET /api/api/seo/status`
+- Controlled SEO config: `GET /api/api/seo/config`
+- Update controlled SEO config: `POST /api/api/seo/config`
+- Trigger sitemap update: `POST /api/api/seo/sitemap/update`
+- Upload cover/resource: `POST /api/api/resource/upload`
+- Get article detail: `GET /api/api/article/{id}`
+- List categories: `GET /api/api/categories`
+- List tags: `GET /api/api/tags`
 
 ## Important Backend Behavior
 
 - `sortName` and `labelName` can be sent instead of `sortId` and `labelId`
 - If names are unknown, the backend can resolve or create them during article save
 - The bundled OpenClaw script does not auto-create categories or tags by default.
-- It first calls `/api/categories` and `/api/tags`, reuses exact matches, and stops for confirmation when a new category/tag would be created.
+- It first calls `/api/api/categories` and `/api/api/tags`, reuses exact matches, and stops for confirmation when a new category/tag would be created.
 - When exact taxonomy matches fail, the scripts can return close category or tag candidates.
 - Those fuzzy candidates are suggestions only and must be confirmed before querying, updating, or publishing.
 - Create and update responses return `id` and `articleUrl`
@@ -65,7 +65,7 @@ The backend API itself is unchanged, but this skill now adds a strategy layer on
   - `pendingTranslationContent`
 - Draft saves are implemented as private articles; the helper script auto-generates `password` and `tips` if omitted
 - The skill runtime can override `viewStatus` and `payType` to satisfy brief validation rules before calling the backend
-- `publish_post.py` can upload local Markdown images and local HTML `<img src="...">` references through `/api/resource/upload` before article creation or update
+- `publish_post.py` can upload local Markdown images and local HTML `<img src="...">` references through `/api/api/resource/upload` before article creation or update
 - Local article images default to resource type `articlePicture`
 
 ## Recommended Front Matter
@@ -118,9 +118,9 @@ skipAiTranslation: true
 - `cover` -> `articleCover`
 - `cover: " "` -> send a single-space cover placeholder when the user wants to publish without uploading a cover
 - `coverBlank: true` -> same as `cover: " "`
-- `coverFile` -> upload to `/api/resource/upload`, then use returned URL as `cover`
-- local Markdown image paths such as `![图](./assets/demo.png)` -> upload to `/api/resource/upload`, then rewrite the Markdown content to use the returned URL
-- local HTML image tags such as `<img src="./assets/demo.png">` -> upload to `/api/resource/upload`, then rewrite `src` to the returned URL
+- `coverFile` -> upload to `/api/api/resource/upload`, then use returned URL as `cover`
+- local Markdown image paths such as `![图](./assets/demo.png)` -> upload to `/api/api/resource/upload`, then rewrite the Markdown content to use the returned URL
+- local HTML image tags such as `<img src="./assets/demo.png">` -> upload to `/api/api/resource/upload`, then rewrite `src` to the returned URL
 - `video` -> `videoUrl`
 - `viewStatus` -> `viewStatus`
 - `commentStatus` -> `commentStatus`
@@ -134,8 +134,8 @@ skipAiTranslation: true
 - `payType` -> `payType`
 - `payAmount` -> `payAmount`
 - `freePercent` -> `freePercent`
-- `paymentPluginKey` -> choose the payment plugin checked through `/api/payment/plugin/status`
-- `paymentConfigFile` -> local JSON file used with `/api/payment/plugin/configure` when the target payment plugin still needs configuration
+- `paymentPluginKey` -> choose the payment plugin checked through `/api/api/payment/plugin/status`
+- `paymentConfigFile` -> local JSON file used with `/api/api/payment/plugin/configure` when the target payment plugin still needs configuration
 - `requirePaid` -> fail instead of auto-downgrading to `payType: 0`
 - `allowCreateTaxonomy` -> allow creating both category and tag when they do not already exist
 - `allowCreateSort` -> allow creating a missing category
@@ -162,7 +162,7 @@ skipAiTranslation: true
 - `payAmount` 仅在付费模式需要时传入
 - `freePercent` 为免费预览百分比，未传时后端默认 `30`
 - 当 `payType > 0` 时，后台要求插件管理里已有启用且已配置的 `payment` 插件，否则 API 会拒绝创建或更新付费文章
-- 若已安装 payment 插件但尚未配置，可先调用 `/api/payment/plugin/status` 获取 `configSchema` 和 `missingFields`，再调用 `/api/payment/plugin/configure`
+- 若已安装 payment 插件但尚未配置，可先调用 `/api/api/payment/plugin/status` 获取 `configSchema` 和 `missingFields`，再调用 `/api/api/payment/plugin/configure`
 - `status` 接口不会返回 token/privateKey 等敏感字段明文，只会返回是否已填写
 - 单空格封面只是和后台发文页保持一致，表示“本次不上传自定义封面”；前台读取文章时是否展示默认/随机封面，仍由现有博客展示逻辑决定
 
@@ -177,8 +177,8 @@ Required for create:
 
 Recommended workflow for category/tag safety:
 
-1. Call `GET /api/categories`
-2. Call `GET /api/tags`
+1. Call `GET /api/api/categories`
+2. Call `GET /api/api/tags`
 3. Reuse exact matches when possible
 4. Only allow new category/tag creation after explicit confirmation
 
@@ -205,7 +205,7 @@ If `viewStatus` is `false`, also require:
 Upload a local cover file or local article image before creating or updating an article:
 
 ```http
-POST /api/resource/upload
+POST /api/api/resource/upload
 X-API-KEY: <api-key>
 Content-Type: multipart/form-data
 ```
@@ -221,14 +221,14 @@ Recommended OpenClaw asset flow:
 
 1. Save the user-provided image into the same working directory tree as the Markdown draft
 2. Reference it from Markdown with a relative path such as `![截图](./assets/screenshot.png)`
-3. Let `publish_post.py` upload that file through `/api/resource/upload`
-4. Let the script replace the local path with the returned URL before it calls `/api/article/createAsync` or `/api/article/updateAsync`
+3. Let `publish_post.py` upload that file through `/api/api/resource/upload`
+4. Let the script replace the local path with the returned URL before it calls `/api/api/article/createAsync` or `/api/api/article/updateAsync`
 
 ## Async Task Flow
 
-1. `POST /api/article/createAsync` or `POST /api/article/updateAsync`
+1. `POST /api/api/article/createAsync` or `POST /api/api/article/updateAsync`
 2. Read `taskId` from the response
-3. Poll `GET /api/article/task/{taskId}`
+3. Poll `GET /api/api/article/task/{taskId}`
 4. Stop when `completed=true`
 
 Final states:
@@ -239,16 +239,16 @@ Final states:
 
 ## Payment Plugin Flow
 
-1. `GET /api/payment/plugin/status`
+1. `GET /api/api/payment/plugin/status`
 2. 若返回 `missingFields`，准备 payment 配置
-3. `POST /api/payment/plugin/configure`
-4. `POST /api/payment/plugin/testConnection`
+3. `POST /api/api/payment/plugin/configure`
+4. `POST /api/api/payment/plugin/testConnection`
 5. 连接成功后，再发布 `payType > 0` 的文章
 
 Example configure request:
 
 ```http
-POST /api/payment/plugin/configure
+POST /api/api/payment/plugin/configure
 X-API-KEY: <api-key>
 Content-Type: application/json
 ```
@@ -268,11 +268,11 @@ Content-Type: application/json
 
 For existing article operations:
 
-1. `GET /api/article/list`
+1. `GET /api/api/article/list`
 2. Prefer exact title match on `articleTitle` or use `id`
-3. `GET /api/article/{id}` to inspect the current state
-4. `POST /api/article/updateAsync` to update or hide
-5. `GET /api/article/task/{taskId}` to poll when needed
+3. `GET /api/api/article/{id}` to inspect the current state
+4. `POST /api/api/article/updateAsync` to update or hide
+5. `GET /api/api/article/task/{taskId}` to poll when needed
 
 For article listing by taxonomy:
 
@@ -280,7 +280,7 @@ For article listing by taxonomy:
 - `manage_blog.py list-articles --label-id <id>`
 - `manage_blog.py list-articles --sort-name "<exact category name>"`
 - `manage_blog.py list-articles --label-name "<exact tag name>"`
-- When name-based filters are used, the script first calls `/api/categories` or `/api/tags`
+- When name-based filters are used, the script first calls `/api/api/categories` or `/api/api/tags`
 - It prefers exact matches
 - If exact matches fail, it returns close candidates and stops for confirmation
 - It never auto-selects a fuzzy category or tag candidate
@@ -322,20 +322,20 @@ For hiding an article:
 
 ## Theme And Analytics Flow
 
-- `GET /api/article-theme/status`
-- `POST /api/article-theme/activate`
-- `GET /api/article/analytics/{id}`
-- `GET /api/analytics/site/visits?days=7`
-- `GET /api/analytics/site/visits?days=30`
+- `GET /api/api/article-theme/status`
+- `POST /api/api/article-theme/activate`
+- `GET /api/api/article/analytics/{id}`
+- `GET /api/api/analytics/site/visits?days=7`
+- `GET /api/api/analytics/site/visits?days=30`
 
 ## Controlled SEO Flow
 
-- `GET /api/seo/status`
-- `GET /api/seo/config`
-- `POST /api/seo/config`
-- `POST /api/seo/sitemap/update`
+- `GET /api/api/seo/status`
+- `GET /api/api/seo/config`
+- `POST /api/api/seo/config`
+- `POST /api/api/seo/sitemap/update`
 
-`GET /api/seo/status` returns:
+`GET /api/api/seo/status` returns:
 
 - `enabled`
 - `searchEnginePushEnabled`
@@ -346,7 +346,7 @@ For hiding an article:
 - `sitemapBaseUrl`
 - `summary`
 
-`POST /api/seo/sitemap/update` returns:
+`POST /api/api/seo/sitemap/update` returns:
 
 - `triggered`
 - `lastSitemapUpdateTime`

@@ -131,7 +131,7 @@ def list_articles(
         params["sortId"] = resolved_sort_id
     if resolved_label_id is not None:
         params["labelId"] = resolved_label_id
-    return request_json("GET", build_url(args.base_url, "/api/article/list", params), args.api_key)
+    return request_json("GET", build_url(args.base_url, "/api/api/article/list", params), args.api_key)
 
 
 def build_url(base_url: str, path: str, params: dict[str, Any] | None = None) -> str:
@@ -156,7 +156,7 @@ def extract_records(response: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def fetch_categories(args: argparse.Namespace) -> list[dict[str, Any]]:
-    response = request_json("GET", f"{args.base_url.rstrip('/')}/api/categories", args.api_key)
+    response = request_json("GET", f"{args.base_url.rstrip('/')}/api/api/categories", args.api_key)
     if response.get("code") != 200:
         die(json.dumps(response, ensure_ascii=False, indent=2))
     data = response.get("data")
@@ -166,7 +166,7 @@ def fetch_categories(args: argparse.Namespace) -> list[dict[str, Any]]:
 
 
 def fetch_tags(args: argparse.Namespace) -> list[dict[str, Any]]:
-    response = request_json("GET", f"{args.base_url.rstrip('/')}/api/tags", args.api_key)
+    response = request_json("GET", f"{args.base_url.rstrip('/')}/api/api/tags", args.api_key)
     if response.get("code") != 200:
         die(json.dumps(response, ensure_ascii=False, indent=2))
     data = response.get("data")
@@ -337,7 +337,7 @@ def post_async_update(
 ) -> None:
     response = request_json(
         "POST",
-        f"{args.base_url.rstrip('/')}/api/article/updateAsync",
+        f"{args.base_url.rstrip('/')}/api/api/article/updateAsync",
         args.api_key,
         payload,
     )
@@ -391,7 +391,7 @@ def main() -> None:
 
     if args.command == "get-article":
         article_id = resolve_article_id(args)
-        response = request_json("GET", f"{args.base_url.rstrip('/')}/api/article/{article_id}", args.api_key)
+        response = request_json("GET", f"{args.base_url.rstrip('/')}/api/api/article/{article_id}", args.api_key)
         print(json.dumps(response, ensure_ascii=False, indent=2))
         return
 
@@ -430,7 +430,7 @@ def main() -> None:
         article_id = resolve_article_id(args)
         response = request_json(
             "GET",
-            f"{args.base_url.rstrip('/')}/api/article/analytics/{article_id}",
+            f"{args.base_url.rstrip('/')}/api/api/article/analytics/{article_id}",
             args.api_key,
         )
         print(json.dumps(response, ensure_ascii=False, indent=2))
@@ -439,21 +439,21 @@ def main() -> None:
     if args.command == "site-visits":
         response = request_json(
             "GET",
-            build_url(args.base_url, "/api/analytics/site/visits", {"days": args.days}),
+            build_url(args.base_url, "/api/api/analytics/site/visits", {"days": args.days}),
             args.api_key,
         )
         print(json.dumps(response, ensure_ascii=False, indent=2))
         return
 
     if args.command == "theme-status":
-        response = request_json("GET", f"{args.base_url.rstrip('/')}/api/article-theme/status", args.api_key)
+        response = request_json("GET", f"{args.base_url.rstrip('/')}/api/api/article-theme/status", args.api_key)
         print(json.dumps(response, ensure_ascii=False, indent=2))
         return
 
     if args.command == "activate-theme":
         response = request_json(
             "POST",
-            f"{args.base_url.rstrip('/')}/api/article-theme/activate",
+            f"{args.base_url.rstrip('/')}/api/api/article-theme/activate",
             args.api_key,
             {"pluginKey": args.plugin_key},
         )
@@ -461,12 +461,12 @@ def main() -> None:
         return
 
     if args.command == "seo-status":
-        response = request_json("GET", f"{args.base_url.rstrip('/')}/api/seo/status", args.api_key)
+        response = request_json("GET", f"{args.base_url.rstrip('/')}/api/api/seo/status", args.api_key)
         print(json.dumps(response, ensure_ascii=False, indent=2))
         return
 
     if args.command == "seo-get-config":
-        response = request_json("GET", f"{args.base_url.rstrip('/')}/api/seo/config", args.api_key)
+        response = request_json("GET", f"{args.base_url.rstrip('/')}/api/api/seo/config", args.api_key)
         print(json.dumps(response, ensure_ascii=False, indent=2))
         return
 
@@ -474,7 +474,7 @@ def main() -> None:
         payload = read_json_file(args.config_file)
         response = request_json(
             "POST",
-            f"{args.base_url.rstrip('/')}/api/seo/config",
+            f"{args.base_url.rstrip('/')}/api/api/seo/config",
             args.api_key,
             payload,
         )
@@ -484,7 +484,7 @@ def main() -> None:
     if args.command == "sitemap-update":
         response = request_json(
             "POST",
-            f"{args.base_url.rstrip('/')}/api/seo/sitemap/update",
+            f"{args.base_url.rstrip('/')}/api/api/seo/sitemap/update",
             args.api_key,
             {},
         )

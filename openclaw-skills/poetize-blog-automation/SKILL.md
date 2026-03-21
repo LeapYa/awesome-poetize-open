@@ -45,7 +45,7 @@ It is not monetization-first.
 - Prefer `scripts/render_openclaw_config.py` to generate OpenClaw config instead of hand-writing JSON.
 - Run `scripts/openclaw_smoke_test.py` before the first real write action on a new OpenClaw environment.
 - Point `POETIZE_BASE_URL` at the public nginx/domain origin.
-- Actual request path = `${POETIZE_BASE_URL}/api/...`; do not append `/api` inside the variable value itself.
+- Actual request path = `${POETIZE_BASE_URL}/api/api/...`; do not append `/api` inside the variable value itself.
 
 Read [references/poetize-api.md](references/poetize-api.md) before publishing, updating, querying, or operating articles.
 Read [references/openclaw-setup.md](references/openclaw-setup.md) when connecting the skill to OpenClaw.

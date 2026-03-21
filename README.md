@@ -44,7 +44,7 @@
 - [项目简介](#-项目简介)
 - [快速开始](#-快速开始)
 - [部署文档](#-部署文档)
-- [OpenClaw 博客自动化](#-openclaw-博客自动化)
+- [OpenClaw 博客自动化（bate）](#-openclaw-博客自动化（bate）)
 - [贡献与许可](#-贡献与许可)
 - [开发指南](#-开发指南)
 - [排障指南](#-排障指南)
@@ -411,7 +411,7 @@ bash <(curl -sL install.leapya.com)
 | 容器＋--privileged（DinD） | ⚠️ 可尝试 | 不如挂 Socket 稳定，有安全风险 |
 | 普通容器（无 Socket，无特权） | ❌ 不可行 | Docker 守护进程无法启动 |
 
-## 🤖 OpenClaw 博客自动化
+## 🤖 OpenClaw 博客自动化（bate）
 
 项目在 `awesome-poetize-open v4.0.0` 中引入了面向 OpenClaw 的博客自动化能力。你可以通过仓库内置的 skill，让 OpenClaw 直接调用站点 API 来完成文章发布、异步更新、隐藏文章、分类标签安全维护、主题切换、SEO状态查询，以及部分受控 SEO 运维动作。
 
@@ -481,7 +481,7 @@ clawhub install awesome-poetize-open-blog-automation
 
 - 对外安装名是 `awesome-poetize-open-blog-automation`
 - 安装后内部使用的 `skillKey` 仍然是 `poetize-blog-automation`
-- `POETIZE_BASE_URL` 只填站点根地址，不要带 `/api`
+- `POETIZE_BASE_URL` 只填站点根地址，不要带 `/api/api`
 
 ### 安装方式三：手动安装
 

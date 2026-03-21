@@ -11535,41 +11535,6 @@ load_config_lib() {
     return 1
 }
 
-sync_update_version_metadata() {
-    local target_version="${1:-}"
-    local deploy_version="${target_version:-main}"
-    local app_version="${target_version:-dev}"
-
-    mkdir -p ".config"
-    cat > ".config/version.txt" << EOF
-# POETIZE 部署版本信息
-VERSION=${deploy_version}
-DEPLOY_TIME=$(date '+%Y-%m-%d %H:%M:%S')
-DEPLOY_SOURCE=$([ -n "$target_version" ] && echo "tag" || echo "main")
-EOF
-    info "版本信息已保存到 .config/version.txt"
-
-    if [ ! -f ".env" ] && [ -f ".env.example" ]; then
-        cp ".env.example" ".env"
-        success "配置文件已从模板创建: .env"
-    fi
-
-    if [ -f ".env" ]; then
-        if grep -q "^APP_VERSION=" ".env" 2>/dev/null; then
-            local temp_env=".env.tmp.$$"
-            awk -v value="$app_version" '
-                /^APP_VERSION=/ { print "APP_VERSION=" value; next }
-                { print }
-            ' ".env" > "$temp_env" && mv "$temp_env" ".env"
-        else
-            printf "\nAPP_VERSION=%s\n" "$app_version" >> ".env"
-        fi
-        info "已同步 APP_VERSION=$app_version 到 .env"
-    else
-        warning "未找到 .env 和 .env.example，跳过 APP_VERSION 同步"
-    fi
-}
-
 # 检查用户权限
 check_user_permissions() {
     # 检查是否为root用户
@@ -13453,7 +13418,36 @@ reinstall_latest_system() {
     fi
 
     # 更新路径需要在 install 前写入版本信息，供前端构建时注入 APP_VERSION
-    sync_update_version_metadata "$RESOLVED_TARGET_VERSION"
+    local deploy_version="${RESOLVED_TARGET_VERSION:-main}"
+    local app_version="${RESOLVED_TARGET_VERSION:-dev}"
+    mkdir -p ".config"
+    cat > ".config/version.txt" << EOF
+# POETIZE 部署版本信息
+VERSION=${deploy_version}
+DEPLOY_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+DEPLOY_SOURCE=$([ -n "$RESOLVED_TARGET_VERSION" ] && echo "tag" || echo "main")
+EOF
+    info "版本信息已保存到 .config/version.txt"
+
+    if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+        cp ".env.example" ".env"
+        success "配置文件已从模板创建: .env"
+    fi
+
+    if [ -f ".env" ]; then
+        if grep -q "^APP_VERSION=" ".env" 2>/dev/null; then
+            local temp_env=".env.tmp.$$"
+            awk -v value="$app_version" '
+                /^APP_VERSION=/ { print "APP_VERSION=" value; next }
+                { print }
+            ' ".env" > "$temp_env" && mv "$temp_env" ".env"
+        else
+            printf "\nAPP_VERSION=%s\n" "$app_version" >> ".env"
+        fi
+        info "已同步 APP_VERSION=$app_version 到 .env"
+    else
+        warning "未找到 .env 和 .env.example，跳过 APP_VERSION 同步"
+    fi
 
     # 构建poetize系统安装命令
     local domains=""

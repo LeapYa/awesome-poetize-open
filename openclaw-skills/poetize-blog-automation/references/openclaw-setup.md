@@ -13,7 +13,7 @@ Use `{baseDir}` in commands so the installed skill can run from any OpenClaw wor
 
 ## 中文说明
 
-- 这是一个给 POETIZE 博客使用的 OpenClaw skill，通过站点已经提供的 `/api/*` 接口完成文章和运营动作。
+- 这是一个给 POETIZE 博客使用的 OpenClaw skill，通过站点已经提供的 `/api/api/*` 接口完成文章和运营动作。
 - 专为 `awesome-poetize-open` 这个开源分支设计，以区别于原版项目。
 - 只有 `awesome-poetize-open` 才完全兼容这个 skill，原版 POETIZE 不要直接接入。
 - 运行时只需要两个关键值：站点域名 `base_url` 和后台生成的 `api_key`。
@@ -158,7 +158,7 @@ When wiring this into OpenClaw, map those values to `POETIZE_BASE_URL` and `POET
 ## Base URL Rules
 
 - Production: set `POETIZE_BASE_URL` to the public nginx origin, for example `https://blog.example.com`.
-- Actual API request path = `${POETIZE_BASE_URL}/api/...`.
+- Actual API request path = `${POETIZE_BASE_URL}/api/api/...`.
 - Do not append `/api` inside `POETIZE_BASE_URL` itself. The bundled scripts already do that.
 - Fault tolerance: if the provided URL accidentally ends with `/api` or `/api/`, the bundled scripts will trim that trailing suffix automatically.
 - If POETIZE's API IP whitelist is enabled, add the OpenClaw server egress IP (or CIDR) to the whitelist before running this skill.
@@ -280,7 +280,7 @@ python {baseDir}/scripts/publish_post.py --markdown-file article.md --brief-file
 - Use `skills.load.extraDirs` only when you intentionally want repo-direct loading
 - Bind `base_url` and `api_key` as install-time or runtime variables
 - In production, prefer the public nginx/domain origin such as `https://your-blog.example.com`
-- Remember that the final request path is `${POETIZE_BASE_URL}/api/...`
+- Remember that the final request path is `${POETIZE_BASE_URL}/api/api/...`
 - Create `article-brief.json` from `{baseDir}/assets/article-brief.template.json` before mutating actions
 - Run `python {baseDir}/scripts/openclaw_smoke_test.py ...` before the first real write action
 - Generate a strategy brief JSON before any mutating command

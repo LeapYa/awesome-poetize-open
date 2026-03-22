@@ -6,12 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
-import sys
-from pathlib import Path
 from typing import Any
 
-from publish_post import normalize_base_url
+from manage_blog import build_url
+from publish_post import normalize_base_url, request_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,11 +27,6 @@ def parse_args() -> argparse.Namespace:
         help="Poetize API key. Defaults to POETIZE_API_KEY.",
     )
     parser.add_argument(
-        "--python-bin",
-        default=sys.executable,
-        help="Python executable to use for invoking bundled skill scripts.",
-    )
-    parser.add_argument(
         "--size",
         type=int,
         default=1,
@@ -49,16 +42,6 @@ def parse_args() -> argparse.Namespace:
 def die(message: str, code: int = 1) -> None:
     print(message, file=sys.stderr)
     raise SystemExit(code)
-
-
-def parse_json_output(output: str) -> dict[str, Any]:
-    try:
-        data = json.loads(output)
-    except json.JSONDecodeError as exc:
-        die(f"Smoke test command returned non-JSON output: {exc}\n{output}")
-    if not isinstance(data, dict):
-        die("Smoke test command did not return a JSON object.")
-    return data
 
 
 def extract_records(response: dict[str, Any]) -> list[dict[str, Any]]:
@@ -80,43 +63,16 @@ def main() -> None:
     if not api_key:
         die("Missing --api-key or POETIZE_API_KEY.")
 
-    script_path = Path(__file__).resolve()
-    skill_root = script_path.parents[1]
-    manage_script = skill_root / "scripts" / "manage_blog.py"
-    if not manage_script.exists():
-        die(f"Expected bundled script does not exist: {manage_script}")
-
-    env = os.environ.copy()
-    env["POETIZE_BASE_URL"] = base_url
-    env["POETIZE_API_KEY"] = api_key
-
-    command = [
-        args.python_bin,
-        str(manage_script),
-        "list-articles",
-        "--current",
-        "1",
-        "--size",
-        str(args.size),
-    ]
+    params: dict[str, Any] = {"current": 1, "size": args.size}
     if args.search_key:
-        command.extend(["--search-key", args.search_key])
+        params["searchKey"] = args.search_key
 
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=env,
-        cwd=str(skill_root),
-        check=False,
+    checked_endpoint = build_url(base_url, "/api/api/article/list", params)
+    response = request_json(
+        "GET",
+        checked_endpoint,
+        api_key,
     )
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip() or "Unknown error"
-        die(f"Smoke test command failed with exit code {result.returncode}:\n{stderr}")
-
-    response = parse_json_output(result.stdout)
     if response.get("code") != 200:
         die(
             "Smoke test API call did not return code 200:\n"
@@ -126,7 +82,7 @@ def main() -> None:
     records = extract_records(response)
     summary = {
         "status": "ok",
-        "checkedCommand": command,
+        "checkedEndpoint": checked_endpoint,
         "baseUrl": base_url,
         "recordsReturned": len(records),
         "responseCode": response.get("code"),

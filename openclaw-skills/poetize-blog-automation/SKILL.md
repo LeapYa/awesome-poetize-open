@@ -1,6 +1,6 @@
 ---
 name: poetize-blog-automation
-description: 专为开源版 awesome-poetize-open 设计的 POETIZE 博客自动化技能。通过 `/api/*` 接口完成文章发布、更新、隐藏、分类标签维护、主题切换、数据分析和 SEO 运维。Use only when the task explicitly targets a POETIZE site or POETIZE admin API workflow. Do not use for generic writing, generic SEO advice, or non-POETIZE CMS work.
+description: 专为开源版 awesome-poetize-open 设计的 POETIZE 博客自动化技能。通过 `/api/api/*` 接口完成文章发布、更新、隐藏、分类标签维护、主题切换、数据分析和 SEO 运维。Use only when the task explicitly targets a POETIZE site or POETIZE admin API workflow. Do not use for generic writing, generic SEO advice, or non-POETIZE CMS work.
 homepage: https://github.com/LeapYa/awesome-poetize-open/tree/main/openclaw-skills/poetize-blog-automation
 metadata: {"openclaw":{"skillKey":"poetize-blog-automation","emoji":"✍️","primaryEnv":"POETIZE_API_KEY","requires":{"anyBins":["python","python3"],"env":["POETIZE_BASE_URL","POETIZE_API_KEY"]},"install":[{"id":"brew-python","kind":"brew","formula":"python","bins":["python3"],"label":"Install Python 3 (brew)"}]}}
 user-invocable: true
@@ -16,7 +16,7 @@ It is not monetization-first.
 
 ## 中文简介
 
-- 这是一个面向 POETIZE 博客的 OpenClaw skill，用来通过 POETIZE API 进行文章发布、更新、隐藏、分类标签维护、主题切换、数据分析和 SEO 运维。
+- 这是一个面向 POETIZE 博客的 OpenClaw skill，用来通过 POETIZE 的 `/api/api/*` 接口进行文章发布、更新、隐藏、分类标签维护、主题切换、数据分析和 SEO 运维。
 - 目前仅支持 `awesome-poetize-open` 开源分支，不适用于原版 POETIZE。
 - 专为开源版 `awesome-poetize-open` 设计。
 - 它更适合“个人博客运营”而不是“泛内容生成”，默认坚持免费优先、维护优先、质量优先。

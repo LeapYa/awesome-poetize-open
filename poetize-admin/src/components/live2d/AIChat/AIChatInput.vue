@@ -1,5 +1,5 @@
 <template>
-  <div class="chat-input-wrapper">
+  <div class="chat-input-wrapper" :style="themeStyleVars">
     <!-- 编辑模式提示条 -->
     <div v-if="isEditing" class="edit-mode-bar">
       <span class="edit-mode-text">✂️ 编辑消息中...</span>
@@ -75,6 +75,56 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useAIChatStore } from '@/stores/aiChat'
 
+const DEFAULT_THEME_COLOR = '#4facfe'
+
+const clampChannel = (value) => Math.min(255, Math.max(0, Math.round(value)))
+
+const parseColorToRgb = (color) => {
+  if (typeof color !== 'string') {
+    return null
+  }
+
+  const value = color.trim()
+  const hexMatch = value.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/)
+  if (hexMatch) {
+    const hex = hexMatch[1]
+    const normalized =
+      hex.length === 3
+        ? hex
+            .split('')
+            .map((char) => char + char)
+            .join('')
+        : hex
+
+    return {
+      r: parseInt(normalized.slice(0, 2), 16),
+      g: parseInt(normalized.slice(2, 4), 16),
+      b: parseInt(normalized.slice(4, 6), 16),
+    }
+  }
+
+  const rgbMatch = value.match(
+    /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/
+  )
+  if (rgbMatch) {
+    return {
+      r: clampChannel(Number(rgbMatch[1])),
+      g: clampChannel(Number(rgbMatch[2])),
+      b: clampChannel(Number(rgbMatch[3])),
+    }
+  }
+
+  return null
+}
+
+const darkenRgb = (rgb, amount) => ({
+  r: clampChannel(rgb.r * (1 - amount)),
+  g: clampChannel(rgb.g * (1 - amount)),
+  b: clampChannel(rgb.b * (1 - amount)),
+})
+
+const toCssRgb = (rgb) => `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`
+
 export default {
   name: 'AIChatInput',
   
@@ -105,6 +155,22 @@ export default {
     const aiChatStore = useAIChatStore()
     const inputRef = ref(null)
     const localValue = ref(props.value)
+    const themeColor = computed(() => aiChatStore.themeColor || DEFAULT_THEME_COLOR)
+    const themeStyleVars = computed(() => {
+      const rgb =
+        parseColorToRgb(themeColor.value) ||
+        parseColorToRgb(DEFAULT_THEME_COLOR)
+
+      const hoverRgb = darkenRgb(rgb, 0.12)
+      const deepRgb = darkenRgb(rgb, 0.24)
+
+      return {
+        '--ai-chat-theme-color': toCssRgb(rgb),
+        '--ai-chat-theme-color-hover': toCssRgb(hoverRgb),
+        '--ai-chat-theme-color-deep': toCssRgb(deepRgb),
+        '--ai-chat-theme-rgb': `${rgb.r}, ${rgb.g}, ${rgb.b}`,
+      }
+    })
     
     // 检测是否为移动端
     const isMobile = computed(() => window.innerWidth <= 768)
@@ -211,6 +277,7 @@ export default {
     return {
       inputRef,
       localValue,
+      themeStyleVars,
       isMobile,
       canSend,
       attachedPage,
@@ -228,6 +295,10 @@ export default {
 
 <style scoped>
 .chat-input-wrapper {
+  --ai-chat-theme-color: #4facfe;
+  --ai-chat-theme-color-hover: #3498db;
+  --ai-chat-theme-color-deep: #2f7eb8;
+  --ai-chat-theme-rgb: 79, 172, 254;
   display: flex;
   flex-direction: column;
 }
@@ -274,10 +345,10 @@ export default {
   align-items: center;
   justify-content: space-between;
   padding: 8px 20px;
-  background: linear-gradient(90deg, #d1ecf1 0%, #bee5eb 100%);
-  border-top: 1px solid rgba(23, 162, 184, 0.3);
+  background: linear-gradient(90deg, rgba(var(--ai-chat-theme-rgb), 0.12) 0%, rgba(var(--ai-chat-theme-rgb), 0.2) 100%);
+  border-top: 1px solid rgba(var(--ai-chat-theme-rgb), 0.26);
   font-size: 13px;
-  color: #0c5460;
+  color: var(--ai-chat-theme-color-deep);
 }
 
 .attached-page-info {
@@ -305,9 +376,9 @@ export default {
 .remove-page-btn {
   padding: 2px 8px;
   background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(23, 162, 184, 0.3);
+  border: 1px solid rgba(var(--ai-chat-theme-rgb), 0.26);
   border-radius: 4px;
-  color: #0c5460;
+  color: var(--ai-chat-theme-color-deep);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -317,8 +388,8 @@ export default {
 
 .remove-page-btn:hover {
   background: white;
-  border-color: #17a2b8;
-  color: #0056b3;
+  border-color: var(--ai-chat-theme-color);
+  color: var(--ai-chat-theme-color);
 }
 
 /* 附加按钮容器 */
@@ -344,10 +415,10 @@ export default {
   flex-shrink: 0;
   padding: 0 12px;
   height: 32px;
-  border: 1px solid rgba(79, 172, 254, 0.4);
+  border: 1px solid rgba(var(--ai-chat-theme-rgb), 0.42);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.6);
-  color: #4facfe;
+  color: var(--ai-chat-theme-color);
   cursor: pointer;
   transition: all 0.2s ease;
   display: inline-flex;
@@ -360,9 +431,9 @@ export default {
 }
 
 .attach-page-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.9);
-  border-color: #4facfe;
-  box-shadow: 0 2px 8px rgba(79, 172, 254, 0.3);
+  background: rgba(var(--ai-chat-theme-rgb), 0.08);
+  border-color: var(--ai-chat-theme-color);
+  box-shadow: 0 2px 8px rgba(var(--ai-chat-theme-rgb), 0.28);
 }
 
 .attach-page-btn:active:not(:disabled) {
@@ -408,9 +479,9 @@ export default {
 }
 
 .chat-input:focus {
-  border-color: rgba(79, 172, 254, 0.6);
+  border-color: rgba(var(--ai-chat-theme-rgb), 0.65);
   background: rgba(255, 255, 255, 0.8);
-  box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+  box-shadow: 0 0 0 3px rgba(var(--ai-chat-theme-rgb), 0.12);
 }
 
 .chat-input:disabled {
@@ -428,19 +499,19 @@ export default {
   height: 40px;
   border: none;
   border-radius: 20px;
-  background: #4facfe;
+  background: var(--ai-chat-theme-color);
   color: #fff;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(79, 172, 254, 0.3);
+  box-shadow: 0 2px 8px rgba(var(--ai-chat-theme-rgb), 0.32);
 }
 
 .send-btn:hover:not(:disabled) {
-  background: #3498db;
-  box-shadow: 0 4px 12px rgba(79, 172, 254, 0.4);
+  background: var(--ai-chat-theme-color-hover);
+  box-shadow: 0 4px 12px rgba(var(--ai-chat-theme-rgb), 0.42);
 }
 
 .send-btn:active:not(:disabled) {
@@ -507,8 +578,9 @@ export default {
 }
 
 .dark-mode .chat-input:focus {
-  border-color: #764ba2;
+  border-color: rgba(var(--ai-chat-theme-rgb), 0.72);
   background: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 3px rgba(var(--ai-chat-theme-rgb), 0.2);
 }
 
 .dark-mode .chat-input:disabled {
@@ -538,31 +610,32 @@ export default {
 }
 
 .dark-mode .attached-page-bar {
-  background: linear-gradient(90deg, #17a2b8 0%, #138496 100%);
-  border-top-color: rgba(23, 162, 184, 0.2);
-  color: #d1ecf1;
+  background: linear-gradient(90deg, rgba(var(--ai-chat-theme-rgb), 0.24) 0%, rgba(var(--ai-chat-theme-rgb), 0.36) 100%);
+  border-top-color: rgba(var(--ai-chat-theme-rgb), 0.3);
+  color: #eef4ff;
 }
 
 .dark-mode .remove-page-btn {
   background: rgba(0, 0, 0, 0.3);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #d1ecf1;
+  border-color: rgba(var(--ai-chat-theme-rgb), 0.35);
+  color: #eef4ff;
 }
 
 .dark-mode .remove-page-btn:hover {
-  background: rgba(0, 0, 0, 0.5);
-  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(var(--ai-chat-theme-rgb), 0.18);
+  border-color: var(--ai-chat-theme-color);
   color: #fff;
 }
 
 .dark-mode .attach-page-btn {
   background: rgba(0, 0, 0, 0.3);
-  border-color: rgba(118, 75, 162, 0.4);
-  color: #a78bfa;
+  border-color: rgba(var(--ai-chat-theme-rgb), 0.45);
+  color: var(--ai-chat-theme-color);
 }
 
 .dark-mode .attach-page-btn:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.5);
-  border-color: #a78bfa;
+  background: rgba(var(--ai-chat-theme-rgb), 0.18);
+  border-color: var(--ai-chat-theme-color);
+  box-shadow: 0 2px 10px rgba(var(--ai-chat-theme-rgb), 0.28);
 }
 </style>

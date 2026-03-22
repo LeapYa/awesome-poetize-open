@@ -87,6 +87,8 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                 result.put("chat_name", "AI助手");
                 result.put("welcome_message", "你好！我是你的AI助手，有什么可以帮助你的吗？");
                 result.put("theme_color", "#4facfe");
+                result.put("enable_typing_indicator", true);
+                result.put("show_timestamp", true);
                 result.put("max_message_length", 500);
                 result.put("max_conversation_length", 20);
                 result.put("rate_limit", 20);
@@ -115,6 +117,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
 
             // 显示配置
             result.put("enable_typing_indicator", Boolean.TRUE.equals(config.getEnableTypingIndicator()));
+            result.put("show_timestamp", !Boolean.FALSE.equals(config.getShowTimestamp()));
             result.put("enable_chat_history", Boolean.TRUE.equals(config.getEnableChatHistory()));
 
         } catch (Exception e) {
@@ -127,6 +130,8 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
             result.put("chat_name", "AI助手");
             result.put("welcome_message", "你好！我是你的AI助手，有什么可以帮助你的吗？");
             result.put("theme_color", "#4facfe");
+            result.put("enable_typing_indicator", true);
+            result.put("show_timestamp", true);
             result.put("max_message_length", 500);
             result.put("max_conversation_length", 20);
             result.put("rate_limit", 20);

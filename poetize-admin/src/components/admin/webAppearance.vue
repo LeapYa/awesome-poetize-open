@@ -983,7 +983,7 @@ export default {
             position: 'bottom-right',
             bubbleStyle: 'modern',
             typingAnimation: config.enableTypingIndicator !== false,
-            showTimestamp: true
+            showTimestamp: config.showTimestamp !== false
           };
           this.aiConfigs.advancedConfig = {
             proxy: '',
@@ -1033,6 +1033,7 @@ export default {
           chatName: this.aiConfigs.appearanceConfig.botName,
           themeColor: this.aiConfigs.appearanceConfig.themeColor,
           enableTypingIndicator: this.aiConfigs.appearanceConfig.typingAnimation,
+          showTimestamp: this.aiConfigs.appearanceConfig.showTimestamp,
           enableThinking: this.aiConfigs.advancedConfig.enableThinking,
           // 工具配置 (Mem0 记忆)
           enableMemory: this.aiConfigs.toolsConfig.enableMemory,

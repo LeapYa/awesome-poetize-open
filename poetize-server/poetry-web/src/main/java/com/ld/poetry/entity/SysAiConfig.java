@@ -142,6 +142,12 @@ public class SysAiConfig implements Serializable {
     private Boolean enableTypingIndicator;
 
     /**
+     * 显示时间戳 (0:否 1:是)
+     */
+    @TableField("show_timestamp")
+    private Boolean showTimestamp;
+
+    /**
      * 响应延迟(毫秒)
      */
     private Integer responseDelay;

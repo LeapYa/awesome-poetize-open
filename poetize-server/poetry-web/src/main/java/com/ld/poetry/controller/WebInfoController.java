@@ -151,6 +151,7 @@ public class WebInfoController {
             Integer homePagePullUpHeight = (Integer) params.get("homePagePullUpHeight");
             Boolean apiEnabled = (Boolean) params.get("apiEnabled");
             String apiKey = (String) params.get("apiKey");
+            String apiIpWhitelist = (String) params.get("apiIpWhitelist");
             String navConfig = (String) params.get("navConfig");
             String footerBackgroundImage = (String) params.get("footerBackgroundImage");
             String footerBackgroundConfig = (String) params.get("footerBackgroundConfig");
@@ -171,6 +172,7 @@ public class WebInfoController {
             int updateResult = webInfoMapper.updateWebInfoById(id, webName, webTitle, siteAddress, footer,
                     backgroundImage,
                     avatar, waifuJson, status, enableWaifu, waifuDisplayMode, homePagePullUpHeight, apiEnabled, apiKey,
+                    apiIpWhitelist,
                     navConfig, footerBackgroundImage, footerBackgroundConfig, email, minimalFooter,
                     enableAutoNight, autoNightStart, autoNightEnd, enableGrayMode, enableDynamicTitle,
                     mouseClickEffectConfig, mobileDrawerConfig);

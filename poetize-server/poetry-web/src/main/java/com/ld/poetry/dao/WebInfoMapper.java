@@ -33,6 +33,7 @@ public interface WebInfoMapper extends BaseMapper<WebInfo> {
                          @Param("homePagePullUpHeight") Integer homePagePullUpHeight,
                          @Param("apiEnabled") Boolean apiEnabled,
                          @Param("apiKey") String apiKey,
+                         @Param("apiIpWhitelist") String apiIpWhitelist,
                          @Param("navConfig") String navConfig,
                          @Param("footerBackgroundImage") String footerBackgroundImage,
                          @Param("footerBackgroundConfig") String footerBackgroundConfig,

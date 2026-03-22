@@ -42,6 +42,18 @@ export const useAIChatStore = defineStore('aiChat', {
     themeColor: (state) => {
       return state.config?.theme_color || '#4facfe'
     },
+    typingAnimationEnabled: (state) => {
+      return (
+        state.config?.enable_typing_indicator !== false &&
+        state.config?.enableTypingIndicator !== false
+      )
+    },
+    showTimestampEnabled: (state) => {
+      return (
+        state.config?.show_timestamp !== false &&
+        state.config?.showTimestamp !== false
+      )
+    },
     messageHistory: (state) => {
       const maxLength = state.config?.max_conversation_length || 20
       const allowedRoles = ['user', 'assistant']
@@ -113,6 +125,8 @@ export const useAIChatStore = defineStore('aiChat', {
             welcome_message: '你好！我是你的AI助手，有什么可以帮助你的吗？',
             theme_color: '#4facfe',
             streaming_enabled: false,
+            enable_typing_indicator: true,
+            show_timestamp: true,
             require_login: false,
             max_message_length: 500,
             max_conversation_length: 20,

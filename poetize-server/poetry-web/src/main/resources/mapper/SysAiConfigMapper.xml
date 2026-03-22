@@ -25,6 +25,7 @@
         <result column="max_conversation_length" property="maxConversationLength"/>
         <result column="enable_context" property="enableContext"/>
         <result column="enable_typing_indicator" property="enableTypingIndicator"/>
+        <result column="show_timestamp" property="showTimestamp"/>
         <result column="response_delay" property="responseDelay"/>
         <result column="enable_quick_actions" property="enableQuickActions"/>
         <result column="enable_chat_history" property="enableChatHistory"/>
@@ -60,7 +61,7 @@
         id, config_type, config_name, enabled, provider, api_key, api_base, model,
         temperature, max_tokens, top_p, frequency_penalty, presence_penalty,
         chat_name, chat_avatar, welcome_message, placeholder_text, theme_color,
-        max_conversation_length, enable_context, enable_typing_indicator, response_delay,
+        max_conversation_length, enable_context, enable_typing_indicator, show_timestamp, response_delay,
         enable_quick_actions, enable_chat_history, enable_streaming, rate_limit,
         max_message_length, require_login, enable_content_filter,
         custom_instructions, enable_thinking, enable_tools,

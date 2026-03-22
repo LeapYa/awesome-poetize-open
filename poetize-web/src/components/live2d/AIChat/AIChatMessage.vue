@@ -138,7 +138,7 @@
             v-else
             :content="segment.content"
             :streaming="message.streaming || false"
-            :enable-typewriter="message.isNew !== false"
+            :enable-typewriter="enableTypewriter && message.isNew !== false"
             @rendered="handleRendered"
           />
         </template>
@@ -147,8 +147,8 @@
       <div v-else class="message-text" v-text="message.content" />
     </div>
 
-    <div class="message-footer">
-      <div class="message-time">
+    <div v-if="showTimestamp || !isUser" class="message-footer">
+      <div v-if="showTimestamp" class="message-time">
         {{ formattedTime }}
       </div>
       <button
@@ -231,6 +231,8 @@ export default {
     const themeColor = computed(
       () => aiChatStore.config?.theme_color || '#4facfe'
     )
+    const enableTypewriter = computed(() => aiChatStore.typingAnimationEnabled)
+    const showTimestamp = computed(() => aiChatStore.showTimestampEnabled)
 
     const formatToolEventLabel = (segment) => {
       const toolName = segment.tool || '未知工具'
@@ -323,6 +325,8 @@ export default {
       messageClass,
       formattedTime,
       themeColor,
+      enableTypewriter,
+      showTimestamp,
       formatToolEventLabel,
       handleCopy,
       handleEdit,

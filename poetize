@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-03-20
+## 修改时间: 2026-03-22
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.11.3
+## 版本: 1.11.4
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.11.3"
+POETIZE_VERSION="1.11.4"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -23,6 +23,291 @@ info() { echo -e "${BLUE}[信息]${NC} $1"; }
 success() { echo -e "${GREEN}[成功]${NC} $1"; }
 error() { echo -e "${RED}[失败]${NC} $1"; }
 warning() { echo -e "${YELLOW}[警告]${NC} $1"; }
+
+get_script_dir() {
+    local script_path
+    script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+    dirname "$script_path"
+}
+
+get_safe_pwd() {
+    pwd -P 2>/dev/null && return 0
+
+    if [ -n "$POETIZE_PROJECT_DIR" ] && [ -d "$POETIZE_PROJECT_DIR" ]; then
+        printf "%s\n" "$POETIZE_PROJECT_DIR"
+        return 0
+    fi
+
+    local script_dir
+    script_dir="$(get_script_dir)"
+    if [ -d "$script_dir" ]; then
+        printf "%s\n" "$script_dir"
+        return 0
+    fi
+
+    if [ -n "$HOME" ] && [ -d "$HOME" ]; then
+        printf "%s\n" "$HOME"
+        return 0
+    fi
+
+    printf "/\n"
+}
+
+ensure_accessible_workdir() {
+    pwd -P >/dev/null 2>&1 && return 0
+
+    local fallback_dir
+    fallback_dir="$(get_safe_pwd)"
+    cd "$fallback_dir" 2>/dev/null || cd / 2>/dev/null || return 1
+    warning "检测到当前目录已失效，已自动切换到: $(get_safe_pwd)"
+}
+
+list_service_instances() {
+    local base_service="$1"
+    sudo docker ps -a --format "{{.Names}}" 2>/dev/null | grep -E "^${base_service}(-blog[0-9]+)?$" | sort || true
+}
+
+get_first_service_instance() {
+    local base_service="$1"
+    list_service_instances "$base_service" | head -n 1
+}
+
+read_env_file_value() {
+    local key="$1"
+    local env_file="${2:-.env}"
+    [ -f "$env_file" ] || return 1
+
+    grep -E "^${key}=" "$env_file" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d '[:space:]'
+}
+
+resolve_compose_port_expr() {
+    local expr="$1"
+    local env_key=""
+    local default_value=""
+    local env_value=""
+
+    if [[ "$expr" =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)[:-]-(.+)\}$ ]]; then
+        env_key="${BASH_REMATCH[1]}"
+        default_value="${BASH_REMATCH[2]}"
+        env_value="$(read_env_file_value "$env_key" ".env")"
+        if [ -n "$env_value" ]; then
+            printf "%s\n" "$env_value"
+        else
+            printf "%s\n" "$default_value"
+        fi
+        return 0
+    fi
+
+    printf "%s\n" "$expr"
+}
+
+list_nginx_port_bindings() {
+    local nginx_container=""
+    local line=""
+    local seen=""
+    local raw_ports=""
+    local mapping=""
+    local host_part=""
+    local container_part=""
+    local host_port=""
+
+    nginx_container="$(get_first_service_instance "poetize-nginx")"
+
+    if [ -n "$nginx_container" ]; then
+        raw_ports="$(sudo docker port "$nginx_container" 2>/dev/null || true)"
+        if [ -n "$raw_ports" ]; then
+            while IFS= read -r line; do
+                [ -z "$line" ] && continue
+                container_part="$(printf "%s" "$line" | awk '{print $1}')"
+                host_part="$(printf "%s" "$line" | awk -F'-> ' '{print $2}' | sed 's/^[[:space:]]*//')"
+                host_port="$(printf "%s" "$host_part" | sed 's/.*://')"
+                mapping="${host_port}|${container_part}"
+                case "|$seen|" in
+                    *"|$mapping|"*) ;;
+                    *)
+                        printf "%s\n" "$mapping"
+                        seen="${seen}|${mapping}"
+                        ;;
+                esac
+            done <<< "$raw_ports"
+            return 0
+        fi
+    fi
+
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        line="$(printf "%s" "$line" | sed 's/^[[:space:]]*-[[:space:]]*//' | tr -d '"')"
+        host_part="$(printf "%s" "$line" | cut -d: -f1)"
+        container_part="$(printf "%s" "$line" | cut -d: -f2-)"
+        host_port="$(resolve_compose_port_expr "$host_part")"
+        mapping="${host_port}|${container_part}"
+        case "|$seen|" in
+            *"|$mapping|"*) ;;
+            *)
+                printf "%s\n" "$mapping"
+                seen="${seen}|${mapping}"
+                ;;
+        esac
+    done < <(
+        awk '
+            /^[[:space:]]*nginx:[[:space:]]*$/ { in_nginx=1; next }
+            in_nginx && /^[^[:space:]]/ { in_nginx=0; in_ports=0 }
+            in_nginx && /^[[:space:]]*ports:[[:space:]]*$/ { in_ports=1; next }
+            in_ports && /^[[:space:]]*[A-Za-z0-9_-]+:[[:space:]]*$/ { in_ports=0 }
+            in_ports && /^[[:space:]]*-[[:space:]]*"/ { print }
+        ' docker-compose.yml 2>/dev/null
+    )
+}
+
+print_section_header() {
+    local title="$1"
+    local line="=========================================================================="
+    printf "${CYAN}%s${NC}\n" "$line"
+    printf "${CYAN}=== %s ===${NC}\n" "$title"
+    printf "${CYAN}%s${NC}\n" "$line"
+}
+
+print_table_separator() {
+    printf "  %-12s %-25s %-18s %s\n" "------------" "-------------------------" "------------------" "------------------------------"
+}
+
+print_table_header() {
+    printf "  %-12s %-25s %-18s %s\n" "状态" "容器" "类型" "说明"
+    print_table_separator
+}
+
+format_status_cell() {
+    local status="$1"
+    local padded
+    padded=$(printf "%-12s" "$status")
+    case "$status" in
+        "OK")
+            printf "%b%s%b" "$GREEN" "$padded" "$NC"
+            ;;
+        "WARN")
+            printf "%b%s%b" "$YELLOW" "$padded" "$NC"
+            ;;
+        "FAIL")
+            printf "%b%s%b" "$RED" "$padded" "$NC"
+            ;;
+        *)
+            printf "%b%s%b" "$BLUE" "$padded" "$NC"
+            ;;
+    esac
+}
+
+print_table_row() {
+    local status="$1"
+    local container_name="$2"
+    local service_type="$3"
+    local message="$4"
+    printf "  %s %-25s %-18s %s\n" "$(format_status_cell "$status")" "$container_name" "$service_type" "$message"
+}
+
+resolve_project_version() {
+    local project_dir="$1"
+    local deployed_version=""
+    local app_version=""
+    local git_version=""
+
+    if [ -n "$project_dir" ] && [ -f "$project_dir/.config/version.txt" ]; then
+        deployed_version=$(grep "^VERSION=" "$project_dir/.config/version.txt" 2>/dev/null | cut -d'=' -f2)
+        if [ -n "$deployed_version" ]; then
+            printf "%s\n" "$deployed_version"
+            return 0
+        fi
+    fi
+
+    if [ -n "$project_dir" ] && [ -f "$project_dir/.env" ]; then
+        app_version=$(grep "^APP_VERSION=" "$project_dir/.env" 2>/dev/null | tail -n 1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d '[:space:]')
+        if [ -n "$app_version" ] && [ "$app_version" != "dev" ]; then
+            printf "%s\n" "$app_version"
+            return 0
+        fi
+    fi
+
+    if [ -n "$project_dir" ] && [ -d "$project_dir/.git" ]; then
+        git_version=$(git -C "$project_dir" describe --tags --abbrev=0 2>/dev/null || true)
+        if [ -n "$git_version" ]; then
+            printf "%s\n" "$git_version"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
+status_rank() {
+    case "$1" in
+        "FAIL") echo 3 ;;
+        "WARN") echo 2 ;;
+        "OK") echo 1 ;;
+        *) echo 0 ;;
+    esac
+}
+
+merge_status() {
+    local current="$1"
+    local incoming="$2"
+    if [ "$(status_rank "$incoming")" -gt "$(status_rank "$current")" ]; then
+        printf "%s\n" "$incoming"
+    else
+        printf "%s\n" "$current"
+    fi
+}
+
+get_service_runtime_status() {
+    local container_name="$1"
+    local state
+    local health
+
+    state=$(sudo docker inspect --format='{{.State.Status}}' "$container_name" 2>/dev/null || echo "not-found")
+    if [ "$state" != "running" ]; then
+        printf "FAIL|未运行(%s)\n" "$state"
+        return 1
+    fi
+
+    health=$(sudo docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_name" 2>/dev/null || echo "unknown")
+    case "$health" in
+        "healthy")
+            printf "OK|健康\n"
+            ;;
+        "starting")
+            printf "WARN|启动中\n"
+            ;;
+        "unhealthy")
+            printf "FAIL|不健康\n"
+            return 1
+            ;;
+        *)
+            printf "INFO|运行中(无健康检查)\n"
+            ;;
+    esac
+}
+
+print_ephemeral_service_status() {
+    local container_name="$1"
+    local state
+
+    state=$(sudo docker inspect --format='{{.State.Status}}' "$container_name" 2>/dev/null || echo "not-found")
+    case "$state" in
+        "exited")
+            printf "OK|已完成并正常退出\n"
+            ;;
+        "running")
+            printf "WARN|正在执行一次性任务\n"
+            ;;
+        "created"|"restarting")
+            printf "WARN|%s\n" "$state"
+            ;;
+        "not-found")
+            printf "INFO|未发现容器记录\n"
+            ;;
+        *)
+            printf "INFO|%s\n" "$state"
+            ;;
+    esac
+}
 
 ensure_embedded_core_dir() {
     if [ -n "$EMBEDDED_CORE_DIR" ] && [ -d "$EMBEDDED_CORE_DIR" ]; then
@@ -247,7 +532,7 @@ start_docker_service() {
 
 # 创建全局poetize命令符号链接（静默执行）
 create_global_poetize_command() {
-  local poetize_script="$(pwd)/poetize"
+  local poetize_script="$(get_safe_pwd)/poetize"
   local target_path="/usr/local/bin/poetize"
   
   # 检查poetize脚本是否存在
@@ -11636,7 +11921,7 @@ show_help() {
     printf "  uninstall-all             完全卸载所有项目\n"
     printf "\n"
     printf "${BLUE}服务管理:${NC}\n"
-    printf "  -status                   查看所有服务状态\n"
+    printf "  -status, -health          查看服务状态（含健康/端口）\n"
     printf "  -start, -up               启动所有服务\n"
     printf "  -stop, -down              停止所有服务\n"
     printf "  -restart                  重启所有服务\n"
@@ -11654,7 +11939,6 @@ show_help() {
     printf "${BLUE}日志和监控:${NC}\n"
     printf "  -logs [服务名]            查看服务日志\n"
     printf "  -logs-follow [服务名]     实时跟踪服务日志\n"
-    printf "  -health                   检查服务健康状态\n"
     printf "\n"
     printf "${BLUE}信息查看:${NC}\n"
     printf "  -info                     显示系统和项目信息\n"
@@ -11741,6 +12025,7 @@ show_interactive_menu() {
             8)
                 check_docker
                 show_status
+                read -rp "按 Enter 返回菜单..." _
                 ;;
             9)
                 printf "\n"
@@ -11769,6 +12054,7 @@ show_interactive_menu() {
                         ;;
                     *)
                         warning "无效的备份/恢复选项"
+                        read -rp "按 Enter 返回菜单..." _
                         ;;
                 esac
                 ;;
@@ -11779,13 +12065,16 @@ show_interactive_menu() {
             10)
                 check_docker
                 configure_oauth_proxy
+                read -rp "按 Enter 返回菜单..." _
                 ;;
             11)
                 check_docker
                 enable_https
+                read -rp "按 Enter 返回菜单..." _
                 ;;
             *)
                 warning "无效的菜单选项，请重新输入"
+                read -rp "按 Enter 返回菜单..." _
                 ;;
         esac
     done
@@ -11793,13 +12082,31 @@ show_interactive_menu() {
 
 # 显示版本信息
 show_version() {
+    local project_dir=""
+    local project_version=""
+
+    if [ -f "docker-compose.yml" ] && [ -f "poetize" ]; then
+        project_dir="$(get_safe_pwd)"
+    elif [ -n "$POETIZE_PROJECT_DIR" ] && [ -d "$POETIZE_PROJECT_DIR" ]; then
+        project_dir="$POETIZE_PROJECT_DIR"
+    elif set_project_context "$(get_safe_pwd)" 2>/dev/null; then
+        project_dir="$POETIZE_PROJECT_DIR"
+    fi
+
+    project_version="$(resolve_project_version "$project_dir" 2>/dev/null || true)"
+
     printf "${GREEN}POETIZE 管理工具 v%s${NC}\n" "$POETIZE_VERSION"
     printf "作者: LeapYa\n"
     printf "项目: awesome-poetize-open\n"
+    if [ -n "$project_version" ]; then
+        printf "项目版本: %s\n" "$project_version"
+    else
+        printf "项目版本: 未检测到\n"
+    fi
 }
 
 set_project_context() {
-    local target_dir="${1:-$(pwd)}"
+    local target_dir="${1:-$(get_safe_pwd)}"
     local resolved_dir=""
 
     resolved_dir=$(cd "$target_dir" 2>/dev/null && pwd -P) || return 1
@@ -11823,7 +12130,7 @@ find_project_dir() {
     # 1. 优先检查当前目录
     if [ -f "docker-compose.yml" ] && [ -f "poetize" ]; then
         # 简单确认为 poetize 项目
-        set_project_context "$(pwd)"
+        set_project_context "$(get_safe_pwd)"
         load_config_lib
         return 0
     fi
@@ -11895,70 +12202,91 @@ find_project_dir() {
 show_status() {
     info "正在检查POETIZE服务状态..."
     printf "\n"
-    
-    # 显示Docker容器状态
-    printf "${CYAN}=== Docker 容器状态 ===${NC}\n"
-    if sudo docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=poetize" | grep -q "poetize"; then
-        sudo docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=poetize"
-    else
-        warning "未发现POETIZE相关容器"
-    fi
-    
-    printf "\n"
-    
-    # 显示服务健康状态
-    printf "${CYAN}=== 服务健康状态 ===${NC}\n"
-    
-    # 检查主要服务（支持多实例）
-    local base_services=("poetize-nginx" "poetize-java" "poetize-mariadb" "poetize-prerender")
-    
-    # 获取所有运行中的poetize相关容器
-    local running_containers=$(sudo docker ps --format "{{.Names}}" | grep "^poetize-" | sort)
-    
-    # 为每个基础服务类型检查所有实例
-    for base_service in "${base_services[@]}"; do
-        local found_instances=false
-        
-        # 检查该服务类型的所有实例
+
+    local core_services=("poetize-nginx" "poetize-java" "poetize-prerender")
+    local optional_services=("poetize-mariadb" "poetize-redis")
+    local ephemeral_services=("poetize-web" "poetize-admin")
+    local instances=""
+    local container_name=""
+    local info=""
+    local service_status=""
+    local service_message=""
+
+    print_section_header "服务状态概览"
+    print_table_header
+    for base_service in "${core_services[@]}"; do
+        instances="$(list_service_instances "$base_service")"
+        if [ -z "$instances" ]; then
+            print_table_row "FAIL" "$base_service" "常驻服务" "未发现容器"
+            continue
+        fi
+
         while IFS= read -r container_name; do
-            if [[ "$container_name" =~ ^${base_service}(-blog[0-9]+)?$ ]]; then
-                found_instances=true
-                local status=$(sudo docker inspect --format='{{.State.Health.Status}}' "$container_name" 2>/dev/null || echo "unknown")
-                case "$status" in
-                    "healthy")
-                        printf "  ${GREEN}✓${NC} %-25s ${GREEN}健康${NC}\n" "$container_name"
-                        ;;
-                    "unhealthy")
-                        printf "  ${RED}✗${NC} %-25s ${RED}不健康${NC}\n" "$container_name"
-                        ;;
-                    "starting")
-                        printf "  ${YELLOW}⚠${NC} %-25s ${YELLOW}启动中${NC}\n" "$container_name"
-                        ;;
-                    *)
-                        printf "  ${BLUE}?${NC} %-25s ${BLUE}运行中${NC}\n" "$container_name"
-                        ;;
-                esac
-            fi
-        done <<< "$running_containers"
-        
-        # 如果没有找到任何实例，显示未运行状态
-        if [ "$found_instances" = false ]; then
-            printf "  ${RED}✗${NC} %-25s ${RED}未运行${NC}\n" "$base_service"
-        fi
+            [ -z "$container_name" ] && continue
+            info="$(get_service_runtime_status "$container_name")"
+            service_status="${info%%|*}"
+            service_message="${info#*|}"
+            print_table_row "$service_status" "$container_name" "常驻服务" "$service_message"
+        done <<< "$instances"
     done
-    
+
+    for base_service in "${optional_services[@]}"; do
+        instances="$(list_service_instances "$base_service")"
+        if [ -z "$instances" ]; then
+            print_table_row "INFO" "$base_service" "可选服务" "未启用或使用外部服务"
+            continue
+        fi
+
+        while IFS= read -r container_name; do
+            [ -z "$container_name" ] && continue
+            info="$(get_service_runtime_status "$container_name")"
+            service_status="${info%%|*}"
+            service_message="${info#*|}"
+            print_table_row "$service_status" "$container_name" "可选服务" "$service_message"
+        done <<< "$instances"
+    done
+
+    for base_service in "${ephemeral_services[@]}"; do
+        instances="$(list_service_instances "$base_service")"
+        if [ -z "$instances" ]; then
+            print_table_row "INFO" "$base_service" "一次性容器" "未发现容器记录"
+            continue
+        fi
+
+        while IFS= read -r container_name; do
+            [ -z "$container_name" ] && continue
+            info="$(print_ephemeral_service_status "$container_name")"
+            service_status="${info%%|*}"
+            service_message="${info#*|}"
+            print_table_row "$service_status" "$container_name" "一次性容器" "$service_message"
+        done <<< "$instances"
+    done
+    print_table_row "INFO" "poetize-python" "备注" "v4.0.0 起已并入 poetize-java"
+    print_table_row "INFO" "-" "备注" "poetize-web / poetize-admin 仅用于构建静态资源，退出不代表项目异常"
+
     printf "\n"
-    
-    # 显示端口占用情况
-    printf "${CYAN}=== 端口占用情况 ===${NC}\n"
-    local ports=("80" "443")
-    for port in "${ports[@]}"; do
-        if netstat -tuln 2>/dev/null | grep -q ":${port} " || ss -tuln 2>/dev/null | grep -q ":${port} "; then
-            printf "  ${GREEN}✓${NC} 端口 %-6s ${GREEN}已占用${NC}\n" "$port"
-        else
-            printf "  ${RED}✗${NC} 端口 %-6s ${RED}未占用${NC}\n" "$port"
-        fi
-    done
+
+    print_section_header "端口占用情况"
+    print_table_header
+    local port_bindings=""
+    local binding=""
+    local host_port=""
+    local container_port=""
+    port_bindings="$(list_nginx_port_bindings)"
+    if [ -z "$port_bindings" ]; then
+        print_table_row "INFO" "-" "网络端口" "未发现 nginx 端口映射"
+    else
+        while IFS= read -r binding; do
+            [ -z "$binding" ] && continue
+            host_port="${binding%%|*}"
+            container_port="${binding#*|}"
+            if netstat -tuln 2>/dev/null | grep -q ":${host_port} " || ss -tuln 2>/dev/null | grep -q ":${host_port} "; then
+                print_table_row "OK" "端口 $host_port" "网络端口" "已占用 -> ${container_port}"
+            else
+                print_table_row "FAIL" "端口 $host_port" "网络端口" "未占用 -> ${container_port}"
+            fi
+        done <<< "$port_bindings"
+    fi
     
     printf "\n"
 }
@@ -12306,7 +12634,7 @@ get_project_info() {
     local script_dir="$(dirname "$script_path")"
     
     local project_dirs=()
-    local search_paths=("/usr/local/bin" "$HOME" "/opt" "/var/www" "$(pwd)")
+    local search_paths=("/usr/local/bin" "$HOME" "/opt" "/var/www" "$(get_safe_pwd)")
     
     # 去重搜索路径
     local unique_paths=($(printf "%s\n" "${search_paths[@]}" | sort -u))
@@ -12409,12 +12737,12 @@ get_project_info() {
             echo -e "   访问域名: ${BLUE}$project_nginx_domains${NC}"
             
             # 显示版本信息
+            local deployed_version="$(resolve_project_version "$project_dir" 2>/dev/null || true)"
+            if [ -n "$deployed_version" ]; then
+                echo -e "   部署版本: ${GREEN}$deployed_version${NC}"
+            fi
             if [ -f "$project_dir/.config/version.txt" ]; then
-                local deployed_version=$(grep "^VERSION=" "$project_dir/.config/version.txt" 2>/dev/null | cut -d'=' -f2)
                 local deploy_time=$(grep "^DEPLOY_TIME=" "$project_dir/.config/version.txt" 2>/dev/null | cut -d'=' -f2-)
-                if [ -n "$deployed_version" ]; then
-                    echo -e "   部署版本: ${GREEN}$deployed_version${NC}"
-                fi
                 if [ -n "$deploy_time" ]; then
                     echo -e "   部署时间: ${CYAN}$deploy_time${NC}"
                 fi
@@ -12455,68 +12783,9 @@ get_project_info() {
     printf "\n"
 }
 
-# 检查服务健康状态
+# 兼容旧的 -health 命令，现已并入 -status
 check_health() {
-    info "正在检查服务健康状态..."
-    printf "\n"
-
-    local all_healthy=true
-    local base_services=("poetize-nginx" "poetize-java" "poetize-python" "poetize-mariadb" "poetize-prerender")
-
-    # 获取所有运行中的poetize相关容器
-    local running_containers=$(sudo docker ps --format "{{.Names}}" | grep "^poetize-" | sort)
-
-    # 为每个基础服务类型检查所有实例
-    for base_service in "${base_services[@]}"; do
-        local found_instances=false
-
-        # 检查该服务类型的所有实例
-        while IFS= read -r container_name; do
-            if [[ "$container_name" =~ ^${base_service}(-blog[0-9]+)?$ ]]; then
-                found_instances=true
-                printf "${BLUE}检查 $container_name...${NC}\n"
-
-                # 检查容器状态
-                local container_status=$(sudo docker inspect --format='{{.State.Status}}' "$container_name" 2>/dev/null)
-                if [ "$container_status" != "running" ]; then
-                    printf "  ${RED}✗ 容器未运行 (状态: $container_status)${NC}\n"
-                    all_healthy=false
-                    continue
-                fi
-
-                # 检查健康状态
-                local health_status=$(sudo docker inspect --format='{{.State.Health.Status}}' "$container_name" 2>/dev/null || echo "no-healthcheck")
-                case "$health_status" in
-                    "healthy")
-                        printf "  ${GREEN}✓ 健康检查通过${NC}\n"
-                        ;;
-                    "unhealthy")
-                        printf "  ${RED}✗ 健康检查失败${NC}\n"
-                        all_healthy=false
-                        ;;
-                    "starting")
-                        printf "  ${YELLOW}⚠ 健康检查启动中${NC}\n"
-                        ;;
-                    "no-healthcheck")
-                        printf "  ${BLUE}? 无健康检查配置${NC}\n"
-                        ;;
-                esac
-            fi
-        done <<< "$running_containers"
-
-        # 如果没有找到任何实例，显示未运行状态
-        if [ "$found_instances" = false ]; then
-            printf "${RED}✗ $base_service 容器未运行${NC}\n"
-            all_healthy=false
-        fi
-    done
-
-    printf "\n"
-    if [ "$all_healthy" = true ]; then
-        success "所有服务健康状态良好"
-    else
-        warning "部分服务存在问题，请检查日志"
-    fi
+    show_status
 }
 
 # ================================ UPDATE 命令相关函数 ================================
@@ -13935,7 +14204,6 @@ run_update() {
     
     info "建议执行以下命令检查系统状态："
     printf "  ${CYAN}poetize -status${NC}    # 查看服务状态\n"
-    printf "  ${CYAN}poetize -health${NC}    # 检查服务健康状态\n"
     printf "\n"
 }
 
@@ -14271,6 +14539,7 @@ dispatch_command() {
 }
 
 main() {
+    ensure_accessible_workdir
     dispatch_command "${1:-}" "${@:2}"
 }
 

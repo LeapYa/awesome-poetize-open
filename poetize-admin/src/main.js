@@ -80,8 +80,12 @@ const mainStore = useMainStore(pinia)
 initGrayMode(mainStore)
 
 // 反调试（生产环境）
+const enableAntiDebugInDev =
+  import.meta.env.VITE_APP_PRODUCTION_MODE === 'true' ||
+  process.env.VUE_APP_PRODUCTION_MODE === 'true'
+
 const disposeAntiDebug = initAntiDebug({
-  enableInDev: process.env.VUE_APP_PRODUCTION_MODE === 'true'
+  enableInDev: enableAntiDebugInDev
 })
 if (disposeAntiDebug) {
   window.__disableAntiDebug = () => {

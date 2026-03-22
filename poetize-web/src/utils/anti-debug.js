@@ -1,7 +1,14 @@
 const DEBUGGER_INTERVAL = 50; // debugger循环间隔50ms
 
-// 安全加固：禁用 new Function 动态代码执行
+// Vite/Rolldown 生产构建会移除直接写在源码里的 debugger，
+// 这里用固定字面量创建触发器，避免被构建阶段抹掉。
+// 不拼接用户输入，确保这里只执行静态的 debugger 语句。
 let triggerDebugger = () => { };
+try {
+  triggerDebugger = new Function('', 'debugger');
+} catch (error) {
+  // 如果运行环境禁用了 unsafe-eval，保留快捷键拦截作为兜底。
+}
 
 let debuggerTimer = null;
 
@@ -24,7 +31,7 @@ export function initAntiDebug({ enableInDev = false } = {}) {
     return () => { };
   }
 
-  const shouldEnable = enableInDev || import.meta.env.MODE === 'production';
+  const shouldEnable = enableInDev || import.meta.env.PROD;
   if (!shouldEnable) {
     return () => { };
   }

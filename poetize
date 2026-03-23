@@ -82,6 +82,7 @@ read_env_file_value() {
 
 resolve_compose_port_expr() {
     local expr="$1"
+    local env_file="${ENV_FILE_OVERRIDE:-.env}"
     local env_key=""
     local default_value=""
     local env_value=""
@@ -89,7 +90,7 @@ resolve_compose_port_expr() {
     if [[ "$expr" =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)[:-]-(.+)\}$ ]]; then
         env_key="${BASH_REMATCH[1]}"
         default_value="${BASH_REMATCH[2]}"
-        env_value="$(read_env_file_value "$env_key" ".env")"
+        env_value="$(read_env_file_value "$env_key" "$env_file")"
         if [ -n "$env_value" ]; then
             printf "%s\n" "$env_value"
         else
@@ -101,8 +102,10 @@ resolve_compose_port_expr() {
     printf "%s\n" "$expr"
 }
 
-list_nginx_port_bindings() {
-    local nginx_container=""
+list_container_port_bindings() {
+    local container_name="$1"
+    local compose_file="${2:-docker-compose.yml}"
+    local env_file="${3:-.env}"
     local line=""
     local seen=""
     local raw_ports=""
@@ -111,10 +114,8 @@ list_nginx_port_bindings() {
     local container_part=""
     local host_port=""
 
-    nginx_container="$(get_first_service_instance "poetize-nginx")"
-
-    if [ -n "$nginx_container" ]; then
-        raw_ports="$(sudo docker port "$nginx_container" 2>/dev/null || true)"
+    if [ -n "$container_name" ]; then
+        raw_ports="$(sudo docker port "$container_name" 2>/dev/null || true)"
         if [ -n "$raw_ports" ]; then
             while IFS= read -r line; do
                 [ -z "$line" ] && continue
@@ -139,7 +140,7 @@ list_nginx_port_bindings() {
         line="$(printf "%s" "$line" | sed 's/^[[:space:]]*-[[:space:]]*//' | tr -d '"')"
         host_part="$(printf "%s" "$line" | cut -d: -f1)"
         container_part="$(printf "%s" "$line" | cut -d: -f2-)"
-        host_port="$(resolve_compose_port_expr "$host_part")"
+        host_port="$(ENV_FILE_OVERRIDE="$env_file" resolve_compose_port_expr "$host_part")"
         mapping="${host_port}|${container_part}"
         case "|$seen|" in
             *"|$mapping|"*) ;;
@@ -155,8 +156,14 @@ list_nginx_port_bindings() {
             in_nginx && /^[[:space:]]*ports:[[:space:]]*$/ { in_ports=1; next }
             in_ports && /^[[:space:]]*[A-Za-z0-9_-]+:[[:space:]]*$/ { in_ports=0 }
             in_ports && /^[[:space:]]*-[[:space:]]*"/ { print }
-        ' docker-compose.yml 2>/dev/null
+        ' "$compose_file" 2>/dev/null
     )
+}
+
+list_nginx_port_bindings() {
+    local nginx_container=""
+    nginx_container="$(get_first_service_instance "poetize-nginx")"
+    list_container_port_bindings "$nginx_container" "docker-compose.yml" ".env"
 }
 
 print_section_header() {
@@ -235,6 +242,35 @@ resolve_project_version() {
     fi
 
     return 1
+}
+
+resolve_docker_compose_display() {
+    if [ -n "$DOCKER_COMPOSE_CMD" ]; then
+        printf "%s\n" "$DOCKER_COMPOSE_CMD"
+        return 0
+    fi
+
+    if docker compose version >/dev/null 2>&1; then
+        printf "docker compose\n"
+        return 0
+    fi
+
+    if sudo docker compose version >/dev/null 2>&1; then
+        printf "sudo docker compose\n"
+        return 0
+    fi
+
+    if command -v docker-compose >/dev/null 2>&1 && docker-compose --version >/dev/null 2>&1; then
+        printf "docker-compose\n"
+        return 0
+    fi
+
+    if sudo docker-compose --version >/dev/null 2>&1; then
+        printf "sudo docker-compose\n"
+        return 0
+    fi
+
+    printf "未安装\n"
 }
 
 status_rank() {
@@ -12593,7 +12629,8 @@ run_migration_with_args() {
 # 显示系统信息
 show_info() {
     printf "\n"
-    printf "${CYAN}=== 系统信息 ===${NC}\n"
+    local compose_display=""
+    print_section_header "系统信息"
     printf "操作系统: $(uname -s)\n"
     printf "内核版本: $(uname -r)\n"
 
@@ -12616,9 +12653,10 @@ show_info() {
     printf "架构: $(uname -m)\n"
     printf "\n"
     
-    printf "${CYAN}=== Docker 信息 ===${NC}\n"
+    print_section_header "Docker 信息"
     printf "Docker版本: $(sudo docker --version 2>/dev/null || echo '未安装')\n"
-    printf "Docker Compose: $DOCKER_COMPOSE_CMD\n"
+    compose_display="$(resolve_docker_compose_display)"
+    printf "Docker Compose: %s\n" "$compose_display"
     printf "\n"
     
     get_project_info
@@ -12627,7 +12665,7 @@ show_info() {
 
 # 获取项目信息
 get_project_info() {
-    printf "${CYAN}=== 项目信息 ===${NC}\n"
+    print_section_header "项目信息"
     
     # 获取脚本实际位置
     local script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
@@ -12651,6 +12689,10 @@ get_project_info() {
             done < <(find "$search_path" -maxdepth 3 -type d -name "*poetize*" -print0 2>/dev/null)
         fi
     done
+
+    if [ ${#project_dirs[@]} -gt 0 ]; then
+        project_dirs=($(printf "%s\n" "${project_dirs[@]}" | sort -u))
+    fi
     
     # 显示找到的项目实例
     if [ ${#project_dirs[@]} -eq 0 ]; then
@@ -12721,8 +12763,15 @@ get_project_info() {
             fi
             
             project_nginx_conf=$project_dir/docker/nginx/default.https.conf
-
-            echo -e "   服务端口: ${BLUE}$(sudo docker port "poetize-nginx${num}" 2>/dev/null  | grep "0.0.0.0" | grep "tcp" | awk -F '[:/]' '{print $1}' | tr '\n' ', ' | sed 's/,\s*$//')${NC}"
+            local project_nginx_container="poetize-nginx${num}"
+            local project_port_bindings=""
+            local project_port_display=""
+            project_port_bindings="$(list_container_port_bindings "$project_nginx_container" "$compose_file" "$project_dir/.env")"
+            if [ -n "$project_port_bindings" ]; then
+                project_port_display="$(printf "%s\n" "$project_port_bindings" | awk -F'|' '{print $1}' | sort -u | xargs | tr ' ' ',')"
+            fi
+            [ -z "$project_port_display" ] && project_port_display="未发现"
+            echo -e "   服务端口: ${BLUE}$project_port_display${NC}"
             
             project_nginx_domains=$(grep '^[[:space:]]*server_name' "$project_nginx_conf" \
             | sed 's/^[[:space:]]*server_name[[:space:]]\+//' \
@@ -12752,7 +12801,7 @@ get_project_info() {
         done
     fi
     
-    printf "${CYAN}=== 存储与资源 ===${NC}\n"
+    print_section_header "存储与资源"
     
     # 获取系统资源信息
     local total_mem=$(free -h | awk '/^Mem:/ {print $2}')

@@ -649,7 +649,20 @@ export default {
           mem0ApiKey: '',
           memoryAutoSave: true,
           memoryAutoRecall: true,
-          memoryRecallLimit: 5
+          memoryRecallLimit: 5,
+          rag: {
+            enabled: false,
+            indexName: 'poetize_ai_chat',
+            embeddingProvider: 'openai',
+            embeddingApiBase: '',
+            embeddingApiKey: '',
+            embeddingModel: 'text-embedding-3-small',
+            embeddingDimensions: 1536,
+            topK: 5,
+            scoreThreshold: 0.2,
+            chunkSize: 700,
+            chunkOverlap: 120
+          }
         }
       },
       // 字体管理状态
@@ -659,7 +672,8 @@ export default {
       fontCleaning: false,
       fontUploadProgress: 0,
       fontResult: null,
-      pendingSearchFocus: null
+      pendingSearchFocus: null,
+      pendingSearchPanel: null
     };
   },
   computed: {
@@ -680,6 +694,19 @@ export default {
           } else {
             this.pendingSearchFocus = newFocus;
           }
+        }
+      },
+      immediate: true
+    },
+    '$route.query.panel': {
+      handler(newPanel) {
+        if (!newPanel) {
+          return;
+        }
+        if (this.webInfoId) {
+          this.openAiConfigPanel(newPanel);
+        } else {
+          this.pendingSearchPanel = newPanel;
         }
       },
       immediate: true
@@ -735,6 +762,12 @@ export default {
               this.pendingSearchFocus = null;
             });
           }
+          if (this.pendingSearchPanel) {
+            this.$nextTick(() => {
+              this.openAiConfigPanel(this.pendingSearchPanel);
+              this.pendingSearchPanel = null;
+            });
+          }
         }
       } catch (error) {
         this.$message({ message: error.message, type: "error" });
@@ -759,18 +792,18 @@ export default {
         'field-ai-require-login': 'chat',
         'field-ai-save-history': 'chat',
         'field-ai-content-filter': 'chat',
-        'field-ai-bot-avatar': 'appearance',
         'field-ai-bot-name': 'appearance',
         'field-ai-theme-color': 'appearance',
-        'field-ai-position': 'appearance',
-        'field-ai-bubble-style': 'appearance',
         'field-ai-typing': 'appearance',
         'field-ai-timestamp': 'appearance',
+        'field-ai-tool-memory': 'tools',
+        'field-ai-tool-rag': 'tools',
         'field-ai-mem0-enable': 'tools',
         'field-ai-mem0-key': 'tools',
         'field-ai-mem0-autosave': 'tools',
         'field-ai-mem0-autorecall': 'tools',
         'field-ai-mem0-limit': 'tools',
+        'field-ai-rag-enable': 'tools',
         'field-ai-proxy': 'advanced',
         'field-ai-timeout': 'advanced',
         'field-ai-retry': 'advanced',
@@ -797,10 +830,8 @@ export default {
           return;
         }
 
-        if (!this.isMobileView) {
-           this.activeAiConfigPanels = [aiFeaturePanelName];
-        } else {
-           this.openMobileConfigDialog(aiFeaturePanelName);
+        if (!this.openAiConfigPanel(aiFeaturePanelName)) {
+          return;
         }
 
         this.$nextTick(() => {
@@ -816,6 +847,22 @@ export default {
           }, 400);
         });
       }
+    },
+
+    openAiConfigPanel(panelKey) {
+      if (!panelKey) {
+        return false;
+      }
+      if (!this.webInfo.enableWaifu) {
+        this.$message.warning('请先开启「看板娘/AI」开关，才能查看 AI 配置。');
+        return false;
+      }
+      if (!this.isMobileView) {
+        this.activeAiConfigPanels = [panelKey];
+      } else {
+        this.openMobileConfigDialog(panelKey);
+      }
+      return true;
     },
 
     // 保存外观设置（看板娘、夜间、灰色、动态标题）
@@ -937,7 +984,13 @@ export default {
       this.isMobileView = window.innerWidth <= 768;
     },
     openMobileConfigDialog(type) {
-      const titles = { model: 'AI模型配置', chat: '聊天设置', appearance: '外观设置', advanced: '高级设置' };
+      const titles = {
+        model: 'AI模型配置',
+        chat: '聊天设置',
+        appearance: '外观设置',
+        tools: 'AI扩展工具',
+        advanced: '高级设置'
+      };
       this.currentMobileConfig = type;
       this.mobileConfigDialogTitle = titles[type];
       this.mobileConfigDialogVisible = true;
@@ -953,6 +1006,17 @@ export default {
         const response = await this.$http.get(this.$constant.baseURL + "/webInfo/ai/config/chat/get", {}, true);
         if (response.code === 200 && response.data) {
           const config = response.data;
+          let extraConfig = {};
+          if (config.extraConfig) {
+            try {
+              extraConfig = typeof config.extraConfig === 'string'
+                ? JSON.parse(config.extraConfig)
+                : config.extraConfig;
+            } catch (e) {
+              extraConfig = {};
+            }
+          }
+          const rag = extraConfig.rag || {};
           this.aiConfigs.modelConfig = {
             provider: config.provider || 'openai',
             apiKey: config.apiKey || '',
@@ -998,7 +1062,20 @@ export default {
             mem0ApiKey: config.mem0ApiKey || '',
             memoryAutoSave: config.memoryAutoSave !== false && config.memoryAutosave !== false,
             memoryAutoRecall: config.memoryAutoRecall !== false && config.memoryAutorecall !== false,
-            memoryRecallLimit: config.memoryRecallLimit || 5
+            memoryRecallLimit: config.memoryRecallLimit || 5,
+            rag: {
+              enabled: rag.enabled || false,
+              indexName: rag.indexName || 'poetize_ai_chat',
+              embeddingProvider: rag.embeddingProvider || 'openai',
+              embeddingApiBase: rag.embeddingApiBase || '',
+              embeddingApiKey: rag.embeddingApiKey || '',
+              embeddingModel: rag.embeddingModel || 'text-embedding-3-small',
+              embeddingDimensions: rag.embeddingDimensions || 1536,
+              topK: rag.topK || 5,
+              scoreThreshold: typeof rag.scoreThreshold === 'number' ? rag.scoreThreshold : 0.2,
+              chunkSize: rag.chunkSize || 700,
+              chunkOverlap: rag.chunkOverlap || 120
+            }
           };
         }
       } catch (error) {
@@ -1039,13 +1116,32 @@ export default {
           enableMemory: this.aiConfigs.toolsConfig.enableMemory,
           memoryAutoSave: this.aiConfigs.toolsConfig.memoryAutoSave,
           memoryAutoRecall: this.aiConfigs.toolsConfig.memoryAutoRecall,
-          memoryRecallLimit: this.aiConfigs.toolsConfig.memoryRecallLimit
+          memoryRecallLimit: this.aiConfigs.toolsConfig.memoryRecallLimit,
+          extraConfig: JSON.stringify({
+            rag: {
+              enabled: this.aiConfigs.toolsConfig.rag.enabled,
+              indexName: this.aiConfigs.toolsConfig.rag.indexName,
+              embeddingProvider: this.aiConfigs.toolsConfig.rag.embeddingProvider,
+              embeddingApiBase: this.aiConfigs.toolsConfig.rag.embeddingApiBase,
+              embeddingModel: this.aiConfigs.toolsConfig.rag.embeddingModel,
+              embeddingDimensions: this.aiConfigs.toolsConfig.rag.embeddingDimensions,
+              topK: this.aiConfigs.toolsConfig.rag.topK,
+              scoreThreshold: this.aiConfigs.toolsConfig.rag.scoreThreshold,
+              chunkSize: this.aiConfigs.toolsConfig.rag.chunkSize,
+              chunkOverlap: this.aiConfigs.toolsConfig.rag.chunkOverlap
+            }
+          })
         };
         if (this.aiConfigs.modelConfig.apiKey && !this.aiConfigs.modelConfig.apiKey.includes('*')) {
           saveData.apiKey = this.aiConfigs.modelConfig.apiKey;
         }
         if (this.aiConfigs.toolsConfig.mem0ApiKey && !this.aiConfigs.toolsConfig.mem0ApiKey.includes('*')) {
           saveData.mem0ApiKey = this.aiConfigs.toolsConfig.mem0ApiKey;
+        }
+        if (this.aiConfigs.toolsConfig.rag.embeddingApiKey && !this.aiConfigs.toolsConfig.rag.embeddingApiKey.includes('*')) {
+          const extraConfig = JSON.parse(saveData.extraConfig);
+          extraConfig.rag.embeddingApiKey = this.aiConfigs.toolsConfig.rag.embeddingApiKey;
+          saveData.extraConfig = JSON.stringify(extraConfig);
         }
         const response = await this.$http.post(this.$constant.baseURL + '/webInfo/ai/config/chat/save', saveData, true);
         if (response.code === 200) {

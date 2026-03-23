@@ -1,7 +1,7 @@
 # ========================================
 # 阶段 1: 构建阶段 - 编译后台管理前端
 # ========================================
-FROM node:20-bookworm-slim AS builder
+FROM node:24-bookworm-slim AS builder
 
 # 声明构建时环境变量
 ARG VUE_APP_POETIZE_AES_KEY

@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-03-22
+## 修改时间: 2026-03-23
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.11.4
+## 版本: 1.11.5
 
 # 定义颜色
 RED='\033[0;31m'
@@ -470,6 +470,7 @@ DB_NAME=""                   # 外部数据库名称
 DB_USER=""                   # 外部数据库用户名
 DB_PWD=""                    # 外部数据库密码
 DB_TYPE=""                   # 数据库类型（mariadb/mysql）
+RAG_ENABLED=""               # 是否启用 RAG 向量检索
 
 # 外部Redis配置变量
 REDIS_HOST=""                # 外部Redis主机地址
@@ -4658,8 +4659,16 @@ interactive_configure_external_services() {
       read -p "请选择 (1-2，默认: 1): " DB_TYPE_CHOICE
       if [ -z "$DB_TYPE_CHOICE" ] || [ "$DB_TYPE_CHOICE" = "1" ]; then
         DB_TYPE="mariadb"
+        RAG_ENABLED="true"
       else
         DB_TYPE="mysql"
+        if auto_confirm "将关闭向量搜索，是否继续？[y/N](默认: n，30秒自动确认)" "n"; then
+          RAG_ENABLED="false"
+          warning "已切换为外部 MySQL，RAG 向量检索将保持关闭。"
+        else
+          error "已取消外部 MySQL 配置"
+          return 1
+        fi
       fi
 
       read -p "数据库主机地址: " DB_HOST
@@ -4978,6 +4987,13 @@ update_db_connection_config() {
   if [ -n "$DB_HOST" ]; then
     # 使用外部数据库
     info "配置外部数据库连接..."
+    if [ -z "$RAG_ENABLED" ]; then
+      if [ "$DB_TYPE" = "mysql" ]; then
+        RAG_ENABLED="false"
+      else
+        RAG_ENABLED="true"
+      fi
+    fi
 
     # 使用 .env 文件配置数据库
     if [ -f "lib/config.sh" ]; then
@@ -4994,6 +5010,7 @@ update_db_connection_config() {
       else
         update_env_var "DB_DRIVER_CLASS" "org.mariadb.jdbc.Driver"
       fi
+      update_env_var "RAG_ENABLED" "$RAG_ENABLED"
       success "已配置外部${DB_TYPE:-mariadb}连接 (通过 .env)"
     else
       # 回退方案：直接修改 docker-compose.yml
@@ -5016,12 +5033,16 @@ update_db_connection_config() {
       sed_i "s|SPRING_DATASOURCE_USERNAME=.*|SPRING_DATASOURCE_USERNAME=${DB_USER:-poetize}|g" docker-compose.yml
       sed_i "s|SPRING_DATASOURCE_PASSWORD=.*|SPRING_DATASOURCE_PASSWORD=${DB_PWD}|g" docker-compose.yml
       sed_i "s|SPRING_DATASOURCE_DRIVER_CLASS_NAME=.*|SPRING_DATASOURCE_DRIVER_CLASS_NAME=${db_driver}|g" docker-compose.yml
+      if [ -f ".env" ]; then
+        sed_i "s|^RAG_ENABLED=.*|RAG_ENABLED=${RAG_ENABLED}|g" .env
+      fi
 
       success "已配置外部${DB_TYPE:-mariadb}连接"
     fi
   else
     # 使用本地数据库
     info "配置本地MariaDB连接..."
+    RAG_ENABLED="true"
 
     # 读取 .config/db_credentials.txt 中的密码
     if [ -f ".config/db_credentials.txt" ]; then
@@ -5038,12 +5059,16 @@ update_db_connection_config() {
         update_env_var "DB_ROOT_PASSWORD" "$root_pwd"
         update_env_var "DB_TYPE" "mariadb"
         update_env_var "DB_DRIVER_CLASS" "org.mariadb.jdbc.Driver"
+        update_env_var "RAG_ENABLED" "true"
         success "已配置本地MariaDB连接 (通过 .env)"
       else
         sed_i "s|SPRING_DATASOURCE_URL=.*|SPRING_DATASOURCE_URL=jdbc:mariadb://mysql:3306/poetize?useUnicode=true\\&characterEncoding=utf8\\&serverTimezone=Asia/Shanghai\\&useSSL=false\\&allowPublicKeyRetrieval=true|g" docker-compose.yml
         sed_i "s|SPRING_DATASOURCE_USERNAME=.*|SPRING_DATASOURCE_USERNAME=poetize|g" docker-compose.yml
         sed_i "s|SPRING_DATASOURCE_PASSWORD=.*|SPRING_DATASOURCE_PASSWORD=${user_pwd}|g" docker-compose.yml
         sed_i "s|SPRING_DATASOURCE_DRIVER_CLASS_NAME=.*|SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.mariadb.jdbc.Driver|g" docker-compose.yml
+        if [ -f ".env" ]; then
+          sed_i "s|^RAG_ENABLED=.*|RAG_ENABLED=true|g" .env
+        fi
       fi
     fi
   fi

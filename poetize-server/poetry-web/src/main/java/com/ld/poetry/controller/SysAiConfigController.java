@@ -2,10 +2,13 @@ package com.ld.poetry.controller;
 
 import com.ld.poetry.aop.LoginCheck;
 import com.ld.poetry.config.PoetryResult;
+import com.ld.poetry.controller.dto.RagPreviewRequest;
 import com.ld.poetry.entity.SysAiConfig;
 import com.ld.poetry.service.SysAiConfigService;
+import com.ld.poetry.service.ai.rag.RagSyncService;
 import com.ld.poetry.utils.DockerNetworkUtil;
 import com.ld.poetry.utils.PoetryUtil;
+import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 // Swagger注解已禁用，改为普通注释
 // import io.swagger.v3.oas.annotations.Operation;
@@ -34,6 +37,7 @@ import java.util.Map;
 public class SysAiConfigController {
 
     private final SysAiConfigService sysAiConfigService;
+    private final RagSyncService ragSyncService;
 
     // ========== AI聊天配置接口 ==========
 
@@ -157,6 +161,33 @@ public class SysAiConfigController {
         } else {
             return PoetryResult.fail("切换失败");
         }
+    }
+
+    @GetMapping("/chat/rag/status")
+    @LoginCheck(0)
+    public PoetryResult<Map<String, Object>> getAiChatRagStatus() {
+        return PoetryResult.success(ragSyncService.getStatus());
+    }
+
+    @PostMapping("/chat/rag/rebuild")
+    @LoginCheck(0)
+    public PoetryResult<Boolean> rebuildAiChatRag() {
+        String blockingReason = ragSyncService.getBlockingReason();
+        if (StringUtils.hasText(blockingReason)) {
+            return PoetryResult.fail(blockingReason);
+        }
+        ragSyncService.rebuildAllAsync();
+        return PoetryResult.success();
+    }
+
+    @PostMapping("/chat/rag/preview")
+    @LoginCheck(0)
+    public PoetryResult<Map<String, Object>> previewAiChatRag(@Valid @RequestBody RagPreviewRequest request) {
+        String blockingReason = ragSyncService.getBlockingReason();
+        if (StringUtils.hasText(blockingReason)) {
+            return PoetryResult.fail(blockingReason);
+        }
+        return PoetryResult.success(ragSyncService.preview(request.query(), request.pageContext()));
     }
 
     private SysAiConfig resolveAiChatTestConfig(SysAiConfig config) {

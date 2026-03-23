@@ -3,8 +3,9 @@ package com.ld.poetry.controller;
 import com.ld.poetry.aop.LoginCheck;
 import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.entity.dto.MailConfigDTO;
-import com.ld.poetry.service.SysMailConfigService;
 import com.ld.poetry.service.MailService;
+import com.ld.poetry.service.SysMailConfigService;
+import com.ld.poetry.service.ai.rag.RagSyncService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -25,6 +26,9 @@ public class SysMailConfigController {
     
     @Autowired
     private MailService mailService;
+
+    @Autowired
+    private RagSyncService ragSyncService;
     
     /**
      * 获取所有邮件配置

@@ -46,6 +46,9 @@ public class AdminArticleController {
     @Autowired
     private com.ld.poetry.service.SitemapService sitemapService;
 
+    @Autowired
+    private com.ld.poetry.service.ai.rag.RagSyncService ragSyncService;
+
     /**
      * 用户查询文章
      */
@@ -98,6 +101,7 @@ public class AdminArticleController {
             } catch (Exception e) {
                 log.warn("文章可见性状态变更后更新sitemap失败，文章ID: {}", articleId, e);
             }
+            ragSyncService.syncArticleAsync(articleId);
         }
         
         return PoetryResult.success();

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.controller.dto.AiChatRequest;
 import com.ld.poetry.service.ai.AiChatService;
+import com.ld.poetry.service.ai.dto.AiChatResponsePayload;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,16 +54,18 @@ public class AiChatController {
     @PostMapping("/sendMessage")
     public PoetryResult<Map<String, Object>> sendMessage(@Valid @RequestBody AiChatRequest request) {
         try {
-            String response = aiChatService.chat(
+            AiChatResponsePayload response = aiChatService.chat(
                     request.message(),
                     request.history(),
                     request.conversationId(),
                     request.userId(),
                     request.pageContext());
 
-            return PoetryResult.success(Map.of(
-                    "content", response != null ? response : "",
-                    "conversationId", request.conversationId()));
+            Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("content", response != null ? response.content() : "");
+            payload.put("actions", response != null ? response.actions() : List.of());
+            payload.put("conversationId", request.conversationId());
+            return PoetryResult.success(payload);
         } catch (IllegalArgumentException e) {
             // 业务验证错误（如消息过长、频率限制）：可以将具体原因告知用户
             return PoetryResult.fail(e.getMessage());

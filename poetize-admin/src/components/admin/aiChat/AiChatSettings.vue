@@ -1,7 +1,7 @@
 <template>
   <div class="ai-chat-settings">
     <el-form :model="chatConfig" label-width="120px">
-      <el-form-item label="系统提示词">
+      <el-form-item id="field-ai-system-prompt" label="系统提示词">
         <el-input 
           v-model="chatConfig.systemPrompt" 
           type="textarea" 
@@ -11,7 +11,7 @@
         <small class="help-text">定义AI的角色和回复风格</small>
       </el-form-item>
 
-      <el-form-item label="欢迎消息">
+      <el-form-item id="field-ai-welcome" label="欢迎消息">
         <el-input 
           v-model="chatConfig.welcomeMessage" 
           type="textarea" 
@@ -20,7 +20,7 @@
         </el-input>
       </el-form-item>
 
-      <el-form-item label="对话历史数">
+      <el-form-item id="field-ai-history-count" label="对话历史数">
         <el-input-number 
           v-model="chatConfig.historyCount" 
           :min="0" 
@@ -29,7 +29,7 @@
         <small class="help-text">保留多少条历史对话用于上下文理解</small>
       </el-form-item>
 
-      <el-form-item label="速率限制">
+      <el-form-item id="field-ai-rate-limit" label="速率限制">
         <el-input-number 
           v-model="chatConfig.rateLimit" 
           :min="1" 
@@ -39,7 +39,7 @@
         <small class="help-text">每分钟最多允许的消息数量</small>
       </el-form-item>
 
-      <el-form-item label="最大消息长度">
+      <el-form-item id="field-ai-max-length" label="最大消息长度">
         <el-input-number 
           v-model="chatConfig.maxMessageLength" 
           :min="100" 
@@ -49,17 +49,17 @@
         <small class="help-text">用户单条消息的最大字符数限制</small>
       </el-form-item>
 
-      <el-form-item label="需要登录">
+      <el-form-item id="field-ai-require-login" label="需要登录">
         <el-switch v-model="chatConfig.requireLogin"></el-switch>
         <small class="help-text">是否需要用户登录后才能使用AI聊天</small>
       </el-form-item>
 
-      <el-form-item label="保存聊天记录">
+      <el-form-item id="field-ai-save-history" label="保存聊天记录">
         <el-switch v-model="chatConfig.saveHistory"></el-switch>
         <small class="help-text">是否保存用户的聊天历史记录</small>
       </el-form-item>
 
-      <el-form-item label="内容过滤">
+      <el-form-item id="field-ai-content-filter" label="内容过滤">
         <el-switch v-model="chatConfig.contentFilter"></el-switch>
         <small class="help-text">启用内容安全过滤</small>
       </el-form-item>

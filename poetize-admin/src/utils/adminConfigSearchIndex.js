@@ -121,7 +121,7 @@ export const adminConfigSearchIndex = [
   {
     id: 'page-ai-chat',
     type: 'page',
-    route: '/aiChatConfig',
+    route: '/webAppearance',
     pageTitle: 'AI聊天配置',
     sectionTitle: 'AI 模型与聊天配置',
     fieldLabel: 'AI聊天配置',

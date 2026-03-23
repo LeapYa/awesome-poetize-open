@@ -106,6 +106,9 @@ public class WebInfoController {
     @Autowired
     private com.ld.poetry.service.SeoStaticService seoStaticService;
 
+    @Autowired
+    private com.ld.poetry.service.ai.rag.RagSyncService ragSyncService;
+
     /**
      * 清除nginx SEO缓存
      * 在网站信息更新后调用，确保nginx不使用旧的缓存数据作为fallback
@@ -235,6 +238,7 @@ public class WebInfoController {
             } else {
                 log.warn("更新后未找到网站信息数据");
             }
+
 
             return PoetryResult.success();
         } catch (Exception e) {

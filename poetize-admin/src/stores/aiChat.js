@@ -58,7 +58,12 @@ export const useAIChatStore = defineStore('aiChat', {
       const maxLength = state.config?.max_conversation_length || 20
       const allowedRoles = ['user', 'assistant']
       return state.messages
-        .filter((msg) => allowedRoles.includes(msg.role))
+        .filter(
+          (msg) =>
+            allowedRoles.includes(msg.role) &&
+            typeof msg.content === 'string' &&
+            msg.content.trim()
+        )
         .slice(-maxLength)
         .map((msg) => ({
           role: msg.role,
@@ -582,14 +587,15 @@ export const useAIChatStore = defineStore('aiChat', {
             result?.success === true ||
             result?.flag === true)
 
-        if (isSuccess && result?.data?.content) {
-          this.addMessage(result.data.content, 'assistant')
+        if (isSuccess && typeof result?.data?.content === 'string') {
+          const contentText = result?.data?.content || ''
+          this.addMessage(contentText, 'assistant')
           if (this.attachedPageContext) {
             this.attachedPageContext = null
           }
           return {
             success: true,
-            response: result.data.content,
+            response: contentText,
           }
         }
         throw new Error(result?.message || '未知错误')
@@ -864,8 +870,8 @@ export const useAIChatStore = defineStore('aiChat', {
             if (msg.role === 'assistant') {
               this.ensureMessageStructure(msg)
               this.syncToolEvents(msg)
-            }
-          })
+              }
+            })
         }
       } catch (error) {
         console.error('恢复聊天历史失败:', error)

@@ -1301,3 +1301,30 @@ ALTER TABLE `poetize`.`wei_yan` ADD INDEX `idx_public_create` (`is_public`, `cre
 -- 优化 `resource` 表
 -- 为 `user_id` 和 `type` 添加复合索引，加速查询某个用户的特定类型资源
 ALTER TABLE `poetize`.`resource` ADD INDEX `idx_user_type` (`user_id`, `type`);
+
+-- RAG 知识文档元数据表（MariaDB 向量检索）
+CREATE TABLE IF NOT EXISTS `poetize`.`ai_knowledge_document` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `index_name` VARCHAR(128) NOT NULL DEFAULT 'poetize_ai_chat',
+  `document_id` VARCHAR(191) NOT NULL,
+  `source_type` VARCHAR(64) NOT NULL,
+  `source_id` VARCHAR(128) NOT NULL,
+  `title` VARCHAR(255) DEFAULT NULL,
+  `content` LONGTEXT NOT NULL,
+  `visibility_scope` VARCHAR(64) NOT NULL,
+  `metadata_json` LONGTEXT DEFAULT NULL,
+  `chunk_index` INT NOT NULL DEFAULT 0,
+  `chunk_count` INT NOT NULL DEFAULT 1,
+  `content_hash` VARCHAR(64) DEFAULT NULL,
+  `embedding_text` LONGTEXT NOT NULL,
+  `sync_status` VARCHAR(32) NOT NULL DEFAULT 'SYNCED',
+  `last_error` TEXT DEFAULT NULL,
+  `last_sync_time` DATETIME DEFAULT NULL,
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_ai_knowledge_chunk` (`index_name`, `document_id`, `chunk_index`),
+  KEY `idx_ai_knowledge_source` (`index_name`, `source_type`, `source_id`),
+  KEY `idx_ai_knowledge_scope` (`index_name`, `visibility_scope`),
+  KEY `idx_ai_knowledge_sync` (`index_name`, `last_sync_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

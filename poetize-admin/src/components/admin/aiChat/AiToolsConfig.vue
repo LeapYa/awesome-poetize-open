@@ -14,7 +14,12 @@
       </div>
       
       <div class="tools-grid">
-        <div v-for="(tool, index) in nativeTools" :key="'native-' + index" class="glass-card tool-card">
+        <div
+          v-for="(tool, index) in nativeTools"
+          :id="tool.id === 'ai_memory' ? 'field-ai-tool-memory' : (tool.id === 'ai_rag' ? 'field-ai-tool-rag' : null)"
+          :key="'native-' + index"
+          class="glass-card tool-card"
+        >
           <div class="tool-icon-wrapper native-icon-bg">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" v-html="tool.svgIcon"></svg>
           </div>
@@ -118,7 +123,7 @@
       title="配置 AI 上下文记忆 (Mem0)"
       :visible.sync="memoryDialogVisible"
       width="500px"
-      custom-class="pro-max-dialog"
+      custom-class="centered-dialog"
       :close-on-click-modal="false"
       append-to-body>
       
@@ -156,6 +161,177 @@
         <el-button size="small" type="primary" @click="memoryDialogVisible = false">完成</el-button>
       </div>
     </el-dialog>
+
+    <el-dialog
+      title="配置文章知识检索增强 (RAG)"
+      :visible.sync="ragDialogVisible"
+      width="720px"
+      custom-class="centered-dialog"
+      :close-on-click-modal="false"
+      append-to-body>
+
+      <div v-if="ragDialogVisible" v-loading="ragLoading">
+        <el-form label-width="140px" class="compact-form">
+          <el-form-item id="field-ai-rag-enable" label="启用 RAG">
+            <el-switch v-model="localConfig.rag.enabled" :disabled="isRagForceDisabled" @change="emitChange"></el-switch>
+            <div class="form-tip">启用后会在 AI 聊天前做 MariaDB 向量检索，并把命中的公开文章事实注入提示词。</div>
+            <div class="form-tip">这里的修改只会更新当前页面表单；需要点击页面底部“保存外观与排版设置”后，重建与预览才会读取到新配置。</div>
+            <div v-if="ragStatus.disabledReason" class="form-tip form-tip-warning">{{ ragStatus.disabledReason }}</div>
+          </el-form-item>
+
+          <el-form-item label="索引名称">
+            <el-input v-model.trim="localConfig.rag.indexName" @change="emitChange" size="small" placeholder="poetize_ai_chat"></el-input>
+            <div class="form-tip">用于区分当前知识库索引空间，默认保留一个聊天索引即可。</div>
+          </el-form-item>
+
+          <el-form-item label="Embedding 提供商">
+            <el-input v-model.trim="localConfig.rag.embeddingProvider" @change="emitChange" size="small" placeholder="openai"></el-input>
+          </el-form-item>
+
+          <el-form-item label="Embedding Base URL">
+            <el-input v-model.trim="localConfig.rag.embeddingApiBase" @change="emitChange" size="small" placeholder="可留空，默认跟随主模型配置"></el-input>
+          </el-form-item>
+
+          <el-form-item label="Embedding API Key">
+            <el-input v-model.trim="localConfig.rag.embeddingApiKey" @change="emitChange" size="small" show-password placeholder="可留空，默认跟随主模型配置"></el-input>
+            <div class="form-tip">如果这里留空，后端会回退到 AI 聊天主模型的 API Key。</div>
+          </el-form-item>
+
+          <el-form-item label="Embedding 模型">
+            <el-input v-model.trim="localConfig.rag.embeddingModel" @change="emitChange" size="small" placeholder="text-embedding-3-small"></el-input>
+          </el-form-item>
+
+          <el-form-item label="向量维度">
+            <el-input-number v-model="localConfig.rag.embeddingDimensions" @change="emitChange" :min="1" :max="16384" size="small" style="width: 180px;"></el-input-number>
+          </el-form-item>
+
+          <el-form-item label="Top K">
+            <el-input-number v-model="localConfig.rag.topK" @change="emitChange" :min="1" :max="20" size="small" style="width: 180px;"></el-input-number>
+          </el-form-item>
+
+          <el-form-item label="相似度阈值">
+            <el-input-number v-model="localConfig.rag.scoreThreshold" @change="emitChange" :min="0" :max="1" :step="0.05" :precision="2" size="small" style="width: 180px;"></el-input-number>
+          </el-form-item>
+
+          <el-form-item label="切片大小">
+            <el-input-number v-model="localConfig.rag.chunkSize" @change="emitChange" :min="100" :max="4000" :step="50" size="small" style="width: 180px;"></el-input-number>
+          </el-form-item>
+
+          <el-form-item label="切片重叠">
+            <el-input-number v-model="localConfig.rag.chunkOverlap" @change="emitChange" :min="0" :max="1000" :step="10" size="small" style="width: 180px;"></el-input-number>
+          </el-form-item>
+        </el-form>
+
+        <div class="rag-status-card">
+          <div class="rag-status-header">
+            <div class="rag-status-title">同步状态</div>
+            <div class="rag-status-actions">
+              <el-button size="mini" @click="refreshRagStatus" :loading="ragLoading">刷新</el-button>
+              <el-button size="mini" type="primary" @click="triggerRagRebuild" :loading="ragRebuilding" :disabled="isRagActionDisabled">重建知识库</el-button>
+            </div>
+          </div>
+          <div class="rag-status-grid">
+            <div class="rag-status-item">
+              <span class="rag-status-label">已启用</span>
+              <span class="rag-status-value">{{ ragStatus.enabled ? '是' : '否' }}</span>
+            </div>
+            <div class="rag-status-item">
+              <span class="rag-status-label">可运行</span>
+              <span class="rag-status-value">{{ ragStatus.runnable ? '是' : '否' }}</span>
+            </div>
+            <div class="rag-status-item">
+              <span class="rag-status-label">数据库</span>
+              <span class="rag-status-value">{{ ragStatus.databaseType || '未知' }}</span>
+            </div>
+            <div class="rag-status-item">
+              <span class="rag-status-label">数据库版本</span>
+              <span class="rag-status-value">{{ ragStatus.databaseVersion || '未知' }}</span>
+            </div>
+            <div class="rag-status-item">
+              <span class="rag-status-label">向量检索支持</span>
+              <span class="rag-status-value">{{ ragStatus.vectorSearchSupported === false ? '否' : '是' }}</span>
+            </div>
+            <div class="rag-status-item">
+              <span class="rag-status-label">文档数</span>
+              <span class="rag-status-value">{{ ragStatus.documentCount || 0 }}</span>
+            </div>
+            <div class="rag-status-item">
+              <span class="rag-status-label">切片数</span>
+              <span class="rag-status-value">{{ ragStatus.chunkCount || 0 }}</span>
+            </div>
+            <div class="rag-status-item">
+              <span class="rag-status-label">RAG 版本</span>
+              <span class="rag-status-value">{{ ragStatus.ragVersion || '0' }}</span>
+            </div>
+            <div class="rag-status-item rag-status-item-wide">
+              <span class="rag-status-label">最后同步</span>
+              <span class="rag-status-value">{{ ragStatus.lastSyncTime || '暂无' }}</span>
+            </div>
+            <div v-if="ragStatus.disabledReason" class="rag-status-item rag-status-item-wide">
+              <span class="rag-status-label">禁用原因</span>
+              <span class="rag-status-value">{{ ragStatus.disabledReason }}</span>
+            </div>
+          </div>
+          <div v-if="Array.isArray(ragStatus.recentDocuments) && ragStatus.recentDocuments.length" class="rag-status-list">
+            <div v-for="item in ragStatus.recentDocuments.slice(0, 5)" :key="item.documentId + '-' + item.sourceId" class="rag-status-row">
+              <span class="rag-doc-title">{{ item.title || item.documentId }}</span>
+              <span class="rag-doc-meta">{{ item.sourceType }} / {{ item.visibilityScope }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="rag-preview-card" v-loading="previewLoading">
+          <div class="rag-preview-header">
+            <div>
+              <div class="rag-status-title">检索预览</div>
+              <div class="form-tip">输入问题后可查看实际 embedding query、原始命中和最终注入上下文。</div>
+            </div>
+            <el-button size="mini" type="primary" @click="runRagPreview" :loading="previewLoading" :disabled="!previewQuery.trim()">执行预览</el-button>
+          </div>
+
+          <el-input
+            v-model.trim="previewQuery"
+            type="textarea"
+            :rows="3"
+            resize="none"
+            placeholder="输入一个用户问题，例如：这篇文章主要讲了什么？"
+            @keyup.enter.native.ctrl="runRagPreview">
+          </el-input>
+
+          <div v-if="previewResult" class="rag-preview-result">
+            <div class="rag-preview-block">
+              <div class="rag-preview-label">Embedding Query</div>
+              <div class="rag-preview-text">{{ previewResult.retrievalQuery || '无' }}</div>
+            </div>
+
+            <div class="rag-preview-block">
+              <div class="rag-preview-label">命中文章</div>
+              <div v-if="previewResult.rawHits && previewResult.rawHits.length" class="rag-preview-hit-list">
+                <div v-for="(hit, index) in previewResult.rawHits" :key="hit.documentId + '-' + hit.chunkIndex + '-' + index" class="rag-preview-hit">
+                  <div class="rag-preview-hit-header">
+                    <span class="rag-doc-title">{{ hit.title || hit.documentId || '未命名文章' }}</span>
+                    <span class="rag-doc-meta">ID {{ hit.sourceId || hit.documentId }} / {{ formatSimilarity(hit.similarity) }}</span>
+                  </div>
+                  <div class="rag-preview-hit-meta">chunk {{ hit.chunkIndex }} / {{ hit.chunkCount }}</div>
+                  <div class="rag-preview-text">{{ hit.content || '无正文片段' }}</div>
+                </div>
+              </div>
+              <div v-else class="rag-preview-empty">当前没有命中任何文章片段。</div>
+            </div>
+
+            <div class="rag-preview-block">
+              <div class="rag-preview-label">最终注入上下文</div>
+              <pre class="rag-preview-code">{{ previewResult.assembledContext || '无' }}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div slot="footer" class="dialog-footer">
+        <el-button size="small" @click="ragDialogVisible = false">关闭</el-button>
+        <el-button size="small" type="primary" @click="ragDialogVisible = false">知道了</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -171,7 +347,20 @@ export default {
         mem0ApiKey: '',
         memoryAutoSave: true,
         memoryAutoRecall: true,
-        memoryRecallLimit: 5
+        memoryRecallLimit: 5,
+        rag: {
+          enabled: false,
+          indexName: 'poetize_ai_chat',
+          embeddingProvider: 'openai',
+          embeddingApiBase: '',
+          embeddingApiKey: '',
+          embeddingModel: 'text-embedding-3-small',
+          embeddingDimensions: 1536,
+          topK: 5,
+          scoreThreshold: 0.2,
+          chunkSize: 700,
+          chunkOverlap: 120
+        }
       })
     }
   },
@@ -180,6 +369,13 @@ export default {
       localConfig: this.normalizeConfig(this.value),
       loading: true,
       memoryDialogVisible: false,
+      ragDialogVisible: false,
+      ragLoading: false,
+      ragRebuilding: false,
+      ragStatus: {},
+      previewLoading: false,
+      previewQuery: '',
+      previewResult: null,
       externalTools: [],
       // 硬编码的系统内置原生工具 (基于 ArticleTools.java、TimeTools.java、CalculatorTools.java 提取)
       nativeTools: [
@@ -211,6 +407,14 @@ export default {
           svgIcon: '<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path><path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path><path d="M19.938 10.5a4 4 0 0 1 .585.396"></path><path d="M6 18a4 4 0 0 1-1.967-.516"></path><path d="M19.967 17.484A4 4 0 0 1 18 18"></path>',
           features: ['跨会话记忆', '自动提炼', '长短期管理', '个性化事实'],
           configurable: true
+        },
+        {
+          id: 'ai_rag',
+          name: '文章知识检索增强',
+          description: '为 AI 聊天接入公开文章向量检索，优先基于站内文章事实回答。',
+          svgIcon: '<path d="M10 3H5a2 2 0 0 0-2 2v5"></path><path d="M14 21h5a2 2 0 0 0 2-2v-5"></path><path d="M21 10V5a2 2 0 0 0-2-2h-5"></path><path d="M3 14v5a2 2 0 0 0 2 2h5"></path><circle cx="12" cy="12" r="3"></circle><path d="M12 2v4"></path><path d="M12 18v4"></path><path d="M2 12h4"></path><path d="M18 12h4"></path>',
+          features: ['标题/摘要/正文检索', '文章增量同步', 'MariaDB 向量搜索', '手动重建'],
+          configurable: true
         }
       ]
     }
@@ -226,14 +430,36 @@ export default {
   mounted() {
     this.fetchExternalTools();
   },
+  computed: {
+    isRagForceDisabled() {
+      return this.ragStatus.vectorSearchSupported === false || this.ragStatus.runtimeEnabled === false;
+    },
+    isRagActionDisabled() {
+      return this.isRagForceDisabled || this.ragStatus.runnable === false;
+    }
+  },
   methods: {
     normalizeConfig(config = {}) {
+      const rag = config.rag || {};
       return {
         enableMemory: config.enableMemory || false,
         mem0ApiKey: config.mem0ApiKey || '',
         memoryAutoSave: config.memoryAutoSave !== false && config.memoryAutosave !== false,
         memoryAutoRecall: config.memoryAutoRecall !== false && config.memoryAutorecall !== false,
-        memoryRecallLimit: config.memoryRecallLimit || 5
+        memoryRecallLimit: config.memoryRecallLimit || 5,
+        rag: {
+          enabled: rag.enabled || false,
+          indexName: rag.indexName || 'poetize_ai_chat',
+          embeddingProvider: rag.embeddingProvider || 'openai',
+          embeddingApiBase: rag.embeddingApiBase || '',
+          embeddingApiKey: rag.embeddingApiKey || '',
+          embeddingModel: rag.embeddingModel || 'text-embedding-3-small',
+          embeddingDimensions: rag.embeddingDimensions || 1536,
+          topK: rag.topK || 5,
+          scoreThreshold: typeof rag.scoreThreshold === 'number' ? rag.scoreThreshold : 0.2,
+          chunkSize: rag.chunkSize || 700,
+          chunkOverlap: typeof rag.chunkOverlap === 'number' ? rag.chunkOverlap : 120
+        }
       };
     },
     fetchExternalTools() {
@@ -258,7 +484,85 @@ export default {
     openConfigDialog(id) {
       if (id === 'ai_memory') {
         this.memoryDialogVisible = true;
+        return;
       }
+      if (id === 'ai_rag') {
+        this.ragDialogVisible = true;
+        this.previewResult = null;
+        this.refreshRagStatus();
+      }
+    },
+    refreshRagStatus() {
+      this.ragLoading = true;
+      this.$http.get(this.$constant.baseURL + '/webInfo/ai/config/chat/rag/status', {}, true)
+        .then(res => {
+          if (res.code === 200 && res.data) {
+            this.ragStatus = res.data;
+            if (this.isRagForceDisabled && this.localConfig.rag.enabled) {
+              this.localConfig.rag.enabled = false;
+              this.emitChange();
+            }
+          }
+        })
+        .catch(err => {
+          console.error('Failed to load rag status:', err);
+          this.$message.error('获取 RAG 状态失败');
+        })
+        .finally(() => {
+          this.ragLoading = false;
+        });
+    },
+    triggerRagRebuild() {
+      if (this.isRagForceDisabled) {
+        this.$message.warning(this.ragStatus.disabledReason || '当前环境不支持向量检索');
+        return;
+      }
+      this.ragRebuilding = true;
+      this.$http.post(this.$constant.baseURL + '/webInfo/ai/config/chat/rag/rebuild', {}, true)
+        .then(res => {
+          if (res.code === 200) {
+            this.$message.success('已触发知识库重建，请稍后刷新状态');
+            this.refreshRagStatus();
+          } else {
+            this.$message.error(res.message || '触发重建失败');
+          }
+        })
+        .catch(err => {
+          console.error('Failed to rebuild rag knowledge base:', err);
+          this.$message.error('触发知识库重建失败');
+        })
+        .finally(() => {
+          this.ragRebuilding = false;
+        });
+    },
+    runRagPreview() {
+      const query = this.previewQuery.trim();
+      if (!query) {
+        this.$message.warning('请先输入要预览的提问');
+        return;
+      }
+      this.previewLoading = true;
+      this.$http.post(this.$constant.baseURL + '/webInfo/ai/config/chat/rag/preview', {
+        query
+      }, true)
+        .then(res => {
+          if (res.code === 200 && res.data) {
+            this.previewResult = res.data;
+            this.ragStatus = res.data.status || this.ragStatus;
+          } else {
+            this.$message.error(res.message || '执行 RAG 预览失败');
+          }
+        })
+        .catch(err => {
+          console.error('Failed to preview rag context:', err);
+          this.$message.error('执行 RAG 预览失败');
+        })
+        .finally(() => {
+          this.previewLoading = false;
+        });
+    },
+    formatSimilarity(value) {
+      return typeof value === 'number' ? value.toFixed(3) : '0.000';
     },
     emitChange() {
       this.$emit('input', { ...this.normalizeConfig(this.localConfig) });
@@ -282,6 +586,9 @@ export default {
   color: #909399;
   line-height: 1.4;
   margin-top: 4px;
+}
+.form-tip-warning {
+  color: #e6a23c;
 }
 .link-primary {
   color: #409EFF;
@@ -520,10 +827,200 @@ export default {
   margin-top: 16px;
 }
 
+.rag-status-card {
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.rag-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.rag-status-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.rag-status-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.rag-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.rag-status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.rag-preview-card {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.rag-preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.rag-preview-result {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rag-preview-block {
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.rag-preview-label {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.rag-preview-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #334155;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rag-preview-hit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rag-preview-hit {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.rag-preview-hit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.rag-preview-hit-meta {
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.rag-preview-code {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.rag-preview-empty {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.rag-status-item-wide {
+  grid-column: span 2;
+}
+
+.rag-status-label {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.rag-status-value {
+  font-size: 13px;
+  color: #0f172a;
+  word-break: break-all;
+}
+
+.rag-status-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rag-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.rag-doc-title {
+  font-size: 12px;
+  color: #0f172a;
+  font-weight: 500;
+}
+
+.rag-doc-meta {
+  font-size: 11px;
+  color: #64748b;
+}
+
 /* 移动端适配 */
 @media screen and (max-width: 768px) {
   .tools-grid {
     grid-template-columns: 1fr;
+  }
+
+  .rag-status-header,
+  .rag-status-row,
+  .rag-preview-header,
+  .rag-preview-hit-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .rag-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rag-status-item-wide {
+    grid-column: span 1;
   }
 }
 </style>

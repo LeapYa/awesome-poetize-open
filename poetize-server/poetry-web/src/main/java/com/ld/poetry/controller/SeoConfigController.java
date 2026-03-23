@@ -4,6 +4,7 @@ import com.ld.poetry.aop.LoginCheck;
 import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.entity.SeoConfig;
 import com.ld.poetry.service.SeoConfigService;
+import com.ld.poetry.service.ai.rag.RagSyncService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -25,6 +26,9 @@ public class SeoConfigController {
 
     @Autowired
     private SeoConfigService seoConfigService;
+
+    @Autowired
+    private RagSyncService ragSyncService;
 
     /**
      * 获取完整SEO配置（结构化）
@@ -49,6 +53,8 @@ public class SeoConfigController {
     public PoetryResult<Boolean> saveFullSeoConfig(@RequestBody SeoConfig seoConfig) {
         try {
             boolean success = seoConfigService.saveFullSeoConfig(seoConfig);
+            if (success) {
+            }
             return success ? PoetryResult.success(true) : PoetryResult.fail("保存SEO配置失败");
         } catch (Exception e) {
             log.error("保存完整SEO配置失败", e);
@@ -79,6 +85,8 @@ public class SeoConfigController {
     public PoetryResult<Boolean> updateSeoConfigFromJson(@RequestBody Map<String, Object> jsonConfig) {
         try {
             boolean success = seoConfigService.updateSeoConfigFromJson(jsonConfig);
+            if (success) {
+            }
             return success ? PoetryResult.success(true) : PoetryResult.fail("更新SEO配置失败");
         } catch (Exception e) {
             log.error("从JSON更新SEO配置失败", e);
@@ -94,6 +102,8 @@ public class SeoConfigController {
     public PoetryResult<Boolean> initDefaultSeoConfig() {
         try {
             boolean success = seoConfigService.initDefaultSeoConfig();
+            if (success) {
+            }
             return success ? PoetryResult.success(true) : PoetryResult.fail("初始化SEO配置失败");
         } catch (Exception e) {
             log.error("初始化默认SEO配置失败", e);

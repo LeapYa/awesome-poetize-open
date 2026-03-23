@@ -45,6 +45,9 @@ public class SortLabelController {
     private PrerenderClient prerenderClient;
 
     @Autowired
+    private com.ld.poetry.service.ai.rag.RagSyncService ragSyncService;
+
+    @Autowired
     private com.ld.poetry.service.SitemapService sitemapService;
 
     /**
@@ -107,6 +110,7 @@ public class SortLabelController {
             log.warn("分类新增后sitemap更新和页面预渲染失败", e);
         }
         
+        ragSyncService.rebuildAllAsync();
         return PoetryResult.success();
     }
 
@@ -137,6 +141,7 @@ public class SortLabelController {
             log.warn("分类删除后sitemap更新和页面预渲染失败", e);
         }
 
+        ragSyncService.rebuildAllAsync();
         return PoetryResult.success();
     }
 
@@ -193,6 +198,7 @@ public class SortLabelController {
             log.warn("分类更新后sitemap更新和页面预渲染失败", e);
         }
 
+        ragSyncService.rebuildAllAsync();
         return PoetryResult.success();
     }
 
@@ -250,6 +256,7 @@ public class SortLabelController {
             log.warn("标签新增后sitemap更新和页面预渲染失败", e);
         }
         
+        ragSyncService.rebuildAllAsync();
         return PoetryResult.success();
     }
 
@@ -283,6 +290,7 @@ public class SortLabelController {
             }
         }
         
+        ragSyncService.rebuildAllAsync();
         return PoetryResult.success();
     }
 
@@ -334,6 +342,7 @@ public class SortLabelController {
             log.warn("标签更新后sitemap更新和页面预渲染失败", e);
         }
 
+        ragSyncService.rebuildAllAsync();
         return PoetryResult.success();
     }
 

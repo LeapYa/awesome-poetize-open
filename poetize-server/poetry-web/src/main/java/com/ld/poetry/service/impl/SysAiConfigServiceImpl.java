@@ -18,6 +18,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.env.Environment;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -42,6 +45,9 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
     private final ArticleMapper articleMapper;
     private final AESCryptoUtil aesCryptoUtil;
     private final DynamicChatClientFactory dynamicChatClientFactory;
+    private final ObjectMapper objectMapper;
+    private final Environment environment;
+    private final JdbcTemplate jdbcTemplate;
 
     @Autowired
     @Lazy
@@ -206,6 +212,7 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
     @Override
     public boolean saveAiChatConfig(SysAiConfig config) {
         config.setConfigType("ai_chat");
+        normalizeRagConfig(config);
         return saveOrUpdateConfig(config);
     }
 
@@ -450,8 +457,6 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
      */
     private void encryptJsonFields(SysAiConfig config) {
         try {
-            ObjectMapper objectMapper = new ObjectMapper();
-
             // 1. 加密百度翻译配置中的app_secret
             if (StringUtils.hasText(config.getBaiduConfig())) {
                 JsonNode baiduNode = objectMapper.readTree(config.getBaiduConfig());
@@ -519,6 +524,19 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                 }
             }
 
+            // 5. 加密 extraConfig.rag.embeddingApiKey
+            if (StringUtils.hasText(config.getExtraConfig())) {
+                JsonNode extraNode = objectMapper.readTree(config.getExtraConfig());
+                JsonNode ragNode = extraNode.get("rag");
+                if (ragNode instanceof ObjectNode ragObject && ragObject.has("embeddingApiKey")) {
+                    String apiKey = ragObject.get("embeddingApiKey").asText();
+                    if (StringUtils.hasText(apiKey) && !apiKey.contains("*")) {
+                        ragObject.put("embeddingApiKey", aesCryptoUtil.encrypt(apiKey));
+                        config.setExtraConfig(objectMapper.writeValueAsString(extraNode));
+                    }
+                }
+            }
+
         } catch (Exception e) {
             log.error("加密JSON字段失败: {}", e.getMessage(), e);
             throw new RuntimeException("加密配置失败: " + e.getMessage());
@@ -556,8 +574,6 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
      */
     private void decryptAndMaskJsonFields(SysAiConfig config) {
         try {
-            ObjectMapper objectMapper = new ObjectMapper();
-
             // 1. 解密并脱敏百度配置
             if (StringUtils.hasText(config.getBaiduConfig())) {
                 JsonNode baiduNode = objectMapper.readTree(config.getBaiduConfig());
@@ -641,6 +657,22 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                 }
             }
 
+            // 5. 解密并脱敏 extraConfig.rag.embeddingApiKey
+            if (StringUtils.hasText(config.getExtraConfig())) {
+                JsonNode extraNode = objectMapper.readTree(config.getExtraConfig());
+                JsonNode ragNode = extraNode.get("rag");
+                if (ragNode instanceof ObjectNode ragObject && ragObject.has("embeddingApiKey")) {
+                    String encrypted = ragObject.get("embeddingApiKey").asText();
+                    if (StringUtils.hasText(encrypted)) {
+                        String decrypted = aesCryptoUtil.decrypt(encrypted);
+                        if (decrypted != null) {
+                            ragObject.put("embeddingApiKey", "***");
+                            config.setExtraConfig(objectMapper.writeValueAsString(extraNode));
+                        }
+                    }
+                }
+            }
+
         } catch (Exception e) {
             log.error("解密并脱敏JSON字段失败: {}", e.getMessage(), e);
             // 不抛异常，避免影响配置读取
@@ -681,8 +713,6 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
      */
     private void decryptJsonFieldsForInternal(SysAiConfig config) {
         try {
-            ObjectMapper objectMapper = new ObjectMapper();
-
             // 1. 解密百度配置
             if (StringUtils.hasText(config.getBaiduConfig())) {
                 JsonNode baiduNode = objectMapper.readTree(config.getBaiduConfig());
@@ -760,6 +790,22 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                                 ((ObjectNode) dedicatedLlmNode).put("api_key", decrypted);
                                 config.setSummaryConfig(objectMapper.writeValueAsString(summaryNode));
                             }
+                        }
+                    }
+                }
+            }
+
+            // 5. 解密 extraConfig.rag.embeddingApiKey
+            if (StringUtils.hasText(config.getExtraConfig())) {
+                JsonNode extraNode = objectMapper.readTree(config.getExtraConfig());
+                JsonNode ragNode = extraNode.get("rag");
+                if (ragNode instanceof ObjectNode ragObject && ragObject.has("embeddingApiKey")) {
+                    String encrypted = ragObject.get("embeddingApiKey").asText();
+                    if (StringUtils.hasText(encrypted)) {
+                        String decrypted = aesCryptoUtil.decrypt(encrypted);
+                        if (decrypted != null) {
+                            ragObject.put("embeddingApiKey", decrypted);
+                            config.setExtraConfig(objectMapper.writeValueAsString(extraNode));
                         }
                     }
                 }
@@ -853,8 +899,6 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
         }
 
         try {
-            ObjectMapper objectMapper = new ObjectMapper();
-
             // 基本字段
             result.put("id", config.getId());
             result.put("configType", config.getConfigType());
@@ -896,11 +940,102 @@ public class SysAiConfigServiceImpl extends ServiceImpl<SysAiConfigMapper, SysAi
                 result.put("summaryConfig", summaryConfig);
             }
 
+            if (StringUtils.hasText(config.getExtraConfig())) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> extraConfig = objectMapper.readValue(config.getExtraConfig(), Map.class);
+                result.put("extraConfig", extraConfig);
+            }
+
         } catch (Exception e) {
             log.error("转换配置为Map失败: {}", e.getMessage(), e);
             // 出错时至少返回基本字段
         }
 
         return result;
+    }
+
+    private void normalizeRagConfig(SysAiConfig config) {
+        if (!StringUtils.hasText(config.getExtraConfig())) {
+            return;
+        }
+        try {
+            JsonNode extraNode = objectMapper.readTree(config.getExtraConfig());
+            if (!(extraNode instanceof ObjectNode extraObject)) {
+                return;
+            }
+            JsonNode ragNode = extraObject.get("rag");
+            if (!(ragNode instanceof ObjectNode ragObject)) {
+                return;
+            }
+
+            if (!isRagRuntimeSupported()) {
+                ragObject.put("enabled", false);
+            }
+            config.setExtraConfig(objectMapper.writeValueAsString(extraObject));
+        } catch (Exception e) {
+            log.warn("规范化 RAG 配置失败，将继续按原配置保存: {}", e.getMessage());
+        }
+    }
+
+    private boolean isRagRuntimeSupported() {
+        String databaseType = environment.getProperty("DB_TYPE");
+        if (!StringUtils.hasText(databaseType)) {
+            String datasourceUrl = environment.getProperty("spring.datasource.url");
+            if (StringUtils.hasText(datasourceUrl)) {
+                databaseType = datasourceUrl.toLowerCase().startsWith("jdbc:mysql:") ? "mysql" : "mariadb";
+            } else {
+                databaseType = "mariadb";
+            }
+        }
+        boolean runtimeEnabled = Boolean.parseBoolean(environment.getProperty("RAG_ENABLED", "true"));
+        if (!runtimeEnabled || !"mariadb".equalsIgnoreCase(databaseType)) {
+            return false;
+        }
+        DatabaseVersion databaseVersion = parseDatabaseVersion(readDatabaseVersionSafely());
+        if (databaseVersion == null || !databaseVersion.isAtLeast(11, 7)) {
+            return false;
+        }
+        return probeVectorFunctions();
+    }
+
+    private String readDatabaseVersionSafely() {
+        try {
+            return jdbcTemplate.queryForObject("SELECT VERSION()", String.class);
+        } catch (DataAccessException ex) {
+            return null;
+        }
+    }
+
+    private DatabaseVersion parseDatabaseVersion(String version) {
+        if (!StringUtils.hasText(version)) {
+            return null;
+        }
+        String normalized = version.trim();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d+)\\.(\\d+)").matcher(normalized);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            return new DatabaseVersion(Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2)));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private boolean probeVectorFunctions() {
+        try {
+            Double result = jdbcTemplate.queryForObject(
+                    "SELECT VEC_DISTANCE_COSINE(VEC_FromText('[1,0]'), VEC_FromText('[1,0]'))",
+                    Double.class);
+            return result != null;
+        } catch (DataAccessException ex) {
+            return false;
+        }
+    }
+
+    private record DatabaseVersion(int major, int minor) {
+        private boolean isAtLeast(int expectedMajor, int expectedMinor) {
+            return major > expectedMajor || (major == expectedMajor && minor >= expectedMinor);
+        }
     }
 }

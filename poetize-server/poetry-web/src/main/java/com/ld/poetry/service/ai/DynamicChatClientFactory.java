@@ -58,7 +58,8 @@ public class DynamicChatClientFactory {
      */
     private ChatModel createOpenAiCompatible(SysAiConfig config) {
         String apiKey = config.getApiKey(); // 已解密
-        String baseUrl = normalizeBaseUrl(config.getApiBase(), "https://api.openai.com");
+        String baseUrl = AiApiBaseUrlNormalizer.normalizeOpenAiCompatibleBaseUrl(
+                config.getApiBase(), "https://api.openai.com");
         String model = config.getModel() != null ? config.getModel() : "gpt-4o-mini";
         double temperature = config.getTemperature() != null ? config.getTemperature().doubleValue() : 0.7;
 
@@ -83,7 +84,7 @@ public class DynamicChatClientFactory {
      */
     private ChatModel createAnthropic(SysAiConfig config) {
         String apiKey = config.getApiKey(); // 已解密
-        String baseUrl = normalizeBaseUrl(config.getApiBase(), "https://api.anthropic.com");
+        String baseUrl = normalizeAnthropicBaseUrl(config.getApiBase(), "https://api.anthropic.com");
         String model = config.getModel() != null ? config.getModel() : "claude-sonnet-4-20250514";
         double temperature = config.getTemperature() != null ? config.getTemperature().doubleValue() : 0.7;
 
@@ -103,25 +104,10 @@ public class DynamicChatClientFactory {
                 .build();
     }
 
-    /**
-     * 规范化 baseUrl
-     * Spring AI OpenAiApi 会自动拼接 /chat/completions
-     * 因此如果 url 已包含这些路径段，需要移除，避免路径重复导致 404
-     */
-    private String normalizeBaseUrl(String url, String defaultUrl) {
+    private String normalizeAnthropicBaseUrl(String url, String defaultUrl) {
         if (url == null || url.isBlank()) {
             return defaultUrl;
         }
-        // 移除尾部斜杠
-        String normalized = url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
-        // 移除尾部的 /chat/completions（前端可能存储了完整端点地址）
-        if (normalized.endsWith("/chat/completions")) {
-            normalized = normalized.substring(0, normalized.length() - "/chat/completions".length());
-        }
-        // 移除尾部的 /v1（Spring AI 会自动添加）
-        if (normalized.endsWith("/v1")) {
-            normalized = normalized.substring(0, normalized.length() - 3);
-        }
-        return normalized;
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 }

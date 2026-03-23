@@ -1,20 +1,20 @@
 <template>
   <div class="ai-appearance-config">
     <el-form :model="appearanceConfig" label-width="120px">
-      <el-form-item label="机器人名称">
+      <el-form-item id="field-ai-bot-name" label="机器人名称">
         <el-input v-model="appearanceConfig.botName" placeholder="例如: 小助手"></el-input>
       </el-form-item>
 
-      <el-form-item label="主题颜色">
+      <el-form-item id="field-ai-theme-color" label="主题颜色">
         <el-color-picker v-model="appearanceConfig.themeColor"></el-color-picker>
         <span style="margin-left: 10px; color: #909399; font-size: 12px;">用于用户消息气泡颜色</span>
       </el-form-item>
 
-      <el-form-item label="显示打字动效">
+      <el-form-item id="field-ai-typing" label="显示打字动效">
         <el-switch v-model="appearanceConfig.typingAnimation"></el-switch>
       </el-form-item>
 
-      <el-form-item label="显示时间戳">
+      <el-form-item id="field-ai-timestamp" label="显示时间戳">
         <el-switch v-model="appearanceConfig.showTimestamp"></el-switch>
       </el-form-item>
     </el-form>

@@ -33,7 +33,7 @@ public class ArticleTools {
     @Autowired
     private SortMapper sortMapper;
 
-    @Tool(description = "搜索网站文章，根据关键词返回相关文章标题和摘要")
+    @Tool(description = "按关键词定位候选文章，返回文章ID、标题和摘要，主要用于导航定位，不是文章事实问答的默认路径")
     public String searchArticles(
             @ToolParam(description = "搜索关键词") String keyword,
             @ToolParam(description = "返回数量，默认5") int limit) {
@@ -60,7 +60,7 @@ public class ArticleTools {
             sb.append("找到 ").append(articles.size()).append(" 篇相关文章：\n\n");
             for (int i = 0; i < articles.size(); i++) {
                 Article a = articles.get(i);
-                sb.append(i + 1).append(". 《").append(a.getArticleTitle()).append("》\n");
+                sb.append(i + 1).append(". [ID=").append(a.getId()).append("] 《").append(a.getArticleTitle()).append("》\n");
                 // 提取摘要
                 String content = a.getArticleContent();
                 if (content != null && content.length() > 200) {

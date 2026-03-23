@@ -4,7 +4,7 @@ import com.ld.poetry.aop.LoginCheck;
 import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.entity.ThirdPartyOauthConfig;
 import com.ld.poetry.service.ThirdPartyOauthConfigService;
-
+import com.ld.poetry.service.ai.rag.RagSyncService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -27,6 +27,9 @@ public class ThirdPartyOauthConfigController {
 
     @Autowired
     private ThirdPartyOauthConfigService thirdPartyOauthConfigService;
+
+    @Autowired
+    private RagSyncService ragSyncService;
 
 
 
@@ -99,7 +102,9 @@ public class ThirdPartyOauthConfigController {
     @PutMapping("/platform")
     public PoetryResult<ThirdPartyOauthConfig> updatePlatformConfig(@RequestBody ThirdPartyOauthConfig config) {
         try {
-            return thirdPartyOauthConfigService.updatePlatformConfig(config);
+            PoetryResult<ThirdPartyOauthConfig> result = thirdPartyOauthConfigService.updatePlatformConfig(config);
+            syncOauthIfSuccessful(result.isSuccess() && result.getData() != null);
+            return result;
         } catch (Exception e) {
             log.error("更新平台配置失败", e);
             return PoetryResult.fail("更新平台配置失败: " + e.getMessage());
@@ -113,7 +118,9 @@ public class ThirdPartyOauthConfigController {
     @PutMapping("/batch")
     public PoetryResult<Boolean> batchUpdateConfigs(@RequestBody List<ThirdPartyOauthConfig> configs) {
         try {
-            return thirdPartyOauthConfigService.batchUpdateConfigs(configs);
+            PoetryResult<Boolean> result = thirdPartyOauthConfigService.batchUpdateConfigs(configs);
+            syncOauthIfSuccessful(result.isSuccess() && Boolean.TRUE.equals(result.getData()));
+            return result;
         } catch (Exception e) {
             log.error("批量更新配置失败", e);
             return PoetryResult.fail("批量更新配置失败: " + e.getMessage());
@@ -127,7 +134,9 @@ public class ThirdPartyOauthConfigController {
     @PutMapping("/global-enabled/{enabled}")
     public PoetryResult<Boolean> updateGlobalEnabled(@PathVariable Boolean enabled) {
         try {
-            return thirdPartyOauthConfigService.updateGlobalEnabled(enabled);
+            PoetryResult<Boolean> result = thirdPartyOauthConfigService.updateGlobalEnabled(enabled);
+            syncOauthIfSuccessful(result.isSuccess() && Boolean.TRUE.equals(result.getData()));
+            return result;
         } catch (Exception e) {
             log.error("更新全局启用状态失败", e);
             return PoetryResult.fail("更新全局启用状态失败: " + e.getMessage());
@@ -141,7 +150,9 @@ public class ThirdPartyOauthConfigController {
     @PutMapping("/platform/{platformType}/enabled/{enabled}")
     public PoetryResult<Boolean> updatePlatformEnabled(@PathVariable String platformType, @PathVariable Boolean enabled) {
         try {
-            return thirdPartyOauthConfigService.updatePlatformEnabled(platformType, enabled);
+            PoetryResult<Boolean> result = thirdPartyOauthConfigService.updatePlatformEnabled(platformType, enabled);
+            syncOauthIfSuccessful(result.isSuccess() && Boolean.TRUE.equals(result.getData()));
+            return result;
         } catch (Exception e) {
             log.error("更新平台启用状态失败: {}", platformType, e);
             return PoetryResult.fail("更新平台启用状态失败: " + e.getMessage());
@@ -183,7 +194,9 @@ public class ThirdPartyOauthConfigController {
     @PostMapping("/migrate/from-file")
     public PoetryResult<Boolean> migrateFromJsonFile(@RequestParam String jsonFilePath) {
         try {
-            return thirdPartyOauthConfigService.migrateFromJsonFile(jsonFilePath);
+            PoetryResult<Boolean> result = thirdPartyOauthConfigService.migrateFromJsonFile(jsonFilePath);
+            syncOauthIfSuccessful(result.isSuccess() && Boolean.TRUE.equals(result.getData()));
+            return result;
         } catch (Exception e) {
             log.error("从JSON文件迁移配置失败", e);
             return PoetryResult.fail("从JSON文件迁移配置失败: " + e.getMessage());
@@ -198,7 +211,9 @@ public class ThirdPartyOauthConfigController {
     public PoetryResult<Boolean> migrateFromJsonString(@RequestBody Map<String, Object> request) {
         try {
             String jsonString = (String) request.get("jsonString");
-            return thirdPartyOauthConfigService.migrateFromJsonString(jsonString);
+            PoetryResult<Boolean> result = thirdPartyOauthConfigService.migrateFromJsonString(jsonString);
+            syncOauthIfSuccessful(result.isSuccess() && Boolean.TRUE.equals(result.getData()));
+            return result;
         } catch (Exception e) {
             log.error("从JSON字符串迁移配置失败", e);
             return PoetryResult.fail("从JSON字符串迁移配置失败: " + e.getMessage());
@@ -239,7 +254,9 @@ public class ThirdPartyOauthConfigController {
     @PostMapping("/reset")
     public PoetryResult<Boolean> resetToDefault() {
         try {
-            return thirdPartyOauthConfigService.resetToDefault();
+            PoetryResult<Boolean> result = thirdPartyOauthConfigService.resetToDefault();
+            syncOauthIfSuccessful(result.isSuccess() && Boolean.TRUE.equals(result.getData()));
+            return result;
         } catch (Exception e) {
             log.error("重置配置失败", e);
             return PoetryResult.fail("重置配置失败: " + e.getMessage());
@@ -257,6 +274,11 @@ public class ThirdPartyOauthConfigController {
         } catch (Exception e) {
             log.error("导出配置失败", e);
             return PoetryResult.fail("导出配置失败: " + e.getMessage());
+        }
+    }
+
+    private void syncOauthIfSuccessful(boolean success) {
+        if (success) {
         }
     }
 }

@@ -1,15 +1,15 @@
 <template>
   <div class="ai-advanced-config">
     <el-form :model="advancedConfig" label-width="120px">
-      <el-form-item label="代理设置">
+      <el-form-item id="field-ai-proxy" label="代理设置">
         <el-input v-model="advancedConfig.proxy" placeholder="例如: http://proxy.example.com:8080"></el-input>
       </el-form-item>
 
-      <el-form-item label="超时时间(秒)">
+      <el-form-item id="field-ai-timeout" label="超时时间(秒)">
         <el-input-number v-model="advancedConfig.timeout" :min="5" :max="300"></el-input-number>
       </el-form-item>
 
-      <el-form-item label="重试次数">
+      <el-form-item id="field-ai-retry" label="重试次数">
         <el-input-number v-model="advancedConfig.retryCount" :min="0" :max="5"></el-input-number>
       </el-form-item>
 
@@ -22,12 +22,12 @@
         <el-button type="primary" icon="el-icon-plus" @click="addHeader">添加Header</el-button>
       </el-form-item>
 
-      <el-form-item label="🧠 启用思考模式">
+      <el-form-item id="field-ai-enable-thinking" label="🧠 启用思考模式">
         <el-switch v-model="advancedConfig.enableThinking"></el-switch>
         <small class="help-text">启用后AI会先思考再回答，提供更深入的分析（仅部分模型支持，如o1系列）</small>
       </el-form-item>
 
-      <el-form-item label="调试模式">
+      <el-form-item id="field-ai-debug" label="调试模式">
         <el-switch v-model="advancedConfig.debugMode"></el-switch>
         <small class="help-text">启用后会在控制台输出详细日志</small>
       </el-form-item>

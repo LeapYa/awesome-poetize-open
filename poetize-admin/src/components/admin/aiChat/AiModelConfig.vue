@@ -1,7 +1,7 @@
 <template>
   <div class="ai-model-config">
     <el-form :model="modelConfig" label-width="120px">
-      <el-form-item label="AI服务商">
+      <el-form-item id="field-ai-provider" label="AI服务商">
         <el-select 
           v-model="modelConfig.provider" 
           placeholder="请选择AI服务商" 
@@ -15,7 +15,7 @@
         <small class="help-text">其他服务商（如通义千问、文心一言等）请使用"自定义API"选项</small>
       </el-form-item>
 
-      <el-form-item label="API密钥">
+      <el-form-item id="field-ai-api-key" label="API密钥">
         <el-input 
           v-model="modelConfig.apiKey" 
           type="password" 
@@ -33,7 +33,7 @@
         </div>
       </el-form-item>
 
-      <el-form-item label="模型名称">
+      <el-form-item id="field-ai-model-name" label="模型名称">
         <el-select 
           v-model="modelConfig.model" 
           placeholder="请输入模型名称（如：gpt-5、claude-3-5-sonnet-20241022、deepseek-chat等）" 
@@ -55,14 +55,14 @@
         </small>
       </el-form-item>
 
-      <el-form-item label="API基础URL" v-if="!['openai', 'anthropic'].includes(modelConfig.provider)">
+      <el-form-item id="field-ai-base-url" label="API基础URL" v-if="!['openai', 'anthropic'].includes(modelConfig.provider)">
         <el-input 
           v-model="modelConfig.baseUrl" 
           placeholder="例如: https://api.example.com/v1">
         </el-input>
       </el-form-item>
 
-      <el-form-item label="温度参数">
+      <el-form-item id="field-ai-temperature" label="温度参数">
         <el-slider 
           v-model="modelConfig.temperature" 
           :min="0" 
@@ -73,7 +73,7 @@
         <small class="help-text">控制回复的随机性，0表示最确定，2表示最随机</small>
       </el-form-item>
 
-      <el-form-item label="最大令牌数">
+      <el-form-item id="field-ai-max-tokens" label="最大令牌数">
         <el-input-number 
           v-model="modelConfig.maxTokens" 
           :min="100" 
@@ -116,11 +116,11 @@
         <small class="help-text">鼓励谈论新话题（0-2），默认0</small>
       </el-form-item>
 
-      <el-form-item label="启用AI聊天">
+      <el-form-item id="field-ai-enable" label="启用AI聊天">
         <el-switch v-model="modelConfig.enabled"></el-switch>
       </el-form-item>
 
-      <el-form-item label="启用流式响应">
+      <el-form-item id="field-ai-streaming" label="启用流式响应">
         <el-switch v-model="modelConfig.enableStreaming"></el-switch>
         <small class="help-text">启用后AI回复将实时显示，提供更流畅的对话体验，包括工具调用过程可视化</small>
       </el-form-item>

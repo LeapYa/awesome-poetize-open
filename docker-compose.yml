@@ -165,7 +165,9 @@ services:
       - SPRING_DATASOURCE_USERNAME=${DB_USER:-poetize}
       - SPRING_DATASOURCE_PASSWORD=${DB_PASSWORD:-poetize123}
       # 数据库驱动类名
+      - DB_TYPE=${DB_TYPE:-mariadb}
       - SPRING_DATASOURCE_DRIVER_CLASS_NAME=${DB_DRIVER_CLASS:-org.mariadb.jdbc.Driver}
+      - RAG_ENABLED=${RAG_ENABLED:-true}
       - SERVER_PORT=8081
       # AES加密密钥，需与前端一致
       - POETIZE_AES_KEY=${POETIZE_AES_KEY:-sarasarasarasara}

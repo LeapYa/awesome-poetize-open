@@ -254,6 +254,11 @@ get_enable_redis() {
     read_env_config "ENABLE_REDIS" "true"
 }
 
+# 读取是否启用 RAG 向量检索
+get_rag_enabled() {
+    read_env_config "RAG_ENABLED" "true"
+}
+
 # 读取站点 URL
 get_site_url() {
     read_env_config "SITE_URL" "http://localhost"
@@ -339,6 +344,7 @@ apply_cli_args_to_env() {
     [ -n "$DB_PWD" ] && update_env_var "DB_PASSWORD" "$DB_PWD"
     [ -n "$DB_TYPE" ] && update_env_var "DB_TYPE" "$DB_TYPE"
     [ -n "$DB_ROOT_PASSWORD" ] && update_env_var "DB_ROOT_PASSWORD" "$DB_ROOT_PASSWORD"
+    [ -n "$RAG_ENABLED" ] && update_env_var "RAG_ENABLED" "$RAG_ENABLED"
     
     # Redis 配置
     [ -n "$REDIS_HOST" ] && update_env_var "REDIS_HOST" "$REDIS_HOST"

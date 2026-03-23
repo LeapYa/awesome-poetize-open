@@ -8,6 +8,7 @@ import com.ld.poetry.service.SeoStaticService;
 import com.ld.poetry.service.SeoImageService;
 import com.ld.poetry.service.SearchEnginePushService;
 import com.ld.poetry.service.SitemapService;
+import com.ld.poetry.service.ai.rag.RagSyncService;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.utils.PrerenderClient;
 import com.ld.poetry.utils.security.FileSecurityValidator;
@@ -42,6 +43,9 @@ public class AdminSeoController {
 
     @Autowired
     private SeoConfigService seoConfigService;
+
+    @Autowired
+    private RagSyncService ragSyncService;
 
     @Autowired
     private SeoMetaService seoMetaService;

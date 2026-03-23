@@ -1,4 +1,4 @@
-FROM mariadb:11.8.2
+FROM mariadb:11.8
 
 
 # 安装 RocksDB 插件并清理

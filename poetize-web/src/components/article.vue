@@ -166,23 +166,23 @@
       :web-title="mainStore.webInfo.webTitle"
     />
 
-    <!-- Mermaid 右键菜单 -->
+    <!-- 图表和图片 右键菜单 -->
     <div
-      v-show="mermaidContextMenu.visible"
+      v-show="graphicContextMenu.visible"
       class="mermaid-context-menu"
       :style="{
-        left: mermaidContextMenu.x + 'px',
-        top: mermaidContextMenu.y + 'px',
+        left: graphicContextMenu.x + 'px',
+        top: graphicContextMenu.y + 'px',
       }"
       @click.stop
     >
-      <div class="menu-item" @click="copyMermaidImage">
+      <div class="menu-item" @click="copyGraphicImage">
         <el-icon><CopyDocument /></el-icon>
         <span>复制图片</span>
       </div>
-      <div class="menu-item" @click="downloadMermaidPNG">
+      <div class="menu-item" @click="downloadGraphicImage">
         <el-icon><Picture /></el-icon>
-        <span>下载 PNG</span>
+        <span>下载图片</span>
       </div>
     </div>
   </div>
@@ -240,11 +240,13 @@ import {
   handleThemeChange,
   applyZoomButtonTheme,
   applyMermaidThemeStyles,
+  toggleImageZoom,
   toggleMermaidZoom,
-  handleMermaidContextMenu,
-  closeMermaidContextMenu,
-  copyMermaidImage,
-  downloadMermaidPNG,
+  processImages,
+  handleGraphicContextMenu,
+  closeGraphicContextMenu,
+  copyGraphicImage,
+  downloadGraphicImage,
   inlineSvgStyles,
   convertSvgToCanvas,
 } from '@/utils/article-rendering'
@@ -367,11 +369,12 @@ export default {
       loadingArticleId: null, // 正在加载的文章ID（用于防止异步回调干扰）
       shouldLoadComments: false,
       commentObserver: null,
-      mermaidContextMenu: {
+      graphicContextMenu: {
         visible: false,
         x: 0,
         y: 0,
-        currentContainer: null,
+        currentTarget: null,
+        currentType: null,
       },
       articleThemeConfig: null, // 文章主题配置（缓存，供 TOC 使用）
       paymentLoading: false, // 付费按钮加载状态
@@ -467,7 +470,7 @@ export default {
     this.setupLanguageSwitchEventDelegation()
 
     // 添加全局点击事件，关闭右键菜单
-    document.addEventListener('click', this.closeMermaidContextMenu)
+    document.addEventListener('click', this.closeGraphicContextMenu)
 
     // 注意：不需要实现JavaScript动态检测遮挡的响应式逻辑
     // 原因：通过CSS层叠上下文（.article-head z-index: 10 和 .article-container z-index: 1）
@@ -593,7 +596,7 @@ export default {
       this.fabClickOutsideHandler = null
     }
 
-    document.removeEventListener('click', this.closeMermaidContextMenu)
+    document.removeEventListener('click', this.closeGraphicContextMenu)
     this.teardownCommentIntersectionObserver()
   },
   watch: {
@@ -767,9 +770,14 @@ export default {
       this.articleContentHtml = renderedHtml
       this.articleContentKey = Date.now()
 
+      // 关键：必须在 $nextTick 之前将 isLoading 设为 false
+      // 否则模板中 v-if="isLoading" 显示骨架屏，v-else 的 .entry-content 不在 DOM 中
+      // 后续 processImages 等方法依赖 querySelector('.entry-content img') 会找不到元素
+      this.isLoading = false
+
       await this.$nextTick()
 
-      this.$common.imgShow('.entry-content img')
+      this.processImages()
       this.normalizeTaskListCheckboxes()
       this.wrapTables()
       this.highlight()
@@ -1497,16 +1505,18 @@ export default {
     toggleMermaidZoom,
 
     // 处理 Mermaid 右键菜单
-    handleMermaidContextMenu,
+    processImages,
+    toggleImageZoom,
+    handleGraphicContextMenu,
 
-    // 关闭 Mermaid 右键菜单
-    closeMermaidContextMenu,
+    // 关闭右键菜单
+    closeGraphicContextMenu,
 
-    // 复制 Mermaid 图片
-    copyMermaidImage,
+    // 复制图片
+    copyGraphicImage,
 
-    // 下载 Mermaid PNG
-    downloadMermaidPNG,
+    // 下载图片
+    downloadGraphicImage,
 
     // 辅助方法：内联 SVG 样式
     inlineSvgStyles,

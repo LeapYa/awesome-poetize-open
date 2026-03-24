@@ -76,6 +76,8 @@ export function highlight() {
 
     try {
       const language = hljs.getLanguage(lang.toLowerCase())
+      // displayName 仅用于 data-rel 标签展示，lang 保留为 CSS-safe 标识符
+      let displayName = lang
       if (language === undefined) {
         const autoLanguage = hljs.highlightAuto(preCode.textContent)
         preCode.classList.remove('language-' + lang)
@@ -83,9 +85,11 @@ export function highlight() {
         if (lang === undefined) {
           lang = 'java'
         }
+        displayName = lang
         preCode.classList.add('language-' + lang)
       } else {
-        lang = language.name
+        // language.name 可能含空格（如 "Nginx config"），不能用于 classList
+        displayName = language.name
       }
 
       item.classList.remove('code-loading')
@@ -93,7 +97,7 @@ export function highlight() {
       Object.keys(attributes).forEach((key) => {
         item.setAttribute(key, attributes[key])
       })
-      preCode.setAttribute('data-rel', lang.toUpperCase())
+      preCode.setAttribute('data-rel', displayName.toUpperCase())
       preCode.classList.add(lang.toLowerCase())
 
       if (typeof hljs.highlightElement === 'function') {
@@ -111,6 +115,7 @@ export function highlight() {
       })
       preCode.setAttribute('data-rel', lang.toUpperCase())
       preCode.classList.add(lang.toLowerCase())
+      this.addLineNumbersWithCSS(preCode)
     }
   })
 
@@ -139,7 +144,7 @@ export function highlight() {
     ) {
       try {
         block.parentNode.insertBefore(copyButton, block.nextSibling)
-      } catch (e) {}
+      } catch (e) { }
     }
   })
 
@@ -184,7 +189,7 @@ export function wrapTables() {
           if (typeof wrapper.appendChild === 'function') {
             wrapper.appendChild(table)
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
   })
@@ -215,20 +220,14 @@ export function addLineNumbersWithCSS(codeBlock) {
     codeBlock.innerHTML = linesHTML
 
     const totalLines = lines.length
-    let lineNumberWidth = '15px'
-
-    if (totalLines >= 10000) {
-      lineNumberWidth = '40px'
-    } else if (totalLines >= 1000) {
-      lineNumberWidth = '30px'
-    } else if (totalLines >= 100) {
-      lineNumberWidth = '20px'
-    } else if (totalLines >= 10) {
-      lineNumberWidth = '15px'
-    }
-
-    codeBlock.style.setProperty('--line-number-width', lineNumberWidth)
-  } catch (e) {}
+    const charLength = totalLines.toString().length
+    // 基础字符长度宽度计算，设定 16px 作为下限（即至少按2位数的空间渲染）
+    const widthNum = Math.max(16, charLength * 8)
+    // 依据用户的调整，伪元素的总 padding(左右约 12px) 加上与代码的安全距离 6px
+    const totalPadding = widthNum + 12 + 10
+    codeBlock.style.setProperty('--line-number-width', widthNum + 'px')
+    codeBlock.style.setProperty('--code-padding-left', totalPadding + 'px')
+  } catch (e) { }
 }
 
 export function addLoadingPlaceholders() {
@@ -318,13 +317,13 @@ export function detectAndLoadResources() {
     const echartsTask = collectEChartsChartTypesFromMarkdown(content)
       .then((chartTypes) => loadEChartsResources(chartTypes))
       .then(() => {
-      if (this.loadingArticleId !== articleId) {
-        return
-      }
-      this.$nextTick(() => {
-        this.renderECharts()
+        if (this.loadingArticleId !== articleId) {
+          return
+        }
+        this.$nextTick(() => {
+          this.renderECharts()
+        })
       })
-    })
     loadTasks.push(echartsTask)
   }
 
@@ -466,7 +465,7 @@ export async function renderMermaid() {
       `
 
       container.addEventListener('contextmenu', (event) => {
-        this.handleMermaidContextMenu(event, container)
+        this.handleGraphicContextMenu(event, container, 'mermaid')
       })
 
       zoomButton.addEventListener('click', (event) => {
@@ -1015,7 +1014,7 @@ export function toggleMermaidZoom(container) {
   }
 
   content.addEventListener('contextmenu', (event) => {
-    this.handleMermaidContextMenu(event, content)
+    this.handleGraphicContextMenu(event, content, 'mermaid')
   })
 
   const closeBtn = document.createElement('button')
@@ -1058,73 +1057,244 @@ export function toggleMermaidZoom(container) {
   closeBtn.addEventListener('click', closeOverlay)
 }
 
-export function handleMermaidContextMenu(event, container) {
+export function handleGraphicContextMenu(event, target, type) {
   event.preventDefault()
-  this.mermaidContextMenu.visible = true
-  this.mermaidContextMenu.x = event.pageX
-  this.mermaidContextMenu.y = event.pageY
-  this.mermaidContextMenu.currentContainer = container
+  this.graphicContextMenu.visible = true
+  this.graphicContextMenu.x = event.pageX
+  this.graphicContextMenu.y = event.pageY
+  this.graphicContextMenu.currentTarget = target
+  this.graphicContextMenu.currentType = type
 }
 
-export function closeMermaidContextMenu() {
-  this.mermaidContextMenu.visible = false
-  this.mermaidContextMenu.currentContainer = null
+export function closeGraphicContextMenu() {
+  this.graphicContextMenu.visible = false
+  this.graphicContextMenu.currentTarget = null
+  this.graphicContextMenu.currentType = null
 }
 
-export async function copyMermaidImage() {
-  const { currentContainer } = this.mermaidContextMenu
-  if (!currentContainer) return
+export async function copyGraphicImage() {
+  const { currentTarget, currentType } = this.graphicContextMenu
+  if (!currentTarget) return
 
   try {
-    const svg = currentContainer.querySelector('svg')
-    if (!svg) throw new Error('SVG not found')
-
-    const canvas = await this.convertSvgToCanvas(svg)
-
-    canvas.toBlob(async (blob) => {
+    if (currentType === 'mermaid') {
+      const svg = currentTarget.querySelector('svg')
+      if (!svg) throw new Error('SVG not found')
+      const canvas = await this.convertSvgToCanvas(svg)
+      canvas.toBlob(async (blob) => {
+        try {
+          const item = new window.ClipboardItem({ 'image/png': blob })
+          await navigator.clipboard.write([item])
+          this.$message.success('图片已复制到剪贴板！')
+        } catch (err) {
+          console.error('Copy failed:', err)
+          this.$message.error('复制失败，请尝试下载 PNG (浏览器可能不支持直接复制图片)')
+        }
+      })
+    } else if (currentType === 'image') {
+      const isBase64 = currentTarget.src.startsWith('data:')
+      const response = await fetch(currentTarget.src)
+      const blob = await response.blob()
       try {
-        const item = new ClipboardItem({ 'image/png': blob })
+        const item = new window.ClipboardItem({ [blob.type]: blob })
         await navigator.clipboard.write([item])
         this.$message.success('图片已复制到剪贴板！')
       } catch (err) {
         console.error('Copy failed:', err)
-        this.$message.error(
-          '复制失败，请尝试下载 PNG (浏览器可能不支持直接复制图片)'
-        )
+        this.$message.error('由于跨域或格式限制复制失败，请尝试直接下载')
       }
-    })
+    }
   } catch (error) {
     console.error('Copy processing failed:', error)
     this.$message.error('图片处理失败')
   }
 
-  this.closeMermaidContextMenu()
+  this.closeGraphicContextMenu()
 }
 
-export async function downloadMermaidPNG() {
-  const { currentContainer } = this.mermaidContextMenu
-  if (!currentContainer) return
+export async function downloadGraphicImage() {
+  const { currentTarget, currentType } = this.graphicContextMenu
+  if (!currentTarget) return
 
   try {
-    const svg = currentContainer.querySelector('svg')
-    if (!svg) throw new Error('SVG not found')
-
-    const canvas = await this.convertSvgToCanvas(svg)
-    const imgUrl = canvas.toDataURL('image/png')
-    const downloadLink = document.createElement('a')
-    downloadLink.href = imgUrl
-    downloadLink.download = `mermaid-diagram-${Date.now()}.png`
-    document.body.appendChild(downloadLink)
-    downloadLink.click()
-    document.body.removeChild(downloadLink)
-
-    this.$message.success('PNG 下载已开始')
+    if (currentType === 'mermaid') {
+      const svg = currentTarget.querySelector('svg')
+      if (!svg) throw new Error('SVG not found')
+      const canvas = await this.convertSvgToCanvas(svg)
+      const imgUrl = canvas.toDataURL('image/png')
+      const downloadLink = document.createElement('a')
+      downloadLink.href = imgUrl
+      downloadLink.download = `mermaid-diagram-${Date.now()}.png`
+      document.body.appendChild(downloadLink)
+      downloadLink.click()
+      document.body.removeChild(downloadLink)
+      this.$message.success('PNG 下载已开始')
+    } else if (currentType === 'image') {
+      const urlPart = currentTarget.src.split('?')[0]
+      const filename = urlPart.split('/').pop() || `image-${Date.now()}.png`
+      fetch(currentTarget.src)
+        .then(response => response.blob())
+        .then(blob => {
+          const blobUrl = URL.createObjectURL(blob)
+          const downloadLink = document.createElement('a')
+          downloadLink.href = blobUrl
+          downloadLink.download = filename
+          document.body.appendChild(downloadLink)
+          downloadLink.click()
+          document.body.removeChild(downloadLink)
+          URL.revokeObjectURL(blobUrl)
+          this.$message.success('下载已开始')
+        })
+        .catch(() => {
+          window.open(currentTarget.src, '_blank')
+        })
+    }
   } catch (error) {
-    console.error('PNG download failed:', error)
-    this.$message.error('PNG 下载失败')
+    console.error('Download failed:', error)
+    this.$message.error('下载失败')
   }
 
-  this.closeMermaidContextMenu()
+  this.closeGraphicContextMenu()
+}
+
+export function processImages() {
+  const entryContent = document.querySelector('.entry-content')
+  if (!entryContent) return
+
+  const images = entryContent.querySelectorAll('img:not(.pictureReg):not(.emoji)')
+
+  images.forEach(img => {
+    if (img.hasAttribute('data-image-processed')) return
+    img.setAttribute('data-image-processed', 'true')
+
+    img.style.cursor = 'zoom-in'
+
+    img.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.toggleImageZoom(img.src)
+    })
+
+    img.addEventListener('contextmenu', (event) => {
+      this.handleGraphicContextMenu(event, img, 'image')
+    })
+  })
+}
+
+export function toggleImageZoom(src) {
+  let overlay = document.getElementById('image-zoom-overlay')
+
+  if (overlay) {
+    overlay.style.transition = 'opacity 0.3s ease'
+    overlay.style.opacity = '0'
+    setTimeout(() => {
+      if (overlay && overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay)
+      }
+    }, 300)
+    document.body.style.overflow = ''
+    return
+  }
+
+  overlay = document.createElement('div')
+  overlay.id = 'image-zoom-overlay'
+  Object.assign(overlay.style, {
+    position: 'fixed',
+    top: '0',
+    left: '0',
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    zIndex: '9999',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'opacity 0.3s ease'
+  })
+
+  const content = document.createElement('div')
+  Object.assign(content.style, {
+    position: 'relative',
+    maxWidth: '90%',
+    maxHeight: '90%'
+  })
+
+  const img = document.createElement('img')
+  img.src = src
+  Object.assign(img.style, {
+    maxWidth: '100%',
+    maxHeight: '90vh',
+    objectFit: 'contain',
+    display: 'block',
+    margin: '0 auto',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+    borderRadius: '4px'
+  })
+
+  content.appendChild(img)
+
+  const closeBtn = document.createElement('button')
+  Object.assign(closeBtn.style, {
+    position: 'absolute',
+    top: '-40px',
+    right: '-40px',
+    background: 'rgba(255,255,255,0.2)',
+    border: 'none',
+    borderRadius: '50%',
+    width: '40px',
+    height: '40px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'white',
+    transition: 'background 0.3s',
+    zIndex: '10000'
+  })
+  closeBtn.onmouseover = () => closeBtn.style.background = 'rgba(255,255,255,0.4)'
+  closeBtn.onmouseout = () => closeBtn.style.background = 'rgba(255,255,255,0.2)'
+  closeBtn.innerHTML = `
+    <svg viewBox="0 0 1024 1024" width="20" height="20">
+      <path d="M557.312 513.248l265.28-263.904c12.544-12.48 12.608-32.704 0.128-45.248-12.512-12.576-32.704-12.608-45.248-0.128L512.128 467.904 246.72 204.096c-12.48-12.544-32.704-12.608-45.248-0.128-12.576 12.512-12.608 32.704-0.128 45.248l265.344 263.84-265.28 263.872c-12.544 12.48-12.608 32.704-0.128 45.248 6.24 6.272 14.464 9.44 22.688 9.44 8.16 0 16.32-3.104 22.56-9.312l265.344-263.872 265.376 263.904c6.272 6.272 14.464 9.408 22.688 9.408 8.16 0 16.32-3.104 22.56-9.312 12.544-12.48 12.608-32.704 0.128-45.248L557.312 513.248z" fill="currentColor"></path>
+    </svg>
+  `
+
+  if (window.innerWidth < 768) {
+    closeBtn.style.top = '10px'
+    closeBtn.style.right = '10px'
+  }
+
+  content.appendChild(closeBtn)
+  overlay.appendChild(content)
+  document.body.appendChild(overlay)
+
+  overlay.style.opacity = '0'
+  setTimeout(() => {
+    overlay.style.opacity = '1'
+  }, 10)
+
+  document.body.style.overflow = 'hidden'
+
+  const closeOverlay = () => {
+    overlay.style.opacity = '0'
+    setTimeout(() => {
+      if (overlay && overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay)
+      }
+    }, 300)
+    document.body.style.overflow = ''
+  }
+
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) {
+      closeOverlay()
+    }
+  })
+
+  img.addEventListener('contextmenu', (event) => {
+    this.handleGraphicContextMenu(event, img, 'image')
+  })
+
+  closeBtn.addEventListener('click', closeOverlay)
 }
 
 export function inlineSvgStyles(source, target) {
@@ -1248,7 +1418,7 @@ export function convertSvgToCanvas(svgElement) {
     if (width === 0 || height === 0) {
       const viewBoxVal = clonedSvg.getAttribute('viewBox')
       if (viewBoxVal) {
-        const parts = viewBoxVal.split(/\s+|,/) 
+        const parts = viewBoxVal.split(/\s+|,/)
         if (parts.length === 4) {
           width = parseFloat(parts[2])
           height = parseFloat(parts[3])

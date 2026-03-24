@@ -403,7 +403,7 @@
       :title="dialogTitle"
       v-model="showDialog"
       width="30%"
-      :before-close="clearDialog"
+      :before-close="closeDialog"
       :append-to-body="true"
       class="centered-dialog"
       :close-on-click-modal="false"
@@ -787,6 +787,10 @@ export default {
         .classList.add('right-panel-active')
     },
     signIn() {
+      if (this.$common.isEmpty(this.account) && !this.$common.isEmpty(this.username)) {
+        this.account = this.username.trim()
+      }
+
       document
         .querySelector('#loginAndRegist')
         .classList.remove('right-panel-active')
@@ -1506,14 +1510,10 @@ export default {
           return
         }
 
-        // 确定操作类型
-        let action = 'reset_password'
-        if (
-          this.dialogTitle !== '找回密码' &&
-          this.dialogTitle !== '邮箱验证码'
-        ) {
-          action = 'register' // 或其他适当的操作类型
-        }
+        // 用业务类型而不是标题文案决定验证码动作，避免“邮箱验证码”串到找回密码流程
+        const verificationPurpose = this.getVerificationPurpose()
+        const action =
+          verificationPurpose === 'forgetPassword' ? 'reset_password' : 'register'
 
         // 检查是否需要验证码
         checkCaptchaWithCache(action).then((required) => {
@@ -1529,6 +1529,7 @@ export default {
             this.captchaAction = action
             this.verifyParams = {
               ...params,
+              verificationPurpose,
               dialogTitle: currentDialogTitle,
             }
 
@@ -1540,6 +1541,7 @@ export default {
             // 不需要验证码，直接发送验证码
             this.sendVerificationCode({
               ...params,
+              verificationPurpose,
               dialogTitle: this.dialogTitle,
             })
           }
@@ -1557,20 +1559,21 @@ export default {
     sendVerificationCode(params) {
       // 提取出保存的对话框标题
       const savedDialogTitle = params.dialogTitle
+      const verificationPurpose = params.verificationPurpose
 
-      // 从params中移除我们添加的dialogTitle属性，避免发送到后端API
+      // 从params中移除前端内部辅助字段，避免发送到后端API
       delete params.dialogTitle
+      delete params.verificationPurpose
 
       // 如果有验证令牌，添加到参数中
       if (params.verificationToken) {
       }
 
       let url
-      if (
-        savedDialogTitle === '找回密码' ||
-        savedDialogTitle === '邮箱验证码'
-      ) {
+      if (verificationPurpose === 'forgetPassword') {
         url = '/user/getCodeForForgetPassword'
+      } else if (verificationPurpose === 'register') {
+        url = '/user/getCodeForRegister'
       } else if (savedDialogTitle === '修改密码') {
         url = '/user/getCode' // 和后台复用一致机制的发送
       } else {
@@ -1615,6 +1618,35 @@ export default {
           this.codeString = parseInt(this.codeString) - 1 + ''
         }
       }, 1000)
+    },
+    getVerificationPurpose() {
+      if (this.dialogTitle === '找回密码') {
+        return 'forgetPassword'
+      }
+
+      if (this.dialogTitle === '邮箱验证码') {
+        return this.passwordFlag === 2 ? 'forgetPassword' : 'register'
+      }
+
+      if (this.dialogTitle === '修改密码') {
+        return 'changePassword'
+      }
+
+      return 'bindOrUpdate'
+    },
+    closeDialog(done) {
+      this.showDialog = false
+      this.code = ''
+      this.dialogTitle = ''
+      this.passwordFlag = null
+      this.avatar = ''
+      this.oldPassword = ''
+      this.newPassword = ''
+      this.confirmPassword = ''
+
+      if (typeof done === 'function') {
+        done()
+      }
     },
     clearDialog() {
       this.password = ''
@@ -1995,6 +2027,10 @@ export default {
   width: 50%;
   transition: transform 0.5s ease-in-out, left 0.5s ease-in-out;
   will-change: transform, left;
+}
+.overlay-panel p,
+.overlay-panel h1 {
+  color: var(--white);
 }
 .overlay-right {
   right: 0;

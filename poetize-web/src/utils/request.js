@@ -57,6 +57,7 @@ const FINGERPRINT_URL_PATTERNS = [
   '/user/regist',
   '/user/login',
   '/user/thirdLogin',
+  '/user/getCodeForRegister',
   '/user/getCodeForBind',
   '/user/getCodeForForgetPassword',
   '/user/updateForForgetPassword',

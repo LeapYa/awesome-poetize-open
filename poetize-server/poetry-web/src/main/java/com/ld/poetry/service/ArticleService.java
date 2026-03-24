@@ -104,6 +104,13 @@ public interface ArticleService extends IService<Article> {
     SseEmitter streamArticleSaveStatus(String taskId);
 
     /**
+     * 批量流式订阅文章保存任务状态
+     * @param taskIds 任务ID列表
+     * @return SSE 发射器
+     */
+    SseEmitter streamArticleSaveStatusBatch(List<String> taskIds);
+
+    /**
      * 获取翻译匹配的内容
      * @param id 文章ID
      * @param searchKey 搜索关键词

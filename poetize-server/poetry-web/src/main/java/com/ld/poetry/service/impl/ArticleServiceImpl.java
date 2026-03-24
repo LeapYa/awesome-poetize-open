@@ -49,6 +49,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.StructuredTaskScope.Subtask;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import com.ld.poetry.service.SeoService;
 import com.ld.poetry.event.ArticleSavedEvent;
@@ -316,13 +317,11 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                         articleReadyMessage,
                         translationOutcome.translationStatus());
                 updateSaveStatus(taskId, "processing", summaryMessage, savedArticleId);
-                updateTranslationStage(taskId, "generating_summary", translationOutcome.translationStatus(),
+                updateTaskStage(taskId, "generating_summary", translationOutcome.translationStatus(), "pending",
                         summaryMessage, null, false);
-                try {
-                    summaryService.generateAndSaveSummary(savedArticleId);
-                } catch (Exception e) {
-                    log.error("摘要生成失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
-                }
+                SummaryService.SummaryTaskResult summaryOutcome = summaryService.generateAndSaveSummary(
+                        savedArticleId, buildSummaryProgressListener(taskId));
+                applySummaryOutcome(taskId, summaryOutcome);
 
                 // 清除缓存
                 try {
@@ -362,17 +361,19 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 }
 
                 // 最终状态（SEO推送将在预渲染完成后自动执行）
-                String finalTaskStatus = translationOutcome.failed() ? "partial_success" : "success";
+                String finalTaskStatus = translationOutcome.failed() || isSummaryTaskFailed(taskId) ? "partial_success" : "success";
                 String finalMessage = buildFinalAsyncMessage("保存", finalTaskStatus,
-                        translationOutcome.translationStatus());
+                        translationOutcome.translationStatus(), getSummaryStatus(taskId));
                 updateSaveStatus(taskId, finalTaskStatus, finalMessage, savedArticleId);
-                updateTranslationStage(taskId, "complete", translationOutcome.translationStatus(), finalMessage, null,
+                updateTaskStage(taskId, "complete", translationOutcome.translationStatus(), getSummaryStatus(taskId), finalMessage, null,
                         false);
                 emitTaskEvent(taskId, "complete", buildFinalTaskPayload(
                         finalTaskStatus,
                         savedArticleId,
                         finalMessage,
-                        translationOutcome.translationStatus()));
+                        translationOutcome.translationStatus(),
+                        getSummaryStatus(taskId),
+                        getSummaryMessage(taskId)));
                 log.info("异步文章保存流程全部完成，任务ID: {}, 文章ID: {}", taskId, savedArticleId);
 
             } catch (Exception e) {
@@ -428,11 +429,21 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             return emitter;
         }
 
+        AtomicBoolean active = new AtomicBoolean(true);
         ARTICLE_SAVE_EMITTERS.computeIfAbsent(taskId, key -> new CopyOnWriteArrayList<>()).add(emitter);
 
-        emitter.onCompletion(() -> removeEmitter(taskId, emitter));
-        emitter.onTimeout(() -> removeEmitter(taskId, emitter));
-        emitter.onError(error -> removeEmitter(taskId, emitter));
+        emitter.onCompletion(() -> {
+            active.set(false);
+            removeEmitter(taskId, emitter);
+        });
+        emitter.onTimeout(() -> {
+            active.set(false);
+            removeEmitter(taskId, emitter);
+        });
+        emitter.onError(error -> {
+            active.set(false);
+            removeEmitter(taskId, emitter);
+        });
 
         try {
             emitter.send(SseEmitter.event()
@@ -444,9 +455,112 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 emitter.completeWithError(e);
             } catch (Exception ignored) {
             }
+            return emitter;
         }
 
+        startEmitterHeartbeat(emitter, active, "heartbeat");
         return emitter;
+    }
+
+    @Override
+    public SseEmitter streamArticleSaveStatusBatch(List<String> taskIds) {
+        SseEmitter emitter = new SseEmitter(10 * 60 * 1000L);
+        List<String> validTaskIds = taskIds == null ? List.of()
+                : taskIds.stream().filter(StringUtils::hasText).distinct().toList();
+        if (validTaskIds.isEmpty()) {
+            try {
+                emitter.send(SseEmitter.event()
+                        .name("task_error")
+                        .data(Map.of("message", "未提供有效任务ID")));
+            } catch (Exception ignored) {
+            }
+            emitter.complete();
+            return emitter;
+        }
+
+        AtomicBoolean active = new AtomicBoolean(true);
+        validTaskIds.forEach(taskId -> ARTICLE_SAVE_EMITTERS
+                .computeIfAbsent(taskId, key -> new CopyOnWriteArrayList<>())
+                .add(emitter));
+
+        emitter.onCompletion(() -> {
+            active.set(false);
+            removeBatchEmitter(validTaskIds, emitter);
+        });
+        emitter.onTimeout(() -> {
+            active.set(false);
+            removeBatchEmitter(validTaskIds, emitter);
+        });
+        emitter.onError(error -> {
+            active.set(false);
+            removeBatchEmitter(validTaskIds, emitter);
+        });
+
+        try {
+            for (String taskId : validTaskIds) {
+                ArticleSaveStatus status = ARTICLE_SAVE_STATUS.get(taskId);
+                if (status == null) {
+                    emitter.send(SseEmitter.event()
+                            .name("task_error")
+                            .data(Map.of(
+                                    "taskId", taskId,
+                                    "status", "failed",
+                                    "message", "任务不存在或已过期")));
+                } else {
+                    emitter.send(SseEmitter.event()
+                            .name("task_stage")
+                            .data(buildStagePayload(status)));
+                }
+            }
+        } catch (Exception e) {
+            active.set(false);
+            removeBatchEmitter(validTaskIds, emitter);
+            try {
+                emitter.completeWithError(e);
+            } catch (Exception ignored) {
+            }
+            return emitter;
+        }
+
+        startEmitterHeartbeat(emitter, active, "batch_heartbeat", () -> removeBatchEmitter(validTaskIds, emitter));
+
+        return emitter;
+    }
+
+    private void startEmitterHeartbeat(SseEmitter emitter, AtomicBoolean active, String eventName) {
+        startEmitterHeartbeat(emitter, active, eventName, null);
+    }
+
+    private void startEmitterHeartbeat(SseEmitter emitter, AtomicBoolean active, String eventName,
+            Runnable cleanupAction) {
+        Thread.ofVirtual().name("article-save-" + eventName).start(() -> {
+            while (active.get()) {
+                try {
+                    Thread.sleep(10000);
+                    if (!active.get()) {
+                        break;
+                    }
+                    emitter.send(SseEmitter.event()
+                            .name(eventName)
+                            .data(Map.of(
+                                    "message", eventName,
+                                    "timestamp", System.currentTimeMillis())));
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Exception e) {
+                    active.set(false);
+                    if (cleanupAction != null) {
+                        cleanupAction.run();
+                    }
+                    try {
+                        emitter.completeWithError(e);
+                    } catch (Exception ignored) {
+                    }
+                    break;
+                }
+            }
+        });
     }
 
     // 文章保存状态缓存（内存级别，重启后清空）
@@ -482,9 +596,17 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     private void updateTranslationStage(String taskId, String stage, String translationStatus,
             String message, Integer attempt, boolean streaming) {
+        updateTaskStage(taskId, stage, translationStatus, null, message, attempt, streaming);
+    }
+
+    private void updateTaskStage(String taskId, String stage, String translationStatus, String summaryStatus,
+            String message, Integer attempt, boolean streaming) {
         mutateSaveStatus(taskId, saveStatus -> {
             saveStatus.setStage(stage);
             saveStatus.setTranslationStatus(translationStatus);
+            if (summaryStatus != null) {
+                saveStatus.setSummaryStatus(summaryStatus);
+            }
             saveStatus.setMessage(message);
             saveStatus.setTranslationAttempt(attempt);
             saveStatus.setStreaming(streaming);
@@ -503,6 +625,100 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         });
     }
 
+    private void appendSummaryPreview(String taskId, String delta, Integer currentLength, String preview) {
+        mutateSaveStatus(taskId, saveStatus -> {
+            saveStatus.setSummaryStatus("streaming");
+            saveStatus.setSummaryReceivedChars(currentLength);
+            saveStatus.setSummaryPreview(StringUtils.hasText(preview)
+                    ? preview
+                    : appendWithLimit(saveStatus.getSummaryPreview(), delta));
+            saveStatus.setSummaryMessage("正在流式生成AI摘要... 已接收 " + currentLength + " 字");
+            saveStatus.setMessage(saveStatus.getSummaryMessage());
+            saveStatus.setStreaming(true);
+        });
+    }
+
+    private void applySummaryOutcome(String taskId, SummaryService.SummaryTaskResult summaryOutcome) {
+        String resolvedStatus = summaryOutcome == null ? "failed" : summaryOutcome.status();
+        String resolvedMessage = summaryOutcome == null ? "AI摘要生成失败" : summaryOutcome.message();
+        mutateSaveStatus(taskId, saveStatus -> {
+            saveStatus.setSummaryStatus(resolvedStatus);
+            saveStatus.setSummaryMessage(resolvedMessage);
+            saveStatus.setStreaming(false);
+        });
+    }
+
+    private SummaryService.SummaryProgressListener buildSummaryProgressListener(String taskId) {
+        return (eventName, payload) -> {
+            if (eventName == null) {
+                return;
+            }
+
+            Map<String, Object> safePayload = payload == null ? Collections.emptyMap() : payload;
+            switch (eventName) {
+                case "start" -> {
+                    mutateSaveStatus(taskId, saveStatus -> {
+                        saveStatus.setSummaryStatus("streaming");
+                        saveStatus.setSummaryMessage(readString(safePayload.get("message"), "开始流式生成AI摘要..."));
+                        saveStatus.setMessage(saveStatus.getSummaryMessage());
+                        saveStatus.setStreaming(true);
+                    });
+                    emitTaskEvent(taskId, "summary_start", enrichTaskPayload(taskId, safePayload));
+                }
+                case "summary_delta" -> {
+                    Integer currentLength = readInteger(safePayload.get("currentLength"), 0);
+                    String delta = readString(safePayload.get("delta"), "");
+                    String preview = readString(safePayload.get("preview"), "");
+                    appendSummaryPreview(taskId, delta, currentLength, preview);
+                    emitTaskEvent(taskId, "summary_delta", enrichTaskPayload(taskId, safePayload));
+                }
+                case "complete" -> {
+                    mutateSaveStatus(taskId, saveStatus -> {
+                        saveStatus.setSummaryStatus("success");
+                        saveStatus.setSummaryMessage(readString(safePayload.get("message"), "AI摘要已生成"));
+                        saveStatus.setStreaming(false);
+                    });
+                    emitTaskEvent(taskId, "summary_complete", enrichTaskPayload(taskId, safePayload));
+                }
+                case "error" -> {
+                    mutateSaveStatus(taskId, saveStatus -> {
+                        saveStatus.setSummaryStatus("failed");
+                        saveStatus.setSummaryMessage(readString(safePayload.get("message"), "AI摘要生成失败"));
+                        saveStatus.setMessage(saveStatus.getSummaryMessage());
+                        saveStatus.setStreaming(false);
+                    });
+                    emitTaskEvent(taskId, "summary_error", enrichTaskPayload(taskId, safePayload));
+                }
+                default -> {
+                }
+            }
+        };
+    }
+
+    private String getSummaryStatus(String taskId) {
+        ArticleSaveStatus saveStatus = ARTICLE_SAVE_STATUS.get(taskId);
+        return saveStatus != null ? saveStatus.getSummaryStatus() : "pending";
+    }
+
+    private String getSummaryMessage(String taskId) {
+        ArticleSaveStatus saveStatus = ARTICLE_SAVE_STATUS.get(taskId);
+        return saveStatus != null ? saveStatus.getSummaryMessage() : "";
+    }
+
+    private boolean isSummaryTaskFailed(String taskId) {
+        String summaryStatus = getSummaryStatus(taskId);
+        return "timeout".equals(summaryStatus) || "failed".equals(summaryStatus);
+    }
+
+    private Map<String, Object> enrichTaskPayload(String taskId, Map<String, Object> payload) {
+        Map<String, Object> enrichedPayload = new HashMap<>();
+        if (payload != null) {
+            enrichedPayload.putAll(payload);
+        }
+        enrichedPayload.put("taskId", taskId);
+        return enrichedPayload;
+    }
+
     private String appendWithLimit(String original, String delta) {
         String safeOriginal = original == null ? "" : original;
         String safeDelta = delta == null ? "" : delta;
@@ -516,13 +732,19 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             return;
         }
 
+        Map<String, Object> emittedPayload = new HashMap<>();
+        if (payload != null) {
+            emittedPayload.putAll(payload);
+        }
+        emittedPayload.put("taskId", taskId);
+
         for (SseEmitter emitter : emitters) {
             try {
                 SseEmitter.SseEventBuilder builder = SseEmitter.event();
                 if (eventName != null) {
                     builder.name(eventName);
                 }
-                builder.data(payload);
+                builder.data(emittedPayload);
                 emitter.send(builder);
             } catch (Exception e) {
                 removeEmitter(taskId, emitter);
@@ -541,6 +763,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         }
     }
 
+    private void removeBatchEmitter(List<String> taskIds, SseEmitter emitter) {
+        if (taskIds == null) {
+            return;
+        }
+        for (String taskId : taskIds) {
+            removeEmitter(taskId, emitter);
+        }
+    }
+
     private Map<String, Object> buildStagePayload(ArticleSaveStatus status) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("taskId", status.getTaskId());
@@ -553,6 +784,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         payload.put("streaming", status.getStreaming());
         payload.put("translatedTitlePreview", status.getTranslatedTitlePreview());
         payload.put("translatedContentPreview", status.getTranslatedContentPreview());
+        payload.put("summaryStatus", status.getSummaryStatus());
+        payload.put("summaryMessage", status.getSummaryMessage());
+        payload.put("summaryReceivedChars", status.getSummaryReceivedChars());
+        payload.put("summaryPreview", status.getSummaryPreview());
         payload.put("lastUpdateTime", status.getLastUpdateTime());
         return payload;
     }
@@ -660,8 +895,17 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         };
     }
 
-    private String buildFinalAsyncMessage(String actionText, String finalStatus, String translationStatus) {
+    private String buildFinalAsyncMessage(String actionText, String finalStatus, String translationStatus,
+            String summaryStatus) {
         if ("partial_success".equals(finalStatus)) {
+            boolean translationFailed = "failed".equals(translationStatus);
+            boolean summaryFailed = "timeout".equals(summaryStatus) || "failed".equals(summaryStatus);
+            if (translationFailed && summaryFailed) {
+                return "文章" + actionText + "成功，但翻译失败，AI摘要未完成";
+            }
+            if (summaryFailed) {
+                return "文章" + actionText + "成功，但AI摘要生成超时或失败";
+            }
             return "文章" + actionText + "成功，AI摘要已生成，但翻译失败";
         }
 
@@ -674,13 +918,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     }
 
     private Map<String, Object> buildFinalTaskPayload(String finalStatus, Integer articleId, String message,
-            String translationStatus) {
+            String translationStatus, String summaryStatus, String summaryMessage) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("status", finalStatus);
         payload.put("stage", "complete");
         payload.put("articleId", articleId);
         payload.put("message", message);
         payload.put("translationStatus", translationStatus);
+        payload.put("summaryStatus", summaryStatus);
+        payload.put("summaryMessage", summaryMessage);
         return payload;
     }
 
@@ -786,6 +1032,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         private String message;
         private Integer articleId;
         private String translationStatus;
+        private String summaryStatus;
+        private String summaryMessage;
+        private Integer summaryReceivedChars;
+        private String summaryPreview;
         private Integer translationAttempt;
         private Boolean streaming;
         private String translatedTitlePreview;
@@ -799,6 +1049,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             this.articleId = articleId;
             this.stage = "queued";
             this.translationStatus = "pending";
+            this.summaryStatus = "pending";
+            this.summaryMessage = "";
+            this.summaryReceivedChars = 0;
+            this.summaryPreview = "";
             this.translationAttempt = 0;
             this.streaming = false;
             this.translatedTitlePreview = "";
@@ -861,6 +1115,38 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
         public void setTranslationAttempt(Integer translationAttempt) {
             this.translationAttempt = translationAttempt;
+        }
+
+        public String getSummaryStatus() {
+            return summaryStatus;
+        }
+
+        public void setSummaryStatus(String summaryStatus) {
+            this.summaryStatus = summaryStatus;
+        }
+
+        public String getSummaryMessage() {
+            return summaryMessage;
+        }
+
+        public void setSummaryMessage(String summaryMessage) {
+            this.summaryMessage = summaryMessage;
+        }
+
+        public Integer getSummaryReceivedChars() {
+            return summaryReceivedChars;
+        }
+
+        public void setSummaryReceivedChars(Integer summaryReceivedChars) {
+            this.summaryReceivedChars = summaryReceivedChars;
+        }
+
+        public String getSummaryPreview() {
+            return summaryPreview;
+        }
+
+        public void setSummaryPreview(String summaryPreview) {
+            this.summaryPreview = summaryPreview;
         }
 
         public Boolean getStreaming() {
@@ -2105,13 +2391,11 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                             articleReadyMessage,
                             translationOutcome.translationStatus());
                     updateSaveStatus(taskId, "processing", summaryMessage, articleVO.getId());
-                    updateTranslationStage(taskId, "generating_summary", translationOutcome.translationStatus(),
+                    updateTaskStage(taskId, "generating_summary", translationOutcome.translationStatus(), "pending",
                             summaryMessage, null, false);
-                    try {
-                        summaryService.updateSummary(articleVO.getId(), articleVO.getArticleContent());
-                    } catch (Exception e) {
-                        log.error("摘要更新失败，任务ID: {}, 错误: {}", taskId, e.getMessage(), e);
-                    }
+                    SummaryService.SummaryTaskResult summaryOutcome = summaryService.updateSummary(
+                            articleVO.getId(), articleVO.getArticleContent(), buildSummaryProgressListener(taskId));
+                    applySummaryOutcome(taskId, summaryOutcome);
                 }
 
                 // 清除缓存
@@ -2131,17 +2415,19 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 }
 
                 // 最终状态（SEO推送将在预渲染完成后自动执行）
-                String finalTaskStatus = translationOutcome.failed() ? "partial_success" : "success";
+                String finalTaskStatus = translationOutcome.failed() || isSummaryTaskFailed(taskId) ? "partial_success" : "success";
                 String finalMessage = buildFinalAsyncMessage("更新", finalTaskStatus,
-                        translationOutcome.translationStatus());
+                        translationOutcome.translationStatus(), getSummaryStatus(taskId));
                 updateSaveStatus(taskId, finalTaskStatus, finalMessage, articleVO.getId());
-                updateTranslationStage(taskId, "complete", translationOutcome.translationStatus(), finalMessage, null,
+                updateTaskStage(taskId, "complete", translationOutcome.translationStatus(), getSummaryStatus(taskId), finalMessage, null,
                         false);
                 emitTaskEvent(taskId, "complete", buildFinalTaskPayload(
                         finalTaskStatus,
                         articleVO.getId(),
                         finalMessage,
-                        translationOutcome.translationStatus()));
+                        translationOutcome.translationStatus(),
+                        getSummaryStatus(taskId),
+                        getSummaryMessage(taskId)));
                 log.info("异步文章更新流程全部完成，任务ID: {}, 文章ID: {}", taskId, articleVO.getId());
 
             } catch (Exception e) {

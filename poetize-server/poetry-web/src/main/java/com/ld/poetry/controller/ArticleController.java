@@ -327,6 +327,40 @@ public class ArticleController {
         return articleService.streamArticleSaveStatus(taskId);
     }
 
+    @LoginCheck(value = 1, silentLog = true)
+    @GetMapping(value = "/streamArticleSaveStatusBatch", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamArticleSaveStatusBatch(@RequestParam("taskIds") String taskIds) {
+        if (!StringUtils.hasText(taskIds)) {
+            SseEmitter emitter = new SseEmitter(5000L);
+            try {
+                emitter.send(SseEmitter.event()
+                        .name("task_error")
+                        .data(Map.of("message", "任务ID不能为空")));
+            } catch (Exception ignored) {
+            }
+            emitter.complete();
+            return emitter;
+        }
+
+        java.util.List<String> taskIdList = java.util.Arrays.stream(taskIds.split(","))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .toList();
+        if (taskIdList.isEmpty()) {
+            SseEmitter emitter = new SseEmitter(5000L);
+            try {
+                emitter.send(SseEmitter.event()
+                        .name("task_error")
+                        .data(Map.of("message", "未提供有效任务ID")));
+            } catch (Exception ignored) {
+            }
+            emitter.complete();
+            return emitter;
+        }
+
+        return articleService.streamArticleSaveStatusBatch(taskIdList);
+    }
+
     /**
      * 删除文章
      */

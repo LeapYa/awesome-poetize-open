@@ -333,17 +333,65 @@
             {{ importFinished ? '导入完成' : '正在并发导入（虚拟线程加速）...' }}
           </p>
           <p v-if="!importFinished" style="font-size: 12px; color: #909399; margin-top: 4px;">
-            所有文章已并发提交至后端，正在等待摘要生成完成
+            {{ importStreamConnecting ? '正在建立批量任务流连接...' : '所有文章已并发提交至后端，正在等待翻译与摘要实时进度...' }}
+          </p>
+          <p v-if="!importFinished && importStreamError" style="font-size: 12px; color: #E6A23C; margin-top: 4px;">
+            {{ importStreamError }}
           </p>
         </div>
         <el-progress :percentage="importProgressPercent" :status="importProgressStatus"
                      :stroke-width="18" text-inside style="margin-bottom: 15px;"></el-progress>
         <p style="text-align: center; color: #606266; font-size: 14px;">
           {{ importProgress.current }} / {{ importProgress.total }}
+          <span v-if="importProgress.partial > 0" style="color: #E6A23C;">
+            （{{ importProgress.partial }} 篇部分完成）
+          </span>
           <span v-if="importProgress.fail > 0" style="color: #F56C6C;">
             （{{ importProgress.fail }} 篇失败）
           </span>
         </p>
+        <div v-if="importProgress.partialDetails.length > 0" style="margin-top: 15px;">
+          <el-collapse>
+            <el-collapse-item title="部分完成详情" name="partialDetails">
+              <div v-for="(detail, idx) in importProgress.partialDetails" :key="'partial-' + idx"
+                   style="padding: 5px 0; font-size: 12px; color: #E6A23C; border-bottom: 1px solid #EBEEF5;">
+                <strong>{{ detail.title }}</strong>：{{ detail.message }}
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
+        <div v-if="importTaskRows.length > 0" style="margin-top: 15px;">
+          <el-collapse value="taskList">
+            <el-collapse-item title="实时任务进度" name="taskList">
+              <div v-for="task in importTaskRows" :key="task.taskId"
+                   style="padding: 8px 0; border-bottom: 1px solid #EBEEF5;">
+                <div style="display: flex; justify-content: space-between; gap: 12px;">
+                  <strong style="color: #303133;">{{ task.title }}</strong>
+                  <span :style="{ color: task.statusColor }">{{ task.statusLabel }}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; margin-top: 6px;">
+                  <el-progress
+                    :percentage="task.progress"
+                    :status="task.progressStatus"
+                    :stroke-width="10"
+                    :show-text="false"
+                    style="flex: 1;"
+                  ></el-progress>
+                  <span style="font-size: 12px; color: #909399; min-width: 86px; text-align: right;">
+                    {{ task.stageLabel }}
+                  </span>
+                </div>
+                <div style="font-size: 12px; color: #606266; margin-top: 4px;">{{ task.message }}</div>
+                <div v-if="task.translationText" style="font-size: 12px; color: #909399; margin-top: 4px;">
+                  {{ task.translationText }}
+                </div>
+                <div v-if="task.summaryText" style="font-size: 12px; color: #909399; margin-top: 4px;">
+                  {{ task.summaryText }}
+                </div>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
         <!-- 失败详情 -->
         <div v-if="importProgress.failDetails.length > 0" style="margin-top: 15px;">
           <el-collapse>
@@ -469,6 +517,14 @@
         importArticles: [],
         importParsing: false,
         importFinished: false,
+        importStreamConnecting: false,
+        importStreamError: '',
+        importBatchRetryCount: 0,
+        importBatchController: null,
+        importBatchHeartbeatTimer: null,
+        importBatchHeartbeatTimeoutMs: 25000,
+        importTaskMap: {},
+        importTaskOrder: [],
         importConfig: {
           sortId: null,
           labelId: null,
@@ -484,6 +540,8 @@
           total: 0,
           success: 0,
           fail: 0,
+          partial: 0,
+          partialDetails: [],
           failDetails: []
         },
         // 导入-新建分类/标签相关
@@ -542,9 +600,15 @@
       /** 导入进度条状态 */
       importProgressStatus() {
         if (!this.importFinished) return '';
+        if (this.importProgress.partial > 0) return 'warning';
         if (this.importProgress.fail === 0) return 'success';
         if (this.importProgress.success === 0) return 'exception';
         return 'warning';
+      },
+      importTaskRows() {
+        return this.importTaskOrder.map(function(taskId) {
+          return this.importTaskMap[taskId];
+        }.bind(this)).filter(Boolean);
       },
       /** 需要密码的文章列表 */
       articlesNeedingPassword() {
@@ -595,6 +659,10 @@
     },
 
     mounted() {
+    },
+
+    beforeDestroy() {
+      this.stopImportBatchStream();
     },
 
     methods: {
@@ -945,11 +1013,19 @@
           tips: ''
         };
         this.importLabelsTemp = [];
+        this.stopImportBatchStream();
+        this.importStreamConnecting = false;
+        this.importStreamError = '';
+        this.importBatchRetryCount = 0;
+        this.importTaskMap = {};
+        this.importTaskOrder = [];
         this.importProgress = {
           current: 0,
           total: 0,
           success: 0,
           fail: 0,
+          partial: 0,
+          partialDetails: [],
           failDetails: []
         };
       },
@@ -1326,11 +1402,18 @@
         // 进入导入步骤
         this.importStep = 3;
         this.importFinished = false;
+        this.importStreamConnecting = false;
+        this.importStreamError = '';
+        this.importBatchRetryCount = 0;
+        this.importTaskMap = {};
+        this.importTaskOrder = [];
         this.importProgress = {
           current: 0,
           total: this.importArticles.length,
           success: 0,
           fail: 0,
+          partial: 0,
+          partialDetails: [],
           failDetails: []
         };
 
@@ -1422,29 +1505,43 @@
           }
         }
 
-        // 轮询所有任务状态，直到全部完成
+        // 通过批量 SSE 监听所有任务状态，必要时回退到轮询
         if (tasks.length > 0) {
-          await this.pollImportTasks(tasks);
+          await this.monitorImportTasks(tasks);
         }
 
         this.importFinished = true;
 
         // 导入完成汇总通知
-        if (this.importProgress.fail === 0) {
+        if (this.importProgress.fail === 0 && this.importProgress.partial === 0) {
           this.$message({
             message: '全部导入成功！共 ' + this.importProgress.success + ' 篇文章',
             type: 'success',
             duration: 4000
           });
-        } else if (this.importProgress.success === 0) {
+        } else if (this.importProgress.fail === 0) {
+          var successMsg = '全部导入成功！共 ' + this.importProgress.success + ' 篇文章';
+          if (this.importProgress.partial > 0) {
+            successMsg += '，' + this.importProgress.partial + ' 篇部分完成';
+          }
+          this.$message({
+            message: successMsg,
+            type: 'warning',
+            duration: 4000
+          });
+        } else if (this.importProgress.success === 0 && this.importProgress.partial === 0) {
           this.$message({
             message: '导入失败！共 ' + this.importProgress.fail + ' 篇文章失败',
             type: 'error',
             duration: 5000
           });
         } else {
+          var partialMsg = '导入完成：' + this.importProgress.success + ' 篇成功，' + this.importProgress.fail + ' 篇失败';
+          if (this.importProgress.partial > 0) {
+            partialMsg += '，' + this.importProgress.partial + ' 篇部分完成';
+          }
           this.$message({
-            message: '导入完成：' + this.importProgress.success + ' 篇成功，' + this.importProgress.fail + ' 篇失败',
+            message: partialMsg,
             type: 'warning',
             duration: 5000
           });
@@ -1464,12 +1561,425 @@
         return duplicates;
       },
 
+      async monitorImportTasks(tasks) {
+        this.initializeImportTaskMap(tasks);
+        this.importStreamError = '';
+        this.importBatchRetryCount = 0;
+
+        while (!this.areAllImportTasksSettled()) {
+          try {
+            await this.consumeImportBatchStream(tasks);
+          } catch (error) {
+            if (this.areAllImportTasksSettled()) {
+              break;
+            }
+
+            this.importBatchRetryCount++;
+            if (this.importBatchRetryCount <= 2) {
+              this.importStreamError = '任务流连接中断，正在恢复状态...';
+              await this.syncImportTaskStatus(this.getUnsettledImportTasks());
+              continue;
+            }
+
+            this.importStreamError = '任务流多次中断，正在回退到状态查询...';
+            await this.pollImportTasks(this.getUnsettledImportTasks());
+            break;
+          }
+        }
+
+        this.stopImportBatchStream();
+        this.importStreamConnecting = false;
+        if (!this.importStreamError || this.areAllImportTasksSettled()) {
+          this.importStreamError = '';
+        }
+      },
+
+      initializeImportTaskMap(tasks) {
+        this.importTaskOrder = tasks.map(function(task) { return task.taskId; });
+        var taskMap = {};
+        for (var i = 0; i < tasks.length; i++) {
+          var task = tasks[i];
+          taskMap[task.taskId] = {
+            taskId: task.taskId,
+            title: task.title,
+            status: 'processing',
+            stage: 'queued',
+            message: '任务已提交，等待后端接管...',
+            statusLabel: '处理中',
+            statusColor: '#409EFF',
+            stageLabel: '等待排队',
+            progress: 5,
+            progressStatus: '',
+            translationText: '',
+            summaryText: '',
+            finalized: false
+          };
+        }
+        this.importTaskMap = taskMap;
+        for (var j = 0; j < this.importTaskOrder.length; j++) {
+          this.applyImportTaskVisualState(this.importTaskMap[this.importTaskOrder[j]]);
+        }
+      },
+
+      getImportBaseURL() {
+        return this.$constant && this.$constant.baseURL
+          ? this.$constant.baseURL
+          : (window.VueAppConfig && window.VueAppConfig.baseURL
+            ? window.VueAppConfig.baseURL
+            : (window.location.protocol + '//' + window.location.host));
+      },
+
+      getImportAuthHeaders() {
+        return {
+          'Content-Type': 'application/json'
+        };
+      },
+
+      stopImportBatchStream() {
+        if (this.importBatchHeartbeatTimer) {
+          clearTimeout(this.importBatchHeartbeatTimer);
+          this.importBatchHeartbeatTimer = null;
+        }
+        if (this.importBatchController) {
+          this.importBatchController.abort();
+          this.importBatchController = null;
+        }
+      },
+
+      armImportBatchHeartbeat() {
+        if (this.importBatchHeartbeatTimer) {
+          clearTimeout(this.importBatchHeartbeatTimer);
+        }
+        this.importBatchHeartbeatTimer = setTimeout(function() {
+          if (this.areAllImportTasksSettled()) {
+            this.stopImportBatchStream();
+            return;
+          }
+          this.importStreamError = '任务流连接中断，正在恢复状态...';
+          this.stopImportBatchStream();
+        }.bind(this), this.importBatchHeartbeatTimeoutMs);
+      },
+
+      async consumeImportBatchStream(tasks) {
+        this.stopImportBatchStream();
+        this.importStreamConnecting = true;
+        var taskIds = tasks.map(function(task) { return task.taskId; }).join(',');
+        var baseURL = this.getImportBaseURL();
+        var headers = this.getImportAuthHeaders();
+        var controller = new AbortController();
+        this.importBatchController = controller;
+
+        var response = await fetch(
+          baseURL + '/article/streamArticleSaveStatusBatch?taskIds=' + encodeURIComponent(taskIds),
+          {
+            method: 'GET',
+            headers: headers,
+            credentials: 'include',
+            signal: controller.signal
+          }
+        );
+        if (!response.ok || !response.body) {
+          throw new Error('导入任务流订阅失败');
+        }
+
+        this.importStreamConnecting = false;
+        this.armImportBatchHeartbeat();
+        var reader = response.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = '';
+        var currentEventName = null;
+
+        while (true) {
+          var result = await reader.read();
+          if (result.done) {
+            this.stopImportBatchStream();
+            if (this.areAllImportTasksSettled()) {
+              return;
+            }
+            throw new Error('导入任务流已结束');
+          }
+
+          this.armImportBatchHeartbeat();
+          buffer += decoder.decode(result.value, { stream: true });
+          var lines = buffer.split('\n');
+          if (lines[lines.length - 1] !== '') {
+            buffer = lines.pop();
+          } else {
+            buffer = '';
+          }
+
+          for (var i = 0; i < lines.length; i++) {
+            var trimmedLine = lines[i].trim();
+            if (!trimmedLine) {
+              currentEventName = null;
+              continue;
+            }
+            if (trimmedLine.indexOf('event:') === 0) {
+              currentEventName = trimmedLine.substring(6).trim();
+              continue;
+            }
+            if (trimmedLine.indexOf('data:') !== 0) {
+              continue;
+            }
+
+            var dataStr = trimmedLine.substring(5).trim();
+            if (!dataStr) {
+              continue;
+            }
+
+            try {
+              var payload = JSON.parse(dataStr);
+              this.handleImportTaskStreamEvent(currentEventName, payload || {});
+            } catch (error) {
+              console.error('解析导入任务流事件失败:', error);
+            }
+          }
+
+          if (this.areAllImportTasksSettled()) {
+            this.stopImportBatchStream();
+            return;
+          }
+        }
+      },
+
+      handleImportTaskStreamEvent(eventName, payload) {
+        this.armImportBatchHeartbeat();
+        if (eventName === 'batch_heartbeat') {
+          return;
+        }
+
+        if (!payload || !payload.taskId) {
+          return;
+        }
+
+        var task = this.importTaskMap[payload.taskId];
+        if (!task) {
+          return;
+        }
+
+        if (eventName === 'title_delta' || eventName === 'content_delta') {
+          var currentLength = payload.currentLength || 0;
+          var fieldLabel = eventName === 'title_delta' ? '标题' : '正文';
+          task.stage = 'translating';
+          task.translationText = 'AI翻译' + fieldLabel + '已接收 ' + currentLength + ' 字';
+          task.message = '正在流式翻译' + fieldLabel + '...';
+          task.statusLabel = '翻译中';
+          task.statusColor = '#409EFF';
+          this.applyImportTaskVisualState(task);
+          return;
+        }
+
+        if (eventName === 'summary_delta') {
+          var summaryLength = payload.currentLength || 0;
+          task.stage = 'generating_summary';
+          task.summaryText = 'AI摘要已接收 ' + summaryLength + ' 字';
+          task.message = payload.message || ('正在流式生成AI摘要... 已接收 ' + summaryLength + ' 字');
+          task.statusLabel = '摘要中';
+          task.statusColor = '#409EFF';
+          this.applyImportTaskVisualState(task);
+          return;
+        }
+
+        if (eventName === 'summary_start') {
+          task.stage = 'generating_summary';
+          task.message = payload.message || '开始流式生成AI摘要...';
+          task.statusLabel = '摘要中';
+          task.statusColor = '#409EFF';
+          this.applyImportTaskVisualState(task);
+          return;
+        }
+
+        if (eventName === 'task_error' && payload.status === 'failed') {
+          this.finalizeImportTask(task, payload);
+          return;
+        }
+
+        this.updateImportTaskByStatus(task, payload);
+      },
+
+      updateImportTaskByStatus(task, taskStatus) {
+        if (!taskStatus) {
+          return;
+        }
+
+        task.status = taskStatus.status || task.status;
+        task.stage = taskStatus.stage || task.stage;
+        task.message = taskStatus.message || task.message;
+        if (taskStatus.translationStatus === 'streaming' || taskStatus.translationStatus === 'retrying') {
+          task.statusLabel = '翻译中';
+          task.statusColor = '#409EFF';
+        } else if (taskStatus.summaryStatus === 'streaming') {
+          task.statusLabel = '摘要中';
+          task.statusColor = '#409EFF';
+        }
+
+        if (taskStatus.summaryReceivedChars) {
+          task.summaryText = 'AI摘要已接收 ' + taskStatus.summaryReceivedChars + ' 字';
+        }
+
+        this.applyImportTaskVisualState(task, taskStatus);
+
+        if (taskStatus.status === 'success' || taskStatus.status === 'partial_success' || taskStatus.status === 'failed') {
+          this.finalizeImportTask(task, taskStatus);
+        }
+      },
+
+      finalizeImportTask(task, taskStatus) {
+        if (task.finalized) {
+          task.status = taskStatus.status || task.status;
+          task.message = taskStatus.message || task.message;
+          return;
+        }
+
+        task.finalized = true;
+        task.status = taskStatus.status || task.status;
+        task.message = taskStatus.message || task.message;
+
+        if (task.status === 'success') {
+          task.statusLabel = '成功';
+          task.statusColor = '#67C23A';
+          this.importProgress.success++;
+        } else if (task.status === 'partial_success') {
+          task.statusLabel = '部分完成';
+          task.statusColor = '#E6A23C';
+          this.importProgress.partial++;
+          this.importProgress.partialDetails.push({
+            title: task.title,
+            message: taskStatus.summaryMessage || taskStatus.message || '文章已发布，但摘要未完成'
+          });
+        } else {
+          task.statusLabel = '失败';
+          task.statusColor = '#F56C6C';
+          this.importProgress.fail++;
+          this.importProgress.failDetails.push({
+            title: task.title,
+            error: taskStatus.message || '保存失败'
+          });
+        }
+
+        this.applyImportTaskVisualState(task, taskStatus);
+        this.importProgress.current++;
+      },
+
+      applyImportTaskVisualState(task, taskStatus) {
+        task.progress = this.inferImportTaskProgress(task, taskStatus);
+        task.stageLabel = this.inferImportTaskStageLabel(task, taskStatus);
+        task.progressStatus = this.inferImportTaskProgressStatus(task, taskStatus);
+      },
+
+      inferImportTaskProgress(task, taskStatus) {
+        var status = (taskStatus && taskStatus.status) || task.status || 'processing';
+        var stage = (taskStatus && taskStatus.stage) || task.stage || 'queued';
+        var translationStatus = (taskStatus && taskStatus.translationStatus) || '';
+        var summaryStatus = (taskStatus && taskStatus.summaryStatus) || '';
+
+        if (status === 'success' || status === 'partial_success' || status === 'failed') {
+          return 100;
+        }
+        if (summaryStatus === 'streaming' || stage === 'generating_summary') {
+          return 82;
+        }
+        if (translationStatus === 'streaming' || translationStatus === 'retrying' || stage === 'translating' || stage === 'translation_retry') {
+          return 56;
+        }
+        if (stage === 'saving_translation') {
+          return 68;
+        }
+        if (stage === 'translation_skipped') {
+          return 72;
+        }
+        if (stage === 'db_saved') {
+          return 28;
+        }
+        if (stage === 'queued') {
+          return 5;
+        }
+        return 16;
+      },
+
+      inferImportTaskStageLabel(task, taskStatus) {
+        var status = (taskStatus && taskStatus.status) || task.status || 'processing';
+        var stage = (taskStatus && taskStatus.stage) || task.stage || 'queued';
+        var translationStatus = (taskStatus && taskStatus.translationStatus) || '';
+        var summaryStatus = (taskStatus && taskStatus.summaryStatus) || '';
+
+        if (status === 'success') return '已完成';
+        if (status === 'partial_success') return '部分完成';
+        if (status === 'failed') return '执行失败';
+        if (summaryStatus === 'streaming' || stage === 'generating_summary') return '生成摘要';
+        if (translationStatus === 'streaming' || stage === 'translating') return 'AI翻译';
+        if (translationStatus === 'retrying' || stage === 'translation_retry') return '翻译重试';
+        if (stage === 'saving_translation') return '保存翻译';
+        if (stage === 'translation_skipped') return '跳过翻译';
+        if (stage === 'db_saved') return '保存文章';
+        if (stage === 'queued') return '等待排队';
+        return '处理中';
+      },
+
+      inferImportTaskProgressStatus(task, taskStatus) {
+        var status = (taskStatus && taskStatus.status) || task.status || 'processing';
+        if (status === 'success') return 'success';
+        if (status === 'failed') return 'exception';
+        if (status === 'partial_success') return 'warning';
+        return '';
+      },
+
+      areAllImportTasksSettled() {
+        if (!this.importTaskOrder.length) {
+          return true;
+        }
+        for (var i = 0; i < this.importTaskOrder.length; i++) {
+          var task = this.importTaskMap[this.importTaskOrder[i]];
+          if (task && !task.finalized) {
+            return false;
+          }
+        }
+        return true;
+      },
+
+      getUnsettledImportTasks() {
+        var tasks = [];
+        for (var i = 0; i < this.importTaskOrder.length; i++) {
+          var taskId = this.importTaskOrder[i];
+          var task = this.importTaskMap[taskId];
+          if (task && !task.finalized) {
+            tasks.push({ taskId: task.taskId, title: task.title });
+          }
+        }
+        return tasks;
+      },
+
+      async syncImportTaskStatus(tasks) {
+        if (!tasks || tasks.length === 0) {
+          return;
+        }
+        var statusPromises = tasks.map(function(task) {
+          return this.$http.get(
+            this.$constant.baseURL + '/article/getArticleSaveStatus',
+            { taskId: task.taskId },
+            true
+          ).then(function(res) {
+            return { task: task, status: res.data };
+          }).catch(function(error) {
+            return { task: task, status: { status: 'processing', message: error.message || '任务流恢复中' } };
+          });
+        }.bind(this));
+
+        var statusResults = await Promise.all(statusPromises);
+        for (var i = 0; i < statusResults.length; i++) {
+          this.handleImportTaskStreamEvent('task_stage', statusResults[i].status);
+        }
+      },
+
       /**
        * 轮询所有异步导入任务的状态
        * @param {Array} tasks - [{ taskId, title, status }]
        */
       async pollImportTasks(tasks) {
-        var pendingTasks = tasks.slice(); // 浅拷贝，还未完成的任务列表
+        var pendingTasks = tasks.filter(function(task) {
+          var localTask = this.importTaskMap[task.taskId];
+          return !localTask || !localTask.finalized;
+        }.bind(this)); // 浅拷贝，还未完成的任务列表
         var pollInterval = 2000; // 轮询间隔 2 秒
         // 动态超时：基础10分钟 + 每篇文章额外30秒（AI摘要生成可能受限流影响）
         var baseTimeout = 10 * 60 * 1000;
@@ -1515,19 +2025,8 @@
           var stillPending = [];
           for (var s = 0; s < statusResults.length; s++) {
             var result = statusResults[s];
-            var taskStatus = result.status;
-
-            if (taskStatus.status === 'success') {
-              this.importProgress.success++;
-              this.importProgress.current++;
-            } else if (taskStatus.status === 'failed') {
-              this.importProgress.fail++;
-              this.importProgress.current++;
-              this.importProgress.failDetails.push({
-                title: result.task.title,
-                error: taskStatus.message || '保存失败'
-              });
-            } else {
+            this.handleImportTaskStreamEvent('task_stage', result.status);
+            if (!(result.status.status === 'success' || result.status.status === 'partial_success' || result.status.status === 'failed')) {
               // 仍在处理中
               stillPending.push(result.task);
             }
@@ -1539,6 +2038,7 @@
 
       /** 导入完成后关闭对话框并刷新列表 */
       finishImport() {
+        this.stopImportBatchStream();
         this.importDialogVisible = false;
         // 刷新文章列表
         this.pagination.current = 1;
@@ -1547,15 +2047,18 @@
         this.getSortAndLabel();
 
         // 显示最终汇总
-        if (this.importProgress.success > 0) {
+        if (this.importProgress.success > 0 || this.importProgress.partial > 0) {
           var msg = '成功导入 ' + this.importProgress.success + ' 篇文章';
+          if (this.importProgress.partial > 0) {
+            msg += '，' + this.importProgress.partial + ' 篇部分完成';
+          }
           if (this.importProgress.fail > 0) {
             msg += '，' + this.importProgress.fail + ' 篇失败';
           }
           this.$notify({
             title: '导入完成',
             message: msg,
-            type: this.importProgress.fail > 0 ? 'warning' : 'success',
+            type: (this.importProgress.fail > 0 || this.importProgress.partial > 0) ? 'warning' : 'success',
             duration: 5000
           });
         }

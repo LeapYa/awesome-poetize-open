@@ -1,22 +1,40 @@
 package com.ld.poetry.service;
 
+import java.util.Map;
+
 /**
  * 摘要生成服务
  */
 public interface SummaryService {
+
+    record SummaryTaskResult(String status, String message, boolean failed) {
+    }
+
+    @FunctionalInterface
+    interface SummaryProgressListener {
+        void onEvent(String eventName, Map<String, Object> payload);
+    }
     
     /**
      * 生成并保存文章多语言AI摘要
      * @param articleId 文章ID
      */
-    void generateAndSaveSummary(Integer articleId);
+    default SummaryTaskResult generateAndSaveSummary(Integer articleId) {
+        return generateAndSaveSummary(articleId, null);
+    }
+
+    SummaryTaskResult generateAndSaveSummary(Integer articleId, SummaryProgressListener progressListener);
     
     /**
      * 更新文章多语言AI摘要
      * @param articleId 文章ID  
      * @param content 文章内容
      */
-    void updateSummary(Integer articleId, String content);
+    default SummaryTaskResult updateSummary(Integer articleId, String content) {
+        return updateSummary(articleId, content, null);
+    }
+
+    SummaryTaskResult updateSummary(Integer articleId, String content, SummaryProgressListener progressListener);
     
     /**
      * 生成单语言摘要（简化版，用于特殊场景）

@@ -1,4 +1,4 @@
-import { isMermaidLoaded, loadExternalResource } from './resourceLoader'
+import { isMermaidLoaded } from './resourceLoader'
 
 /**
  * 加载Mermaid图表库
@@ -9,39 +9,33 @@ export async function loadMermaidResources() {
     }
 
     try {
-        await loadExternalResource('/libs/js/mermaid.min.js', 'js')
+        const mod = await import('mermaid')
+        const mermaid = mod?.default || mod
+        if (!mermaid) {
+            throw new Error('Mermaid 模块不可用')
+        }
+
+        window.mermaid = mermaid
 
         // 确保Mermaid已正确加载并初始化
         if (typeof window.mermaid !== 'undefined') {
-            // 检测是否为暗色模式
-            const isDark = document.documentElement.classList.contains('dark-mode') ||
-                document.body.classList.contains('dark-mode')
-
             // 初始化Mermaid配置
             window.mermaid.initialize({
                 startOnLoad: false,
-                theme: isDark ? 'dark' : 'default',
+                theme: 'default',
                 securityLevel: 'loose',
                 fontFamily: 'Arial, sans-serif',
-                themeVariables: isDark ? {
-                    // 深色模式的自定义主题变量
-                    darkMode: true,
-                    background: '#1e1e1e',
-                    primaryColor: '#4a9eff',
-                    primaryTextColor: '#ffffff',
-                    primaryBorderColor: '#4a9eff',
-                    lineColor: '#6b6b6b',
-                    secondaryColor: '#2d2d2d',
-                    tertiaryColor: '#3a3a3a',
-                    mainBkg: '#2d2d2d',
-                    secondBkg: '#383838',
-                    mainContrastColor: '#ffffff',
-                    darkTextColor: '#ffffff',
-                    textColor: '#e0e0e0',
-                    labelTextColor: '#e0e0e0',
-                    fontSize: '14px'
-                } : {
-                    fontSize: '14px'
+                themeVariables: {
+                    fontSize: '13px',
+                },
+                flowchart: {
+                    useMaxWidth: true
+                },
+                sequence: {
+                    useMaxWidth: true
+                },
+                gantt: {
+                    useMaxWidth: true
                 }
             })
 
@@ -51,4 +45,71 @@ export async function loadMermaidResources() {
         console.error('Mermaid加载失败:', error)
         return false
     }
+}
+
+/**
+ * Mermaid 在后台编辑器里经常使用 foreignObject 承载中文标签，
+ * 某些字体/缩放下 Mermaid 计算出的高度会偏小，导致字形底部被裁掉。
+ * 渲染后统一补正标签容器高度，避免三个自研编辑器各自维护一套修复逻辑。
+ */
+export function normalizeMermaidDiagrams(root) {
+    if (!root || typeof root.querySelectorAll !== 'function') {
+        return
+    }
+
+    const svgList = root.querySelectorAll('svg')
+    svgList.forEach((svg) => {
+        svg.style.overflow = 'visible'
+
+        const foreignObjects = svg.querySelectorAll('foreignObject')
+        foreignObjects.forEach((foreignObject) => {
+            foreignObject.style.overflow = 'visible'
+
+            const labelNode = foreignObject.querySelector('div, span, p')
+            if (!labelNode) {
+                return
+            }
+
+            labelNode.style.overflow = 'visible'
+            labelNode.style.margin = '0'
+            labelNode.style.padding = '0'
+            labelNode.style.width = '100%'
+            labelNode.style.height = '100%'
+            labelNode.style.boxSizing = 'border-box'
+            labelNode.style.display = 'flex'
+            labelNode.style.alignItems = 'center'
+            labelNode.style.justifyContent = 'center'
+            labelNode.style.textAlign = 'center'
+
+            const nestedTextNodes = foreignObject.querySelectorAll('span, p')
+            nestedTextNodes.forEach((node) => {
+                node.style.margin = '0'
+                node.style.padding = '0'
+                node.style.display = 'inline-flex'
+                node.style.alignItems = 'center'
+                node.style.justifyContent = 'center'
+                node.style.textAlign = 'center'
+            })
+
+            const currentHeight = parseFloat(foreignObject.getAttribute('height') || '0') ||
+                Math.ceil(foreignObject.getBoundingClientRect?.().height || 0)
+            const measuredHeight = Math.ceil(Math.max(
+                labelNode.scrollHeight || 0,
+                labelNode.getBoundingClientRect?.().height || 0,
+                currentHeight + 6
+            ))
+
+            const targetHeight = Math.max(currentHeight, measuredHeight)
+            if (targetHeight <= currentHeight) {
+                return
+            }
+
+            const extraHeight = targetHeight - currentHeight
+            const currentY = parseFloat(foreignObject.getAttribute('y') || '0')
+
+            foreignObject.setAttribute('height', `${targetHeight}`)
+            foreignObject.style.height = `${targetHeight}px`
+            foreignObject.setAttribute('y', `${currentY - (extraHeight / 2)}`)
+        })
+    })
 }

@@ -3,6 +3,7 @@
     <component
       v-if="currentComponent"
       :is="currentComponent"
+      :key="componentRenderKey"
       ref="inner"
       :value="value"
       :placeholder="placeholder"
@@ -69,6 +70,7 @@ export default {
       activeKey: null,
       isResolved: false,
       isDisposed: false,
+      componentVersion: 0,
       // 支持的编辑器类型
       // vditor: Vditor 编辑器
       // split_preview: 分屏预览 Markdown 编辑器（左编辑右预览）
@@ -77,6 +79,9 @@ export default {
     }
   },
   computed: {
+    componentRenderKey() {
+      return `${this.activeKey || DEFAULT_EDITOR_KEY}-${this.componentVersion}`
+    },
     currentComponent() {
       if (!this.isResolved || !this.activeKey) {
         return null
@@ -95,9 +100,22 @@ export default {
   },
   created() {
     this.resolveInitialEditor()
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', this.handleStorageSync)
+      window.addEventListener('editor-plugin-changed', this.handleEditorPluginChanged)
+      window.addEventListener('focus', this.handleWindowFocus)
+    }
+  },
+  activated() {
+    this.syncEditorFromCache()
   },
   beforeDestroy() {
     this.isDisposed = true
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', this.handleStorageSync)
+      window.removeEventListener('editor-plugin-changed', this.handleEditorPluginChanged)
+      window.removeEventListener('focus', this.handleWindowFocus)
+    }
   },
   methods: {
     normalizeEditorKey(editorKey) {
@@ -105,8 +123,12 @@ export default {
     },
     applyResolvedEditor(editorKey) {
       const normalizedKey = this.normalizeEditorKey(editorKey) || DEFAULT_EDITOR_KEY
+      const changed = this.activeKey !== normalizedKey
       this.activeKey = normalizedKey
       this.isResolved = true
+      if (changed) {
+        this.componentVersion += 1
+      }
       return normalizedKey
     },
     loadActiveFromCache() {
@@ -124,6 +146,32 @@ export default {
       try {
         localStorage.setItem('activeEditorPluginKey', normalizedKey)
       } catch (error) {}
+    },
+    syncEditorFromCache() {
+      const cachedKey = this.loadActiveFromCache()
+      if (cachedKey && cachedKey !== this.activeKey) {
+        this.applyResolvedEditor(cachedKey)
+      }
+    },
+    handleStorageSync(event) {
+      if (event && event.key && event.key !== 'activeEditorPluginKey') {
+        return
+      }
+      this.syncEditorFromCache()
+    },
+    handleEditorPluginChanged(event) {
+      const editorKey = this.normalizeEditorKey(event && event.detail && event.detail.editorKey)
+      if (!editorKey) {
+        this.syncEditorFromCache()
+        return
+      }
+      this.cacheActive(editorKey)
+      if (editorKey !== this.activeKey) {
+        this.applyResolvedEditor(editorKey)
+      }
+    },
+    handleWindowFocus() {
+      this.syncEditorFromCache()
     },
     async resolveInitialEditor() {
       const cachedKey = this.loadActiveFromCache()

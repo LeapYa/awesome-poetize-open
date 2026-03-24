@@ -89,12 +89,14 @@ export async function renderMarkdown(content) {
 
                 if (lang === 'mermaid') {
                     // Mermaid 图表容器
-                    return `<div class="mermaid">${mdInstance.utils.escapeHtml(token.content)}</div>`;
+                    const encodedSource = mdInstance.utils.escapeHtml(encodeURIComponent(token.content));
+                    return `<div class="mermaid" data-source="${encodedSource}">${mdInstance.utils.escapeHtml(token.content)}</div>`;
                 }
 
                 if (lang === 'echarts') {
                     // ECharts 图表容器
-                    return `<div class="echarts-render" style="width: 100%; height: 400px; margin: 10px 0;">${mdInstance.utils.escapeHtml(token.content)}</div>`;
+                    const encodedSource = mdInstance.utils.escapeHtml(encodeURIComponent(token.content));
+                    return `<div class="echarts-render" data-source="${encodedSource}" style="width: 100%; height: 400px; margin: 10px 0;">${mdInstance.utils.escapeHtml(token.content)}</div>`;
                 }
 
                 if (lang && hljs.getLanguage(lang)) {

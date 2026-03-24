@@ -308,7 +308,7 @@ import { HistoryManager } from './core/HistoryManager';
 import { IRRenderer } from './render/IRRenderer';
 import { renderMarkdown } from '@/utils/markdownLazyRenderer';
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
-import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
+import { loadMermaidResources, normalizeMermaidDiagrams } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
 import { parseEChartsOption } from '@/utils/echartsOptionParser';
 import { handlePaste as handlePasteUtil } from '@/utils/pasteHandler';
@@ -628,12 +628,42 @@ export default {
       if (content.includes('```mermaid')) {
         const ok = await loadMermaidResources();
         if (ok && window.mermaid) {
-          try {
-            const mermaidDivs = container.querySelectorAll('.mermaid');
-            if (mermaidDivs.length > 0) {
-              window.mermaid.init(undefined, mermaidDivs);
+          const mermaidDivs = container.querySelectorAll('.mermaid');
+          for (let i = 0; i < mermaidDivs.length; i++) {
+            const el = mermaidDivs[i];
+            const encoded = el.getAttribute('data-source');
+            let code = '';
+            if (encoded) {
+              try {
+                code = decodeURIComponent(encoded);
+              } catch (e) {
+                code = '';
+              }
             }
-          } catch (e) {}
+            if (!code) {
+              code = el.textContent || '';
+            }
+            code = String(code).replace(/\s+$/, '');
+            if (!code.trim()) continue;
+
+            const newEncoded = encodeURIComponent(code);
+            if (el.getAttribute('data-rendered') === newEncoded) continue;
+
+            el.setAttribute('data-source', newEncoded);
+            el.innerHTML = '';
+
+              try {
+                const id = `ir-mermaid-${Date.now()}-${i}`;
+                const { svg } = await window.mermaid.render(id, code);
+                el.classList.add('mermaid-container');
+                el.innerHTML = svg;
+                normalizeMermaidDiagrams(el);
+                el.setAttribute('data-rendered', newEncoded);
+              } catch (e) {
+              el.textContent = code;
+              el.removeAttribute('data-rendered');
+            }
+          }
         }
       }
 
@@ -656,11 +686,11 @@ export default {
               jsonContent = el.textContent || el.innerText || '';
             }
             jsonContent = String(jsonContent).trim();
-            if (!jsonContent) return;
+            if (!jsonContent) continue;
 
             const newEncoded = encodeURIComponent(jsonContent);
             if (el.getAttribute('data-rendered') === newEncoded && window.echarts.getInstanceByDom(el)) {
-              return;
+              continue;
             }
             el.setAttribute('data-source', newEncoded);
 
@@ -2662,7 +2692,6 @@ export default {
 .ir-editor :deep(.entry-content li),
 .ir-editor :deep(.entry-content blockquote),
 .ir-editor :deep(.entry-content a),
-.ir-editor :deep(.entry-content span),
 .ir-editor :deep(.entry-content td),
 .ir-editor :deep(.entry-content th) {
   min-width: 0;
@@ -2672,23 +2701,53 @@ export default {
   box-sizing: border-box;
 }
 
-.ir-editor :deep(.mermaid) {
-  margin: 15px 0;
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  overflow-x: auto;
-  text-align: center;
-}
+.ir-editor :deep(.mermaid-container) {
+    margin: 20px 0;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    overflow-x: auto;
+    text-align: center;
+    transition: all 0.3s ease;
+  }
+  
+.ir-editor :deep(.mermaid-container svg) {
+    max-width: 100%;
+    height: auto;
+    overflow: visible !important;
+  }
+  
+.ir-editor :deep(.mermaid-container svg foreignObject div),
+.ir-editor :deep(.mermaid-container svg foreignObject span),
+.ir-editor :deep(.mermaid-container svg foreignObject p) {
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    white-space: pre !important;
+    line-height: 1.2 !important;
+    font-size: 14px !important;
+  }
 
-.ir-editor :deep(.mermaid svg) {
-  max-width: 100%;
-  height: auto;
-}
-
-.ir-editor.dark-mode :deep(.mermaid) {
-  background: #2d2d2d;
-}
+.ir-editor :deep(.mermaid-container svg foreignObject div),
+.ir-editor :deep(.mermaid-container svg foreignObject span),
+.ir-editor :deep(.mermaid-container svg foreignObject p) {
+    margin: 0 !important;
+    padding: 0 !important;
+    text-align: center !important;
+  }
+  
+.ir-editor :deep(.mermaid-container svg foreignObject) {
+    overflow: visible !important;
+  }
+  
+.ir-editor :deep(.mermaid-container svg .nodeLabel),
+.ir-editor :deep(.mermaid-container svg .edgeLabel),
+.ir-editor :deep(.mermaid-container svg .labelBkg) {
+    overflow: visible !important;
+  }
+  
+.ir-editor.dark-mode :deep(.mermaid-container) {
+    background: #2d2d2d;
+  }
 
 .ir-editor :deep(.entry-content ul),
 .ir-editor :deep(.entry-content ol) {
@@ -2777,8 +2836,7 @@ export default {
 /* 段落和通用文本 */
 .ir-editor.dark-mode :deep(.entry-content),
 .ir-editor.dark-mode :deep(.entry-content p),
-.ir-editor.dark-mode :deep(.entry-content li),
-.ir-editor.dark-mode :deep(.entry-content span) {
+.ir-editor.dark-mode :deep(.entry-content li) {
   color: #d4d4d4;
 }
 

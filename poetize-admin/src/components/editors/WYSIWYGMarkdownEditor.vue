@@ -351,7 +351,7 @@
 import { renderMarkdown } from '@/utils/markdownLazyRenderer';
 import { htmlToMarkdown } from '@/utils/htmlToMarkdown';
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
-import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
+import { loadMermaidResources, normalizeMermaidDiagrams } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
 import { parseEChartsOption } from '@/utils/echartsOptionParser';
 import { handlePaste as handlePasteUtil } from '@/utils/pasteHandler';
@@ -632,15 +632,16 @@ export default {
         el.setAttribute('contenteditable', 'false');
         el.innerHTML = '';
 
-        try {
-          const id = `mermaid-${Date.now()}-${i}`;
-          const { svg } = await window.mermaid.render(id, code);
-          const container = document.createElement('div');
-          container.className = 'mermaid-container';
-          container.innerHTML = svg;
-          el.appendChild(container);
-          el.setAttribute('data-rendered', newEncoded);
-        } catch (e) {
+          try {
+            const id = `mermaid-${Date.now()}-${i}`;
+            const { svg } = await window.mermaid.render(id, code);
+            const container = document.createElement('div');
+            container.className = 'mermaid-container';
+            container.innerHTML = svg;
+            normalizeMermaidDiagrams(container);
+            el.appendChild(container);
+            el.setAttribute('data-rendered', newEncoded);
+          } catch (e) {
           el.textContent = code;
           el.removeAttribute('data-rendered');
         }
@@ -3602,23 +3603,53 @@ export default {
 }
 
 .editor-content :deep(.mermaid-container) {
-  position: relative;
-  margin: 15px 0;
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  overflow-x: auto;
-  text-align: center;
-}
+    position: relative;
+    margin: 20px 0;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    overflow-x: auto;
+    text-align: center;
+    transition: all 0.3s ease;
+  }
 
 .editor-content :deep(.mermaid-container svg) {
   max-width: 100%;
   height: auto;
+  overflow: visible !important;
 }
 
-.wysiwyg-editor.dark-mode .editor-content :deep(.mermaid-container) {
-  background: #2d2d2d;
+.editor-content :deep(.mermaid-container svg foreignObject div),
+.editor-content :deep(.mermaid-container svg foreignObject span),
+.editor-content :deep(.mermaid-container svg foreignObject p) {
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  white-space: pre !important;
+  line-height: 1.2 !important;
+  font-size: 14px !important;
 }
+
+.editor-content :deep(.mermaid-container svg foreignObject div),
+.editor-content :deep(.mermaid-container svg foreignObject span),
+.editor-content :deep(.mermaid-container svg foreignObject p) {
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: center !important;
+}
+
+.editor-content :deep(.mermaid-container svg foreignObject) {
+  overflow: visible !important;
+}
+
+.editor-content :deep(.mermaid-container svg .nodeLabel),
+.editor-content :deep(.mermaid-container svg .edgeLabel),
+.editor-content :deep(.mermaid-container svg .labelBkg) {
+    overflow: visible !important;
+  }
+  
+.wysiwyg-editor.dark-mode .editor-content :deep(.mermaid-container) {
+    background: #2d2d2d;
+  }
 
 /* 暗色模式表格 */
 .wysiwyg-editor.dark-mode .editor-content :deep(table) {

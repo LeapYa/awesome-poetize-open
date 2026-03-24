@@ -160,7 +160,7 @@
     <el-dialog :title="dialogTitle"
                :visible.sync="showDialog"
                width="30%"
-               :before-close="clearDialog"
+               :before-close="closeDialog"
                :append-to-body="true"
                custom-class="centered-dialog"
                :close-on-click-modal="false"
@@ -456,6 +456,10 @@ const proButton = () => import( "./common/proButton");
         document.querySelector("#loginAndRegist").classList.add('right-panel-active');
       },
       signIn() {
+        if (this.$common.isEmpty(this.account) && !this.$common.isEmpty(this.username)) {
+          this.account = this.username.trim();
+        }
+
         document.querySelector("#loginAndRegist").classList.remove('right-panel-active');
       },
       showLoginVerify() {
@@ -807,6 +811,13 @@ const proButton = () => import( "./common/proButton");
       checkParams(params) {
         if (this.dialogTitle === "修改手机号" || this.dialogTitle === "绑定手机号" || (this.dialogTitle === "找回密码" && this.passwordFlag === 1)) {
           params.flag = 1;
+          if (this.dialogTitle === "找回密码") {
+            if (this.$common.isEmpty(this.username)) {
+              this.$message.error("请输入用户名！");
+              return false;
+            }
+            params.username = this.username.trim();
+          }
           if (this.$common.isEmpty(this.phoneNumber)) {
             this.$message({
               message: "请输入手机号！",
@@ -825,6 +836,13 @@ const proButton = () => import( "./common/proButton");
           return true;
         } else if (this.dialogTitle === "修改邮箱" || this.dialogTitle === "绑定邮箱" || this.dialogTitle === "邮箱验证码" || (this.dialogTitle === "找回密码" && this.passwordFlag === 2)) {
           params.flag = 2;
+          if (this.dialogTitle === "找回密码") {
+            if (this.$common.isEmpty(this.username)) {
+              this.$message.error("请输入用户名！");
+              return false;
+            }
+            params.username = this.username.trim();
+          }
           if (this.$common.isEmpty(this.email)) {
             this.$message({
               message: "请输入邮箱！",
@@ -1006,11 +1024,9 @@ const proButton = () => import( "./common/proButton");
             return;
           }
           
-          // 确定操作类型
-          let action = 'reset_password';
-          if (this.dialogTitle !== "找回密码" && this.dialogTitle !== "邮箱验证码") {
-            action = 'register';  // 或其他适当的操作类型
-          }
+          // 用业务类型而不是标题文案决定验证码动作，避免“邮箱验证码”串到找回密码流程
+          const verificationPurpose = this.getVerificationPurpose();
+          const action = verificationPurpose === "forgetPassword" ? "reset_password" : "register";
           
           
           // 检查是否需要验证码
@@ -1028,6 +1044,7 @@ const proButton = () => import( "./common/proButton");
               this.captchaAction = action;
               this.verifyParams = {
                 ...params,
+                verificationPurpose,
                 dialogTitle: currentDialogTitle
               };
               
@@ -1040,6 +1057,7 @@ const proButton = () => import( "./common/proButton");
               // 不需要验证码，直接发送验证码
               this.sendVerificationCode({
                 ...params,
+                verificationPurpose,
                 dialogTitle: this.dialogTitle
               });
             }
@@ -1058,17 +1076,21 @@ const proButton = () => import( "./common/proButton");
         
         // 提取出保存的对话框标题
         const savedDialogTitle = params.dialogTitle;
+        const verificationPurpose = params.verificationPurpose;
         
-        // 从params中移除我们添加的dialogTitle属性，避免发送到后端API
+        // 从params中移除前端内部辅助字段，避免发送到后端API
         delete params.dialogTitle;
+        delete params.verificationPurpose;
         
         // 如果有验证令牌，添加到参数中
         if (params.verificationToken) {
         }
         
         let url;
-        if (savedDialogTitle === "找回密码" || savedDialogTitle === "邮箱验证码") {
+        if (verificationPurpose === "forgetPassword") {
           url = "/user/getCodeForForgetPassword";
+        } else if (verificationPurpose === "register") {
+          url = "/user/getCodeForRegister";
         } else {
           url = "/user/getCodeForBind";
         }
@@ -1111,6 +1133,28 @@ const proButton = () => import( "./common/proButton");
             this.codeString = (parseInt(this.codeString) - 1) + "";
           }
         }, 1000);
+      },
+      getVerificationPurpose() {
+        if (this.dialogTitle === "找回密码") {
+          return "forgetPassword";
+        }
+
+        if (this.dialogTitle === "邮箱验证码") {
+          return this.passwordFlag === 2 ? "forgetPassword" : "register";
+        }
+
+        return "bindOrUpdate";
+      },
+      closeDialog(done) {
+        this.showDialog = false;
+        this.code = "";
+        this.dialogTitle = "";
+        this.passwordFlag = null;
+        this.avatar = "";
+
+        if (typeof done === "function") {
+          done();
+        }
       },
       clearDialog() {
         this.password = "";
@@ -1411,6 +1455,11 @@ const proButton = () => import( "./common/proButton");
     /* 性能优化: 有位移动画 */
     transition: transform 0.5s ease-in-out, left 0.5s ease-in-out;
     will-change: transform, left;
+  }
+
+  .overlay-panel p,
+  .overlay-panel h1 {
+    color: var(--white);
   }
 
   .overlay-right {

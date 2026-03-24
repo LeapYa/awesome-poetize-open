@@ -726,6 +726,60 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    public PoetryResult getCodeForRegister(String place, Integer flag) {
+        String filteredPlace = null;
+        if (StringUtils.hasText(place)) {
+            if (flag == 2) {
+                filteredPlace = place.trim();
+                if (!filteredPlace.matches("^[\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,}$")) {
+                    return PoetryResult.fail("邮箱格式不正确！");
+                }
+            } else {
+                filteredPlace = XssFilterUtil.clean(place);
+                if (!StringUtils.hasText(filteredPlace)) {
+                    return PoetryResult.fail("输入内容不合法！");
+                }
+            }
+        }
+
+        int i = generateVerificationCode();
+        if (flag == 1) {
+            return PoetryResult.fail("暂不支持手机号验证码，请使用邮箱验证码");
+        } else if (flag == 2) {
+            Long count = lambdaQuery().eq(User::getEmail, filteredPlace).count();
+            if (count != 0) {
+                return PoetryResult.fail("邮箱重复！");
+            }
+
+            List<String> mail = new ArrayList<>();
+            mail.add(filteredPlace);
+            String text = getCodeMail(i);
+            WebInfo webInfo = cacheService.getCachedWebInfo();
+
+            if (mailUtil == null || !mailUtil.isEmailConfigured()) {
+                return PoetryResult.fail("邮箱服务未配置，请联系管理员在后台设置邮箱配置");
+            }
+
+            String countKey = CacheConstants.buildCodeMailCountKey(mail.get(0));
+            Object countObj = cacheService.get(countKey);
+            Integer mailCount = countObj != null ? (Integer) countObj : 0;
+
+            if (mailCount < CommonConst.CODE_MAIL_COUNT) {
+                mailUtil.sendMailMessage(mail, "您有一封来自" + (webInfo == null ? "POETIZE" : webInfo.getWebName()) + "的回执！",
+                        text);
+                cacheService.set(countKey, mailCount + 1, CommonConst.CODE_EXPIRE);
+            } else {
+                return PoetryResult.fail("验证码发送次数过多，请明天再试！");
+            }
+
+            String registerCodeKey = CacheConstants.buildForgetPasswordKey(filteredPlace, String.valueOf(flag));
+            cacheService.set(registerCodeKey, i, 300);
+            return PoetryResult.success();
+        }
+        return PoetryResult.fail("参数异常！");
+    }
+
+    @Override
     public PoetryResult getCodeForBind(String place, Integer flag) {
         // XSS过滤处理（仅对非邮箱地址进行过滤）
         String filteredPlace = null;

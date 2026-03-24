@@ -223,7 +223,7 @@
 
 <script>
 import { renderMarkdown } from '@/utils/markdownLazyRenderer';
-import { loadMermaidResources } from '@/utils/resourceLoaders/mermaidLoader';
+import { loadMermaidResources, normalizeMermaidDiagrams } from '@/utils/resourceLoaders/mermaidLoader';
 import { loadEChartsResources } from '@/utils/resourceLoaders/echartsLoader';
 import { parseEChartsOption } from '@/utils/echartsOptionParser';
 import { downgradeMarkdownHeadings, upgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
@@ -274,6 +274,7 @@ export default {
       historyNextMode: null,
       canUndo: false,
       canRedo: false,
+      helpDialogVisible: false,
       isBootstrapped: false,
       bootstrapHandle: null
     };
@@ -609,14 +610,42 @@ export default {
       if (content.includes('```mermaid')) {
         const hasMermaid = await loadMermaidResources();
         if (hasMermaid && window.mermaid) {
-          try {
-            // 找到所有 .mermaid 容器
-            const mermaidDivs = previewEl.querySelectorAll('.mermaid');
-            if (mermaidDivs.length > 0) {
-              window.mermaid.init(undefined, mermaidDivs);
+          const mermaidDivs = previewEl.querySelectorAll('.mermaid');
+          for (let i = 0; i < mermaidDivs.length; i++) {
+            const el = mermaidDivs[i];
+            const encoded = el.getAttribute('data-source');
+            let code = '';
+            if (encoded) {
+              try {
+                code = decodeURIComponent(encoded);
+              } catch (e) {
+                code = '';
+              }
             }
-          } catch (e) {
-            console.error('Mermaid render error:', e);
+            if (!code) {
+              code = el.textContent || '';
+            }
+            code = String(code).replace(/\s+$/, '');
+            if (!code.trim()) continue;
+
+            const newEncoded = encodeURIComponent(code);
+            if (el.getAttribute('data-rendered') === newEncoded) continue;
+
+            el.setAttribute('data-source', newEncoded);
+            el.innerHTML = '';
+
+              try {
+                const id = `split-mermaid-${Date.now()}-${i}`;
+                const { svg } = await window.mermaid.render(id, code);
+                el.classList.add('mermaid-container');
+                el.innerHTML = svg;
+                normalizeMermaidDiagrams(el);
+                el.setAttribute('data-rendered', newEncoded);
+              } catch (e) {
+              console.error('Mermaid render error:', e);
+              el.textContent = code;
+              el.removeAttribute('data-rendered');
+            }
           }
         }
       }
@@ -1390,7 +1419,6 @@ function computeLineStartOffset(lines, lineIndex) {
 .preview-pane :deep(.entry-content li),
 .preview-pane :deep(.entry-content blockquote),
 .preview-pane :deep(.entry-content a),
-.preview-pane :deep(.entry-content span),
 .preview-pane :deep(.entry-content td),
 .preview-pane :deep(.entry-content th) {
   min-width: 0;
@@ -1448,8 +1476,7 @@ function computeLineStartOffset(lines, lineIndex) {
 /* 段落和通用文本 */
 .split-preview-editor.dark-mode .preview-pane :deep(.entry-content),
 .split-preview-editor.dark-mode .preview-pane :deep(.entry-content p),
-.split-preview-editor.dark-mode .preview-pane :deep(.entry-content li),
-.split-preview-editor.dark-mode .preview-pane :deep(.entry-content span) {
+.split-preview-editor.dark-mode .preview-pane :deep(.entry-content li) {
   color: #d4d4d4;
 }
 
@@ -1533,11 +1560,53 @@ function computeLineStartOffset(lines, lineIndex) {
 }
 
 /* Mermaid 图表 */
-.split-preview-editor.dark-mode .preview-pane :deep(.mermaid) {
-  background: #2d2d2d;
+.split-preview-editor.dark-mode .preview-pane :deep(.mermaid-container) {
+    background: #2d2d2d;
+  }
+
+.preview-pane :deep(.mermaid-container) {
+    margin: 20px 0;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    overflow-x: auto;
+    text-align: center;
+    transition: all 0.3s ease;
+  }
+ 
+.preview-pane :deep(.mermaid-container svg foreignObject div),
+.preview-pane :deep(.mermaid-container svg foreignObject span),
+.preview-pane :deep(.mermaid-container svg foreignObject p) {
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  white-space: pre !important;
+  line-height: 1.2 !important;
+  font-size: 14px !important;
 }
 
-/* 滚动条美化 */
+.preview-pane :deep(.mermaid-container svg foreignObject div),
+.preview-pane :deep(.mermaid-container svg foreignObject span),
+.preview-pane :deep(.mermaid-container svg foreignObject p) {
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: center !important;
+}
+
+.preview-pane :deep(.mermaid-container svg) {
+    overflow: visible !important;
+  }
+  
+.preview-pane :deep(.mermaid-container svg foreignObject) {
+    overflow: visible !important;
+  }
+  
+.preview-pane :deep(.mermaid-container svg .nodeLabel),
+.preview-pane :deep(.mermaid-container svg .edgeLabel),
+.preview-pane :deep(.mermaid-container svg .labelBkg) {
+    overflow: visible !important;
+  }
+  
+  /* 滚动条美化 */
 .editor-textarea::-webkit-scrollbar,
 .preview-pane::-webkit-scrollbar {
   width: 6px;

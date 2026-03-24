@@ -610,21 +610,18 @@ body .split-preview-editor .entry-content i:not(.fa):not([class^="el-icon"]):not
 .vditor-reset td,
 .vditor-reset th,
 .vditor-reset a,
-.vditor-reset span,
 .entry-content p,
 .entry-content li,
 .entry-content blockquote,
 .entry-content td,
 .entry-content th,
 .entry-content a,
-.entry-content span,
 .editor-heading-styles p,
 .editor-heading-styles li,
 .editor-heading-styles blockquote,
 .editor-heading-styles td,
 .editor-heading-styles th,
-.editor-heading-styles a,
-.editor-heading-styles span {
+.editor-heading-styles a {
   max-width: 100%;
   overflow-wrap: anywhere;
   word-break: break-word;

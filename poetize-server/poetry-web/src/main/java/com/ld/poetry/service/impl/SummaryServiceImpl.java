@@ -26,6 +26,9 @@ import java.util.*;
 @Slf4j
 public class SummaryServiceImpl implements SummaryService {
 
+    private static final SummaryTaskResult SUCCESS_RESULT = new SummaryTaskResult("success", "AI摘要已生成", false);
+    private static final SummaryTaskResult SKIPPED_RESULT = new SummaryTaskResult("skipped", "无需生成摘要", false);
+
     @Autowired
     @Lazy
     private ArticleService articleService;
@@ -44,20 +47,20 @@ public class SummaryServiceImpl implements SummaryService {
     private LlmTranslationService llmTranslationService;
 
     @Override
-    public void generateAndSaveSummary(Integer articleId) {
+    public SummaryTaskResult generateAndSaveSummary(Integer articleId, SummaryProgressListener progressListener) {
 
         try {
             // 获取文章内容
             Article article = articleService.getById(articleId);
             if (article == null) {
                 log.warn("文章{}不存在，跳过摘要生成", articleId);
-                return;
+                return SKIPPED_RESULT;
             }
 
             // 检查文章内容是否为空
             if (!StringUtils.hasText(article.getArticleContent())) {
                 log.warn("文章{}内容为空，跳过摘要生成", articleId);
-                return;
+                return SKIPPED_RESULT;
             }
 
             // 获取源语言配置
@@ -72,40 +75,42 @@ public class SummaryServiceImpl implements SummaryService {
 
             if (languageContents.isEmpty()) {
                 log.warn("文章{}没有任何语言内容，跳过摘要生成", articleId);
-                return;
+                return SKIPPED_RESULT;
             }
 
             // 生成多语言摘要
             Map<String, String> summaries = generateMultiLangSummarySync(
-                    articleId, languageContents);
+                    articleId, languageContents, progressListener);
 
             if (summaries == null || summaries.isEmpty()) {
                 log.error("文章{}摘要生成失败，返回空结果", articleId);
-                return;
+                return new SummaryTaskResult("failed", "AI摘要生成失败", true);
             }
 
             // 保存摘要到数据库
             saveMultiLangSummaries(articleId, summaries, sourceLanguage);
+            return SUCCESS_RESULT;
 
         } catch (Exception e) {
             log.error("文章{}摘要生成失败，错误: {}", articleId, e.getMessage(), e);
+            return buildFailureResult(e);
         }
     }
 
     @Override
-    public void updateSummary(Integer articleId, String content) {
+    public SummaryTaskResult updateSummary(Integer articleId, String content, SummaryProgressListener progressListener) {
 
         try {
             if (!StringUtils.hasText(content)) {
                 log.warn("文章{}内容为空，跳过摘要更新", articleId);
-                return;
+                return SKIPPED_RESULT;
             }
 
             // 获取文章
             Article article = articleService.getById(articleId);
             if (article == null) {
                 log.warn("文章{}不存在，跳过摘要更新", articleId);
-                return;
+                return SKIPPED_RESULT;
             }
 
             // 获取源语言配置
@@ -120,23 +125,25 @@ public class SummaryServiceImpl implements SummaryService {
 
             if (languageContents.isEmpty()) {
                 log.warn("文章{}没有任何语言内容，跳过摘要更新", articleId);
-                return;
+                return SKIPPED_RESULT;
             }
 
             // 生成多语言摘要
             Map<String, String> summaries = generateMultiLangSummarySync(
-                    articleId, languageContents);
+                    articleId, languageContents, progressListener);
 
             if (summaries == null || summaries.isEmpty()) {
                 log.error("文章{}摘要更新失败，返回空结果", articleId);
-                return;
+                return new SummaryTaskResult("failed", "AI摘要更新失败", true);
             }
 
             // 保存摘要到数据库
             saveMultiLangSummaries(articleId, summaries, sourceLanguage);
+            return SUCCESS_RESULT;
 
         } catch (Exception e) {
             log.error("文章{}摘要更新失败，错误: {}", articleId, e.getMessage(), e);
+            return buildFailureResult(e);
         }
     }
 
@@ -212,21 +219,37 @@ public class SummaryServiceImpl implements SummaryService {
      * @return 语言代码 -> 摘要 映射
      */
     private Map<String, String> generateMultiLangSummarySync(
-            Integer articleId, Map<String, Map<String, String>> languageContents) {
-
-        // 1. 首先尝试使用 LLM AI 服务生成多语言摘要
-        try {
-            Map<String, String> aiSummaries = llmTranslationService.generateMultiLangSummary(
-                    articleId, languageContents, 150);
-            if (aiSummaries != null && !aiSummaries.isEmpty()) {
-                log.info("AI多语言摘要生成成功，文章ID={}，包含{}个语言", articleId, aiSummaries.size());
-                return aiSummaries;
-            }
-        } catch (Exception e) {
-            log.warn("AI多语言摘要生成失败，回退到本地算法: {}", e.getMessage());
+            Integer articleId, Map<String, Map<String, String>> languageContents,
+            SummaryProgressListener progressListener) throws java.util.concurrent.TimeoutException {
+        if (isTextrankSummaryMode()) {
+            return generateLocalSummaries(languageContents);
         }
 
-        // 2. 回退到本地算法：对每个语言分别生成摘要
+        Map<String, String> aiSummaries = llmTranslationService.generateMultiLangSummary(
+                articleId, languageContents, 150, progressListener);
+        if (aiSummaries != null && !aiSummaries.isEmpty()) {
+            log.info("AI多语言摘要生成成功，文章ID={}，包含{}个语言", articleId, aiSummaries.size());
+            return aiSummaries;
+        }
+
+        throw new IllegalStateException("AI摘要生成失败");
+    }
+
+    private boolean isTextrankSummaryMode() {
+        try {
+            var config = sysAiConfigService.getArticleAiConfigInternal("default");
+            if (config == null || !StringUtils.hasText(config.getSummaryConfig())) {
+                return false;
+            }
+            var summaryJson = com.alibaba.fastjson.JSON.parseObject(config.getSummaryConfig());
+            return "textrank".equalsIgnoreCase(summaryJson.getString("summaryMode"));
+        } catch (Exception e) {
+            log.warn("解析摘要模式失败，按 AI 摘要处理: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private Map<String, String> generateLocalSummaries(Map<String, Map<String, String>> languageContents) {
         Map<String, String> localSummaries = new HashMap<>();
         for (Map.Entry<String, Map<String, String>> entry : languageContents.entrySet()) {
             String langCode = entry.getKey();
@@ -241,7 +264,6 @@ public class SummaryServiceImpl implements SummaryService {
                 log.error("本地算法生成{}语言摘要失败: {}", langCode, e.getMessage());
             }
         }
-
         return localSummaries;
     }
 
@@ -286,5 +308,12 @@ public class SummaryServiceImpl implements SummaryService {
                 log.warn("未找到文章{}的{}语言翻译记录，跳过摘要保存", articleId, langCode);
             }
         }
+    }
+
+    private SummaryTaskResult buildFailureResult(Exception e) {
+        if (e instanceof java.util.concurrent.TimeoutException) {
+            return new SummaryTaskResult("timeout", "AI摘要生成超时", true);
+        }
+        return new SummaryTaskResult("failed", "AI摘要生成失败", true);
     }
 }

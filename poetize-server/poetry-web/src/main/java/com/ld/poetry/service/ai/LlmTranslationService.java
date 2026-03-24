@@ -3,6 +3,7 @@ package com.ld.poetry.service.ai;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.ld.poetry.entity.SysAiConfig;
+import com.ld.poetry.service.SummaryService;
 import com.ld.poetry.service.TranslationService;
 import com.ld.poetry.service.SysAiConfigService;
 import com.ld.poetry.utils.ToonFormatter;
@@ -21,6 +22,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.time.Duration;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * LLM 翻译与摘要服务
@@ -240,11 +246,11 @@ public class LlmTranslationService {
                         """, maxLength, content);
             }
 
-            String response = ChatClient.create(chatModel)
+            String response = executeSummaryWithTimeout(config, () -> ChatClient.create(chatModel)
                     .prompt()
                     .user(prompt)
                     .call()
-                    .content();
+                    .content());
 
             if (response != null && !response.isBlank()) {
                 String summary = response.trim();
@@ -258,6 +264,9 @@ public class LlmTranslationService {
 
             return null;
 
+        } catch (TimeoutException e) {
+            log.error("AI 摘要生成超时: {}", e.getMessage(), e);
+            throw new RuntimeException(e);
         } catch (Exception e) {
             log.error("AI 摘要生成失败: {}", e.getMessage(), e);
             return null;
@@ -273,7 +282,13 @@ public class LlmTranslationService {
      * @return 各语言摘要 { langCode -> summary }，失败返回 null
      */
     public Map<String, String> generateMultiLangSummary(
-            Integer articleId, Map<String, Map<String, String>> languageContents, int maxLength) {
+            Integer articleId, Map<String, Map<String, String>> languageContents, int maxLength) throws TimeoutException {
+        return generateMultiLangSummary(articleId, languageContents, maxLength, null);
+    }
+
+    public Map<String, String> generateMultiLangSummary(
+            Integer articleId, Map<String, Map<String, String>> languageContents, int maxLength,
+            SummaryService.SummaryProgressListener progressListener) throws TimeoutException {
         try {
             SysAiConfig config = sysAiConfigService.getArticleAiConfigInternal("default");
             if (config == null) {
@@ -355,11 +370,8 @@ public class LlmTranslationService {
                         maxLength, sourceContent, toonExample);
             }
 
-            String response = ChatClient.create(chatModel)
-                    .prompt()
-                    .user(prompt)
-                    .call()
-                    .content();
+            String response = executeSummaryWithTimeout(config,
+                    () -> streamSummaryAttempt(chatModel, prompt, resolveSummaryTimeoutSeconds(config), progressListener));
 
             if (response == null || response.isBlank()) {
                 log.warn("多语言摘要 LLM 返回空结果");
@@ -369,6 +381,9 @@ public class LlmTranslationService {
             // 解析响应（先尝试 TOON，再 JSON 兜底）
             return parseMultiLangSummaryResponse(response, languageContents, maxLength);
 
+        } catch (TimeoutException e) {
+            log.error("多语言摘要生成超时, 文章ID={}: {}", articleId, e.getMessage(), e);
+            throw e;
         } catch (Exception e) {
             log.error("多语言摘要生成失败, 文章ID={}: {}", articleId, e.getMessage(), e);
             return null;
@@ -560,6 +575,133 @@ public class LlmTranslationService {
                 finalView.content().trim(),
                 finalView.titleClosed(),
                 finalView.contentClosed());
+    }
+
+    private String executeSummaryWithTimeout(SysAiConfig config, SummaryCall call) throws TimeoutException {
+        int timeoutSeconds = resolveSummaryTimeoutSeconds(config);
+        try (var executor = Executors.newThreadPerTaskExecutor(Thread.ofVirtual().factory())) {
+            Future<String> future = executor.submit(call::execute);
+            try {
+                return future.get(timeoutSeconds, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                future.cancel(true);
+                throw new TimeoutException("摘要调用超过 " + timeoutSeconds + " 秒未完成");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("摘要调用被中断", e);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (containsTimeout(cause)) {
+                    throw new TimeoutException("摘要调用超过 " + timeoutSeconds + " 秒未完成");
+                }
+                if (cause instanceof RuntimeException runtimeException) {
+                    throw runtimeException;
+                }
+                throw new RuntimeException("摘要调用失败", cause);
+            }
+        }
+    }
+
+    private int resolveSummaryTimeoutSeconds(SysAiConfig config) {
+        final int defaultTimeoutSeconds = 45;
+        try {
+            if (config == null) {
+                return defaultTimeoutSeconds;
+            }
+
+            if (config.getSummaryConfig() != null) {
+                JSONObject summaryJson = JSON.parseObject(config.getSummaryConfig());
+                Integer summaryTimeout = readPositiveTimeout(summaryJson, "timeout");
+                if (summaryTimeout != null) {
+                    return summaryTimeout;
+                }
+
+                JSONObject dedicatedLlm = summaryJson.getJSONObject("dedicated_llm");
+                Integer dedicatedTimeout = readPositiveTimeout(dedicatedLlm, "timeout");
+                if (dedicatedTimeout != null) {
+                    return dedicatedTimeout;
+                }
+            }
+
+            if (config.getLlmConfig() != null) {
+                Integer llmTimeout = readPositiveTimeout(JSON.parseObject(config.getLlmConfig()), "timeout");
+                if (llmTimeout != null) {
+                    return llmTimeout;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("解析摘要超时配置失败，使用默认值 {} 秒: {}", defaultTimeoutSeconds, e.getMessage());
+        }
+        return defaultTimeoutSeconds;
+    }
+
+    private Integer readPositiveTimeout(JSONObject jsonObject, String key) {
+        if (jsonObject == null) {
+            return null;
+        }
+        Integer timeout = jsonObject.getInteger(key);
+        return timeout != null && timeout > 0 ? timeout : null;
+    }
+
+    private boolean containsTimeout(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof TimeoutException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private String streamSummaryAttempt(ChatModel chatModel, String prompt, int timeoutSeconds,
+            SummaryService.SummaryProgressListener progressListener) {
+        Prompt summaryPrompt = new Prompt(List.of(new UserMessage(prompt)));
+        StringBuilder rawBuffer = new StringBuilder();
+        emitSummaryProgress(progressListener, "start", Map.of(
+                "message", "开始流式生成AI摘要...",
+                "currentLength", 0));
+
+        Flux<ChatResponse> flux = chatModel.stream(summaryPrompt)
+                .timeout(Duration.ofSeconds(Math.max(10, Math.min(timeoutSeconds, 45))));
+
+        flux.doOnNext(chatResponse -> {
+            if (chatResponse == null || chatResponse.getResult() == null || chatResponse.getResult().getOutput() == null) {
+                return;
+            }
+
+            String text = chatResponse.getResult().getOutput().getText();
+            if (text == null || text.isEmpty()) {
+                return;
+            }
+
+            rawBuffer.append(text);
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("delta", text);
+            payload.put("currentLength", rawBuffer.length());
+            payload.put("preview", rawBuffer.length() <= 4000
+                    ? rawBuffer.toString()
+                    : rawBuffer.substring(rawBuffer.length() - 4000));
+            emitSummaryProgress(progressListener, "summary_delta", payload);
+        }).blockLast();
+
+        emitSummaryProgress(progressListener, "complete", Map.of(
+                "message", "AI摘要流式生成完成",
+                "currentLength", rawBuffer.length()));
+        return rawBuffer.toString();
+    }
+
+    private void emitSummaryProgress(SummaryService.SummaryProgressListener progressListener, String eventName,
+            Map<String, Object> payload) {
+        if (progressListener == null) {
+            return;
+        }
+        progressListener.onEvent(eventName, payload);
+    }
+
+    @FunctionalInterface
+    private interface SummaryCall {
+        String execute();
     }
 
     private void emitTranslationDelta(String eventName, String previous, String current,

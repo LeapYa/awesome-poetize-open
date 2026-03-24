@@ -36,6 +36,8 @@ public interface UserService extends IService<User> {
 
     PoetryResult getCode(Integer flag);
 
+    PoetryResult getCodeForRegister(String place, Integer flag);
+
     PoetryResult getCodeForBind(String place, Integer flag);
 
     PoetryResult<UserVO> updateSecretInfo(String place, Integer flag, String code, String password);

@@ -51,6 +51,18 @@ export function setActivePlugin(vm, row) {
         clearEditorThemeCache();
         initEditorTheme();
       }
+      if (vm.currentPluginType === 'editor') {
+        try {
+          window.localStorage.setItem('activeEditorPluginKey', row.pluginKey);
+        } catch (error) {}
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          window.dispatchEvent(new CustomEvent('editor-plugin-changed', {
+            detail: {
+              editorKey: row.pluginKey
+            }
+          }));
+        }
+      }
     } else {
       vm.$message.error(res.message || '设置失败');
     }

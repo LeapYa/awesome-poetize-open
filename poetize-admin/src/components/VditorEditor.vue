@@ -865,8 +865,11 @@ body > .vditor-editor-isolate {
   position: relative !important;
   word-break: break-word !important;
   text-align: center !important;
-  background: rgba(255, 165, 0, 0.05) !important;
-  border-left: 4px solid orange !important;
+  background: transparent !important;
+  border-left: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: var(--articleFontColor, inherit) !important;
 }
 
 ::v-deep .vditor-reset blockquote:before {

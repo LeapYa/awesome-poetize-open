@@ -290,6 +290,26 @@ public class UserController {
     }
 
     /**
+     * 注册获取验证码（未登录用户）
+     * <p>
+     * 1 手机号
+     * 2 邮箱
+     *
+     * 限流规则（分层递进）：
+     * - 目标维度：1次/60秒（核心规则，同一邮箱/手机60秒只能发一次）
+     * - 指纹维度：10次/小时（防止换目标批量攻击）
+     */
+    @GetMapping("/getCodeForRegister")
+    @SaveCheck
+    @RateLimits({
+            @RateLimit(name = "sendCode:target", count = 1, time = 60, keyType = KeyType.CUSTOM, key = "#place", message = "该邮箱/手机号验证码发送过于频繁，请60秒后再试"),
+            @RateLimit(name = "sendCode:fp", count = 10, time = 3600, keyType = KeyType.FINGERPRINT, message = "验证码发送次数过多，请1小时后再试")
+    })
+    public PoetryResult getCodeForRegister(@RequestParam("place") String place, @RequestParam("flag") Integer flag) {
+        return userService.getCodeForRegister(place, flag);
+    }
+
+    /**
      * 绑定手机号或者邮箱
      * <p>
      * 1 手机号

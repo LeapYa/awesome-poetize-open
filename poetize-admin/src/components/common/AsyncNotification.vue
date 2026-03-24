@@ -39,7 +39,12 @@ export default {
     return {
       notifications: [],
       pollTimers: {}, // 存储每个任务的轮询定时器
-      streamControllers: {} // 存储每个任务的流式请求控制器
+      streamControllers: {}, // 存储每个任务的流式请求控制器
+      streamHeartbeatTimers: {},
+      streamReconnectTimers: {},
+      streamReconnectAttempts: {},
+      streamHeartbeatTimeoutMs: 25000,
+      maxStreamReconnectAttempts: 2
     }
   },
   mounted() {
@@ -47,6 +52,9 @@ export default {
     if (!this.$constant && this.$parent && this.$parent.$constant) {
       this.$constant = this.$parent.$constant;
     }
+  },
+  beforeDestroy() {
+    this.clearAllNotifications();
   },
   methods: {
     /**
@@ -155,6 +163,13 @@ export default {
         if (controller) controller.abort();
       });
       this.streamControllers = {};
+      Object.keys(this.streamHeartbeatTimers).forEach(taskId => {
+        this.clearStreamHeartbeat(taskId);
+      });
+      Object.keys(this.streamReconnectTimers).forEach(taskId => {
+        this.clearStreamReconnect(taskId);
+      });
+      this.streamReconnectAttempts = {};
     },
     
     /**
@@ -197,12 +212,13 @@ export default {
         return;
       }
 
-      this.stopStream(taskId);
+      this.stopStream(taskId, { preserveReconnectState: true });
 
       const baseURL = this.getBaseURL();
       const headers = this.getAuthHeaders();
       const controller = new AbortController();
       this.streamControllers[taskId] = controller;
+      this.armStreamHeartbeat(taskId);
 
       fetch(`${baseURL}/article/streamArticleSaveStatus?taskId=${encodeURIComponent(taskId)}`, {
         method: 'GET',
@@ -214,21 +230,30 @@ export default {
         if (!response.ok || !response.body) {
           throw new Error('任务流式订阅失败');
         }
+        this.streamReconnectAttempts[taskId] = 0;
+        this.armStreamHeartbeat(taskId);
         return this.consumeStream(taskId, response.body.getReader());
       })
       .catch(error => {
         if (error.name !== 'AbortError') {
           console.error('任务流式订阅失败:', error);
         }
-        this.stopStream(taskId);
+        this.stopStream(taskId, { preserveReconnectState: true });
+        this.tryReconnectStream(taskId, error);
       });
     },
 
-    stopStream(taskId) {
+    stopStream(taskId, options) {
+      const preserveReconnectState = options && options.preserveReconnectState;
       const controller = this.streamControllers[taskId];
       if (controller) {
         controller.abort();
         delete this.streamControllers[taskId];
+      }
+      this.clearStreamHeartbeat(taskId);
+      if (!preserveReconnectState) {
+        this.clearStreamReconnect(taskId);
+        delete this.streamReconnectAttempts[taskId];
       }
     },
 
@@ -240,10 +265,11 @@ export default {
       while (true) {
         const { value, done } = await reader.read();
         if (done) {
-          this.stopStream(taskId);
-          break;
+          this.stopStream(taskId, { preserveReconnectState: true });
+          throw new Error('任务流已结束');
         }
 
+        this.armStreamHeartbeat(taskId);
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         if (lines[lines.length - 1] !== '') {
@@ -319,7 +345,12 @@ export default {
     },
 
     handleTaskStreamEvent(taskId, eventName, payload) {
+      this.armStreamHeartbeat(taskId);
       const terminalStatus = payload && this.isTerminalTaskStatus(payload.status);
+
+      if (eventName === 'heartbeat') {
+        return;
+      }
 
       if (eventName === 'error') {
         if (terminalStatus) {
@@ -402,10 +433,11 @@ export default {
       } else if (status.status === 'partial_success') {
         this.stopPolling(taskId);
         this.stopStream(taskId);
+        const partialMessage = status.summaryMessage || status.message || '文章已保存，但摘要未完成';
         this.updateNotificationByTaskId(taskId, {
           type: 'info',
           title: '部分完成',
-          message: status.message || '文章已保存，但翻译失败',
+          message: partialMessage,
           progress: 100,
           duration: 5000
         });
@@ -419,6 +451,81 @@ export default {
           progress: 100
         });
       }
+    },
+
+    armStreamHeartbeat(taskId) {
+      this.clearStreamHeartbeat(taskId);
+      this.streamHeartbeatTimers[taskId] = setTimeout(() => {
+        this.handleStreamHeartbeatTimeout(taskId);
+      }, this.streamHeartbeatTimeoutMs);
+    },
+
+    clearStreamHeartbeat(taskId) {
+      if (this.streamHeartbeatTimers[taskId]) {
+        clearTimeout(this.streamHeartbeatTimers[taskId]);
+        delete this.streamHeartbeatTimers[taskId];
+      }
+    },
+
+    clearStreamReconnect(taskId) {
+      if (this.streamReconnectTimers[taskId]) {
+        clearTimeout(this.streamReconnectTimers[taskId]);
+        delete this.streamReconnectTimers[taskId];
+      }
+    },
+
+    handleStreamHeartbeatTimeout(taskId) {
+      if (this.isTaskStreamSettled(taskId)) {
+        this.stopStream(taskId);
+        return;
+      }
+      this.updateNotificationByTaskId(taskId, {
+        message: '任务流连接中断，正在恢复实时进度...'
+      });
+      this.stopStream(taskId, { preserveReconnectState: true });
+    },
+
+    tryReconnectStream(taskId, error) {
+      if (!taskId || this.isTaskStreamSettled(taskId)) {
+        return;
+      }
+
+      const attempts = (this.streamReconnectAttempts[taskId] || 0) + 1;
+      this.streamReconnectAttempts[taskId] = attempts;
+      if (attempts > this.maxStreamReconnectAttempts) {
+        this.clearStreamReconnect(taskId);
+        this.updateNotificationByTaskId(taskId, {
+          message: '任务流连接中断，已切换为状态轮询同步...'
+        });
+        this.checkTaskStatus(taskId);
+        return;
+      }
+
+      const reconnectDelay = Math.min(attempts * 1500, 5000);
+      this.updateNotificationByTaskId(taskId, {
+        message: '任务流连接中断，正在恢复实时进度...'
+      });
+      this.checkTaskStatus(taskId);
+      this.clearStreamReconnect(taskId);
+      this.streamReconnectTimers[taskId] = setTimeout(() => {
+        delete this.streamReconnectTimers[taskId];
+        if (!this.isTaskStreamSettled(taskId)) {
+          this.startStream(taskId);
+        }
+      }, reconnectDelay);
+
+      if (error && error.name !== 'AbortError') {
+        console.warn('任务流准备重连:', error.message || error);
+      }
+    },
+
+    isTaskStreamSettled(taskId) {
+      const notification = this.notifications.find(n => n.taskId === taskId);
+      if (!notification) {
+        return true;
+      }
+      return notification.progress === 100
+        && (notification.type === 'success' || notification.type === 'error' || notification.type === 'info');
     },
 
     getProgressByStage(stage, status) {

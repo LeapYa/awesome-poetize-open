@@ -1348,6 +1348,10 @@ public class ApiController {
         data.put("message", status.getMessage());
         data.put("articleId", status.getArticleId());
         data.put("translationStatus", status.getTranslationStatus());
+        data.put("summaryStatus", status.getSummaryStatus());
+        data.put("summaryMessage", status.getSummaryMessage());
+        data.put("summaryReceivedChars", status.getSummaryReceivedChars());
+        data.put("summaryPreview", status.getSummaryPreview());
         data.put("translationAttempt", status.getTranslationAttempt());
         data.put("streaming", status.getStreaming());
         data.put("translatedTitlePreview", status.getTranslatedTitlePreview());

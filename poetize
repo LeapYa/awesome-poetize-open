@@ -2,7 +2,7 @@
 ## 作者: LeapYa
 ## 修改时间: 2026-03-26
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.11.7
+## 版本: 1.11.8
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.11.7"
+POETIZE_VERSION="1.11.8"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -1490,6 +1490,11 @@ show_dns_fix_guide() {
   echo -e "   - 记录值: ${GREEN}$expected_ip${NC}"
   echo "4. 保存设置后等待DNS生效（通常需要几分钟到48小时）"
   echo ""
+  echo -e "${YELLOW}如果您正在使用 Cloudflare 等 CDN 服务:${NC}"
+  echo -e "  开启 CDN 代理（如橙色云朵）会返回 CDN 节点 IP，导致校验失败。"
+  echo -e "  - 方案 A: 暂时在 DNS 控制台关闭代理状态（仅DNS），部署完成后再开启"
+  echo -e "  - 方案 B: 确认域名已指向本服务器，添加 ${GREEN}--skip-dns-check${NC} 参数重试"
+  echo ""
   echo -e "${YELLOW}提示: DNS记录修改后可能需要等待一段时间才能生效${NC}"
   echo -e "${YELLOW}您可以使用以下命令检查DNS是否生效:${NC}"
   echo -e "  dig $domain"
@@ -1600,6 +1605,9 @@ validate_dns_for_domains() {
     echo -e "${YELLOW}DNS配置不正确可能导致:${NC}"
     echo "  - HTTPS证书申请失败（Let's Encrypt需要验证域名所有权）"
     echo "  - 网站无法通过域名访问"
+    echo ""
+    echo -e "${YELLOW}重点提示: 若您使用了 Cloudflare 等 CDN 服务，开启代理会导致解析IP不匹配。${NC}"
+    echo -e "${YELLOW}          如果您确认配置无误，请在安装命令后附加 ${GREEN}--skip-dns-check${YELLOW} 参数重试。${NC}"
     echo ""
     
     # 如果指定了不询问，直接返回失败
@@ -5262,9 +5270,10 @@ init_deploy() {
       info "配置副域名为: $SECONDARY_DOMAINS 并设置301重定向"
     fi
     
-    for conf_file in docker/nginx/default.http.conf docker/nginx/default.https.conf docker/nginx/default.conf docker/nginx/default.http.conf.template docker/nginx/default.https.conf.template docker/nginx/default.conf.template; do
+    for conf_file in docker/nginx/default.http.conf docker/nginx/default.https.conf docker/nginx/default.conf; do
       if [ -f "$conf_file" ]; then
-        awk -v primary="$PRIMARY_DOMAIN" -v secondary="$SECONDARY_DOMAINS" -v all_domains="$DOMAIN_CONFIG" '
+        sed '/# AUTO_REDIRECT_SECONDARY_DOMAINS_START/,$d; /# 自动追加的副域名 301 重定向模块/,$d' "$conf_file" | \
+        awk -v primary="$PRIMARY_DOMAIN" -v secondary="$SECONDARY_DOMAINS" -v all_domains="$DOMAIN_CONFIG" -v conf_file="$conf_file" '
         {
           if ($0 ~ /valid_referers/) {
             # 修改防盗链规则允许所有配置的域名
@@ -5275,8 +5284,8 @@ init_deploy() {
             }
             print $0
           } else {
-            # 替换 server_name 占位符
-            gsub(/example\.com www\.example\.com/, primary)
+            # 主站 server_name 仅绑定主域名，副域名通过单独 server 块做 301 跳转
+            gsub(/server_name[[:space:]]+example\.com[[:space:]]+www\.example\.com;/, "server_name " primary ";")
             # 替换证书路径等单域名占位符
             gsub(/example\.com\//, primary "/")
             print $0
@@ -5285,11 +5294,19 @@ init_deploy() {
         END {
           if (secondary != "") {
             print ""
+            print "# AUTO_REDIRECT_SECONDARY_DOMAINS_START"
             print "# 自动追加的副域名 301 重定向模块"
-            if (FILENAME ~ /https/) {
+            if (conf_file ~ /https/) {
               print "server {"
               print "    listen 80;"
               print "    server_name " secondary ";"
+              print ""
+              print "    location ^~ /.well-known/acme-challenge/ {"
+              print "        root /usr/share/nginx/html;"
+              print "        allow all;"
+              print "        try_files $uri =404;"
+              print "    }"
+              print ""
               print "    return 301 https://" primary "$request_uri;"
               print "}"
               print "server {"
@@ -5306,11 +5323,19 @@ init_deploy() {
               print "server {"
               print "    listen 80;"
               print "    server_name " secondary ";"
+              print ""
+              print "    location ^~ /.well-known/acme-challenge/ {"
+              print "        root /usr/share/nginx/html;"
+              print "        allow all;"
+              print "        try_files $uri =404;"
+              print "    }"
+              print ""
               print "    return 301 http://" primary "$request_uri;"
               print "}"
             }
+            print "# AUTO_REDIRECT_SECONDARY_DOMAINS_END"
           }
-        }' "$conf_file" > "${conf_file}.tmp" && chmod 644 "${conf_file}.tmp" && mv "${conf_file}.tmp" "$conf_file"
+        }' > "${conf_file}.tmp" && chmod 644 "${conf_file}.tmp" && mv "${conf_file}.tmp" "$conf_file"
       fi
     done
 
@@ -6971,166 +6996,168 @@ default-character-set = utf8mb4
 EOF
   success "MySQL配置更新完成"
   
-  # 2. 更新docker-compose.yml中的资源限制 - 使用更简单的方法
-  info "更新Docker Compose服务资源限制..."
-  
-  # 备份docker-compose.yml
-  cp docker-compose.yml docker-compose.yml.resource_backup
-  
-  # 使用yq工具更新资源限制（如果可用）
-  if command -v yq &> /dev/null; then
-    info "使用yq工具更新资源限制..."
+  # 2. 更新docker-compose.yml中的资源限制（无.env文件时）
+  if [ ! -f "lib/config.sh" ]; then
+    info "更新Docker Compose服务资源限制..."
     
-    # 定义要更新的服务和限制
-    services=("java-backend" "python-backend" "nginx" "mysql")
-    limits=("$JAVA_LIMIT" "$PYTHON_LIMIT" "$NGINX_LIMIT" "$MYSQL_LIMIT")
+    # 备份docker-compose.yml
+    cp docker-compose.yml docker-compose.yml.resource_backup
     
-    for i in "${!services[@]}"; do
-      yq eval ".services.${services[$i]}.deploy.resources.limits.memory = \"${limits[$i]}\"" -i docker-compose.yml || true
-    done
-    
-    # 再次尝试使用poetize-前缀的服务名
-    alt_services=("poetize-java" "poetize-python" "poetize-nginx" "poetize-mysql")
-    for i in "${!alt_services[@]}"; do
-      yq eval ".services.${alt_services[$i]}.deploy.resources.limits.memory = \"${limits[$i]}\"" -i docker-compose.yml || true
-    done
-  else
-    # 如果不可用yq工具，退回到原始方法但优化
-    info "使用基本文本处理工具更新资源限制..."
-    
-    # 检查是否已有内存限制配置
-    if grep -q "memory:" docker-compose.yml; then
-      # 如果已有限制配置，使用sed直接更新内存限制值
-      info "更新已有的资源限制配置..."
-      sed_i -E "s/(poetize-java:.+memory:) [0-9]+[MG]/\1 $JAVA_LIMIT/g" docker-compose.yml
-      sed_i -E "s/(java-backend:.+memory:) [0-9]+[MG]/\1 $JAVA_LIMIT/g" docker-compose.yml
-      sed_i -E "s/(poetize-python:.+memory:) [0-9]+[MG]/\1 $PYTHON_LIMIT/g" docker-compose.yml
-      sed_i -E "s/(python-backend:.+memory:) [0-9]+[MG]/\1 $PYTHON_LIMIT/g" docker-compose.yml
-      sed_i -E "s/(poetize-nginx:.+memory:) [0-9]+[MG]/\1 $NGINX_LIMIT/g" docker-compose.yml
-      sed_i -E "s/(nginx:.+memory:) [0-9]+[MG]/\1 $NGINX_LIMIT/g" docker-compose.yml
-      sed_i -E "s/(poetize-mysql:.+memory:) [0-9]+[MG]/\1 $MYSQL_LIMIT/g" docker-compose.yml
-      sed_i -E "s/(mysql:.+memory:) [0-9]+[MG]/\1 $MYSQL_LIMIT/g" docker-compose.yml
-    else
-      # 简化的资源限制添加逻辑 - 逐个服务添加并验证
-      info "添加新的资源限制配置..."
+    # 使用yq工具更新资源限制（如果可用）
+    if command -v yq &> /dev/null; then
+      info "使用yq工具更新资源限制..."
       
-      # 定义要处理的服务
+      # 定义要更新的服务和限制
       services=("java-backend" "python-backend" "nginx" "mysql")
-      alt_services=("poetize-java" "poetize-python" "poetize-nginx" "poetize-mysql")
       limits=("$JAVA_LIMIT" "$PYTHON_LIMIT" "$NGINX_LIMIT" "$MYSQL_LIMIT")
       
-      # 对每个服务尝试添加资源限制
       for i in "${!services[@]}"; do
-        service="${services[$i]}"
-        alt_service="${alt_services[$i]}"
-        limit="${limits[$i]}"
+        yq eval ".services.${services[$i]}.deploy.resources.limits.memory = \"${limits[$i]}\"" -i docker-compose.yml || true
+      done
+      
+      # 再次尝试使用poetize-前缀的服务名
+      alt_services=("poetize-java" "poetize-python" "poetize-nginx" "poetize-mysql")
+      for i in "${!alt_services[@]}"; do
+        yq eval ".services.${alt_services[$i]}.deploy.resources.limits.memory = \"${limits[$i]}\"" -i docker-compose.yml || true
+      done
+    else
+      # 如果不可用yq工具，退回到原始方法但优化
+      info "使用基本文本处理工具更新资源限制..."
+      
+      # 检查是否已有内存限制配置
+      if grep -q "memory:" docker-compose.yml; then
+        # 如果已有限制配置，使用sed直接更新内存限制值
+        info "更新已有的资源限制配置..."
+        sed_i -E "s/(poetize-java:.+memory:) [0-9]+[MG]/\1 $JAVA_LIMIT/g" docker-compose.yml
+        sed_i -E "s/(java-backend:.+memory:) [0-9]+[MG]/\1 $JAVA_LIMIT/g" docker-compose.yml
+        sed_i -E "s/(poetize-python:.+memory:) [0-9]+[MG]/\1 $PYTHON_LIMIT/g" docker-compose.yml
+        sed_i -E "s/(python-backend:.+memory:) [0-9]+[MG]/\1 $PYTHON_LIMIT/g" docker-compose.yml
+        sed_i -E "s/(poetize-nginx:.+memory:) [0-9]+[MG]/\1 $NGINX_LIMIT/g" docker-compose.yml
+        sed_i -E "s/(nginx:.+memory:) [0-9]+[MG]/\1 $NGINX_LIMIT/g" docker-compose.yml
+        sed_i -E "s/(poetize-mysql:.+memory:) [0-9]+[MG]/\1 $MYSQL_LIMIT/g" docker-compose.yml
+        sed_i -E "s/(mysql:.+memory:) [0-9]+[MG]/\1 $MYSQL_LIMIT/g" docker-compose.yml
+      else
+        # 简化的资源限制添加逻辑 - 逐个服务添加并验证
+        info "添加新的资源限制配置..."
         
-        # 创建临时文件
-        cp docker-compose.yml docker-compose.yml.tmp
+        # 定义要处理的服务
+        services=("java-backend" "python-backend" "nginx" "mysql")
+        alt_services=("poetize-java" "poetize-python" "poetize-nginx" "poetize-mysql")
+        limits=("$JAVA_LIMIT" "$PYTHON_LIMIT" "$NGINX_LIMIT" "$MYSQL_LIMIT")
         
-        # 尝试找到服务定义行
-        service_line=$(grep -n "^  ${service}:" docker-compose.yml | head -1 | cut -d ":" -f1)
-        
-        # 如果找不到，尝试使用替代名称
-        if [ -z "$service_line" ]; then
-          service_line=$(grep -n "^  ${alt_service}:" docker-compose.yml | head -1 | cut -d ":" -f1)
-          if [ -n "$service_line" ]; then
-            service="${alt_service}"
-          fi
-        fi
-        
-        # 如果找到服务定义，添加资源限制
-        if [ -n "$service_line" ]; then
-          info "为服务 $service 添加资源限制..."
+        # 对每个服务尝试添加资源限制
+        for i in "${!services[@]}"; do
+          service="${services[$i]}"
+          alt_service="${alt_services[$i]}"
+          limit="${limits[$i]}"
           
-          # 检查是否已有deploy部分
-          if ! grep -A 10 "^  ${service}:" docker-compose.yml | grep -q "deploy:"; then
-            # 在服务定义下直接添加deploy部分
-            sed_i "${service_line}a\\    deploy:\\n      resources:\\n        limits:\\n          memory: $limit" docker-compose.yml.tmp
+          # 创建临时文件
+          cp docker-compose.yml docker-compose.yml.tmp
+          
+          # 尝试找到服务定义行
+          service_line=$(grep -n "^  ${service}:" docker-compose.yml | head -1 | cut -d ":" -f1)
+          
+          # 如果找不到，尝试使用替代名称
+          if [ -z "$service_line" ]; then
+            service_line=$(grep -n "^  ${alt_service}:" docker-compose.yml | head -1 | cut -d ":" -f1)
+            if [ -n "$service_line" ]; then
+              service="${alt_service}"
+            fi
+          fi
+          
+          # 如果找到服务定义，添加资源限制
+          if [ -n "$service_line" ]; then
+            info "为服务 $service 添加资源限制..."
             
-            # 验证修改是否有效
-            if validate_compose_file < docker-compose.yml.tmp; then
-              # 如果验证通过，应用更改
-              cp docker-compose.yml.tmp docker-compose.yml
-              success "成功为服务 $service 添加资源限制"
+            # 检查是否已有deploy部分
+            if ! grep -A 10 "^  ${service}:" docker-compose.yml | grep -q "deploy:"; then
+              # 在服务定义下直接添加deploy部分
+              sed_i "${service_line}a\\    deploy:\\n      resources:\\n        limits:\\n          memory: $limit" docker-compose.yml.tmp
+              
+              # 验证修改是否有效
+              if validate_compose_file < docker-compose.yml.tmp; then
+                # 如果验证通过，应用更改
+                cp docker-compose.yml.tmp docker-compose.yml
+                success "成功为服务 $service 添加资源限制"
+              else
+                # 验证失败，尝试其他格式
+                cp docker-compose.yml docker-compose.yml.tmp
+                # 尝试找出服务的第一个配置项
+                first_config_line=$(awk "/^  ${service}:/,/^  [a-zA-Z]/" docker-compose.yml | grep -n "    [a-zA-Z]" | head -1 | cut -d ":" -f1)
+                if [ -n "$first_config_line" ]; then
+                  # 计算行号
+                  insert_line=$((service_line + first_config_line - 1))
+                  # 在第一个配置项之前添加
+                  sed_i "${insert_line}i\\    deploy:\\n      resources:\\n        limits:\\n          memory: $limit" docker-compose.yml.tmp
+                  
+                  # 再次验证
+                  if validate_compose_file < docker-compose.yml.tmp; then
+                    cp docker-compose.yml.tmp docker-compose.yml
+                    success "成功为服务 $service 添加资源限制(插入方式)"
+                  else
+                    warning "无法为服务 $service 添加资源限制，跳过"
+                  fi
+                else
+                  warning "无法为服务 $service 添加资源限制，找不到合适的插入点"
+                fi
+              fi
             else
-              # 验证失败，尝试其他格式
-              cp docker-compose.yml docker-compose.yml.tmp
-              # 尝试找出服务的第一个配置项
-              first_config_line=$(awk "/^  ${service}:/,/^  [a-zA-Z]/" docker-compose.yml | grep -n "    [a-zA-Z]" | head -1 | cut -d ":" -f1)
-              if [ -n "$first_config_line" ]; then
-                # 计算行号
-                insert_line=$((service_line + first_config_line - 1))
-                # 在第一个配置项之前添加
-                sed_i "${insert_line}i\\    deploy:\\n      resources:\\n        limits:\\n          memory: $limit" docker-compose.yml.tmp
+              # 如果已有deploy部分，尝试更新内存限制
+              info "服务 $service 已有deploy部分，尝试更新内存限制"
+              
+              # 查找是否有memory字段
+              if grep -A 15 "^  ${service}:" docker-compose.yml | grep -q "memory:"; then
+                # 更新内存值
+                awk -v svc="$service" -v limit="$limit" '
+                BEGIN { in_svc = 0; in_deploy = 0; in_resources = 0; in_limits = 0; }
+                {
+                  if ($0 ~ "^  "svc":") in_svc = 1;
+                  else if (in_svc && $0 ~ /^  [a-zA-Z]/) in_svc = 0;
+                  
+                  if (in_svc && $0 ~ /deploy:/) in_deploy = 1;
+                  else if (in_deploy && $0 !~ /^    /) in_deploy = 0;
+                  
+                  if (in_deploy && $0 ~ /resources:/) in_resources = 1;
+                  else if (in_resources && $0 !~ /^      /) in_resources = 0;
+                  
+                  if (in_resources && $0 ~ /limits:/) in_limits = 1;
+                  else if (in_limits && $0 !~ /^        /) in_limits = 0;
+                  
+                  if (in_limits && $0 ~ /memory:/)
+                    print "          memory: " limit;
+                  else
+                    print $0;
+                }' docker-compose.yml > docker-compose.yml.tmp
                 
-                # 再次验证
+                # 验证修改
                 if validate_compose_file < docker-compose.yml.tmp; then
                   cp docker-compose.yml.tmp docker-compose.yml
-                  success "成功为服务 $service 添加资源限制(插入方式)"
+                  info "成功更新服务 $service 的内存限制"
                 else
-                  warning "无法为服务 $service 添加资源限制，跳过"
+                  warning "无法更新服务 $service 的内存限制，跳过"
                 fi
               else
-                warning "无法为服务 $service 添加资源限制，找不到合适的插入点"
+                # 需要添加memory字段
+                warning "服务 $service 有deploy部分但缺少memory配置，需手动配置"
               fi
-            fi
-          else
-            # 如果已有deploy部分，尝试更新内存限制
-            info "服务 $service 已有deploy部分，尝试更新内存限制"
-            
-            # 查找是否有memory字段
-            if grep -A 15 "^  ${service}:" docker-compose.yml | grep -q "memory:"; then
-              # 更新内存值
-              awk -v svc="$service" -v limit="$limit" '
-              BEGIN { in_svc = 0; in_deploy = 0; in_resources = 0; in_limits = 0; }
-              {
-                if ($0 ~ "^  "svc":") in_svc = 1;
-                else if (in_svc && $0 ~ /^  [a-zA-Z]/) in_svc = 0;
-                
-                if (in_svc && $0 ~ /deploy:/) in_deploy = 1;
-                else if (in_deploy && $0 !~ /^    /) in_deploy = 0;
-                
-                if (in_deploy && $0 ~ /resources:/) in_resources = 1;
-                else if (in_resources && $0 !~ /^      /) in_resources = 0;
-                
-                if (in_resources && $0 ~ /limits:/) in_limits = 1;
-                else if (in_limits && $0 !~ /^        /) in_limits = 0;
-                
-                if (in_limits && $0 ~ /memory:/)
-                  print "          memory: " limit;
-                else
-                  print $0;
-              }' docker-compose.yml > docker-compose.yml.tmp
-              
-              # 验证修改
-              if validate_compose_file < docker-compose.yml.tmp; then
-                cp docker-compose.yml.tmp docker-compose.yml
-                info "成功更新服务 $service 的内存限制"
-              else
-                warning "无法更新服务 $service 的内存限制，跳过"
-              fi
-            else
-              # 需要添加memory字段
-              warning "服务 $service 有deploy部分但缺少memory配置，需手动配置"
             fi
           fi
-        fi
-        
-        # 清理临时文件
-        rm -f docker-compose.yml.tmp
-      done
+          
+          # 清理临时文件
+          rm -f docker-compose.yml.tmp
+        done
+      fi
     fi
-  fi
-  
-  # 验证修改后的文件
-  if $DOCKER_COMPOSE_CMD config -q >/dev/null 2>&1; then
-    success "添加服务资源限制完成"
-  else
-    warning "配置文件格式错误，恢复原配置"
-    cp docker-compose.yml.resource_backup docker-compose.yml
-    rm -f docker-compose.yml.resource_backup
-    return 1
+    
+    # 验证修改后的文件
+    if $DOCKER_COMPOSE_CMD config -q >/dev/null 2>&1; then
+      success "添加服务资源限制完成"
+    else
+      warning "配置文件格式错误，恢复原配置"
+      cp docker-compose.yml.resource_backup docker-compose.yml
+      rm -f docker-compose.yml.resource_backup
+      return 1
+    fi
   fi
   
   # 3. 添加/更新Java环境变量以优化JVM内存使用
@@ -7140,10 +7167,11 @@ EOF
   local JAVA_OPTS="-Xmx$JAVA_XMX -Xms$JAVA_XMS -XX:MaxMetaspaceSize=$JAVA_METASPACE -XX:CompressedClassSpaceSize=$JAVA_CLASS_SPACE -Xss$JAVA_XSS -XX:+UseZGC -XX:+UnlockExperimentalVMOptions -XX:+ExitOnOutOfMemoryError -XX:MaxRAMPercentage=80.0 -XX:+DisableExplicitGC -XX:ReservedCodeCacheSize=$JAVA_CODE_CACHE -XX:MaxDirectMemorySize=$JAVA_DIRECT_MEM -XX:ZUncommitDelay=120 -XX:CICompilerCount=$JAVA_CI_COMPILER_COUNT"
   
   if [ -f "lib/config.sh" ]; then
-    # 新版本：更新 .env 文件
+    # 新版本：更新 .env 文件中的 JVM 参数和容器内存限制
     source "lib/config.sh"
     update_env_var "JAVA_OPTS" "$JAVA_OPTS"
-    # 同步更新容器级 mem_limit / mem_reservation env vars
+    
+    # [同步更新容器内存限制] 这些变量供 docker-compose.yml 中的 mem_limit/mem_reservation 引用
     update_env_var "JAVA_MEMORY_LIMIT" "$JAVA_LIMIT"
     update_env_var "JAVA_MEMORY_RESERVATION" "$JAVA_RESERVATION"
     update_env_var "REDIS_MEMORY_LIMIT" "$REDIS_LIMIT"

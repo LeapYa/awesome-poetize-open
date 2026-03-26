@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-03-23
+## 修改时间: 2026-03-26
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.11.5
+## 版本: 1.11.6
 
 # 定义颜色
 RED='\033[0;31m'
@@ -5240,13 +5240,75 @@ init_deploy() {
   # 设置域名
   info "更新Nginx配置中的域名..."
   if [ -n "$PRIMARY_DOMAIN" ]; then
-    # 直接使用输入的域名列表，不自动添加www版本
-    DOMAIN_CONFIG="${DOMAINS[@]}"
+    # 提取副域名
+    SECONDARY_DOMAINS=""
+    for d in "${DOMAINS[@]}"; do
+      if [ "$d" != "$PRIMARY_DOMAIN" ]; then
+        SECONDARY_DOMAINS="$SECONDARY_DOMAINS $d"
+      fi
+    done
+    if [ -n "$SECONDARY_DOMAINS" ]; then
+      SECONDARY_DOMAINS=$(echo "$SECONDARY_DOMAINS" | awk '{$1=$1;print}')
+    fi
     
-    info "配置服务器名称为: $DOMAIN_CONFIG"
-    sed_i "s/example.com www.example.com/$DOMAIN_CONFIG/g" docker/nginx/default.http.conf
-    sed_i "s/example.com www.example.com/$DOMAIN_CONFIG/g" docker/nginx/default.https.conf
-    sed_i "s/example.com www.example.com/$DOMAIN_CONFIG/g" docker/nginx/default.conf
+    DOMAIN_CONFIG="${DOMAINS[*]}"
+    
+    info "配置主域名为: $PRIMARY_DOMAIN"
+    if [ -n "$SECONDARY_DOMAINS" ]; then
+      info "配置副域名为: $SECONDARY_DOMAINS 并设置301重定向"
+    fi
+    
+    for conf_file in docker/nginx/default.http.conf docker/nginx/default.https.conf docker/nginx/default.conf docker/nginx/default.http.conf.template docker/nginx/default.https.conf.template docker/nginx/default.conf.template; do
+      if [ -f "$conf_file" ]; then
+        awk -v primary="$PRIMARY_DOMAIN" -v secondary="$SECONDARY_DOMAINS" -v all_domains="$DOMAIN_CONFIG" '
+        {
+          if ($0 ~ /valid_referers/) {
+            # 修改防盗链规则允许所有配置的域名
+            # 使用字符串查找替换，避免正则中 $ 转义问题
+            old_ref = "~\\.example\\.com$ example.com"
+            if ((pos = index($0, old_ref)) > 0) {
+              $0 = substr($0, 1, pos - 1) all_domains substr($0, pos + length(old_ref))
+            }
+            print $0
+          } else {
+            # 替换 server_name 占位符
+            gsub(/example\.com www\.example\.com/, primary)
+            # 替换证书路径等单域名占位符
+            gsub(/example\.com\//, primary "/")
+            print $0
+          }
+        }
+        END {
+          if (secondary != "") {
+            print ""
+            print "# 自动追加的副域名 301 重定向模块"
+            if (FILENAME ~ /https/) {
+              print "server {"
+              print "    listen 80;"
+              print "    server_name " secondary ";"
+              print "    return 301 https://" primary "$request_uri;"
+              print "}"
+              print "server {"
+              print "    listen 443 ssl;"
+              print "    listen 443 quic;"
+              print "    http2 on;"
+              print "    http3 on;"
+              print "    server_name " secondary ";"
+              print "    ssl_certificate /etc/letsencrypt/live/" primary "/fullchain.pem;"
+              print "    ssl_certificate_key /etc/letsencrypt/live/" primary "/privkey.pem;"
+              print "    return 301 https://" primary "$request_uri;"
+              print "}"
+            } else {
+              print "server {"
+              print "    listen 80;"
+              print "    server_name " secondary ";"
+              print "    return 301 http://" primary "$request_uri;"
+              print "}"
+            }
+          }
+        }' "$conf_file" > "${conf_file}.tmp" && chmod 644 "${conf_file}.tmp" && mv "${conf_file}.tmp" "$conf_file"
+      fi
+    done
 
     # 使用 .env 文件配置域名相关变量
     if [ -f "lib/config.sh" ]; then
@@ -5282,10 +5344,6 @@ init_deploy() {
         fi
       fi
     fi
-
-    sed_i "s/valid_referers none blocked server_names ~\.example\.com$ example.com;/valid_referers none blocked server_names $DOMAIN_CONFIG;/g" docker/nginx/default.conf
-    sed_i "s/valid_referers none blocked server_names ~\.example\.com$ example.com;/valid_referers none blocked server_names $DOMAIN_CONFIG;/g" docker/nginx/default.http.conf
-    sed_i "s/valid_referers none blocked server_names ~\.example\.com$ example.com;/valid_referers none blocked server_names $DOMAIN_CONFIG;/g" docker/nginx/default.https.conf
     
     # 根据域名类型决定是否启用"禁止IP直接访问"功能
     # 如果用户输入的是IP地址，则删除IP拦截配置；如果是域名，则保留
@@ -5324,6 +5382,8 @@ init_deploy() {
     # 使用sed替换certbot命令行certbot-entrypoint.sh
     sed_i "s|--email your-email@example.com|--email $EMAIL|g" docker/nginx/certbot-entrypoint.sh
     sed_i "s|-d example.com -d www.example.com|$DOMAINS_PARAM|g" docker/nginx/certbot-entrypoint.sh
+    # 替换DNS检查中的遗留占位域名
+    sed_i "s|check_dns \"example.com\"|check_dns \"$PRIMARY_DOMAIN\"|g" docker/nginx/certbot-entrypoint.sh
     
     success "成功更新certbot-entrypoint.sh中的邮箱和域名参数"
   fi

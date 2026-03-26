@@ -2,7 +2,7 @@
 ## 作者: LeapYa
 ## 修改时间: 2026-03-26
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.11.6
+## 版本: 1.11.7
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.11.4"
+POETIZE_VERSION="1.11.7"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -5231,11 +5231,15 @@ init_deploy() {
     replace_redis_password
   fi
 
-  # 配置Docker Compose AES密钥
-  replace_docker_compose_aes_key
+  if [ "${POETIZE_UPDATE_MODE:-false}" != "true" ] && [ -f ".env" ]; then
+    # 配置Docker Compose AES密钥
+    replace_docker_compose_aes_key
 
-  # 配置Docker Compose Token密钥
-  generate_token_secret_key
+    # 配置Docker Compose Token密钥
+    generate_token_secret_key
+  else
+    info "【更新模式】保留现有 AES 及 Token 密钥"
+  fi
 
   # 设置域名
   info "更新Nginx配置中的域名..."
@@ -5750,6 +5754,88 @@ start_services() {
   while [ $retry_count -lt $max_retries ]; do
     retry_count=$((retry_count + 1))
     
+    if [ "${POETIZE_UPDATE_MODE:-false}" = "true" ]; then
+      # 先单独启动 MySQL 并执行 schema 迁移，防止 Java 因旧 schema 反复重启
+      info "【更新模式】提前启动数据库并执行 schema 迁移，防止 Java 反复重启..."
+      run_docker_compose up -d mysql 2>/dev/null || true
+
+      local _wait=0
+      local _db_ctn=""
+      
+      # 手动解析容器名 (替代外部无法调用的 resolve_compose_container_name)
+      if command -v jq >/dev/null 2>&1; then
+          _db_ctn=$(run_docker_compose ps -q mysql 2>/dev/null | head -1)
+          [ -n "$_db_ctn" ] && _db_ctn=$(sudo docker inspect --format='{{.Name}}' "$_db_ctn" 2>/dev/null | sed 's/^\///')
+      fi
+      if [ -z "$_db_ctn" ]; then
+          _db_ctn=$(run_docker_compose ps mysql 2>/dev/null | grep -v "Name" | grep -v "---" | grep "mysql" | awk '{print $1}' | head -1)
+      fi
+      if [ -z "$_db_ctn" ]; then
+          _db_ctn=$(sudo docker ps --format '{{.Names}}' | grep "mysql" | head -1)
+      fi
+
+      if [ -n "$_db_ctn" ]; then
+          info "正在等待数据库容器就绪 (容器名: $_db_ctn)..."
+          while [ $_wait -lt 120 ]; do
+              local _health
+              _health=$(sudo docker inspect --format='{{.State.Health.Status}}' "$_db_ctn" 2>/dev/null || true)
+              [ "$_health" = "healthy" ] && break
+              sleep 5
+              _wait=$((_wait + 5))
+          done
+
+          if [ "$_health" = "healthy" ]; then
+              info "数据库已就绪，开始执行迁移脚本..."
+              # 手动获取 DB root 密码
+              local _root_pwd=""
+              if [ -f ".env" ]; then
+                  _root_pwd=$(grep "^DB_PASSWORD=" .env | cut -d '=' -f2- | tr -d '"'\''' || true)
+              fi
+              if [ -z "$_root_pwd" ] && [ -f ".config/db_credentials.txt" ]; then
+                  _root_pwd=$(grep "^root:" .config/db_credentials.txt | cut -d ':' -f2 || true)
+              fi
+              
+              if [ -n "$_root_pwd" ] && [ -d "poetize-server/sql" ]; then
+                  # 手动展开的 execute_additional_sql_scripts
+                  local sql_files=$(find poetize-server/sql -name "*.sql" -not -name "poetry.sql" -not -name "poetry_old.sql" -type f | sort)
+                  if [ -n "$sql_files" ]; then
+                      local has_migrations=false
+                      if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$_root_pwd" "$_db_ctn" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1"' 2>/dev/null | grep -q "1"; then
+                          has_migrations=true
+                      fi
+                      
+                      while IFS= read -r sql_file; do
+                          [ -z "$sql_file" ] && continue
+                          local v_name=$(basename "$sql_file" .sql)
+                          if [ "$has_migrations" = true ]; then
+                              local already_exe=$(sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$_root_pwd" "$_db_ctn" sh -lc "mariadb -u root -p\"\$POETIZE_DB_ROOT_PASSWORD\" poetize -N -e \"SELECT COUNT(*) FROM db_migrations WHERE version='$v_name' AND success=1\"" 2>/dev/null | tr -d '[:space:]')
+                              [ "$already_exe" = "1" ] && continue
+                          fi
+                          
+                          info "提前执行迁移脚本: $sql_file"
+                          if sudo docker exec -i -e POETIZE_DB_ROOT_PASSWORD="$_root_pwd" "$_db_ctn" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize' < "$sql_file" 2>/dev/null; then
+                              if [ "$v_name" = "000000000000" ] && [ "$has_migrations" = false ]; then
+                                  if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$_root_pwd" "$_db_ctn" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1"' 2>/dev/null | grep -q "1"; then
+                                      has_migrations=true
+                                  fi
+                              fi
+                              if [ "$has_migrations" = true ]; then
+                                  sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$_root_pwd" "$_db_ctn" sh -lc "mariadb -u root -p\"\$POETIZE_DB_ROOT_PASSWORD\" poetize -e \"INSERT IGNORE INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$v_name', '预执行', 100, 1)\"" 2>/dev/null
+                              fi
+                              success "SQL迁移脚本执行成功: $sql_file"
+                          fi
+                      done <<< "$sql_files"
+                  fi
+              else
+                  warning "未找到数据库根密码或 sql 目录，跳过预迁移脚本执行"
+              fi
+          else
+              warning "等待数据库就绪超时，跳过预迁移"
+          fi
+      fi
+    fi
+    
+    # 原有的重试等待将被执行
     if [ $retry_count -gt 1 ]; then
       # 指数退避：10s、20s、40s
       local retry_delay=$((base_delay * (2 ** (retry_count - 2))))
@@ -13832,7 +13918,11 @@ DEPLOY_SOURCE=$([ -n "$RESOLVED_TARGET_VERSION" ] && echo "tag" || echo "main")
 EOF
     info "版本信息已保存到 .config/version.txt"
 
-    if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+    # 恢复 .env 文件：优先从备份恢复（保留用户的密码、AES key 等凭据）
+    if [ -f "$BACKUP_DIR/.env" ]; then
+        cp "$BACKUP_DIR/.env" ".env"
+        success "已从备份恢复 .env 配置文件（保留原有凭据）"
+    elif [ ! -f ".env" ] && [ -f ".env.example" ]; then
         cp ".env.example" ".env"
         success "配置文件已从模板创建: .env"
     fi
@@ -13868,7 +13958,16 @@ EOF
     fi
     
     # 构建安装命令
-    local deploy_cmd="sudo chmod +x poetize && sudo ./poetize install"
+    local deploy_cmd=""
+    if [ -f "deploy.sh" ]; then
+        info "检测到 deploy.sh，当前版本为旧版结构，使用 deploy.sh 进行安装"
+        deploy_cmd="sudo chmod +x deploy.sh && sudo POETIZE_UPDATE_MODE=true ./deploy.sh"
+    elif [ -f "poetize" ]; then
+        deploy_cmd="sudo chmod +x poetize && sudo POETIZE_UPDATE_MODE=true ./poetize install"
+    else
+        error "无法找到安装脚本 (poetize 或 deploy.sh)，系统可能已损坏"
+        return 1
+    fi
     
     if [ -n "$domains" ]; then
         info "使用域名进行自动安装..."
@@ -13905,8 +14004,8 @@ EOF
     
     # 设置更新模式标志，防止安装流程中的 mark_all_migrations_as_executed 误标记迁移脚本
     export POETIZE_UPDATE_MODE=true
-    
-    # 执行安装命令
+
+    # 执行完整安装命令
     eval "$deploy_cmd"
     
     success "最新版本系统安装完成"
@@ -14056,8 +14155,10 @@ perform_restore_operations() {
     fi
     
     # 2. 恢复数据库
-    info "恢复数据库数据..."
-    if [ -f "$backup_dir/poetry.sql" ]; then
+    # 更新流程中，用户数据已通过 init.sql 在 reinstall 阶段加载，无需重复导入
+    if [ "${POETIZE_UPDATE_MODE:-false}" = "true" ]; then
+        info "更新模式：数据库已通过 init.sql 加载，跳过重复恢复"
+    elif [ -f "$backup_dir/poetry.sql" ]; then
         mariadb_container=$(resolve_compose_container_name "mysql" 2>/dev/null || true)
         if [ -n "$mariadb_container" ]; then
             db_root_password=$(resolve_db_root_password "$mariadb_container" 2>/dev/null || true)
@@ -14151,16 +14252,7 @@ perform_restore_operations() {
         info "备份中未找到Redis数据"
     fi
     
-    # 6. 执行新增的SQL脚本
-    info "执行新增的SQL脚本以确保数据库结构最新..."
-    execute_additional_sql_scripts
-    if [ $? -eq 0 ]; then
-        info "新增SQL脚本执行完成"
-    else
-        warning "新增SQL脚本执行过程中出现问题，但系统仍可正常使用"
-    fi
-    
-    # 7. 重新启动相关服务并清理可重建缓存
+    # 6. 重新启动相关服务并清理可重建缓存
     info "启动相关服务以应用恢复后的配置..."
 
     if [ -n "$redis_container" ]; then

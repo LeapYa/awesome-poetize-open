@@ -717,7 +717,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 return PoetryResult.fail("验证码发送次数过多，请明天再试！");
             }
 
-            String userCodeKey = CacheConstants.buildUserCodeKey(PoetryUtil.getUserId(), String.valueOf(flag),
+            // 修改密码时会按当前绑定邮箱校验验证码，这里必须用邮箱作为缓存键的一部分。
+            String userCodeKey = CacheConstants.buildUserCodeKey(PoetryUtil.getUserId(), user.getEmail(),
                     String.valueOf(flag));
             cacheService.set(userCodeKey, i, 300);
             return PoetryResult.success();

@@ -458,6 +458,12 @@ LOG_FILE="deploy.log"
 DISABLE_DOCKER_CACHE=true  # 默认禁用Docker构建缓存
 POETIZE_KEEP_GIT=false      # 默认删除Git仓库，不依赖git更新
 HTTP_PORT=""                # 自定义HTTP端口（支持任何域名）
+LAST_DOCKER_COMPOSE_CMD=""
+LAST_DOCKER_COMPOSE_RC=0
+LAST_DOCKER_COMPOSE_ERROR_FILE=""
+LAST_DOCKER_COMPOSE_ERROR_KIND=""
+LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=true
+POETIZE_ISSUES_URL="https://github.com/LeapYa/awesome-poetize-open/issues"
 
 # 版本控制变量
 DEPLOY_VERSION=""            # 用户指定的版本标签
@@ -5732,7 +5738,7 @@ handle_https_port_mapping() {
 }
 
 # 构建和启动Docker服务
-start_services() {
+start_services_with_diagnostics() {
   info "启动Docker服务..."
   
   # 根据HTTPS配置处理端口映射
@@ -5775,6 +5781,8 @@ start_services() {
   local base_delay=10
   local retry_count=0
   local start_success=false
+  local final_error_kind=""
+  local final_error_recoverable=true
   
   while [ $retry_count -lt $max_retries ]; do
     retry_count=$((retry_count + 1))
@@ -5940,8 +5948,18 @@ start_services() {
       start_success=true
       break
     else
+      classify_last_compose_failure
+      final_error_kind="$LAST_DOCKER_COMPOSE_ERROR_KIND"
+      final_error_recoverable="$LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE"
+
       warning "第 $retry_count 次启动失败（退出码: $START_RESULT）"
-      
+
+      if [ "$final_error_recoverable" = false ]; then
+        warning "检测到确定性错误，跳过后续重试和资源清理"
+        print_compose_failure_guidance "$final_error_kind"
+        break
+      fi
+
       if [ $retry_count -lt $max_retries ]; then
         # 清理可能的残留容器和资源
         info "清理可能的残留容器和资源..."
@@ -5969,15 +5987,15 @@ start_services() {
   done
   
   if [ "$start_success" = false ]; then
-    error "服务启动失败，已重试 $max_retries 次，请检查日志"
-    error "可能的原因：网络连接问题、Docker资源不足、镜像拉取失败等"
-    info "重试过程中已自动清理了Docker缓存、无用镜像、网络和卷"
-    info "建议检查以下内容："
-    info "  1. 网络连接是否正常"
-    info "  2. Docker守护进程是否正常运行"
-    info "  3. 磁盘空间是否充足"
-    info "  4. 查看详细错误日志: docker compose logs"
-    info "如问题持续存在，请提交issue并附上错误日志"
+    if [ "$final_error_recoverable" = false ]; then
+      error "服务启动失败，原因已明确，请按上方指引处理后重试"
+    else
+      error "服务启动失败，已重试 $max_retries 次，请检查日志"
+      print_compose_failure_guidance "$final_error_kind"
+      info "重试过程中已自动清理了Docker缓存、无用镜像、网络和卷"
+    fi
+    info "如需查看完整日志，可执行: docker compose logs"
+    info "如问题持续存在，请提交 Issue 并附上错误日志: $POETIZE_ISSUES_URL"
     exit 1
   fi
   
@@ -7488,6 +7506,8 @@ load_offline_images() {
 run_docker_compose() {
     # 构建compose命令数组，自动探测版本，并根据需要加sudo
     local compose_cmd=()
+    local capture_output=false
+    local tmp_output=""
 
     # 探测compose版本
     if docker compose version &>/dev/null; then
@@ -7522,10 +7542,171 @@ run_docker_compose() {
       [ "$ENABLE_REDIS" = "true" ] || [ "$ENABLE_REDIS" = true ] && profile_args+=(--profile redis)
     fi
 
-    # shellcheck disable=SC2068
-    "${compose_cmd[@]}" "${profile_args[@]}" "$@"
+    LAST_DOCKER_COMPOSE_CMD="${compose_cmd[*]} ${profile_args[*]} $*"
+    LAST_DOCKER_COMPOSE_RC=0
+    LAST_DOCKER_COMPOSE_ERROR_KIND=""
+    LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=true
 
-    return $?
+    if [ "$1" = "up" ]; then
+      capture_output=true
+      tmp_output=$(mktemp 2>/dev/null || printf "/tmp/poetize-compose-up-%s.log" "$$")
+      LAST_DOCKER_COMPOSE_ERROR_FILE="$tmp_output"
+    else
+      LAST_DOCKER_COMPOSE_ERROR_FILE=""
+    fi
+
+    if [ "$capture_output" = true ]; then
+      # 保留实时输出，同时保存原始错误供启动失败诊断使用
+      "${compose_cmd[@]}" "${profile_args[@]}" "$@" > >(tee "$tmp_output") 2> >(tee -a "$tmp_output" >&2)
+      LAST_DOCKER_COMPOSE_RC=$?
+    else
+      # shellcheck disable=SC2068
+      "${compose_cmd[@]}" "${profile_args[@]}" "$@"
+      LAST_DOCKER_COMPOSE_RC=$?
+    fi
+
+    return $LAST_DOCKER_COMPOSE_RC
+}
+
+get_last_compose_error_text() {
+  if [ -n "$LAST_DOCKER_COMPOSE_ERROR_FILE" ] && [ -f "$LAST_DOCKER_COMPOSE_ERROR_FILE" ]; then
+    cat "$LAST_DOCKER_COMPOSE_ERROR_FILE"
+  fi
+}
+
+get_last_compose_error_summary() {
+  local log_text=""
+  log_text="$(get_last_compose_error_text)"
+  if [ -z "$log_text" ]; then
+    return 0
+  fi
+
+  echo "$log_text" | awk 'NF { lines[++count]=$0 } END { start=count-2; if (start < 1) start=1; for (i=start; i<=count; i++) print lines[i] }'
+}
+
+extract_port_from_compose_error() {
+  local log_text="$1"
+  local port=""
+
+  port=$(echo "$log_text" | grep -oE '0\.0\.0\.0:[0-9]+' | head -1 | cut -d: -f2)
+  if [ -z "$port" ]; then
+    port=$(echo "$log_text" | grep -oE ':[0-9]+:[0-9]+(/tcp|/udp)?' | head -1 | cut -d: -f2)
+  fi
+  if [ -z "$port" ]; then
+    port=$(echo "$log_text" | grep -oE 'port [0-9]+' | head -1 | grep -oE '[0-9]+')
+  fi
+
+  printf "%s" "$port"
+}
+
+classify_last_compose_failure() {
+  local log_text=""
+  log_text="$(get_last_compose_error_text)"
+  LAST_DOCKER_COMPOSE_ERROR_KIND="unknown"
+  LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=true
+
+  if [ -z "$log_text" ]; then
+    return 0
+  fi
+
+  if echo "$log_text" | grep -Eiq 'failed to bind host port|address already in use|port is already allocated'; then
+    LAST_DOCKER_COMPOSE_ERROR_KIND="port_conflict"
+    LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=false
+  elif echo "$log_text" | grep -Eiq 'Cannot connect to the Docker daemon|Got permission denied while trying to connect to the Docker daemon socket'; then
+    LAST_DOCKER_COMPOSE_ERROR_KIND="docker_daemon"
+    LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=false
+  elif echo "$log_text" | grep -Eiq 'permission denied'; then
+    LAST_DOCKER_COMPOSE_ERROR_KIND="permission"
+    LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=false
+  elif echo "$log_text" | grep -Eiq 'no space left on device|ENOSPC'; then
+    LAST_DOCKER_COMPOSE_ERROR_KIND="disk_full"
+    LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=false
+  elif echo "$log_text" | grep -Eiq 'pull access denied|TLS handshake timeout|i/o timeout|context deadline exceeded|connection reset by peer|temporary failure in name resolution'; then
+    LAST_DOCKER_COMPOSE_ERROR_KIND="network"
+    LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=true
+  elif echo "$log_text" | grep -Eiq 'invalid compose project|has neither an image nor a build context specified|yaml|did not find expected|mapping values are not allowed|cannot unmarshal'; then
+    LAST_DOCKER_COMPOSE_ERROR_KIND="compose_config"
+    LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=false
+  fi
+}
+
+print_compose_error_summary() {
+  local summary=""
+  summary="$(get_last_compose_error_summary)"
+  if [ -n "$summary" ]; then
+    info "最近一次原始错误摘要："
+    while IFS= read -r line; do
+      [ -n "$line" ] && info "  $line"
+    done <<< "$summary"
+  fi
+}
+
+print_compose_failure_guidance() {
+  local kind="$1"
+  local log_text=""
+  local port=""
+
+  log_text="$(get_last_compose_error_text)"
+
+  case "$kind" in
+    port_conflict)
+      port="$(extract_port_from_compose_error "$log_text")"
+      if [ -n "$port" ]; then
+        error "检测到宿主机端口冲突：端口 $port 已被其他服务占用"
+      else
+        error "检测到宿主机端口冲突：80/443 等站点端口已被其他服务占用"
+      fi
+      info "处理建议："
+      info "  1. 查看占用进程: ss -ltnp | grep ':80\\|:443'"
+      info "  2. 如系统未安装 ss，可改用: lsof -i :80"
+      info "  3. 如需保留现有面板/Nginx/CDN，请改用自定义端口部署: ./poetize install -d example.com:8080"
+      info "  4. 也可显式指定: ./poetize install -d example.com --httpport 8080"
+      info "  5. 使用自定义 HTTP 端口时，脚本会自动关闭项目内置 HTTPS，适合配合反向代理或 CDN"
+      ;;
+    docker_daemon)
+      error "检测到 Docker 守护进程不可用或当前用户无权访问 Docker"
+      info "处理建议："
+      info "  1. 检查 Docker 状态: sudo docker info"
+      info "  2. 如守护进程未启动，执行: sudo systemctl start docker"
+      info "  3. 如为权限问题，请使用 root 或为当前用户配置 docker/sudo 权限后重试"
+      ;;
+    permission)
+      error "检测到权限不足，当前环境无法完成 Docker 启动"
+      info "处理建议："
+      info "  1. 先验证权限: sudo docker info"
+      info "  2. 使用 root 重新执行脚本，或为当前用户授予 sudo / docker 组权限"
+      ;;
+    disk_full)
+      error "检测到与磁盘空间相关的 Docker 错误，当前启动无法继续"
+      info "处理建议："
+      info "  1. 先检查磁盘空间和 inode: df -h && df -i"
+      info "  2. 如确认空间不足，再清理 Docker 资源: sudo docker system prune -af"
+      info "  3. 如果磁盘空间比较小，建议扩容后重试"
+      ;;
+    network)
+      error "检测到镜像拉取或网络连接异常，重试可能恢复"
+      info "处理建议："
+      info "  1. 检查服务器网络连通性和 DNS"
+      info "  2. 若在国内环境，优先确认 Docker 镜像源是否可用"
+      info "  3. 如问题持续，可执行: docker compose logs"
+      ;;
+    compose_config)
+      error "检测到 Docker Compose 配置或参数错误，继续重试无法恢复"
+      info "处理建议："
+      info "  1. 检查 docker-compose.yml 和 .env 是否存在非法改动"
+      info "  2. 执行配置校验: docker compose config"
+      info "  3. 如是升级或自定义修改引入的问题，请回退到有效配置后重试"
+      ;;
+    *)
+      error "服务启动失败，暂未识别到明确错误类型"
+      info "处理建议："
+      info "  1. 查看详细日志: docker compose logs"
+      info "  2. 检查 Docker 守护进程、网络、自定义配置和最近一次原始错误摘要"
+      info "  3. 如仍无法定位，请提交 Issue 并附上日志: $POETIZE_ISSUES_URL"
+      ;;
+  esac
+
+  print_compose_error_summary
 }
 
 
@@ -10154,7 +10335,7 @@ main() {
   init_deploy
   
   # 构建和启动Docker服务
-  if ! start_services; then
+  if ! start_services_with_diagnostics; then
     exit 1
   fi
   
@@ -12530,12 +12711,19 @@ show_status() {
 start_services() {
     find_project_dir
     info "正在启动POETIZE服务..."
-    
-    if $DOCKER_COMPOSE_CMD up -d; then
+
+    local previous_skip_build="$SKIP_BUILD"
+    if [ -z "$SKIP_BUILD" ]; then
+        SKIP_BUILD="--no-build"
+    fi
+
+    if start_services_with_diagnostics; then
+        SKIP_BUILD="$previous_skip_build"
         success "服务启动成功"
         sleep 3
         show_status
     else
+        SKIP_BUILD="$previous_skip_build"
         error "服务启动失败"
         exit 1
     fi

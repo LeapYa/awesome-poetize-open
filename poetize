@@ -5282,11 +5282,12 @@ init_deploy() {
         awk -v primary="$PRIMARY_DOMAIN" -v secondary="$SECONDARY_DOMAINS" -v all_domains="$DOMAIN_CONFIG" -v conf_file="$conf_file" '
         {
           if ($0 ~ /valid_referers/) {
-            # 修改防盗链规则允许所有配置的域名
-            # 使用字符串查找替换，避免正则中 $ 转义问题
+            # server_names 关键字已自动包含当前 server_name 的值，
+            # 只需移除旧的域名占位符，不再追加域名，避免与 server_names 重复导致
+            # nginx 报 "conflicting parameter" 错误（尤其 localhost/IP 部署场景）
             old_ref = "~\\.example\\.com$ example.com"
             if ((pos = index($0, old_ref)) > 0) {
-              $0 = substr($0, 1, pos - 1) all_domains substr($0, pos + length(old_ref))
+              $0 = substr($0, 1, pos - 1) substr($0, pos + length(old_ref))
             }
             print $0
           } else {
@@ -5801,7 +5802,7 @@ start_services_with_diagnostics() {
           [ -n "$_db_ctn" ] && _db_ctn=$(sudo docker inspect --format='{{.Name}}' "$_db_ctn" 2>/dev/null | sed 's/^\///')
       fi
       if [ -z "$_db_ctn" ]; then
-          _db_ctn=$(run_docker_compose ps mysql 2>/dev/null | grep -v "Name" | grep -v "---" | grep "mysql" | awk '{print $1}' | head -1)
+          _db_ctn=$(run_docker_compose ps mysql 2>/dev/null | grep -v "Name" | grep -v -- "---" | grep "mysql" | awk '{print $1}' | head -1)
       fi
       if [ -z "$_db_ctn" ]; then
           _db_ctn=$(sudo docker ps --format '{{.Names}}' | grep "mysql" | head -1)

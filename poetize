@@ -2,7 +2,7 @@
 ## 作者: LeapYa
 ## 修改时间: 2026-03-27
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.11.9
+## 版本: 1.11.10
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.11.9"
+POETIZE_VERSION="1.11.10"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -244,6 +244,44 @@ resolve_project_version() {
     return 1
 }
 
+normalize_version_string() {
+    local version="$1"
+    version="${version#v}"
+    printf "%s\n" "$version"
+}
+
+version_gte() {
+    local current
+    local target
+    current=$(normalize_version_string "$1")
+    target=$(normalize_version_string "$2")
+
+    if [ -z "$current" ] || [ -z "$target" ]; then
+        return 1
+    fi
+
+    local lower_version
+    lower_version=$(printf "%s\n%s" "$target" "$current" | sort -V | head -1)
+    [ "$lower_version" = "$target" ]
+}
+
+project_requires_python_backend() {
+    case "$RESOLVED_TARGET_VERSION" in
+        "")
+            return 0
+            ;;
+        main|dev)
+            return 1
+            ;;
+    esac
+
+    if version_gte "$RESOLVED_TARGET_VERSION" "$PYTHON_MERGED_VERSION"; then
+        return 1
+    fi
+
+    return 0
+}
+
 resolve_docker_compose_display() {
     if [ -n "$DOCKER_COMPOSE_CMD" ]; then
         printf "%s\n" "$DOCKER_COMPOSE_CMD"
@@ -468,6 +506,8 @@ POETIZE_ISSUES_URL="https://github.com/LeapYa/awesome-poetize-open/issues"
 # 版本控制变量
 DEPLOY_VERSION=""            # 用户指定的版本标签
 USE_LATEST_TAG=true          # 默认使用最新稳定版本标签
+RESOLVED_TARGET_VERSION=""   # 当前解析出的目标项目版本
+PYTHON_MERGED_VERSION="v4.0.0"
 
 # 外部数据库配置变量
 DB_HOST=""                   # 外部MariaDB主机地址
@@ -694,9 +734,20 @@ mark_all_migrations_as_executed() {
 }
 
 # 打印部署汇总信息
+# 用法: print_summary [failed_service1 failed_service2 ...]
+# 无参数表示所有服务正常
 print_summary() {
+  local BOLD='\033[1m'
+  local GRAY='\033[90m'
   local https_enabled=false
-  
+
+  # 从参数接收异常服务列表（由调用方传入）
+  local failed_services=("$@")
+  local all_up=true
+  if [ ${#failed_services[@]} -gt 0 ]; then
+    all_up=false
+  fi
+
   # 检查HTTPS是否真正启用
   if [ "$PRIMARY_DOMAIN" != "localhost" ] && [ "$PRIMARY_DOMAIN" != "127.0.0.1" ] && ! [[ "$PRIMARY_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     if docker exec poetize-nginx nginx -T 2>/dev/null | grep -q "listen.*443.*ssl" && docker exec poetize-nginx test -f "/etc/letsencrypt/live/$PRIMARY_DOMAIN/fullchain.pem" 2>/dev/null; then
@@ -704,131 +755,56 @@ print_summary() {
     fi
   fi
   
+  # 通用协议及访问地址
+  local proto="http"
+  [ "$https_enabled" = true ] && proto="https"
+  local access_url="$PRIMARY_DOMAIN"
+  if [ -n "$HTTP_PORT" ] && [ "$HTTP_PORT" != "80" ]; then
+    access_url="$PRIMARY_DOMAIN:$HTTP_PORT"
+  fi
+
   printf "\n"
-  printf "${GREEN}%80s${NC}\n" | tr ' ' '='
-  printf "${GREEN}%s${NC}\n" "$(printf '%*s' $(((80-20)/2)) '')POETIZE 部署成功！$(printf '%*s' $(((80-20)/2)) '')"
-  printf "${GREEN}%80s${NC}\n" | tr ' ' '='
-  printf "\n"
-  
-  printf "${CYAN}基础配置信息${NC}\n"
-  printf "${CYAN}%s${NC}\n" "$(printf '%*s' 12 '' | tr ' ' '-')"
-  printf "  主域名: ${GREEN}%s${NC}\n" "$PRIMARY_DOMAIN"
-  printf "  所有域名: ${GREEN}%s${NC}\n" "${DOMAINS[*]}"
-  printf "  管理员邮箱: ${GREEN}%s${NC}\n" "$EMAIL"
-  printf "\n"
-  
-  # 本地环境处理
-  if [ "$PRIMARY_DOMAIN" = "localhost" ] || [ "$PRIMARY_DOMAIN" = "127.0.0.1" ] || [[ "$PRIMARY_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf "${CYAN}本地开发环境访问地址${NC}\n"
-    printf "${CYAN}%s${NC}\n" "$(printf '%*s' 20 '' | tr ' ' '-')"
-    
-    # 构建访问地址（包含自定义端口）
-    local access_url="$PRIMARY_DOMAIN"
-    if [ -n "$HTTP_PORT" ] && [ "$HTTP_PORT" != "80" ]; then
-      access_url="$PRIMARY_DOMAIN:$HTTP_PORT"
-      printf "  ${YELLOW}使用自定义端口: $HTTP_PORT${NC}\n"
-    fi
-    
-    printf "  网站首页: ${GREEN}http://%s${NC}\n" "$access_url"
-    printf "  聊天室: ${GREEN}http://%s/im${NC}\n" "$access_url"
-    printf "  管理后台: ${GREEN}http://%s/admin${NC}\n" "$access_url"
+  if [ "$all_up" = true ]; then
+    printf "  ${GREEN}[ SUCCESS ]${NC}  ${BOLD}POETIZE ${RESOLVED_TARGET_VERSION} 部署成功！${NC}\n"
   else
-    printf "${CYAN}服务访问地址${NC}\n"
-    printf "${CYAN}%s${NC}\n" "$(printf '%*s' 12 '' | tr ' ' '-')"
-    if [ "$https_enabled" = true ]; then
-      printf "  网站首页: ${GREEN}https://%s${NC} ${GREEN}(HTTPS已启用)${NC}\n" "$PRIMARY_DOMAIN"
-      printf "  聊天室: ${GREEN}https://%s/im${NC}\n" "$PRIMARY_DOMAIN"
-      printf "  管理后台: ${GREEN}https://%s/admin${NC}\n" "$PRIMARY_DOMAIN"
-      printf "  HTTP备用: ${YELLOW}http://%s${NC} ${YELLOW}(自动重定向)${NC}\n" "$PRIMARY_DOMAIN"
-    else
-      printf "  网站首页: ${GREEN}http://%s${NC}\n" "$PRIMARY_DOMAIN"
-      printf "  聊天室: ${GREEN}http://%s/im${NC}\n" "$PRIMARY_DOMAIN"
-      printf "  管理后台: ${GREEN}http://%s/admin${NC}\n" "$PRIMARY_DOMAIN"
-      printf "  HTTPS状态: ${RED}未启用${NC}\n"
-    fi
+    printf "  ${YELLOW}[ WARNING ]${NC}  ${BOLD}POETIZE ${RESOLVED_TARGET_VERSION} 部署完成 (部分服务异常)${NC}\n"
   fi
-  printf "\n"
+  printf "  ${GRAY}────────────────────────────────────────────────────────────${NC}\n"
   
-  # HTTPS配置状态
-  if [ "$PRIMARY_DOMAIN" != "localhost" ] && [ "$PRIMARY_DOMAIN" != "127.0.0.1" ] && ! [[ "$PRIMARY_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf "${CYAN}HTTPS配置状态${NC}\n"
-    printf "${CYAN}%s${NC}\n" "$(printf '%*s' 13 '' | tr ' ' '-')"
-    if [ "$https_enabled" = true ]; then
-      printf "  ${GREEN}HTTPS已成功配置并启用${NC}\n"
-      printf "  SSL证书状态: ${GREEN}有效${NC}\n"
-      printf "  Nginx HTTPS配置: ${GREEN}已启用${NC}\n"
-      printf "  安全连接: ${GREEN}可用${NC}\n"
-    else
-      printf "  ${RED}HTTPS未正确配置${NC}\n"
-      
-      # 检查是否是速率限制问题
-      local certbot_logs=$(sudo docker logs poetize-certbot 2>&1 || echo "")
-      if echo "$certbot_logs" | grep -q "too many certificates.*already issued"; then
-        local retry_after=$(echo "$certbot_logs" | grep -o "retry after [0-9-]* [0-9:]* UTC" | sed 's/retry after //')
-        if [ -n "$retry_after" ]; then
-          printf "  ${YELLOW}原因: Let's Encrypt速率限制${NC}\n"
-          printf "  ${YELLOW}等待到: ${retry_after}${NC}\n"
-          printf "  ${YELLOW}解决方案: poetize -update 或重新启动certbot${NC}\n"
-        else
-          printf "  启用命令: ${YELLOW}docker exec --user root poetize-nginx /enable-https.sh${NC}\n"
-          printf "  请检查域名DNS解析和防火墙配置\n"
-        fi
-      else
-        printf "  启用命令: ${YELLOW}docker start poetize-certbot && sleep 120 && docker exec --user root poetize-nginx /enable-https.sh${NC}\n"
-        printf "  请检查域名DNS解析和防火墙配置\n"
-      fi
-    fi
-    printf "\n"
+  # 如果有异常服务，展示健康状况区块
+  if [ "$all_up" = false ]; then
+    printf "\n    ${RED}> 异常服务状况:${NC}\n"
+    for svc in "${failed_services[@]}"; do
+      printf "    - ${RED}$svc${NC}: ${RED}未启动或运行异常${NC}\n"
+    done
+    printf "    ${GRAY}提示: 请检查 $DOCKER_COMPOSE_CMD logs 查看详细报错信息${NC}\n"
   fi
+
+  printf "\n    ${CYAN}> 访问入口:${NC}\n"
+  printf "    - 网站首页: ${GREEN}$proto://%s${NC}\n" "$access_url"
+  printf "    - 聊天室:   ${GREEN}$proto://%s/im${NC}\n" "$access_url"
+  printf "    - 管理后台: ${GREEN}$proto://%s/admin${NC}\n" "$access_url"
   
-  # 数据库凭据信息
-  if [ -f ".config/db_credentials.txt" ]; then
-    printf "${CYAN}数据库凭据信息${NC}\n"
-    printf "${CYAN}%s${NC}\n" "$(printf '%*s' 14 '' | tr ' ' '-')"
-    
-    DB_ROOT_PASSWORD=$(grep "数据库ROOT密码:" .config/db_credentials.txt | cut -d':' -f2 | tr -d ' ')
-    DB_USER_PASSWORD=$(grep "数据库poetize用户密码:" .config/db_credentials.txt | cut -d':' -f2 | tr -d ' ')
-    
-    printf "  ROOT密码: ${YELLOW}%s${NC}\n" "$DB_ROOT_PASSWORD"
-    printf "  poetize用户密码: ${YELLOW}%s${NC}\n" "$DB_USER_PASSWORD"
-    printf "  ${YELLOW}请妥善保存密码，完整信息在 .config/db_credentials.txt${NC}\n"
-    printf "\n"
+  printf "\n    ${CYAN}> 安全与登录:${NC}\n"
+  if [ "$https_enabled" = true ]; then
+    printf "    - HTTPS 状态: ${GREEN}已开启 (SSL有效)${NC}\n"
+  elif [ "$PRIMARY_DOMAIN" = "localhost" ] || [ "$PRIMARY_DOMAIN" = "127.0.0.1" ]; then
+    printf "    - HTTPS 状态: ${YELLOW}本地环境 (跳过)${NC}\n"
+  else
+    printf "    - HTTPS 状态: ${RED}未启用${NC} ${YELLOW}(尝试执行 poetize -update 修复)${NC}\n"
   fi
-  
-  # 常用命令
-  printf "${CYAN}常用管理命令${NC}\n"
-  printf "${CYAN}%s${NC}\n" "$(printf '%*s' 12 '' | tr ' ' '-')"
-  
-  # 检查是否存在全局poetize命令
+  printf "    - 默认账号:   ${YELLOW}Sara / aaa${NC} ${RED}(登录后请务必修改密码！)${NC}\n"
+
+  printf "\n    ${CYAN}> 快速管理:${NC}\n"
   if [ -L "/usr/local/bin/poetize" ] || [ -f "/usr/local/bin/poetize" ]; then
-    printf "  ${GREEN}全局命令已安装，可在任意位置使用:${NC}\n"
-    printf "  查看服务状态: ${GREEN}poetize -status${NC}\n"
-    printf "  快速迁移: ${GREEN}poetize -qy${NC}\n"
-    printf "  重启所有服务: ${GREEN}poetize -restart${NC}\n"
-    printf "  停止所有服务: ${GREEN}poetize -stop${NC}\n"
-    printf "  启动所有服务: ${GREEN}poetize -start${NC}\n"
-    printf "  查看帮助: ${GREEN}poetize -help${NC}\n"
-    printf "\n"
+    printf "    - 常用命令:   ${GREEN}poetize -status | -restart | -help${NC}\n"
+  else
+    printf "    - 常用命令:   ${GREEN}%s ps | logs | help${NC}\n" "$DOCKER_COMPOSE_CMD"
   fi
-  
-  printf "  ${YELLOW}Docker原生命令:${NC}\n"
-  printf "  查看所有容器: ${GREEN}docker ps -a${NC}\n"
-  printf "  查看容器日志: ${GREEN}docker logs poetize-nginx${NC}\n"
-  printf "  重启容器: ${GREEN}%s restart${NC}\n" "$DOCKER_COMPOSE_CMD"
-  printf "  停止服务: ${GREEN}%s down${NC}\n" "$DOCKER_COMPOSE_CMD"
-  printf "  启动服务: ${GREEN}%s up -d${NC}\n" "$DOCKER_COMPOSE_CMD"
-  if [ "$PRIMARY_DOMAIN" != "localhost" ] && [ "$PRIMARY_DOMAIN" != "127.0.0.1" ] && ! [[ "$PRIMARY_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf "  手动启用HTTPS: ${GREEN}docker exec --user root poetize-nginx /enable-https.sh${NC}\n"
-  fi
+  printf "    - 数据库凭据: 见 ${YELLOW}.config/db_credentials.txt${NC}\n"
+
   printf "\n"
-  
-  printf "${CYAN}登录信息${NC}\n"
-  printf "${CYAN}%s${NC}\n" "$(printf '%*s' 8 '' | tr ' ' '-')"
-  printf "  ${YELLOW}默认管理员账号: Sara, 密码: aaa${NC}\n"
-  printf "  ${RED}请登录后立即修改密码以确保安全！${NC}\n"
-  printf "\n"
-  
-  printf "${GREEN}%80s${NC}\n" | tr ' ' '='
+  printf "  ${GRAY}────────────────────────────────────────────────────────────${NC}\n"
 }
 
 # 保存配置到文件
@@ -4897,41 +4873,42 @@ disable_redis_service() {
     }
     ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
 
-    # 注释掉 python-backend 服务对 redis 的 depends_on 依赖
-    info "注释python-backend对redis的依赖..."
-    awk '
-    /python-backend:/ {
-      in_python_backend = 1
-    }
-    in_python_backend && /depends_on:/ {
-      in_depends = 1
-    }
-    in_python_backend && in_depends && /redis:/ {
-      in_redis_dep = 1
-      sub(/^      /, "      # ")
-      print $0 " # 已禁用（使用外部Redis）"
-      next
-    }
-    in_python_backend && in_depends && in_redis_dep && /condition:/ {
-      in_redis_dep = 0
-      sub(/^        /, "      #   ")
-      print
-      next
-    }
-    in_python_backend && in_depends && /^      [a-zA-Z]/ && !/redis:/ {
-      in_redis_dep = 0
-    }
-    in_python_backend && /^  [a-zA-Z]/ && !/python-backend:/ {
-      in_python_backend = 0
-      in_depends = 0
-    }
-    in_python_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
-      in_depends = 0
-    }
-    {
-      print
-    }
-    ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+    if project_requires_python_backend; then
+      info "注释python-backend对redis的依赖..."
+      awk '
+      /python-backend:/ {
+        in_python_backend = 1
+      }
+      in_python_backend && /depends_on:/ {
+        in_depends = 1
+      }
+      in_python_backend && in_depends && /redis:/ {
+        in_redis_dep = 1
+        sub(/^      /, "      # ")
+        print $0 " # 已禁用（使用外部Redis）"
+        next
+      }
+      in_python_backend && in_depends && in_redis_dep && /condition:/ {
+        in_redis_dep = 0
+        sub(/^        /, "      #   ")
+        print
+        next
+      }
+      in_python_backend && in_depends && /^      [a-zA-Z]/ && !/redis:/ {
+        in_redis_dep = 0
+      }
+      in_python_backend && /^  [a-zA-Z]/ && !/python-backend:/ {
+        in_python_backend = 0
+        in_depends = 0
+      }
+      in_python_backend && in_depends && /^    [a-zA-Z]/ && !/depends_on/ {
+        in_depends = 0
+      }
+      {
+        print
+      }
+      ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+    fi
 
     success "已禁用redis容器（通过修改 docker-compose.yml）"
   fi
@@ -5361,23 +5338,26 @@ init_deploy() {
       # 回退方案：直接修改 docker-compose.yml
       sed_i "s/SITE_URL=http:\/\/example.com/SITE_URL=http:\/\/$PRIMARY_DOMAIN/g" docker-compose.yml
       
-      # 更新docker-compose.yml中的FRONTEND_HOST环境变量
-      info "更新Python后端FRONTEND_HOST环境变量为: $PRIMARY_DOMAIN"
-      if grep -q "FRONTEND_HOST=" docker-compose.yml; then
-        sed_i "s/- FRONTEND_HOST=example.com/- FRONTEND_HOST=$PRIMARY_DOMAIN/g" docker-compose.yml
-        success "已更新FRONTEND_HOST环境变量"
-      else
-        info "未在docker-compose.yml中找到FRONTEND_HOST环境变量配置，将添加此配置"
-        # 查找python-backend服务的environment部分
-        if grep -q "python-backend:" docker-compose.yml; then
-          # 最后一个python环境变量是JAVA_BACKEND_PORT=8081
-          JAVA_BACKEND_PORT_LINE=$(grep -n "JAVA_BACKEND_PORT=8081" docker-compose.yml | cut -d: -f1)
-          if [ -n "$JAVA_BACKEND_PORT_LINE" ]; then
-            # 在JAVA_BACKEND_PORT行后添加FRONTEND_HOST
-            sed_i "${JAVA_BACKEND_PORT_LINE}a\\      - FRONTEND_HOST=$PRIMARY_DOMAIN" docker-compose.yml
-            success "已添加FRONTEND_HOST环境变量"
+      if project_requires_python_backend; then
+        info "更新旧版 Python 后端 FRONTEND_HOST 环境变量为: $PRIMARY_DOMAIN"
+        if grep -q "FRONTEND_HOST=" docker-compose.yml; then
+          sed_i "s/- FRONTEND_HOST=example.com/- FRONTEND_HOST=$PRIMARY_DOMAIN/g" docker-compose.yml
+          success "已更新FRONTEND_HOST环境变量"
+        else
+          info "未在docker-compose.yml中找到FRONTEND_HOST环境变量配置，将添加此配置"
+          # 查找python-backend服务的environment部分
+          if grep -q "python-backend:" docker-compose.yml; then
+            # 最后一个python环境变量是JAVA_BACKEND_PORT=8081
+            JAVA_BACKEND_PORT_LINE=$(grep -n "JAVA_BACKEND_PORT=8081" docker-compose.yml | cut -d: -f1)
+            if [ -n "$JAVA_BACKEND_PORT_LINE" ]; then
+              # 在JAVA_BACKEND_PORT行后添加FRONTEND_HOST
+              sed_i "${JAVA_BACKEND_PORT_LINE}a\\      - FRONTEND_HOST=$PRIMARY_DOMAIN" docker-compose.yml
+              success "已添加FRONTEND_HOST环境变量"
+            fi
           fi
         fi
+      else
+        info "当前版本无需修改独立 Python 后端 FRONTEND_HOST 配置"
       fi
     fi
     
@@ -5507,7 +5487,10 @@ wait_for_services_ready() {
   info "智能等待服务启动就绪..."
   
   # 定义需要检查的服务及其健康检查超时时间
-  local services=("poetize-mariadb:60" "poetize-java:90" "poetize-python:80" "poetize-prerender:40")
+  local services=("poetize-mariadb:60" "poetize-java:90" "poetize-prerender:40")
+  if project_requires_python_backend; then
+    services+=("poetize-python:80")
+  fi
   # 总超时时间5分钟
   local max_total_wait=300
   # 检查间隔5秒
@@ -5795,20 +5778,27 @@ start_services_with_diagnostics() {
 
       local _wait=0
       local _db_ctn=""
+      local _db_ctn_source=""
       
-      # 手动解析容器名 (替代外部无法调用的 resolve_compose_container_name)
-      if command -v jq >/dev/null 2>&1; then
+      _db_ctn=$(resolve_compose_container_name "mysql" 2>/dev/null || true)
+      [ -n "$_db_ctn" ] && _db_ctn_source="docker compose"
+
+      if [ -z "$_db_ctn" ] && command -v jq >/dev/null 2>&1; then
           _db_ctn=$(run_docker_compose ps -q mysql 2>/dev/null | head -1)
           [ -n "$_db_ctn" ] && _db_ctn=$(sudo docker inspect --format='{{.Name}}' "$_db_ctn" 2>/dev/null | sed 's/^\///')
+          [ -n "$_db_ctn" ] && _db_ctn_source="docker compose ps -q"
       fi
       if [ -z "$_db_ctn" ]; then
           _db_ctn=$(run_docker_compose ps mysql 2>/dev/null | grep -v "Name" | grep -v -- "---" | grep "mysql" | awk '{print $1}' | head -1)
+          [ -n "$_db_ctn" ] && _db_ctn_source="docker compose ps"
       fi
       if [ -z "$_db_ctn" ]; then
-          _db_ctn=$(sudo docker ps --format '{{.Names}}' | grep "mysql" | head -1)
+          _db_ctn=$(sudo docker ps --format '{{.Names}}' | grep -E 'mariadb|mysql' | head -1)
+          [ -n "$_db_ctn" ] && _db_ctn_source="docker ps fallback"
       fi
 
       if [ -n "$_db_ctn" ]; then
+          info "更新模式使用数据库容器: $_db_ctn${_db_ctn_source:+ (来源: $_db_ctn_source)}"
           info "正在等待数据库容器就绪 (容器名: $_db_ctn)..."
           while [ $_wait -lt 120 ]; do
               local _health
@@ -5820,14 +5810,8 @@ start_services_with_diagnostics() {
 
           if [ "$_health" = "healthy" ]; then
               info "数据库已就绪，开始执行迁移脚本..."
-              # 手动获取 DB root 密码
               local _root_pwd=""
-              if [ -f ".env" ]; then
-                  _root_pwd=$(grep "^DB_PASSWORD=" .env | cut -d '=' -f2- | tr -d '"'\''' || true)
-              fi
-              if [ -z "$_root_pwd" ] && [ -f ".config/db_credentials.txt" ]; then
-                  _root_pwd=$(grep "^root:" .config/db_credentials.txt | cut -d ':' -f2 || true)
-              fi
+              _root_pwd=$(resolve_db_root_password "$_db_ctn" 2>/dev/null || true)
               
               if [ -n "$_root_pwd" ] && [ -d "poetize-server/sql" ]; then
                   # 手动展开的 execute_additional_sql_scripts
@@ -5843,11 +5827,14 @@ start_services_with_diagnostics() {
                           local v_name=$(basename "$sql_file" .sql)
                           if [ "$has_migrations" = true ]; then
                               local already_exe=$(sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$_root_pwd" "$_db_ctn" sh -lc "mariadb -u root -p\"\$POETIZE_DB_ROOT_PASSWORD\" poetize -N -e \"SELECT COUNT(*) FROM db_migrations WHERE version='$v_name' AND success=1\"" 2>/dev/null | tr -d '[:space:]')
-                              [ "$already_exe" = "1" ] && continue
+                              if [ "$already_exe" = "1" ]; then
+                                  info "跳过: $sql_file (已执行)"
+                                  continue
+                              fi
                           fi
                           
                           info "提前执行迁移脚本: $sql_file"
-                          if sudo docker exec -i -e POETIZE_DB_ROOT_PASSWORD="$_root_pwd" "$_db_ctn" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize' < "$sql_file" 2>/dev/null; then
+                          if execute_sql_file_in_container "$_db_ctn" "$_root_pwd" "$sql_file"; then
                               if [ "$v_name" = "000000000000" ] && [ "$has_migrations" = false ]; then
                                   if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$_root_pwd" "$_db_ctn" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -e "SELECT 1 FROM db_migrations LIMIT 1"' 2>/dev/null | grep -q "1"; then
                                       has_migrations=true
@@ -5857,6 +5844,11 @@ start_services_with_diagnostics() {
                                   sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$_root_pwd" "$_db_ctn" sh -lc "mariadb -u root -p\"\$POETIZE_DB_ROOT_PASSWORD\" poetize -e \"INSERT IGNORE INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$v_name', '预执行', 100, 1)\"" 2>/dev/null
                               fi
                               success "SQL迁移脚本执行成功: $sql_file"
+                          else
+                              warning "SQL迁移脚本执行失败: $sql_file"
+                              if [ -n "$SQL_EXEC_LAST_ERROR" ]; then
+                                  warning "数据库错误: $SQL_EXEC_LAST_ERROR"
+                              fi
                           fi
                       done <<< "$sql_files"
                   fi
@@ -6481,12 +6473,15 @@ revert_to_http_protocol() {
     update_env_var "SITE_URL" "http://${domain}"
     success "已将FRONTEND_PROTOCOL替换为http (通过 .env)"
     
-    # 重启Python后端以使新配置生效
-    info "重启Python后端以使新配置生效..."
-    if sudo docker compose restart python-backend 2>/dev/null; then
-      success "Python后端重启成功"
+    if project_requires_python_backend; then
+      info "重启Python后端以使新配置生效..."
+      if sudo docker compose restart python-backend 2>/dev/null; then
+        success "Python后端重启成功"
+      else
+        warning "Python后端重启失败，可能需要手动重启: docker compose restart python-backend"
+      fi
     else
-      warning "Python后端重启失败，可能需要手动重启: docker compose restart python-backend"
+      info "当前版本无需重启独立 Python 后端"
     fi
   elif [ -f "docker-compose.yml" ]; then
     # 回退方案：直接修改 docker-compose.yml
@@ -6496,12 +6491,15 @@ revert_to_http_protocol() {
       sed_i "s/FRONTEND_PROTOCOL=https/FRONTEND_PROTOCOL=http/g" docker-compose.yml
       success "已将FRONTEND_PROTOCOL替换为http"
       
-      # 重启Python后端以使新配置生效
-      info "重启Python后端以使新配置生效..."
-      if sudo docker compose restart python-backend 2>/dev/null; then
-        success "Python后端重启成功"
+      if project_requires_python_backend; then
+        info "重启Python后端以使新配置生效..."
+        if sudo docker compose restart python-backend 2>/dev/null; then
+          success "Python后端重启成功"
+        else
+          warning "Python后端重启失败，可能需要手动重启: docker compose restart python-backend"
+        fi
       else
-        warning "Python后端重启失败，可能需要手动重启: docker compose restart python-backend"
+        info "当前版本无需重启独立 Python 后端"
       fi
     else
       info "FRONTEND_PROTOCOL已经是http或未找到相关配置"
@@ -7027,15 +7025,22 @@ EOF
       info "使用yq工具更新资源限制..."
       
       # 定义要更新的服务和限制
-      services=("java-backend" "python-backend" "nginx" "mysql")
-      limits=("$JAVA_LIMIT" "$PYTHON_LIMIT" "$NGINX_LIMIT" "$MYSQL_LIMIT")
+      services=("java-backend" "nginx" "mysql")
+      limits=("$JAVA_LIMIT" "$NGINX_LIMIT" "$MYSQL_LIMIT")
+      if project_requires_python_backend; then
+        services=("java-backend" "python-backend" "nginx" "mysql")
+        limits=("$JAVA_LIMIT" "$PYTHON_LIMIT" "$NGINX_LIMIT" "$MYSQL_LIMIT")
+      fi
       
       for i in "${!services[@]}"; do
         yq eval ".services.${services[$i]}.deploy.resources.limits.memory = \"${limits[$i]}\"" -i docker-compose.yml || true
       done
       
       # 再次尝试使用poetize-前缀的服务名
-      alt_services=("poetize-java" "poetize-python" "poetize-nginx" "poetize-mysql")
+      alt_services=("poetize-java" "poetize-nginx" "poetize-mysql")
+      if project_requires_python_backend; then
+        alt_services=("poetize-java" "poetize-python" "poetize-nginx" "poetize-mysql")
+      fi
       for i in "${!alt_services[@]}"; do
         yq eval ".services.${alt_services[$i]}.deploy.resources.limits.memory = \"${limits[$i]}\"" -i docker-compose.yml || true
       done
@@ -7049,8 +7054,10 @@ EOF
         info "更新已有的资源限制配置..."
         sed_i -E "s/(poetize-java:.+memory:) [0-9]+[MG]/\1 $JAVA_LIMIT/g" docker-compose.yml
         sed_i -E "s/(java-backend:.+memory:) [0-9]+[MG]/\1 $JAVA_LIMIT/g" docker-compose.yml
-        sed_i -E "s/(poetize-python:.+memory:) [0-9]+[MG]/\1 $PYTHON_LIMIT/g" docker-compose.yml
-        sed_i -E "s/(python-backend:.+memory:) [0-9]+[MG]/\1 $PYTHON_LIMIT/g" docker-compose.yml
+        if project_requires_python_backend; then
+          sed_i -E "s/(poetize-python:.+memory:) [0-9]+[MG]/\1 $PYTHON_LIMIT/g" docker-compose.yml
+          sed_i -E "s/(python-backend:.+memory:) [0-9]+[MG]/\1 $PYTHON_LIMIT/g" docker-compose.yml
+        fi
         sed_i -E "s/(poetize-nginx:.+memory:) [0-9]+[MG]/\1 $NGINX_LIMIT/g" docker-compose.yml
         sed_i -E "s/(nginx:.+memory:) [0-9]+[MG]/\1 $NGINX_LIMIT/g" docker-compose.yml
         sed_i -E "s/(poetize-mysql:.+memory:) [0-9]+[MG]/\1 $MYSQL_LIMIT/g" docker-compose.yml
@@ -7060,9 +7067,14 @@ EOF
         info "添加新的资源限制配置..."
         
         # 定义要处理的服务
-        services=("java-backend" "python-backend" "nginx" "mysql")
-        alt_services=("poetize-java" "poetize-python" "poetize-nginx" "poetize-mysql")
-        limits=("$JAVA_LIMIT" "$PYTHON_LIMIT" "$NGINX_LIMIT" "$MYSQL_LIMIT")
+        services=("java-backend" "nginx" "mysql")
+        alt_services=("poetize-java" "poetize-nginx" "poetize-mysql")
+        limits=("$JAVA_LIMIT" "$NGINX_LIMIT" "$MYSQL_LIMIT")
+        if project_requires_python_backend; then
+          services=("java-backend" "python-backend" "nginx" "mysql")
+          alt_services=("poetize-java" "poetize-python" "poetize-nginx" "poetize-mysql")
+          limits=("$JAVA_LIMIT" "$PYTHON_LIMIT" "$NGINX_LIMIT" "$MYSQL_LIMIT")
+        fi
         
         # 对每个服务尝试添加资源限制
         for i in "${!services[@]}"; do
@@ -8237,7 +8249,9 @@ modify_docker_compose_for_multi_instance() {
   sed_i "s/container_name: poetize-ui/container_name: poetize-ui$suffix/g" docker-compose.yml
   sed_i "s/container_name: poetize-im-ui/container_name: poetize-im-ui$suffix/g" docker-compose.yml
   sed_i "s/container_name: poetize-certbot/container_name: poetize-certbot$suffix/g" docker-compose.yml
-  sed_i "s/container_name: poetize-python/container_name: poetize-python$suffix/g" docker-compose.yml
+  if project_requires_python_backend; then
+    sed_i "s/container_name: poetize-python/container_name: poetize-python$suffix/g" docker-compose.yml
+  fi
   sed_i "s/container_name: poetize-java/container_name: poetize-java$suffix/g" docker-compose.yml
   sed_i "s/container_name: poetize-mariadb/container_name: poetize-mariadb$suffix/g" docker-compose.yml
   sed_i "s/container_name: poetize-redis/container_name: poetize-redis$suffix/g" docker-compose.yml
@@ -8264,27 +8278,39 @@ modify_docker_compose_for_multi_instance() {
 
   # 修改容器间通信的主机名
   sed_i "s/poetize-java:8081/poetize-java$suffix:8081/g" docker-compose.yml
-  sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker-compose.yml
+  if project_requires_python_backend; then
+    sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker-compose.yml
+  fi
   sed_i "s/poetize-mariadb:3306/poetize-mariadb$suffix:3306/g" docker-compose.yml
   sed_i "s/poetize-prerender:4000/poetize-prerender$suffix:4000/g" docker-compose.yml
   
   # 修改数据库相关配置
   sed_i "s/MYSQL_HOST=poetize-mariadb/MYSQL_HOST=poetize-mariadb$suffix/g" docker-compose.yml
   sed_i "s/JAVA_BACKEND_HOST=poetize-java/JAVA_BACKEND_HOST=poetize-java$suffix/g" docker-compose.yml
-  sed_i "s/PYTHON_BACKEND_HOST=poetize-python/PYTHON_BACKEND_HOST=poetize-python$suffix/g" docker-compose.yml
+  if project_requires_python_backend; then
+    sed_i "s/PYTHON_BACKEND_HOST=poetize-python/PYTHON_BACKEND_HOST=poetize-python$suffix/g" docker-compose.yml
+  fi
   sed_i "s/PRERENDER_HOST=poetize-prerender/PRERENDER_HOST=poetize-prerender$suffix/g" docker-compose.yml
   
   # 修改nginx配置
   sed_i "s/poetize-java/poetize-java$suffix/g" docker/nginx/default.conf
-  sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker/nginx/default.conf
+  if project_requires_python_backend; then
+    sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker/nginx/default.conf
+  fi
   sed_i "s/poetize-java/poetize-java$suffix/g" docker/nginx/default.http.conf
-  sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker/nginx/default.http.conf
+  if project_requires_python_backend; then
+    sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker/nginx/default.http.conf
+  fi
   sed_i "s/poetize-java/poetize-java$suffix/g" docker/nginx/default.https.conf
-  sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker/nginx/default.https.conf
+  if project_requires_python_backend; then
+    sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker/nginx/default.https.conf
+  fi
   
   # 修改nginx lua配置
-  sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker/nginx/lua/im_seo_access.lua
-  sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker/nginx/lua/seo_access.lua
+  if project_requires_python_backend; then
+    sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker/nginx/lua/im_seo_access.lua
+    sed_i "s/poetize-python:5000/poetize-python$suffix:5000/g" docker/nginx/lua/seo_access.lua
+  fi
 
   success "docker-compose.yml多实例配置完成"
 }
@@ -8398,6 +8424,7 @@ download_and_extract_project() {
   if [ -n "$target_version" ]; then
     clone_branch_opt="--branch $target_version"
   fi
+  RESOLVED_TARGET_VERSION="${target_version:-main}"
 
   # 尝试下载项目源码
   local clone_success=false
@@ -10351,19 +10378,37 @@ main() {
   
   # 检查服务状态
   info "检查服务状态..."
+  local python_required=0
+  local _failed_services=()
   NGINX_RUNNING=$(sudo docker ps --filter "name=poetize-nginx" --format "{{.Status}}" | grep -c "Up")
   JAVA_RUNNING=$(sudo docker ps --filter "name=poetize-java" --format "{{.Status}}" | grep -c "Up")
-  PYTHON_RUNNING=$(sudo docker ps --filter "name=poetize-python" --format "{{.Status}}" | grep -c "Up")
   MYSQL_RUNNING=$(sudo docker ps --filter "name=poetize-mariadb" --format "{{.Status}}" | grep -c "Up")
   PRERENDER_RUNNING=$(sudo docker ps --filter "name=poetize-prerender" --format "{{.Status}}" | grep -c "Up")
+  if project_requires_python_backend; then
+    python_required=1
+    PYTHON_RUNNING=$(sudo docker ps --filter "name=poetize-python" --format "{{.Status}}" | grep -c "Up")
+  else
+    PYTHON_RUNNING=1
+  fi
   
-  if [ "$NGINX_RUNNING" -eq 1 ] && [ "$JAVA_RUNNING" -eq 1 ] && [ "$PYTHON_RUNNING" -eq 1 ] && [ "$MYSQL_RUNNING" -eq 1 ] && [ "$PRERENDER_RUNNING" -eq 1 ]; then
+  # 收集异常服务
+  [ "$NGINX_RUNNING" -eq 1 ] || _failed_services+=("poetize-nginx")
+  [ "$JAVA_RUNNING" -eq 1 ] || _failed_services+=("poetize-java")
+  [ "$PYTHON_RUNNING" -eq 1 ] || _failed_services+=("poetize-python")
+  [ "$MYSQL_RUNNING" -eq 1 ] || _failed_services+=("poetize-mariadb")
+  [ "$PRERENDER_RUNNING" -eq 1 ] || _failed_services+=("poetize-prerender")
+
+  if [ ${#_failed_services[@]} -eq 0 ]; then
     success "所有服务已成功启动！"
   else
     warning "部分服务可能未正常启动，请检查日志："
     echo "- Nginx状态: $([ "$NGINX_RUNNING" -eq 1 ] && echo '运行中' || echo '未运行')"
     echo "- Java后端状态: $([ "$JAVA_RUNNING" -eq 1 ] && echo '运行中' || echo '未运行')"
-    echo "- Python后端状态: $([ "$PYTHON_RUNNING" -eq 1 ] && echo '运行中' || echo '未运行')"
+    if [ "$python_required" -eq 1 ]; then
+      echo "- Python后端状态: $([ "$PYTHON_RUNNING" -eq 1 ] && echo '运行中' || echo '未运行')"
+    else
+      echo "- Python后端状态: 当前版本无需独立服务（已并入 Java）"
+    fi
     echo "- MariaDB状态: $([ "$MYSQL_RUNNING" -eq 1 ] && echo '运行中' || echo '未运行')"
     echo "- Prerender状态: $([ "$PRERENDER_RUNNING" -eq 1 ] && echo '运行中' || echo '未运行')"
   fi
@@ -10415,8 +10460,8 @@ main() {
   # 标记所有迁移脚本为已执行（新安装的系统已包含最新表结构）
   mark_all_migrations_as_executed
   
-  # 打印部署汇总信息
-  print_summary
+  # 打印部署汇总信息（传入异常服务列表）
+  print_summary "${_failed_services[@]}"
   
   echo ""
 }
@@ -10483,7 +10528,7 @@ run_deploy_entrypoint() {
   fi
 }
 
-if [ "${POETIZE_SOURCE_ONLY:-false}" != "true" ]; then
+if [ "${POETIZE_SOURCE_ONLY:-false}" != "true" ] && [ "$(basename -- "$0")" != "poetize" ]; then
   run_deploy_entrypoint "$@"
 fi
 __POETIZE_EMBEDDED_DEPLOY_CORE_SH_2047F65599A6__
@@ -11721,6 +11766,7 @@ execute_sql_scripts_on_target() {
                     already_executed=\$(sudo docker exec \"\$mariadb_container\" mariadb -u root -p\"\$db_root_password\" poetize -N -e \"SELECT COUNT(*) FROM db_migrations WHERE version='\$version' AND success=1\" 2>/dev/null | tr -d '[:space:]')
                     if [ \"\$already_executed\" = \"1\" ]; then
                         skip_count=\$((skip_count + 1))
+                        echo \"INFO: 跳过: \$sql_file (已执行)\"
                         continue
                     fi
                 fi
@@ -11754,7 +11800,7 @@ execute_sql_scripts_on_target() {
                         sudo docker exec \"\$mariadb_container\" mariadb -u root -p\"\$db_root_password\" poetize -e \"INSERT IGNORE INTO db_migrations (version, description, success) VALUES ('\$version', '执行失败', 0)\" 2>/dev/null
                     fi
                     
-                    echo \"WARNING: SQL脚本执行失败或已存在: \$sql_file（这通常是正常的，如果表已存在）\"
+                    echo \"WARNING: SQL脚本执行失败: \$sql_file\"
                     fail_count=\$((fail_count + 1))
                 fi
             done <<< \"\$sql_files\"
@@ -12168,7 +12214,7 @@ run_migrate_entrypoint() {
     main "$@"
 }
 
-if [ "${POETIZE_SOURCE_ONLY:-false}" != "true" ]; then
+if [ "${POETIZE_SOURCE_ONLY:-false}" != "true" ] && [ "$(basename -- "$0")" != "poetize" ]; then
     run_migrate_entrypoint "$@"
 fi
 __POETIZE_EMBEDDED_MIGRATE_CORE_SH_37F6586504B7__
@@ -12679,7 +12725,11 @@ show_status() {
             print_table_row "$service_status" "$container_name" "一次性容器" "$service_message"
         done <<< "$instances"
     done
-    print_table_row "INFO" "poetize-python" "备注" "v4.0.0 起已并入 poetize-java"
+    if project_requires_python_backend; then
+        print_table_row "INFO" "poetize-python" "兼容服务" "当前部署版本仍使用独立 Python 后端"
+    else
+        print_table_row "INFO" "poetize-python" "备注" "v4.0.0 起已并入 poetize-java"
+    fi
     print_table_row "INFO" "-" "备注" "poetize-web / poetize-admin 仅用于构建静态资源，退出不代表项目异常"
 
     printf "\n"
@@ -12719,7 +12769,13 @@ start_services() {
         SKIP_BUILD="--no-build"
     fi
 
-    if start_services_with_diagnostics; then
+    if [ -z "$DOCKER_COMPOSE_CMD" ]; then
+        error "未找到可用的 Docker Compose 命令"
+        SKIP_BUILD="$previous_skip_build"
+        exit 1
+    fi
+
+    if $DOCKER_COMPOSE_CMD up -d $SKIP_BUILD; then
         SKIP_BUILD="$previous_skip_build"
         success "服务启动成功"
         sleep 3
@@ -13361,6 +13417,31 @@ resolve_db_root_password() {
     printf "%s\n" "${candidates[0]}"
 }
 
+SQL_EXEC_LAST_ERROR=""
+
+execute_sql_file_in_container() {
+    local mariadb_container="$1"
+    local db_root_password="$2"
+    local sql_file="$3"
+    local error_file=""
+
+    SQL_EXEC_LAST_ERROR=""
+    error_file=$(mktemp 2>/dev/null || printf "/tmp/poetize-sql-error-%s.log" "$$")
+
+    if sudo docker exec -i -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" \
+        sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize' < "$sql_file" 2>"$error_file"; then
+        rm -f "$error_file"
+        return 0
+    fi
+
+    if [ -f "$error_file" ]; then
+        SQL_EXEC_LAST_ERROR=$(tail -n 20 "$error_file" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | sed 's/^ //; s/ $//')
+        rm -f "$error_file"
+    fi
+
+    return 1
+}
+
 resolve_redis_password() {
     local config_password=""
     local env_password=""
@@ -13830,6 +13911,8 @@ resolve_update_source() {
         RESOLVED_BRANCH_OPT="--branch $RESOLVED_TARGET_VERSION"
     fi
 
+    RESOLVED_TARGET_VERSION="${RESOLVED_TARGET_VERSION:-main}"
+
     return 0
 }
 
@@ -14011,6 +14094,8 @@ execute_additional_sql_scripts() {
         warning "无法获取数据库密码，跳过额外SQL脚本执行"
         return 1
     fi
+
+    info "额外SQL脚本目标数据库容器: $mariadb_container"
     
     # 等待数据库容器启动
     info "等待数据库容器启动..."
@@ -14064,6 +14149,7 @@ execute_additional_sql_scripts() {
                 local already_executed=$(sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc "mariadb -u root -p\"\$POETIZE_DB_ROOT_PASSWORD\" poetize -N -e \"SELECT COUNT(*) FROM db_migrations WHERE version='$version' AND success=1\"" 2>/dev/null | tr -d '[:space:]')
                 if [ "$already_executed" = "1" ]; then
                     skip_count=$((skip_count + 1))
+                    info "跳过: $sql_file (已执行)"
                     continue
                 fi
             fi
@@ -14072,7 +14158,7 @@ execute_additional_sql_scripts() {
             info "执行SQL脚本: $sql_file"
             local start_time=$(date +%s%3N 2>/dev/null || date +%s)
             
-            if sudo docker exec -i -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize' < "$sql_file" 2>/dev/null; then
+            if execute_sql_file_in_container "$mariadb_container" "$db_root_password" "$sql_file"; then
                 local end_time=$(date +%s%3N 2>/dev/null || date +%s)
                 local exec_time=$((end_time - start_time))
                 
@@ -14097,7 +14183,10 @@ execute_additional_sql_scripts() {
                     sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc "mariadb -u root -p\"\$POETIZE_DB_ROOT_PASSWORD\" poetize -e \"INSERT IGNORE INTO db_migrations (version, description, success) VALUES ('$version', '执行失败', 0)\"" 2>/dev/null
                 fi
                 
-                warning "SQL脚本执行失败或已存在: $sql_file（这通常是正常的，如果表已存在）"
+                warning "SQL脚本执行失败: $sql_file"
+                if [ -n "$SQL_EXEC_LAST_ERROR" ]; then
+                    warning "数据库错误: $SQL_EXEC_LAST_ERROR"
+                fi
                 fail_count=$((fail_count + 1))
             fi
         done <<< "$sql_files"
@@ -14339,7 +14428,12 @@ perform_restore_operations() {
     info "开始从 $backup_dir 恢复数据..."
 
     # 在恢复前暂停会持续写入缓存的运行时服务，避免新安装默认数据覆盖恢复结果
-    for service_name in nginx java-backend python-backend prerender-worker redis; do
+    local runtime_service_names=("nginx" "java-backend" "prerender-worker" "redis")
+    if project_requires_python_backend; then
+        runtime_service_names=("nginx" "java-backend" "python-backend" "prerender-worker" "redis")
+    fi
+
+    for service_name in "${runtime_service_names[@]}"; do
         container_name=$(resolve_compose_container_name "$service_name" 2>/dev/null || true)
         if [ -n "$container_name" ]; then
             runtime_containers+=("$container_name")
@@ -14405,14 +14499,18 @@ perform_restore_operations() {
         warning "备份中未找到数据库文件"
     fi
     
-    # 3. 恢复Python配置文件
-    info "恢复Python配置文件..."
-    if [ -d "$backup_dir/py/data" ]; then
-        mkdir -p "py"
-        cp -r "$backup_dir/py/data" "py/"
-        success "Python配置文件恢复完成"
+    # 3. 恢复Python配置文件（兼容旧版本）
+    if project_requires_python_backend; then
+        info "恢复Python配置文件..."
+        if [ -d "$backup_dir/py/data" ]; then
+            mkdir -p "py"
+            cp -r "$backup_dir/py/data" "py/"
+            success "Python配置文件恢复完成"
+        else
+            warning "备份中未找到Python配置文件"
+        fi
     else
-        warning "备份中未找到Python配置文件"
+        info "当前版本无需恢复独立 Python 配置文件"
     fi
     
     # 4. 恢复用户上传文件
@@ -14487,7 +14585,12 @@ perform_restore_operations() {
         fi
     fi
 
-    for service_name in java-backend python-backend nginx prerender-worker; do
+    local app_service_names=("java-backend" "nginx" "prerender-worker")
+    if project_requires_python_backend; then
+        app_service_names=("java-backend" "python-backend" "nginx" "prerender-worker")
+    fi
+
+    for service_name in "${app_service_names[@]}"; do
         container_name=$(resolve_compose_container_name "$service_name" 2>/dev/null || true)
         if [ -n "$container_name" ]; then
             app_containers_to_resume+=("$container_name")

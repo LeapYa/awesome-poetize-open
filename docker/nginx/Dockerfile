@@ -1,5 +1,5 @@
 FROM openresty/openresty:1.25.3.2-alpine AS builder
-
+# 国内镜像会根据行号来添加镜像加速，第3行和第139行会添加镜像加速，如果这里修改了，记得修改国内镜像的行号
 
 RUN apk update
 
@@ -15,7 +15,7 @@ RUN apk add --no-cache \
     curl \
     wget \
     busybox-extras
- 
+
 # 下载ngx_brotli模块
 WORKDIR /usr/src
 RUN set -e; \
@@ -24,14 +24,14 @@ RUN set -e; \
     if timeout -s TERM 240 \
         git clone --depth=1 --shallow-submodules --recursive https://github.com/google/ngx_brotli.git; then \
         echo "✅ 从GitHub下载ngx_brotli成功"; \
-    # 如果GitHub失败，尝试Gitee镜像
+    # 如果GitHub失败，尝试AtomGit国内镜像
     elif timeout -s TERM 240 \
         rm -rf ngx_brotli && \
-        git clone --depth=1 https://gitee.com/lirko/ngx_brotli.git; then \
-        echo "🔄 Gitee 主仓库成功，开始处理子模块…"; \
+        git clone --depth=1 https://atomgit.com/gh_mirrors/ng/ngx_brotli.git; then \
+        echo "🔄 AtomGit 主仓库成功，开始处理子模块…"; \
         cd ngx_brotli && \
-        # 把子模块地址改到 Gitee 镜像
-        git submodule set-url deps/brotli https://gitee.com/mities/brotli.git && \
+        # 把子模块地址改到 AtomGit 镜像
+        git submodule set-url deps/brotli https://atomgit.com/gh_mirrors/brotl/brotli.git && \
         # 浅克隆子模块
         git submodule update --init --depth=1 --recommend-shallow && \
         echo "✅ 子模块 brotli 已就位"; \
@@ -113,11 +113,11 @@ RUN set -e; \
     if timeout -s TERM 240 \
         git clone --depth=1 https://github.com/ledgetech/lua-resty-http.git; then \
         echo "✅ 从GitHub下载lua-resty-http成功"; \
-    # 如果GitHub失败，尝试Gitee
+    # 如果GitHub失败，尝试AtomGit国内镜像
     elif timeout -s TERM 240 \
         rm -rf lua-resty-http && \
-        git clone --depth=1 https://gitee.com/mirrors_ledgetech/lua-resty-http.git; then \
-        echo "🔄 从Gitee下载lua-resty-http成功"; \
+        git clone --depth=1 https://atomgit.com/gh_mirrors/lu/lua-resty-http.git; then \
+        echo "🔄 从AtomGit下载lua-resty-http成功"; \
     # 如果都失败，尝试直接下载
     elif wget -O lua-resty-http.tar.gz https://github.com/ledgetech/lua-resty-http/archive/refs/heads/master.tar.gz && \
          tar -xzf lua-resty-http.tar.gz && mv lua-resty-http-master lua-resty-http; then \

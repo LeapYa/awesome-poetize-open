@@ -82,6 +82,10 @@ export default {
             }, 200)
           } else {
             html.value = escapeHtml(content)
+            renderComplete.value = true
+            nextTick(() => {
+              emit('rendered')
+            })
           }
           return
         }

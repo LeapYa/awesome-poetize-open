@@ -24,7 +24,7 @@ export async function loadMarkdownIt() {
   }
   
   try {
-    const module = await import(/* @vite-ignore */ 'markdown-it')
+    const module = await import('markdown-it')
     markdownItModule = module.default || module
     // 同时挂载到 window 上以兼容旧代码
     window.markdownit = markdownItModule

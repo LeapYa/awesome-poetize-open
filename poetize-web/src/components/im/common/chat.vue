@@ -341,7 +341,7 @@
                 v-model="msg"
                 maxlength="1000"
                 spellcheck="false"
-                class="message-content">
+                class="im-message-content">
             </textarea>
       <!-- 发送 -->
       <div class="message-send">
@@ -765,7 +765,7 @@
   .myEmoji:hover {
     transform: scale(1.2);
   }
-  .message-content {
+  .im-message-content {
     width: calc(100% - 30px);
     margin: 0 15px;
     box-sizing: border-box;
@@ -812,7 +812,7 @@
 </style>
 <!-- 全局样式 - 确保 textarea 样式正确应用 -->
 <style>
-  .message-content {
+  .im-message-content {
     background-color: var(--background) !important;
     color: var(--fontColor) !important;
   }

@@ -2511,7 +2511,7 @@
   }
   
   /* 聊天输入框样式 - 确保应用到 textarea */
-  .message-content {
+  .im-message-content {
     background-color: var(--background) !important;
     color: var(--fontColor) !important;
   }

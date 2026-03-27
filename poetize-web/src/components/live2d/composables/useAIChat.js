@@ -40,11 +40,11 @@ export function useAIChat() {
    */
   const init = async () => {
     try {
-      // 加载配置
-      await store.init()
-
       // 加载Markdown渲染资源
       await loadMarkdownResources()
+
+      // 初始化聊天状态与欢迎消息
+      await store.init()
 
       return true
     } catch (err) {

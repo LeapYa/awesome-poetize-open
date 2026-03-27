@@ -1,4 +1,4 @@
-FROM openresty/openresty:1.25.3.1-alpine AS builder
+FROM openresty/openresty:1.25.3.2-alpine AS builder
 
 
 RUN apk update
@@ -134,7 +134,7 @@ RUN set -e; \
     echo "✅ lua-resty-http安装完成"
 
 # 最终镜像
-FROM openresty/openresty:1.25.3.1-alpine
+FROM openresty/openresty:1.25.3.2-alpine
 
 RUN apk update
 

@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-03-26
+## 修改时间: 2026-03-27
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.11.8
+## 版本: 1.11.9
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.11.8"
+POETIZE_VERSION="1.11.9"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -9728,6 +9728,14 @@ patch_dockerfile_mirror() {
     success "已将 uv 镜像源替换国内镜像站"
     
     patch_dockerfile_slim_mirror "docker/python/Dockerfile" 3
+  fi
+
+  if [ -f "docker/java/Dockerfile" ] && [ -f "docker/nginx/Dockerfile" ]; then
+    patch_dockerfile_alpine_mirror "docker/nginx/Dockerfile" 3
+    patch_dockerfile_alpine_mirror "docker/nginx/Dockerfile" 139
+    patch_dockerfile_alpine_mirror "docker/translation-model/Dockerfile" 5
+    patch_dockerfile_alpine_mirror "docker/java/Dockerfile" 16
+    patch_dockerfile_alpine_mirror "docker/prerender/Dockerfile" 5
     
     # 前端多阶段构建：动态查找 FROM 行并插入镜像源
     # 第一阶段（node:bookworm-slim）需要 Debian 镜像源
@@ -9736,19 +9744,12 @@ patch_dockerfile_mirror() {
     local admin_line=$(grep -n "FROM node.*bookworm-slim" docker/poetize-admin/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
     # 旧版前端（向后兼容）
     local ui_line=$(grep -n "FROM node.*bookworm-slim" docker/poetize-ui/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
-    local im_line=$(grep -n "FROM node.*bookworm-slim" docker/poetize-im-ui/Dockerfile | head -1 | cut -d: -f1)
+    local im_line=$(grep -n "FROM node.*bookworm-slim" docker/poetize-im-ui/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
     [ -n "$web_line" ] && patch_dockerfile_slim_mirror "docker/poetize-web/Dockerfile" "$web_line"
     [ -n "$admin_line" ] && patch_dockerfile_slim_mirror "docker/poetize-admin/Dockerfile" "$admin_line"
     [ -n "$ui_line" ] && patch_dockerfile_slim_mirror "docker/poetize-ui/Dockerfile" "$ui_line"
     [ -n "$im_line" ] && patch_dockerfile_slim_mirror "docker/poetize-im-ui/Dockerfile" "$im_line"
-  fi
-  if [ -f "docker/java/Dockerfile" ] && [ -f "docker/nginx/Dockerfile" ]; then
-    patch_dockerfile_alpine_mirror "docker/nginx/Dockerfile" 3
-    patch_dockerfile_alpine_mirror "docker/nginx/Dockerfile" 139
-    patch_dockerfile_alpine_mirror "docker/translation-model/Dockerfile" 5
-    patch_dockerfile_alpine_mirror "docker/java/Dockerfile" 16
-    patch_dockerfile_alpine_mirror "docker/prerender/Dockerfile" 5
-    
+
     # 前端多阶段构建：第二阶段（alpine）需要 Alpine 镜像源
     # 动态查找 FROM alpine 的位置，然后在下一行插入（+1）
     # 新版前端
@@ -9756,7 +9757,7 @@ patch_dockerfile_mirror() {
     local admin_alpine_line=$(grep -n "FROM alpine" docker/poetize-admin/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
     # 旧版前端（向后兼容）
     local ui_alpine_line=$(grep -n "FROM alpine" docker/poetize-ui/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
-    local im_alpine_line=$(grep -n "FROM alpine" docker/poetize-im-ui/Dockerfile | head -1 | cut -d: -f1)
+    local im_alpine_line=$(grep -n "FROM alpine" docker/poetize-im-ui/Dockerfile 2>/dev/null | head -1 | cut -d: -f1)
     [ -n "$web_alpine_line" ] && patch_dockerfile_alpine_mirror "docker/poetize-web/Dockerfile" "$((web_alpine_line + 1))"
     [ -n "$admin_alpine_line" ] && patch_dockerfile_alpine_mirror "docker/poetize-admin/Dockerfile" "$((admin_alpine_line + 1))"
     [ -n "$ui_alpine_line" ] && patch_dockerfile_alpine_mirror "docker/poetize-ui/Dockerfile" "$((ui_alpine_line + 1))"

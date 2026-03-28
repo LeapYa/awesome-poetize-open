@@ -484,6 +484,7 @@ auto_confirm() {
 RUN_IN_BACKGROUND=false
 DOMAINS=()
 PRIMARY_DOMAIN=""
+PRIMARY_DOMAIN_LOCKED=false
 EMAIL="example@qq.com"
 ENABLE_HTTPS=true
 CONFIG_FILE=".poetize-config"
@@ -740,6 +741,7 @@ print_summary() {
   local BOLD='\033[1m'
   local GRAY='\033[90m'
   local https_enabled=false
+  local ssl_certificate_path=""
 
   # 从参数接收异常服务列表（由调用方传入）
   local failed_services=("$@")
@@ -750,7 +752,8 @@ print_summary() {
 
   # 检查HTTPS是否真正启用
   if [ "$PRIMARY_DOMAIN" != "localhost" ] && [ "$PRIMARY_DOMAIN" != "127.0.0.1" ] && ! [[ "$PRIMARY_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    if docker exec poetize-nginx nginx -T 2>/dev/null | grep -q "listen.*443.*ssl" && docker exec poetize-nginx test -f "/etc/letsencrypt/live/$PRIMARY_DOMAIN/fullchain.pem" 2>/dev/null; then
+    ssl_certificate_path=$(docker exec poetize-nginx sh -c "nginx -T 2>/dev/null | awk '/ssl_certificate \\/etc\\/letsencrypt\\/live\\// {gsub(/;/, \"\", \$2); print \$2; exit}'" 2>/dev/null || true)
+    if docker exec poetize-nginx nginx -T 2>/dev/null | grep -q "listen.*443.*ssl" && [ -n "$ssl_certificate_path" ] && docker exec poetize-nginx test -f "$ssl_certificate_path" 2>/dev/null; then
       https_enabled=true
     fi
   fi
@@ -6436,18 +6439,34 @@ is_root_domain() {
   fi
 }
 
-# 让用户手动选择主域名（带30秒超时）
+# 让用户确认主域名（带30秒超时）
 prompt_primary_domain_with_timeout() {
-  info "检测到的域名都是子域名，请手动选择主域名："
+  local suggested_domain="${1:-${DOMAINS[0]}}"
+  local default_choice=1
+  local i
+
   for i in "${!DOMAINS[@]}"; do
-    echo "  $((i+1)). ${DOMAINS[i]}"
+    if [ "${DOMAINS[$i]}" = "$suggested_domain" ]; then
+      default_choice=$((i+1))
+      break
+    fi
+  done
+
+  info "检测到多个域名，请确认主域名（30秒后自动使用推荐值）："
+  for i in "${!DOMAINS[@]}"; do
+    if [ "${DOMAINS[$i]}" = "$suggested_domain" ]; then
+      echo "  $((i+1)). ${DOMAINS[i]} (推荐)"
+    else
+      echo "  $((i+1)). ${DOMAINS[i]}"
+    fi
   done
   echo "  0. 手动输入其他域名"
   
-  echo -n "请选择主域名 (1-${#DOMAINS[@]} 或 0，30秒后自动选择第一个): "
+  echo -n "请选择主域名 (1-${#DOMAINS[@]} 或 0，默认 ${default_choice}): "
   
   # 使用read的超时功能
   if read -t 30 choice; then
+    choice="${choice:-$default_choice}"
     # 验证输入
     if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 0 ] && [ "$choice" -le "${#DOMAINS[@]}" ]; then
       if [ "$choice" -eq 0 ]; then
@@ -6457,22 +6476,22 @@ prompt_primary_domain_with_timeout() {
           PRIMARY_DOMAIN="$custom_domain"
           info "使用手动输入的主域名: $PRIMARY_DOMAIN"
         else
-          PRIMARY_DOMAIN="${DOMAINS[0]}"
-          info "输入为空，使用第一个域名: $PRIMARY_DOMAIN"
+          PRIMARY_DOMAIN="$suggested_domain"
+          info "输入为空，使用推荐主域名: $PRIMARY_DOMAIN"
         fi
       else
         PRIMARY_DOMAIN="${DOMAINS[$((choice-1))]}"
         info "选择的主域名: $PRIMARY_DOMAIN"
       fi
     else
-      warn "输入无效，使用第一个域名: ${DOMAINS[0]}"
-      PRIMARY_DOMAIN="${DOMAINS[0]}"
+      warn "输入无效，使用推荐主域名: $suggested_domain"
+      PRIMARY_DOMAIN="$suggested_domain"
     fi
   else
-    # 超时后使用第一个域名
+    # 超时后使用推荐值
     echo ""
-    warn "输入超时，使用第一个域名: ${DOMAINS[0]}"
-    PRIMARY_DOMAIN="${DOMAINS[0]}"
+    warn "输入超时，使用推荐主域名: $suggested_domain"
+    PRIMARY_DOMAIN="$suggested_domain"
   fi
 }
 
@@ -6528,17 +6547,22 @@ revert_to_http_protocol() {
 }
 
 # 选择最合适的主域名
-# 优先级: 只有一个域名时直接使用 > 根域名 > www域名 > 用户手动选择
+# 优先级: 只有一个域名时直接使用 > 多域名时给出推荐值并让用户确认
 select_primary_domain() {
+  if [ "$PRIMARY_DOMAIN_LOCKED" = true ] && [ -n "$PRIMARY_DOMAIN" ]; then
+    return
+  fi
+
   # 优先级0: 如果只有一个域名，直接使用它
   if [ ${#DOMAINS[@]} -eq 1 ]; then
     PRIMARY_DOMAIN="${DOMAINS[0]}"
+    PRIMARY_DOMAIN_LOCKED=true
     return
   fi
-  
+
   local root_domain=""
   local www_domain=""
-  local subdomain=""
+  local suggested_domain=""
   
   # 遍历所有域名，分类收集
   for domain in "${DOMAINS[@]}"; do
@@ -6552,30 +6576,30 @@ select_primary_domain() {
       if [ -z "$www_domain" ]; then
         www_domain="$domain"
       fi
-    else
-      # 其他子域名
-      if [ -z "$subdomain" ]; then
-        subdomain="$domain"
-      fi
     fi
   done
   
-  # 优先级1: 根域名
-  if [ -n "$root_domain" ]; then
-    PRIMARY_DOMAIN="$root_domain"
-  # 优先级2: www域名（当没有根域名时）
-  elif [ -n "$www_domain" ]; then
-    PRIMARY_DOMAIN="$www_domain"
-  # 优先级3: 让用户手动选择（多个子域名的情况）
+  # 推荐优先级1: www域名
+  if [ -n "$www_domain" ]; then
+    suggested_domain="$www_domain"
+  # 推荐优先级2: 根域名
+  elif [ -n "$root_domain" ]; then
+    suggested_domain="$root_domain"
+  # 推荐优先级3: 其他场景默认第一个
   else
-    prompt_primary_domain_with_timeout
+    suggested_domain="${DOMAINS[0]}"
   fi
+
+  prompt_primary_domain_with_timeout "$suggested_domain"
+
+  PRIMARY_DOMAIN_LOCKED=true
 }
 
 # 提示用户输入域名
 prompt_for_domains() {
   while true; do
     local domain_input_str=""
+    PRIMARY_DOMAIN_LOCKED=false
     
     # 尝试使用 whiptail 图形界面（Debian/Ubuntu 默认安装）
     if command -v whiptail &>/dev/null; then

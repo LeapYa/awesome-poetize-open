@@ -210,12 +210,15 @@ if [ $IS_LOCAL -eq 1 ]; then
         exit 0
     }
     
-    # 步骤2: 替换 server_name（处理已被修改过的模板，跳过 server_name _）
-    # 使用 awk 精确替换非 default_server 的 server_name 行
-    awk -v domains="$ALL_DOMAINS" '
+    # 步骤2: 仅替换主站 server_name，保留自动追加的副域名跳转块
+    awk -v primary="$CURRENT_DOMAIN" '
+        /# AUTO_REDIRECT_SECONDARY_DOMAINS_START/ { in_auto_redirect = 1; print; next }
+        /# AUTO_REDIRECT_SECONDARY_DOMAINS_END/ { in_auto_redirect = 0; print; next }
         /^[[:space:]]*server_name[[:space:]]+_[[:space:]]*;/ { print; next }
         /^[[:space:]]*server_name[[:space:]]/ {
-            sub(/server_name[[:space:]]+[^;]+/, "server_name " domains)
+            if (!in_auto_redirect) {
+                sub(/server_name[[:space:]]+[^;]+/, "server_name " primary)
+            }
         }
         { print }
     ' /tmp/new_default.conf > /tmp/new_default.conf.tmp && mv /tmp/new_default.conf.tmp /tmp/new_default.conf
@@ -322,11 +325,15 @@ if [ -f "$CERT_DIR/fullchain.pem" ] && [ -f "$CERT_DIR/privkey.pem" ]; then
         exit 0
     }
     
-    # 步骤2: 替换 server_name（处理已被修改过的模板，跳过 server_name _）
-    awk -v domains="$DOMAIN_CONFIG" '
+    # 步骤2: 仅替换主站 server_name，保留自动追加的副域名跳转块
+    awk -v primary="$CURRENT_DOMAIN" '
+        /# AUTO_REDIRECT_SECONDARY_DOMAINS_START/ { in_auto_redirect = 1; print; next }
+        /# AUTO_REDIRECT_SECONDARY_DOMAINS_END/ { in_auto_redirect = 0; print; next }
         /^[[:space:]]*server_name[[:space:]]+_[[:space:]]*;/ { print; next }
         /^[[:space:]]*server_name[[:space:]]/ {
-            sub(/server_name[[:space:]]+[^;]+/, "server_name " domains)
+            if (!in_auto_redirect) {
+                sub(/server_name[[:space:]]+[^;]+/, "server_name " primary)
+            }
         }
         { print }
     ' /tmp/new_default.conf > /tmp/new_default.conf.tmp && mv /tmp/new_default.conf.tmp /tmp/new_default.conf

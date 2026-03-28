@@ -5345,8 +5345,9 @@ init_deploy() {
   elif [ "$ENABLE_HTTPS" = true ]; then
     # HTTPS已启用，配置certbot参数
     info "HTTPS已启用，配置certbot参数"
-    DOMAINS_PARAM=""
+    DOMAINS_PARAM=" -d $PRIMARY_DOMAIN"
     for domain in "${DOMAINS[@]}"; do
+      [ "$domain" = "$PRIMARY_DOMAIN" ] && continue
       DOMAINS_PARAM="$DOMAINS_PARAM -d $domain"
     done
     
@@ -5358,6 +5359,7 @@ init_deploy() {
     
     # 使用sed替换certbot命令行certbot-entrypoint.sh
     sed_i "s|--email your-email@example.com|--email $EMAIL|g" docker/nginx/certbot-entrypoint.sh
+    sed_i "s|--cert-name example.com|--cert-name $PRIMARY_DOMAIN|g" docker/nginx/certbot-entrypoint.sh
     sed_i "s|-d example.com -d www.example.com|$DOMAINS_PARAM|g" docker/nginx/certbot-entrypoint.sh
     # 替换DNS检查中的遗留占位域名
     sed_i "s|check_dns \"example.com\"|check_dns \"$PRIMARY_DOMAIN\"|g" docker/nginx/certbot-entrypoint.sh
@@ -8023,16 +8025,23 @@ verify_https_status() {
   
   # 2. 检查SSL证书文件是否存在
   info "检查SSL证书文件..."
-  
-  # certbot将证书放在第一个域名的目录下
-  local cert_domain="${DOMAINS[0]}"
-  
-  if sudo docker exec poetize-nginx test -f "/etc/letsencrypt/live/$cert_domain/fullchain.pem" 2>/dev/null; then
+
+  local ssl_certificate_path=""
+  local cert_domain="$PRIMARY_DOMAIN"
+  ssl_certificate_path=$(sudo docker exec poetize-nginx sh -c "nginx -T 2>/dev/null | awk '/ssl_certificate \\/etc\\/letsencrypt\\/live\\// {gsub(/;/, \"\", \$2); print \$2; exit}'" 2>/dev/null || true)
+  if [ -z "$ssl_certificate_path" ]; then
+    ssl_certificate_path="/etc/letsencrypt/live/$PRIMARY_DOMAIN/fullchain.pem"
+  fi
+  if [ -n "$ssl_certificate_path" ]; then
+    cert_domain=$(printf "%s\n" "$ssl_certificate_path" | awk -F/ '{print $(NF-1)}')
+  fi
+
+  if sudo docker exec poetize-nginx test -f "$ssl_certificate_path" 2>/dev/null; then
     cert_valid=true
-    success "✓ SSL证书文件存在: /etc/letsencrypt/live/$cert_domain/fullchain.pem"
+    success "✓ SSL证书文件存在: $ssl_certificate_path"
     
     # 检查证书有效期
-    CERT_EXPIRY=$(sudo docker exec poetize-nginx openssl x509 -in "/etc/letsencrypt/live/$cert_domain/fullchain.pem" -noout -enddate 2>/dev/null | cut -d= -f2)
+    CERT_EXPIRY=$(sudo docker exec poetize-nginx openssl x509 -in "$ssl_certificate_path" -noout -enddate 2>/dev/null | cut -d= -f2)
     if [ -n "$CERT_EXPIRY" ]; then
       info "证书有效期至: $CERT_EXPIRY"
     fi

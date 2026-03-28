@@ -86,12 +86,13 @@ apply_certificate() {
       echo "网络诊断完成，继续申请证书..."
     fi
     
-    echo "执行: certbot certonly --webroot --webroot-path=$WEBROOT_PATH --email your-email@example.com --agree-tos --no-eff-email --force-renewal --expand -d example.com -d www.example.com"
+    echo "执行: certbot certonly --webroot --webroot-path=$WEBROOT_PATH --email your-email@example.com --cert-name example.com --agree-tos --no-eff-email --force-renewal --expand -d example.com -d www.example.com"
     
     # 执行certbot命令
     certbot certonly --webroot \
       --webroot-path=$WEBROOT_PATH \
       --email your-email@example.com \
+      --cert-name example.com \
       --agree-tos \
       --no-eff-email \
       --force-renewal \
@@ -119,6 +120,7 @@ apply_certificate() {
       certbot certonly --webroot \
         --webroot-path=$WEBROOT_PATH \
         --email your-email@example.com \
+        --cert-name example.com \
         --agree-tos \
         --no-eff-email \
         --force-renewal \

@@ -5235,93 +5235,7 @@ init_deploy() {
   # 设置域名
   info "更新Nginx配置中的域名..."
   if [ -n "$PRIMARY_DOMAIN" ]; then
-    # 提取副域名
-    SECONDARY_DOMAINS=""
-    for d in "${DOMAINS[@]}"; do
-      if [ "$d" != "$PRIMARY_DOMAIN" ]; then
-        SECONDARY_DOMAINS="$SECONDARY_DOMAINS $d"
-      fi
-    done
-    if [ -n "$SECONDARY_DOMAINS" ]; then
-      SECONDARY_DOMAINS=$(echo "$SECONDARY_DOMAINS" | awk '{$1=$1;print}')
-    fi
-    
-    DOMAIN_CONFIG="${DOMAINS[*]}"
-    
-    info "配置主域名为: $PRIMARY_DOMAIN"
-    if [ -n "$SECONDARY_DOMAINS" ]; then
-      info "配置副域名为: $SECONDARY_DOMAINS 并设置301重定向"
-    fi
-    
-    for conf_file in docker/nginx/default.http.conf docker/nginx/default.https.conf docker/nginx/default.conf; do
-      if [ -f "$conf_file" ]; then
-        sed '/# AUTO_REDIRECT_SECONDARY_DOMAINS_START/,$d; /# 自动追加的副域名 301 重定向模块/,$d' "$conf_file" | \
-        awk -v primary="$PRIMARY_DOMAIN" -v secondary="$SECONDARY_DOMAINS" -v all_domains="$DOMAIN_CONFIG" -v conf_file="$conf_file" '
-        {
-          if ($0 ~ /valid_referers/) {
-            # server_names 关键字已自动包含当前 server_name 的值，
-            # 只需移除旧的域名占位符，不再追加域名，避免与 server_names 重复导致
-            # nginx 报 "conflicting parameter" 错误（尤其 localhost/IP 部署场景）
-            old_ref = "~\\.example\\.com$ example.com"
-            if ((pos = index($0, old_ref)) > 0) {
-              $0 = substr($0, 1, pos - 1) substr($0, pos + length(old_ref))
-            }
-            print $0
-          } else {
-            # 主站 server_name 仅绑定主域名，副域名通过单独 server 块做 301 跳转
-            gsub(/server_name[[:space:]]+example\.com[[:space:]]+www\.example\.com;/, "server_name " primary ";")
-            # 替换证书路径等单域名占位符
-            gsub(/example\.com\//, primary "/")
-            print $0
-          }
-        }
-        END {
-          if (secondary != "") {
-            print ""
-            print "# AUTO_REDIRECT_SECONDARY_DOMAINS_START"
-            print "# 自动追加的副域名 301 重定向模块"
-            if (conf_file ~ /https/) {
-              print "server {"
-              print "    listen 80;"
-              print "    server_name " secondary ";"
-              print ""
-              print "    location ^~ /.well-known/acme-challenge/ {"
-              print "        root /usr/share/nginx/html;"
-              print "        allow all;"
-              print "        try_files $uri =404;"
-              print "    }"
-              print ""
-              print "    return 301 https://" primary "$request_uri;"
-              print "}"
-              print "server {"
-              print "    listen 443 ssl;"
-              print "    listen 443 quic;"
-              print "    http2 on;"
-              print "    http3 on;"
-              print "    server_name " secondary ";"
-              print "    ssl_certificate /etc/letsencrypt/live/" primary "/fullchain.pem;"
-              print "    ssl_certificate_key /etc/letsencrypt/live/" primary "/privkey.pem;"
-              print "    return 301 https://" primary "$request_uri;"
-              print "}"
-            } else {
-              print "server {"
-              print "    listen 80;"
-              print "    server_name " secondary ";"
-              print ""
-              print "    location ^~ /.well-known/acme-challenge/ {"
-              print "        root /usr/share/nginx/html;"
-              print "        allow all;"
-              print "        try_files $uri =404;"
-              print "    }"
-              print ""
-              print "    return 301 http://" primary "$request_uri;"
-              print "}"
-            }
-            print "# AUTO_REDIRECT_SECONDARY_DOMAINS_END"
-          }
-        }' > "${conf_file}.tmp" && chmod 644 "${conf_file}.tmp" && mv "${conf_file}.tmp" "$conf_file"
-      fi
-    done
+    render_nginx_configs
 
     # 使用 .env 文件配置域名相关变量
     if [ -f "lib/config.sh" ]; then
@@ -5407,14 +5321,118 @@ init_deploy() {
   success "部署环境初始化完成"
 }
 
+get_secondary_domains() {
+  local secondary_domains=""
+  local d
+  for d in "${DOMAINS[@]}"; do
+    if [ "$d" != "$PRIMARY_DOMAIN" ]; then
+      secondary_domains="$secondary_domains $d"
+    fi
+  done
+
+  if [ -n "$secondary_domains" ]; then
+    secondary_domains=$(echo "$secondary_domains" | awk '{$1=$1;print}')
+  fi
+
+  printf "%s\n" "$secondary_domains"
+}
+
+render_nginx_config_file() {
+  local conf_file="$1"
+  local primary_domain="$2"
+  local secondary_domains="$3"
+
+  [ -f "$conf_file" ] || return 0
+
+  sed '/# AUTO_REDIRECT_SECONDARY_DOMAINS_START/,$d; /# 自动追加的副域名 301 重定向模块/,$d' "$conf_file" | \
+  awk -v primary="$primary_domain" -v secondary="$secondary_domains" -v conf_file="$conf_file" '
+  {
+    if ($0 ~ /valid_referers/) {
+      # server_names 关键字已自动包含当前 server_name 的值，
+      # 只需移除旧的域名占位符，不再追加域名，避免与 server_names 重复导致
+      # nginx 报 "conflicting parameter" 错误（尤其 localhost/IP 部署场景）
+      old_ref = "~\\.example\\.com$ example.com"
+      if ((pos = index($0, old_ref)) > 0) {
+        $0 = substr($0, 1, pos - 1) substr($0, pos + length(old_ref))
+      }
+      print $0
+    } else {
+      # 主站 server_name 仅绑定主域名，副域名通过单独 server 块做 301 跳转
+      gsub(/server_name[[:space:]]+example\.com[[:space:]]+www\.example\.com;/, "server_name " primary ";")
+      # 替换证书路径等单域名占位符
+      gsub(/example\.com\//, primary "/")
+      print $0
+    }
+  }
+  END {
+    if (secondary != "") {
+      print ""
+      print "# AUTO_REDIRECT_SECONDARY_DOMAINS_START"
+      print "# 自动追加的副域名 301 重定向模块"
+      if (conf_file ~ /https/) {
+        print "server {"
+        print "    listen 80;"
+        print "    server_name " secondary ";"
+        print ""
+        print "    location ^~ /.well-known/acme-challenge/ {"
+        print "        root /usr/share/nginx/html;"
+        print "        allow all;"
+        print "        try_files $uri =404;"
+        print "    }"
+        print ""
+        print "    return 301 https://" primary "$request_uri;"
+        print "}"
+        print "server {"
+        print "    listen 443 ssl;"
+        print "    listen 443 quic;"
+        print "    http2 on;"
+        print "    http3 on;"
+        print "    server_name " secondary ";"
+        print "    ssl_certificate /etc/letsencrypt/live/" primary "/fullchain.pem;"
+        print "    ssl_certificate_key /etc/letsencrypt/live/" primary "/privkey.pem;"
+        print "    return 301 https://" primary "$request_uri;"
+        print "}"
+      } else {
+        print "server {"
+        print "    listen 80;"
+        print "    server_name " secondary ";"
+        print ""
+        print "    location ^~ /.well-known/acme-challenge/ {"
+        print "        root /usr/share/nginx/html;"
+        print "        allow all;"
+        print "        try_files $uri =404;"
+        print "    }"
+        print ""
+        print "    return 301 http://" primary "$request_uri;"
+        print "}"
+      }
+      print "# AUTO_REDIRECT_SECONDARY_DOMAINS_END"
+    }
+  }' > "${conf_file}.tmp" && chmod 644 "${conf_file}.tmp" && mv "${conf_file}.tmp" "$conf_file"
+}
+
+render_nginx_configs() {
+  local secondary_domains
+  local conf_file
+
+  secondary_domains=$(get_secondary_domains)
+
+  info "配置主域名为: $PRIMARY_DOMAIN"
+  if [ -n "$secondary_domains" ]; then
+    info "配置副域名为: $secondary_domains 并设置301重定向"
+  fi
+
+  for conf_file in docker/nginx/default.http.conf docker/nginx/default.https.conf docker/nginx/default.conf; do
+    render_nginx_config_file "$conf_file" "$PRIMARY_DOMAIN" "$secondary_domains"
+  done
+}
+
 # 修改docker-compose.yml中的nginx卷挂载
 update_nginx_volumes() {
   info "更新Nginx卷挂载配置..."
   DOMAIN_CONFIG="${DOMAINS[*]}"
   
-  info "配置服务器名称为: $DOMAIN_CONFIG"
-  sed_i "s/example.com www.example.com/$DOMAIN_CONFIG/g" docker/nginx/default.http.conf
-  sed_i "s/example.com www.example.com/$DOMAIN_CONFIG/g" docker/nginx/default.https.conf
+  info "保留Nginx模板中的域名占位符，稍后由 init_deploy 按主域名和副域名精确生成配置"
   
   # 添加default.conf挂载
   if ! grep -q "default.conf:" docker-compose.yml; then

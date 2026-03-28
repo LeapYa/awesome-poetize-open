@@ -59,6 +59,24 @@ handle_error() {
     return 0
 }
 
+test_and_apply_nginx_config() {
+    candidate="$1"
+    target="/usr/local/openresty/nginx/conf/conf.d/default.conf"
+    backup="/tmp/default.conf.backup"
+
+    cp "$target" "$backup" 2>/dev/null || true
+    cp "$candidate" "$target" || return 1
+
+    echo "验证Nginx配置有效性..."
+    if nginx -t -c /usr/local/openresty/nginx/conf/nginx.conf -p /usr/local/openresty/nginx; then
+        return 0
+    fi
+
+    echo "错误：生成的Nginx配置文件无效，恢复旧配置..."
+    cp "$backup" "$target" 2>/dev/null || true
+    return 1
+}
+
 # 安装软件包的跨平台函数
 install_package() {
     pkg_name="$1"
@@ -172,24 +190,29 @@ if [ $IS_LOCAL -eq 1 ]; then
     fi
     
     # 读取HTTPS配置模板并替换域名
+    # 步骤1: 先尝试替换未修改的模板占位符
     sed "s/example.com www.example.com/$ALL_DOMAINS/g" /usr/local/openresty/nginx/conf/conf.d/default.https.conf.template > /tmp/new_default.conf || {
         handle_error "替换HTTPS配置中的域名失败"
         exit 0
     }
     
-    # 替换证书路径中的域名
-    sed -i "s|/etc/letsencrypt/live/example.com/|/etc/letsencrypt/live/$CURRENT_DOMAIN/|g" /tmp/new_default.conf || {
+    # 步骤2: 替换 server_name（处理已被修改过的模板，跳过 server_name _）
+    # 使用 awk 精确替换非 default_server 的 server_name 行
+    awk -v domains="$ALL_DOMAINS" '
+        /^[[:space:]]*server_name[[:space:]]+_[[:space:]]*;/ { print; next }
+        /^[[:space:]]*server_name[[:space:]]/ {
+            sub(/server_name[[:space:]]+[^;]+/, "server_name " domains)
+        }
+        { print }
+    ' /tmp/new_default.conf > /tmp/new_default.conf.tmp && mv /tmp/new_default.conf.tmp /tmp/new_default.conf
+    
+    # 步骤3: 替换证书路径中的域名（使用通用正则匹配任意域名，而非仅 example.com）
+    sed -i "s|/etc/letsencrypt/live/[^/]*/|/etc/letsencrypt/live/$CURRENT_DOMAIN/|g" /tmp/new_default.conf || {
         handle_error "替换HTTPS配置中的证书路径失败"
         exit 0
     }
     
-    # 检查生成的配置文件是否有效
-    echo "验证Nginx配置有效性..."
-    nginx -t -c /usr/local/openresty/nginx/conf/nginx.conf -p /usr/local/openresty/nginx
-    
-    if [ $? -eq 0 ]; then
-        # 配置文件有效，替换现有配置
-        safe_mv /tmp/new_default.conf /usr/local/openresty/nginx/conf/conf.d/default.conf
+    if test_and_apply_nginx_config /tmp/new_default.conf; then
         
         # 如果nginx已经运行，使用reload，否则跳过（初始启动时会由主命令启动nginx）
         if pidof nginx >/dev/null; then
@@ -279,24 +302,28 @@ if [ -f "$CERT_DIR/fullchain.pem" ] && [ -f "$CERT_DIR/privkey.pem" ]; then
     echo "将使用以下server_name配置: $DOMAIN_CONFIG"
     
     # 读取HTTPS配置模板并替换域名
+    # 步骤1: 先尝试替换未修改的模板占位符
     sed "s/example.com www.example.com/$DOMAIN_CONFIG/g" /usr/local/openresty/nginx/conf/conf.d/default.https.conf.template > /tmp/new_default.conf || {
         handle_error "替换HTTPS配置中的域名失败"
         exit 0
     }
     
-    # 替换证书路径中的域名
-    sed -i "s|/etc/letsencrypt/live/example.com/|/etc/letsencrypt/live/$DOMAIN/|g" /tmp/new_default.conf || {
+    # 步骤2: 替换 server_name（处理已被修改过的模板，跳过 server_name _）
+    awk -v domains="$DOMAIN_CONFIG" '
+        /^[[:space:]]*server_name[[:space:]]+_[[:space:]]*;/ { print; next }
+        /^[[:space:]]*server_name[[:space:]]/ {
+            sub(/server_name[[:space:]]+[^;]+/, "server_name " domains)
+        }
+        { print }
+    ' /tmp/new_default.conf > /tmp/new_default.conf.tmp && mv /tmp/new_default.conf.tmp /tmp/new_default.conf
+    
+    # 步骤3: 替换证书路径中的域名（使用通用正则匹配任意域名，而非仅 example.com）
+    sed -i "s|/etc/letsencrypt/live/[^/]*/|/etc/letsencrypt/live/$DOMAIN/|g" /tmp/new_default.conf || {
         handle_error "替换HTTPS配置中的证书路径失败"
         exit 0
     }
     
-    # 检查生成的配置文件是否有效
-    echo "验证Nginx配置有效性..."
-    nginx -t -c /usr/local/openresty/nginx/conf/nginx.conf -p /usr/local/openresty/nginx
-    
-    if [ $? -eq 0 ]; then
-        # 配置文件有效，替换现有配置
-        safe_mv /tmp/new_default.conf /usr/local/openresty/nginx/conf/conf.d/default.conf
+    if test_and_apply_nginx_config /tmp/new_default.conf; then
         
         # 如果nginx已经运行，使用reload，否则跳过（初始启动时会由主命令启动nginx）
         if pidof nginx >/dev/null; then

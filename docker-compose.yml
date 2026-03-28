@@ -5,6 +5,8 @@ services:
       context: ./docker/nginx
       dockerfile: Dockerfile
     container_name: poetize-nginx
+    mem_limit: ${NGINX_MEMORY_LIMIT:-192m}
+    mem_reservation: ${NGINX_MEMORY_RESERVATION:-128m}
     logging:
       driver: json-file
       options:
@@ -88,6 +90,8 @@ services:
     image: certbot/certbot
     container_name: poetize-certbot
     init: true  # 改善信号处理，确保优雅关闭
+    mem_limit: ${CERTBOT_MEMORY_LIMIT:-128m}
+    mem_reservation: ${CERTBOT_MEMORY_RESERVATION:-64m}
     profiles:
       - https
     environment:
@@ -255,6 +259,8 @@ services:
       dockerfile: docker/mysql/Dockerfile
     container_name: poetize-mariadb
     init: true  # 改善信号处理，确保优雅关闭
+    mem_limit: ${MYSQL_MEMORY_LIMIT:-896m}
+    mem_reservation: ${MYSQL_MEMORY_RESERVATION:-640m}
     logging:
       driver: json-file
       options:

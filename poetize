@@ -5384,6 +5384,29 @@ get_secondary_domains() {
   printf "%s\n" "$secondary_domains"
 }
 
+extract_server_names_from_nginx_file() {
+  local nginx_config_file="$1"
+
+  [ -f "$nginx_config_file" ] || return 1
+
+  awk '
+    /# AUTO_REDIRECT_SECONDARY_DOMAINS_START/ { in_auto_redirect = 1; next }
+    /# AUTO_REDIRECT_SECONDARY_DOMAINS_END/ { in_auto_redirect = 0; next }
+    in_auto_redirect { next }
+    /^[[:space:]]*server_name[[:space:]]+/ {
+      line = $0
+      sub(/^[[:space:]]*server_name[[:space:]]+/, "", line)
+      sub(/;.*/, "", line)
+      count = split(line, names, /[[:space:]]+/)
+      for (i = 1; i <= count; i++) {
+        if (names[i] != "" && names[i] != "_" && names[i] != "example.com" && names[i] != "www.example.com") {
+          print names[i]
+        }
+      }
+    }
+  ' "$nginx_config_file" | sort -u
+}
+
 render_nginx_config_file() {
   local conf_file="$1"
   local primary_domain="$2"
@@ -11202,7 +11225,7 @@ extract_domains_from_nginx() {
             # 如果数据文件不存在，重新提取域名
             local nginx_config_file="docker/nginx/default.https.conf"
             if [ -f "$nginx_config_file" ]; then
-                local domains=$(grep "^[[:space:]]*server_name" "$nginx_config_file" | sed 's/^[[:space:]]*server_name[[:space:]]\+//' | sed 's/;.*//' | tr ' ' '\n' | grep -vE "^_$" | grep -v "example.com" | grep -v "^$" | sort -u)
+                local domains=$(extract_server_names_from_nginx_file "$nginx_config_file")
                 if [ -n "$domains" ]; then
                     NGINX_DOMAINS="$domains"
                     save_nginx_domains
@@ -11223,7 +11246,7 @@ extract_domains_from_nginx() {
     fi
     
     # 提取server_name行中的域名，排除example.com
-    local domains=$(grep "^[[:space:]]*server_name" "$nginx_config_file" | sed 's/^[[:space:]]*server_name[[:space:]]\+//' | sed 's/;.*//' | tr ' ' '\n' | grep -vE "^_$" | grep -v "example.com" | grep -v "^$" | sort -u)
+    local domains=$(extract_server_names_from_nginx_file "$nginx_config_file")
     
     if [ -n "$domains" ]; then
         NGINX_DOMAINS="$domains"
@@ -13306,12 +13329,7 @@ get_project_info() {
             [ -z "$project_port_display" ] && project_port_display="未发现"
             echo -e "   服务端口: ${BLUE}$project_port_display${NC}"
             
-            project_nginx_domains=$(grep '^[[:space:]]*server_name' "$project_nginx_conf" \
-            | sed 's/^[[:space:]]*server_name[[:space:]]\+//' \
-            | sed 's/;.*//' \
-            | tr ' ' '\n' \
-            | grep -vE "^_$" \
-            | grep -v "example.com" \
+            project_nginx_domains=$(extract_server_names_from_nginx_file "$project_nginx_conf" \
             | sort -u \
             | xargs \
             | tr ' ' ',')
@@ -13886,7 +13904,7 @@ extract_domains_from_nginx_config() {
     if [ -f "$nginx_config_file" ]; then
         info "从nginx配置文件中提取域名..." >&2
         # 提取server_name行中的域名，排除example.com
-        domains=$(grep "^[[:space:]]*server_name" "$nginx_config_file" | sed 's/^[[:space:]]*server_name[[:space:]]\+//' | sed 's/;.*//' | tr ' ' '\n' | grep -vE "^_$" | grep -v "example.com" | grep -v "^$" | sort -u)
+        domains=$(extract_server_names_from_nginx_file "$nginx_config_file")
         
         if [ -n "$domains" ]; then
             info "提取到域名: $domains" >&2

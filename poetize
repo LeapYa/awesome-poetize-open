@@ -424,6 +424,12 @@ NC='\033[0m'
 # 自动确认模式（后台运行时自动回答yes）
 AUTO_YES=${AUTO_YES:-false}
 
+get_safe_pwd() {
+  pwd -P 2>/dev/null && return 0
+  pwd 2>/dev/null && return 0
+  printf "%s\n" "${PWD:-.}"
+}
+
 # 函数：自动确认提示
 auto_confirm() {
   local prompt="$1"
@@ -478,6 +484,44 @@ auto_confirm() {
       esac
       ;;
   esac
+}
+
+normalize_version_string() {
+  local version="$1"
+  version="${version#v}"
+  printf "%s\n" "$version"
+}
+
+version_gte() {
+  local current
+  local target
+  current=$(normalize_version_string "$1")
+  target=$(normalize_version_string "$2")
+
+  if [ -z "$current" ] || [ -z "$target" ]; then
+    return 1
+  fi
+
+  local lower_version
+  lower_version=$(printf "%s\n%s" "$target" "$current" | sort -V | head -1)
+  [ "$lower_version" = "$target" ]
+}
+
+project_requires_python_backend() {
+  case "$RESOLVED_TARGET_VERSION" in
+    "")
+      return 0
+      ;;
+    main|dev)
+      return 1
+      ;;
+  esac
+
+  if version_gte "$RESOLVED_TARGET_VERSION" "$PYTHON_MERGED_VERSION"; then
+    return 1
+  fi
+
+  return 0
 }
 
 # 初始化默认参数
@@ -8017,10 +8061,12 @@ verify_https_status() {
   
   # 4. 检查容器日志中的错误
   info "检查容器日志中的SSL相关错误..."
-  SSL_ERRORS=$(sudo docker logs poetize-nginx 2>&1 | grep -i "ssl\|certificate\|tls" | tail -5 || echo "未发现SSL相关日志")
-  if [ "$SSL_ERRORS" != "未发现SSL相关日志" ]; then
+  SSL_ERRORS=$(sudo docker logs poetize-nginx 2>&1 | grep -iE '((ssl|tls|certificate).*(error|failed|invalid|cannot|unable|denied|expired|mismatch|handshake))|((error|failed|invalid|cannot|unable|denied|expired|mismatch|handshake).*(ssl|tls|certificate))|BIO_new_file|cannot load certificate|no such file' | tail -5 || true)
+  if [ -n "$SSL_ERRORS" ]; then
     warning "发现SSL相关日志:"
     echo "$SSL_ERRORS"
+  else
+    success "✓ 未发现SSL相关错误日志"
   fi
   
   # 5. 生成总结报告

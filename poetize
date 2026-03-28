@@ -8041,6 +8041,8 @@ verify_https_status() {
   local https_working=false
   local cert_valid=false
   local nginx_https_enabled=false
+  local all_domains_https_ok=true
+  local domain
   
   # 1. 检查Nginx配置是否启用了HTTPS
   info "检查Nginx HTTPS配置..."
@@ -8081,30 +8083,39 @@ verify_https_status() {
     sudo docker exec poetize-nginx ls -la /etc/letsencrypt/live/ 2>/dev/null || echo "Let's Encrypt目录不存在"
   fi
   
-  # 3. 测试HTTPS连接（如果不是本地域名）
+  # 3. 测试所有配置域名的HTTPS连接（如果不是本地域名）
   if [ "$PRIMARY_DOMAIN" != "localhost" ] && [ "$PRIMARY_DOMAIN" != "127.0.0.1" ] && ! [[ "$PRIMARY_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     info "测试HTTPS连接..."
-    
+
     # 给服务器一点时间来重新加载配置
     sleep 3
-    
-    # 使用curl测试HTTPS连接
+
     if command -v curl &>/dev/null; then
-      HTTPS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$PRIMARY_DOMAIN" --connect-timeout 10 --max-time 15 2>/dev/null || echo "000")
-      
-      if [ "$HTTPS_STATUS" = "200" ] || [ "$HTTPS_STATUS" = "301" ] || [ "$HTTPS_STATUS" = "302" ]; then
-        https_working=true
-        success "✓ HTTPS连接测试成功 (状态码: $HTTPS_STATUS)"
-      else
-        warning "✗ HTTPS连接测试失败 (状态码: $HTTPS_STATUS)"
-        
-        # 尝试诊断问题
-        info "尝试诊断HTTPS问题..."
-        CURL_ERROR=$(curl -v "https://$PRIMARY_DOMAIN" 2>&1 | head -10 || echo "curl命令失败")
-        echo "连接详情: $CURL_ERROR"
-      fi
+      for domain in "${DOMAINS[@]}"; do
+        HTTPS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$domain" --connect-timeout 10 --max-time 15 2>/dev/null || echo "000")
+
+        if [ "$HTTPS_STATUS" = "200" ] || [ "$HTTPS_STATUS" = "301" ] || [ "$HTTPS_STATUS" = "302" ]; then
+          if [ "$domain" = "$PRIMARY_DOMAIN" ]; then
+            success "✓ HTTPS连接测试成功 ($domain, 状态码: $HTTPS_STATUS)"
+          else
+            success "✓ 副域名HTTPS访问正常 ($domain, 状态码: $HTTPS_STATUS)"
+          fi
+        else
+          all_domains_https_ok=false
+          if [ "$domain" = "$PRIMARY_DOMAIN" ]; then
+            warning "✗ HTTPS连接测试失败 ($domain, 状态码: $HTTPS_STATUS)"
+          else
+            warning "✗ 副域名HTTPS访问失败 ($domain, 状态码: $HTTPS_STATUS)"
+          fi
+
+          info "尝试诊断HTTPS问题..."
+          CURL_ERROR=$(curl -v "https://$domain" 2>&1 | head -10 || echo "curl命令失败")
+          echo "连接详情($domain): $CURL_ERROR"
+        fi
+      done
+      [ "$all_domains_https_ok" = true ] && https_working=true
     else
-      # 如果没有curl，尝试使用openssl测试SSL握手
+      # 如果没有curl，尝试使用openssl测试主域名SSL握手
       if command -v openssl &>/dev/null; then
         info "使用OpenSSL测试SSL握手..."
         if echo | openssl s_client -connect "$PRIMARY_DOMAIN:443" -servername "$PRIMARY_DOMAIN" 2>/dev/null | grep -q "CONNECTED"; then
@@ -8145,12 +8156,22 @@ verify_https_status() {
     # 检查HTTP重定向是否工作
     if [ "$PRIMARY_DOMAIN" != "localhost" ] && [ "$PRIMARY_DOMAIN" != "127.0.0.1" ] && ! [[ "$PRIMARY_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
       info "检查HTTP到HTTPS重定向..."
-      HTTP_REDIRECT=$(curl -s -o /dev/null -w "%{http_code}" "http://$PRIMARY_DOMAIN" --connect-timeout 10 2>/dev/null || echo "000")
-      if [ "$HTTP_REDIRECT" = "301" ] || [ "$HTTP_REDIRECT" = "302" ]; then
-        success "✓ HTTP到HTTPS重定向工作正常"
-      else
-        info "HTTP状态码: $HTTP_REDIRECT (可能需要手动配置重定向)"
-      fi
+      for domain in "${DOMAINS[@]}"; do
+        HTTP_REDIRECT=$(curl -s -o /dev/null -w "%{http_code}" "http://$domain" --connect-timeout 10 2>/dev/null || echo "000")
+        if [ "$HTTP_REDIRECT" = "301" ] || [ "$HTTP_REDIRECT" = "302" ]; then
+          if [ "$domain" = "$PRIMARY_DOMAIN" ]; then
+            success "✓ HTTP到HTTPS重定向工作正常 ($domain)"
+          else
+            success "✓ 副域名HTTP重定向正常 ($domain)"
+          fi
+        else
+          if [ "$domain" = "$PRIMARY_DOMAIN" ]; then
+            info "HTTP状态码($domain): $HTTP_REDIRECT (可能需要手动配置重定向)"
+          else
+            warning "副域名HTTP重定向异常 ($domain, 状态码: $HTTP_REDIRECT)"
+          fi
+        fi
+      done
     fi
     
     return 0

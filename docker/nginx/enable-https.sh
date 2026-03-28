@@ -91,16 +91,30 @@ install_package() {
 # 注意：默认配置文件已在构建时创建，这里只需要在需要时切换到HTTPS
 echo "默认HTTP配置已在构建时设置，当前将检查是否需要切换到HTTPS..."
 
-# 获取当前使用的配置文件中的主站域名信息，忽略默认块的 server_name _
+# 获取当前配置文件中的所有域名信息，忽略默认块的 server_name _
 ALL_DOMAINS=$(awk '
     /^[[:space:]]*server_name[[:space:]]+/ {
         line = $0
         sub(/^[[:space:]]*server_name[[:space:]]+/, "", line)
         sub(/;.*/, "", line)
-        if (line != "_" && line != "") {
-            print line
+        count = split(line, names, /[[:space:]]+/)
+        for (i = 1; i <= count; i++) {
+            if (names[i] != "" && names[i] != "_" && !(names[i] in seen)) {
+                seen[names[i]] = 1
+                ordered[++ordered_count] = names[i]
+            }
+        }
+    }
+    END {
+        if (ordered_count == 0) {
+            print "localhost"
             exit
         }
+        output = ordered[1]
+        for (i = 2; i <= ordered_count; i++) {
+            output = output " " ordered[i]
+        }
+        print output
     }
 ' /usr/local/openresty/nginx/conf/conf.d/default.conf 2>/dev/null || echo "localhost")
 # 获取第一个域名作为主域名

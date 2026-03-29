@@ -17,12 +17,24 @@ POETIZE_VERSION="1.11.10"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
+HTTPS_FAILURE_REASON=""
+HTTPS_FAILURE_DETAIL=""
 
 # 函数
 info() { echo -e "${BLUE}[信息]${NC} $1"; }
 success() { echo -e "${GREEN}[成功]${NC} $1"; }
 error() { echo -e "${RED}[失败]${NC} $1"; }
 warning() { echo -e "${YELLOW}[警告]${NC} $1"; }
+
+set_https_failure_state() {
+    HTTPS_FAILURE_REASON="$1"
+    HTTPS_FAILURE_DETAIL="$2"
+}
+
+clear_https_failure_state() {
+    HTTPS_FAILURE_REASON=""
+    HTTPS_FAILURE_DETAIL=""
+}
 
 get_script_dir() {
     local script_path
@@ -838,7 +850,29 @@ print_summary() {
   elif [ "$PRIMARY_DOMAIN" = "localhost" ] || [ "$PRIMARY_DOMAIN" = "127.0.0.1" ]; then
     printf "    - HTTPS 状态: ${YELLOW}本地环境 (跳过)${NC}\n"
   else
-    printf "    - HTTPS 状态: ${RED}未启用${NC} ${YELLOW}(尝试执行 poetize -update 修复)${NC}\n"
+    case "$HTTPS_FAILURE_REASON" in
+      "letsencrypt_rate_limit")
+        printf "    - HTTPS 状态: ${RED}未启用${NC} ${YELLOW}(Let's Encrypt 配额限制)${NC}\n"
+        if [ -n "$HTTPS_FAILURE_DETAIL" ]; then
+          printf "    - 失败原因:   ${YELLOW}%s${NC}\n" "$HTTPS_FAILURE_DETAIL"
+        fi
+        ;;
+      "certbot_failed")
+        printf "    - HTTPS 状态: ${RED}未启用${NC} ${YELLOW}(SSL证书申请失败)${NC}\n"
+        if [ -n "$HTTPS_FAILURE_DETAIL" ]; then
+          printf "    - 失败原因:   ${YELLOW}%s${NC}\n" "$HTTPS_FAILURE_DETAIL"
+        fi
+        ;;
+      "https_enable_failed")
+        printf "    - HTTPS 状态: ${RED}未启用${NC} ${YELLOW}(证书存在但Nginx启用失败)${NC}\n"
+        if [ -n "$HTTPS_FAILURE_DETAIL" ]; then
+          printf "    - 失败原因:   ${YELLOW}%s${NC}\n" "$HTTPS_FAILURE_DETAIL"
+        fi
+        ;;
+      *)
+        printf "    - HTTPS 状态: ${RED}未启用${NC} ${YELLOW}(尝试执行 poetize -update 修复)${NC}\n"
+        ;;
+    esac
   fi
   printf "    - 默认账号:   ${YELLOW}Sara / aaa${NC} ${RED}(登录后请务必修改密码！)${NC}\n"
 
@@ -6100,6 +6134,11 @@ handle_rate_limit_error() {
     
     # 尝试提取等待时间
     local retry_after=$(echo "$cert_error" | grep -o "retry after [0-9-]* [0-9:]* UTC" | sed 's/retry after //')
+    local failure_detail="该域名组合在过去7天内的签发次数已达上限，请稍后重试"
+    if [ -n "$retry_after" ]; then
+      failure_detail="该域名组合的签发次数已达上限，请在 $retry_after 后重试"
+    fi
+    set_https_failure_state "letsencrypt_rate_limit" "$failure_detail"
     
     if [ -n "$retry_after" ]; then
       echo ""
@@ -6140,6 +6179,7 @@ handle_rate_limit_error() {
 setup_https() {
   info "等待SSL证书生成..."
   info "注意：证书申请包含5次重试机制，可能需要10-15分钟完成"
+  clear_https_failure_state
   
   # 给certbot容器足够时间完成所有重试
   # certbot有5次重试，指数退避：30s + 60s + 120s + 240s = ~15分钟
@@ -6250,6 +6290,7 @@ setup_https() {
     done
     
     if [ "$success" = "true" ]; then
+      clear_https_failure_state
       success "HTTPS已成功启用！"
       
       # 验证HTTPS配置是否生效
@@ -6271,6 +6312,7 @@ setup_https() {
       
       return 0
     else
+      set_https_failure_state "https_enable_failed" "SSL证书已生成，但容器内Nginx切换到HTTPS配置失败"
       warning "多次尝试启用HTTPS都失败了"
       warning "您可以稍后手动运行: sudo docker exec --user root poetize-nginx /enable-https.sh"
       
@@ -6306,6 +6348,16 @@ setup_https() {
       # 速率限制错误已处理，直接返回
       return 2
     fi
+
+    local cert_failure_detail="请运行 docker logs poetize-certbot 查看详细错误"
+    if echo "$CERT_ERROR" | grep -qiE "NXDOMAIN|DNS problem|no valid A records|SERVFAIL"; then
+      cert_failure_detail="域名DNS解析异常，请确认所有域名都已解析到当前服务器"
+    elif echo "$CERT_ERROR" | grep -qiE "Connection refused|Timeout during connect|Timeout|connection timed out"; then
+      cert_failure_detail="80端口访问失败或被拦截，请检查防火墙和公网连通性"
+    elif echo "$CERT_ERROR" | grep -qiE "Invalid response from|unauthorized"; then
+      cert_failure_detail="ACME校验响应异常，请检查Nginx对 /.well-known/acme-challenge/ 的放行配置"
+    fi
+    set_https_failure_state "certbot_failed" "$cert_failure_detail"
     
     # 显示其他类型的错误信息
     local brief_error=$(echo "$CERT_ERROR" | grep -A 5 "Certbot failed" || echo "未找到明确错误信息")

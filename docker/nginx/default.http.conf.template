@@ -265,6 +265,18 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         add_header Cache-Control "public, max-age=3600";
     }
+    
+    # IndexNow 验证文件 - 搜索引擎（Bing/Yandex等）通过此文件验证站点所有权
+    # 匹配根目录下符合 IndexNow key 格式的 .txt 文件请求
+    # @see https://www.indexnow.org/documentation
+    location ~ "^/([a-zA-Z0-9\-]{8,128})\.txt$" {
+        proxy_pass http://poetize-java/$1.txt;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header Cache-Control "public, max-age=86400";
+    }
 
     # PWA Service Worker
     location = /sw.js {

@@ -536,7 +536,14 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
     }
 
     /**
-     * 推送到Bing搜索引擎
+     * 推送到Bing搜索引擎（使用 IndexNow 协议）
+     *
+     * <p>IndexNow 协议要求：
+     * 1. 请求体中必须包含 keyLocation 字段，指向验证文件的 URL
+     * 2. 搜索引擎会回调 keyLocation 地址验证站点所有权
+     * 3. 验证文件由 IndexNowController 动态提供</p>
+     *
+     * @see <a href="https://www.indexnow.org/documentation">IndexNow Documentation</a>
      */
     private Map<String, Object> pushToBing(String url, Map<String, Object> seoConfig) {
         Map<String, Object> result = new HashMap<>();
@@ -548,7 +555,18 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 return pushToBingPing(url, seoConfig);
             }
             
-            // 使用Bing IndexNow API
+            // 获取站点地址，用于构建 keyLocation
+            String siteAddress = mailUtil.getSiteUrl();
+            if (!StringUtils.hasText(siteAddress)) {
+                result.put("success", false);
+                result.put("message", "网站地址未配置，无法构建 IndexNow keyLocation");
+                return result;
+            }
+            
+            // 构建 keyLocation：搜索引擎会访问此 URL 验证站点所有权
+            String keyLocation = siteAddress + "/" + apiKey + ".txt";
+            
+            // 使用 IndexNow API（同时被 Bing/Yandex/Naver 等搜索引擎支持）
             String indexNowUrl = "https://api.indexnow.org/indexnow";
             
             HttpHeaders headers = new HttpHeaders();
@@ -558,6 +576,7 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
             Map<String, Object> requestBody = new HashMap<>();
             requestBody.put("host", extractHostFromUrl(url));
             requestBody.put("key", apiKey);
+            requestBody.put("keyLocation", keyLocation);
             requestBody.put("urlList", Arrays.asList(url));
             
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
@@ -568,9 +587,11 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("success", true);
                 result.put("message", "Bing IndexNow提交成功");
                 result.put("response", response.getBody());
+                log.info("Bing IndexNow推送成功: url={}, keyLocation={}", url, keyLocation);
             } else {
                 result.put("success", false);
                 result.put("message", "Bing IndexNow提交失败: HTTP " + response.getStatusCode());
+                log.warn("Bing IndexNow推送失败: url={}, status={}", url, response.getStatusCode());
             }
             
         } catch (Exception e) {
@@ -608,7 +629,10 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
     }
 
     /**
-     * 推送到Yandex搜索引擎
+     * 推送到Yandex搜索引擎（优先使用 IndexNow 协议）
+     *
+     * <p>Yandex 是 IndexNow 协议的联合发起方，完全支持 IndexNow。
+     * 通过 IndexNow API 推送时，URL 会自动共享给所有参与的搜索引擎。</p>
      */
     private Map<String, Object> pushToYandex(String url, Map<String, Object> seoConfig) {
         Map<String, Object> result = new HashMap<>();
@@ -621,32 +645,46 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 return result;
             }
             
-            // 使用Yandex Webmaster API
-            String yandexUrl = "https://api.webmaster.yandex.net/v4/user/{user-id}/hosts/{host-id}/url-notification/submit";
+            // 获取站点地址，用于构建 keyLocation
+            String siteAddress = mailUtil.getSiteUrl();
+            if (!StringUtils.hasText(siteAddress)) {
+                result.put("success", false);
+                result.put("message", "网站地址未配置，无法构建 IndexNow keyLocation");
+                return result;
+            }
+            
+            // Yandex 是 IndexNow 协议的联合发起方，优先使用 IndexNow 推送
+            String keyLocation = siteAddress + "/" + apiKey + ".txt";
+            String indexNowUrl = "https://yandex.com/indexnow";
             
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(apiKey);
             headers.set("User-Agent", "poetize-java/1.0.0");
             
             Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("url", url);
+            requestBody.put("host", extractHostFromUrl(url));
+            requestBody.put("key", apiKey);
+            requestBody.put("keyLocation", keyLocation);
+            requestBody.put("urlList", Arrays.asList(url));
             
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
             
-            ResponseEntity<String> response = restTemplate.postForEntity(yandexUrl, entity, String.class);
+            ResponseEntity<String> response = restTemplate.postForEntity(indexNowUrl, entity, String.class);
             
-            if (response.getStatusCode() == HttpStatus.OK) {
+            if (response.getStatusCode() == HttpStatus.OK || response.getStatusCode() == HttpStatus.ACCEPTED) {
                 result.put("success", true);
-                result.put("message", "Yandex推送成功");
+                result.put("message", "Yandex IndexNow推送成功");
                 result.put("response", response.getBody());
+                log.info("Yandex IndexNow推送成功: url={}, keyLocation={}", url, keyLocation);
             } else {
                 result.put("success", false);
-                result.put("message", "Yandex推送失败: HTTP " + response.getStatusCode());
+                result.put("message", "Yandex IndexNow推送失败: HTTP " + response.getStatusCode());
+                log.warn("Yandex IndexNow推送失败: url={}, status={}", url, response.getStatusCode());
             }
             
         } catch (Exception e) {
             log.error("Yandex推送失败", e);
+
             result.put("success", false);
             result.put("message", "Yandex推送异常: " + e.getMessage());
         }

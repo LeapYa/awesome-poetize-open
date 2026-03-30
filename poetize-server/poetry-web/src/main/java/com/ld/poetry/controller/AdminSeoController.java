@@ -23,7 +23,9 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -436,52 +438,138 @@ public class AdminSeoController {
 
     private Map<String, Object> performSeoAnalysis(Map<String, Object> seoConfig) {
         Map<String, Object> analysis = new HashMap<>();
+        List<Map<String, Object>> suggestions = new ArrayList<>();
+        int seoScore = 100;
 
-        // 检查基本SEO配置并生成建议
-        java.util.List<Map<String, Object>> suggestions = new java.util.ArrayList<>();
-
-        // 检查网站描述
-        String description = (String) seoConfig.get("site_description");
-        if (!StringUtils.hasText(description) || description.length() < 50) {
-            suggestions.add(createSuggestion("warning", "网站描述过短或未设置，建议使用50-160个字符的描述"));
+        String description = getStringConfig(seoConfig, "site_description");
+        if (!StringUtils.hasText(description)) {
+            seoScore = addSuggestion(suggestions, seoScore, 18, "error", "网站描述未设置，建议补充 50-160 个字符的摘要描述");
+        } else if (description.length() < 50) {
+            seoScore = addSuggestion(suggestions, seoScore, 10, "warning", "网站描述偏短，建议扩展到 50-160 个字符以提升摘要展示效果");
+        } else if (description.length() > 160) {
+            seoScore = addSuggestion(suggestions, seoScore, 4, "info", "网站描述偏长，建议控制在 160 个字符内，避免搜索结果摘要被截断");
         }
 
-        // 检查关键词
-        if (!StringUtils.hasText((String) seoConfig.get("site_keywords"))) {
-            suggestions.add(createSuggestion("warning", "网站关键词未设置，这对SEO有一定影响"));
+        String keywords = getStringConfig(seoConfig, "site_keywords");
+        if (!StringUtils.hasText(keywords)) {
+            seoScore = addSuggestion(suggestions, seoScore, 8, "warning", "网站关键词未设置，建议补充与站点主题高度相关的关键词");
+        } else if (keywords.split("\\s*,\\s*").length > 10) {
+            seoScore = addSuggestion(suggestions, seoScore, 3, "info", "网站关键词偏多，建议聚焦 5-10 个核心关键词，避免过度堆砌");
         }
 
-        // 检查搜索引擎推送配置
-        checkSearchEngineConfig(suggestions, seoConfig, "baidu_push_enabled", "百度推送功能未启用，建议启用以提高百度搜索引擎收录速度");
-        checkSearchEngineConfig(suggestions, seoConfig, "google_index_enabled", "Google索引功能未启用，建议启用以提高Google搜索引擎收录速度");
-        checkSearchEngineConfig(suggestions, seoConfig, "bing_push_enabled", "Bing推送功能未启用，建议启用以提高Bing搜索收录速度");
+        if (!StringUtils.hasText(getStringConfig(seoConfig, "default_author"))) {
+            seoScore = addSuggestion(suggestions, seoScore, 3, "info", "默认作者未设置，建议补充作者信息以完善结构化元数据");
+        }
 
-        // 检查网站验证
-        checkSiteVerification(suggestions, seoConfig, "baidu_site_verification", "百度站点验证未设置，这会影响百度搜索引擎对网站的信任度");
-        checkSiteVerification(suggestions, seoConfig, "google_site_verification",
-                "Google站点验证未设置，这会影响对Google Search Console的访问");
+        if (!StringUtils.hasText(getStringConfig(seoConfig, "og_image"))) {
+            seoScore = addSuggestion(suggestions, seoScore, 4, "info", "默认分享图片未设置，建议配置 OG 图片以提升搜索结果和社交分享展示");
+        }
 
-        // 计算SEO得分
-        int seoScore = Math.max(100 - suggestions.size() * 5, 10);
+        if (!StringUtils.hasText(getStringConfig(seoConfig, "site_logo"))) {
+            seoScore = addSuggestion(suggestions, seoScore, 3, "info", "网站 Logo 未设置，建议补充站点标识以完善品牌展示");
+        }
+
+        if (!hasAnyText(seoConfig, "site_icon", "apple_touch_icon", "site_icon_192", "site_icon_512")) {
+            seoScore = addSuggestion(suggestions, seoScore, 6, "warning", "网站图标与 PWA 图标均未配置，建议至少补充 favicon 和移动端图标");
+        }
+
+        if (!Boolean.TRUE.equals(seoConfig.get("auto_generate_meta_tags"))) {
+            seoScore = addSuggestion(suggestions, seoScore, 8, "warning", "自动生成 META 标签未启用，可能影响文章页的标题、描述和分享标签完整性");
+        }
+
+        if (!Boolean.TRUE.equals(seoConfig.get("generate_sitemap"))) {
+            seoScore = addSuggestion(suggestions, seoScore, 18, "error", "Sitemap 生成功能未启用，建议开启并提交到 Google Search Console / Bing Webmaster Tools");
+        } else {
+            String robotsTxt = getStringConfig(seoConfig, "robots_txt");
+            if (!StringUtils.hasText(robotsTxt)) {
+                seoScore = addSuggestion(suggestions, seoScore, 8, "warning", "robots.txt 未配置，建议至少声明基础抓取规则和 Sitemap 地址");
+            } else if (!robotsTxt.toLowerCase().contains("sitemap:")) {
+                seoScore = addSuggestion(suggestions, seoScore, 4, "info", "robots.txt 中未声明 Sitemap 地址，建议添加 Sitemap: /sitemap.xml");
+            }
+        }
+
+        boolean baiduEnabled = Boolean.TRUE.equals(seoConfig.get("baidu_push_enabled"));
+        boolean bingEnabled = Boolean.TRUE.equals(seoConfig.get("bing_push_enabled"));
+        boolean yandexEnabled = Boolean.TRUE.equals(seoConfig.get("yandex_push_enabled"));
+        boolean sogouEnabled = Boolean.TRUE.equals(seoConfig.get("sogou_push_enabled"));
+        boolean shenmaEnabled = Boolean.TRUE.equals(seoConfig.get("shenma_push_enabled"));
+
+        if (!baiduEnabled && !bingEnabled && !yandexEnabled && !sogouEnabled && !shenmaEnabled) {
+            seoScore = addSuggestion(suggestions, seoScore, 12, "warning", "当前未启用任何实时推送渠道，建议至少启用百度推送或 Bing(IndexNow)");
+        }
+
+        seoScore = checkEnabledCredential(suggestions, seoConfig, seoScore, "baidu_push_enabled", "baidu_push_token", 14,
+                "百度推送已启用，但 Token 未配置，提交会直接失败");
+        seoScore = checkEnabledCredential(suggestions, seoConfig, seoScore, "bing_push_enabled", "bing_api_key", 14,
+                "Bing 推送已启用，但 IndexNow Key 未配置，提交会直接失败");
+        seoScore = checkEnabledCredential(suggestions, seoConfig, seoScore, "yandex_push_enabled", "yandex_api_key", 12,
+                "Yandex 推送已启用，但 IndexNow Key 未配置，提交会直接失败");
+        seoScore = checkEnabledCredential(suggestions, seoConfig, seoScore, "sogou_push_enabled", "sogou_push_token", 10,
+                "搜狗推送已启用，但 Token 未配置，提交会直接失败");
+        seoScore = checkEnabledCredential(suggestions, seoConfig, seoScore, "shenma_push_enabled", "shenma_token", 10,
+                "神马推送已启用，但 Token 未配置，提交会直接失败");
+
+        seoScore = checkSiteVerification(suggestions, seoConfig, seoScore, "baidu_site_verification", 4,
+                "百度站点验证未设置，建议完成验证以提高百度对站点的可信度");
+        seoScore = checkSiteVerification(suggestions, seoConfig, seoScore, "google_site_verification", 4,
+                "Google 站点验证未设置，建议完成 Search Console 验证并提交 Sitemap");
+        if (bingEnabled) {
+            seoScore = checkSiteVerification(suggestions, seoConfig, seoScore, "bing_site_verification", 3,
+                    "Bing 站点验证未设置，建议在启用 IndexNow 的同时完成 Bing Webmaster Tools 验证");
+        }
 
         analysis.put("suggestions", suggestions);
-        analysis.put("seo_score", seoScore);
+        analysis.put("seo_score", Math.max(seoScore, 10));
+        analysis.put("issue_summary", buildIssueSummary(suggestions));
 
         return analysis;
     }
 
-    private void checkSearchEngineConfig(java.util.List<Map<String, Object>> suggestions, Map<String, Object> config,
-            String key, String message) {
-        if (!Boolean.TRUE.equals(config.get(key))) {
-            suggestions.add(createSuggestion("warning", message));
-        }
+    private int addSuggestion(List<Map<String, Object>> suggestions, int currentScore, int penalty, String type,
+            String message) {
+        suggestions.add(createSuggestion(type, message));
+        return currentScore - penalty;
     }
 
-    private void checkSiteVerification(java.util.List<Map<String, Object>> suggestions, Map<String, Object> config,
-            String key, String message) {
-        if (!StringUtils.hasText((String) config.get(key))) {
-            suggestions.add(createSuggestion("info", message));
+    private int checkEnabledCredential(List<Map<String, Object>> suggestions, Map<String, Object> config, int currentScore,
+            String enabledKey, String credentialKey, int penalty, String message) {
+        if (Boolean.TRUE.equals(config.get(enabledKey)) && !StringUtils.hasText(getStringConfig(config, credentialKey))) {
+            return addSuggestion(suggestions, currentScore, penalty, "error", message);
         }
+        return currentScore;
+    }
+
+    private int checkSiteVerification(List<Map<String, Object>> suggestions, Map<String, Object> config, int currentScore,
+            String key, int penalty, String message) {
+        if (!StringUtils.hasText(getStringConfig(config, key))) {
+            return addSuggestion(suggestions, currentScore, penalty, "info", message);
+        }
+        return currentScore;
+    }
+
+    private boolean hasAnyText(Map<String, Object> config, String... keys) {
+        for (String key : keys) {
+            if (StringUtils.hasText(getStringConfig(config, key))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String getStringConfig(Map<String, Object> config, String key) {
+        Object value = config.get(key);
+        return value instanceof String ? (String) value : null;
+    }
+
+    private Map<String, Object> buildIssueSummary(List<Map<String, Object>> suggestions) {
+        Map<String, Object> summary = new HashMap<>();
+        long errors = suggestions.stream().filter(item -> "error".equals(item.get("type"))).count();
+        long warnings = suggestions.stream().filter(item -> "warning".equals(item.get("type"))).count();
+        long infos = suggestions.stream().filter(item -> "info".equals(item.get("type"))).count();
+        summary.put("error_count", errors);
+        summary.put("warning_count", warnings);
+        summary.put("info_count", infos);
+        return summary;
     }
 
     private Map<String, Object> createSuggestion(String type, String message) {

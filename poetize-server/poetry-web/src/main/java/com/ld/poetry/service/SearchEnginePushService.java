@@ -4,7 +4,7 @@ import java.util.Map;
 
 /**
  * 搜索引擎推送服务接口
- * 整合所有搜索引擎的推送功能，支持百度、Google、Bing、Yandex、搜狗、360、神马、Yahoo等
+ * 整合当前仍受支持的搜索引擎推送功能，支持百度、Bing(IndexNow)、Yandex、搜狗、神马等
  * 
  * @author LeapYa
  * @since 2025-09-22

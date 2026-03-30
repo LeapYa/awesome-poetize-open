@@ -257,9 +257,6 @@
           <el-form-item label="百度推送">
             <el-switch v-model="seoForm.baidu_push_enabled"></el-switch>
           </el-form-item>
-          <el-form-item label="Google索引">
-            <el-switch v-model="seoForm.google_index_enabled"></el-switch>
-          </el-form-item>
           <el-form-item label="Bing推送">
             <el-switch v-model="seoForm.bing_push_enabled"></el-switch>
           </el-form-item>
@@ -303,7 +300,6 @@ function createDefaultSeoForm() {
     twitter_site: '',
     twitter_creator: '',
     baidu_push_enabled: false,
-    google_index_enabled: false,
     bing_push_enabled: false,
     baidu_site_verification: '',
     google_site_verification: ''

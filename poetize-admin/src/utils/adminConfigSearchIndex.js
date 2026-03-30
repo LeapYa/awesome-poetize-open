@@ -116,7 +116,7 @@ export const adminConfigSearchIndex = [
     sectionTitle: 'SEO 与搜索引擎配置',
     fieldLabel: 'SEO优化',
     keywords: ['SEO', 'SEO优化', '搜索引擎'],
-    aliases: ['robots', 'sitemap', 'favicon', 'PWA', '站点验证', '百度推送', 'Google索引', '默认分享图片', '自定义头部代码', '网站Logo']
+    aliases: ['robots', 'sitemap', 'favicon', 'PWA', '站点验证', '百度推送', 'IndexNow', 'Google Search Console', '默认分享图片', '自定义头部代码', '网站Logo']
   },
   {
     id: 'page-ai-chat',
@@ -485,8 +485,8 @@ export const adminConfigSearchIndex = [
     pageTitle: 'SEO优化',
     sectionTitle: '搜索引擎推送',
     fieldLabel: '搜索引擎推送',
-    keywords: ['搜索引擎推送', '百度推送', 'Google索引'],
-    aliases: ['baidu_push_token', 'google_api_key', 'bing_api_key', 'sogou_push_token', 'shenma_token']
+    keywords: ['搜索引擎推送', '百度推送', 'IndexNow'],
+    aliases: ['baidu_push_token', 'bing_api_key', 'sogou_push_token', 'shenma_token']
   },
   {
     id: 'field-sitemap',

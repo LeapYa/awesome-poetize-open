@@ -599,7 +599,7 @@
         <el-divider content-position="left">
           搜索引擎推送
           <el-tooltip class="item" effect="dark" placement="top">
-            <div slot="content">配置后系统会在发布新文章时自动将URL提交给搜索引擎，加速收录和提高排名</div>
+            <div slot="content">配置后系统会在发布新文章时自动将URL提交给仍支持实时推送的搜索引擎，Google、Yahoo、360等已下线实时推送功能，请改用 Search Console 提交 Sitemap。</div>
             <i class="el-icon-question help-icon"></i>
           </el-tooltip>
         </el-divider>
@@ -611,27 +611,25 @@
         
         <el-form-item label="百度推送Token">
           <el-input v-model="seoConfig.baidu_push_token" placeholder="百度推送Token"></el-input>
-          <span class="tip">在百度搜索资源平台-普通收录-资源提交中获取</span>
-        </el-form-item>
-        
-        <el-form-item label="启用Google索引">
-          <el-switch v-model="seoConfig.google_index_enabled"></el-switch>
-          <span class="tip">自动将新文章URL提交至Google索引</span>
-        </el-form-item>
-        
-        <el-form-item label="Google API Key">
-          <el-input v-model="seoConfig.google_api_key" placeholder="Google索引API密钥"></el-input>
-          <span class="tip">需要在Google Search Console中获取索引API密钥</span>
+          <span class="tip">
+            在
+            <a class="tip-link" :href="baiduPushSubmitUrl" target="_blank" rel="noopener noreferrer">百度搜索资源平台普通收录-资源提交</a>
+            的“普通收录 → 资源提交”中获取
+          </span>
         </el-form-item>
         
         <el-form-item label="启用Bing推送">
           <el-switch v-model="seoConfig.bing_push_enabled"></el-switch>
-          <span class="tip">自动将新文章URL提交至Bing索引</span>
+          <span class="tip">通过 IndexNow 自动将新文章URL提交至 Bing 等支持的搜索引擎</span>
         </el-form-item>
         
-        <el-form-item label="Bing(必应) API Key">
-          <el-input v-model="seoConfig.bing_api_key" placeholder="Bing(必应)索引API密钥"></el-input>
-          <span class="tip">需要在Bing Webmaster Tools中获取API密钥</span>
+        <el-form-item label="Bing(IndexNow) Key">
+          <el-input v-model="seoConfig.bing_api_key" placeholder="IndexNow Key"></el-input>
+          <span class="tip">
+            在
+            <a class="tip-link" href="https://www.bing.com/indexnow/IndexNowView/IndexNowGetStartedView" target="_blank" rel="noopener noreferrer">Bing Webmaster Tools / IndexNow</a>
+            中生成 IndexNow Key，并确保站点根目录可访问该 key 对应的验证文件
+          </span>
         </el-form-item>
         
         <el-form-item label="启用Yandex推送">
@@ -641,17 +639,11 @@
         
         <el-form-item label="Yandex API Key">
           <el-input v-model="seoConfig.yandex_api_key" placeholder="Yandex API密钥"></el-input>
-          <span class="tip">需要在Yandex Webmaster中获取</span>
-        </el-form-item>
-        
-        <el-form-item label="启用Yahoo(雅虎)推送">
-          <el-switch v-model="seoConfig.yahoo_push_enabled"></el-switch>
-          <span class="tip">自动将新文章URL提交至Yahoo搜索引擎</span>
-        </el-form-item>
-        
-        <el-form-item label="Yahoo(雅虎) API Key">
-          <el-input v-model="seoConfig.yahoo_api_key" placeholder="Yahoo(雅虎) API密钥"></el-input>
-          <span class="tip">需要在Yahoo Site Explorer中获取API密钥</span>
+          <span class="tip">
+            参考
+            <a class="tip-link" href="https://yandex.com/support/webmaster/en/indexnow/key" target="_blank" rel="noopener noreferrer">Yandex Webmaster IndexNow Key 指南</a>
+            生成并配置
+          </span>
         </el-form-item>
         
         <el-form-item label="启用搜狗推送">
@@ -661,17 +653,11 @@
         
         <el-form-item label="搜狗推送Token">
           <el-input v-model="seoConfig.sogou_push_token" placeholder="搜狗推送Token"></el-input>
-          <span class="tip">在搜狗站长平台获取</span>
-        </el-form-item>
-        
-        <el-form-item label="启用360推送">
-          <el-switch v-model="seoConfig.so_push_enabled"></el-switch>
-          <span class="tip">自动将新文章URL提交至360搜索引擎</span>
-        </el-form-item>
-        
-        <el-form-item label="360推送Token">
-          <el-input v-model="seoConfig.so_push_token" placeholder="360推送Token"></el-input>
-          <span class="tip">在360站长平台获取</span>
+          <span class="tip">
+            在
+            <a class="tip-link" href="https://zhanzhang.sogou.com/index.php/sitelink/index" target="_blank" rel="noopener noreferrer">搜狗资源平台链接提交通道</a>
+            获取或提交
+          </span>
         </el-form-item>
         
         <el-form-item label="启用神马推送">
@@ -681,7 +667,11 @@
         
         <el-form-item label="神马推送Token">
           <el-input v-model="seoConfig.shenma_token" placeholder="神马推送Token"></el-input>
-          <span class="tip">在神马站长平台获取</span>
+          <span class="tip">
+            在
+            <a class="tip-link" href="https://zhanzhang.sm.cn/" target="_blank" rel="noopener noreferrer">神马站长平台</a>
+            获取
+          </span>
         </el-form-item>
         
         <el-divider content-position="left">
@@ -837,6 +827,11 @@ Sitemap: /sitemap.xml"
         <div class="analysis-score">
           <el-progress type="circle" :percentage="seoAnalysis.seo_score" :status="getSeoScoreStatus(seoAnalysis.seo_score)"></el-progress>
           <div class="score-label">SEO得分</div>
+          <div v-if="seoAnalysis.issue_summary" class="analysis-summary">
+            <span v-if="seoAnalysis.issue_summary.error_count > 0">严重问题 {{ seoAnalysis.issue_summary.error_count }}</span>
+            <span v-if="seoAnalysis.issue_summary.warning_count > 0">警告 {{ seoAnalysis.issue_summary.warning_count }}</span>
+            <span v-if="seoAnalysis.issue_summary.info_count > 0">提示 {{ seoAnalysis.issue_summary.info_count }}</span>
+          </div>
         </div>
         
         <div class="analysis-suggestions" v-if="seoAnalysis.suggestions && seoAnalysis.suggestions.length > 0">
@@ -863,7 +858,7 @@ Sitemap: /sitemap.xml"
       </div>
       <span slot="footer" class="dialog-footer">
         <el-button @click="showAnalysisDialog = false">关闭</el-button>
-        <el-button type="primary" @click="saveSeoConfig">应用建议优化</el-button>
+        <el-button type="primary" @click="saveSeoConfig">保存当前配置</el-button>
       </span>
     </el-dialog>
     
@@ -1242,16 +1237,12 @@ export default {
         yahoo_site_verification: "",
         baidu_push_enabled: false,
         baidu_push_token: "",
-        google_index_enabled: false,
-        google_api_key: "",
         bing_push_enabled: false,
         bing_api_key: "",
         yandex_push_enabled: false,
         yandex_api_key: "",
         sogou_push_enabled: false,
         sogou_push_token: "",
-        so_push_enabled: false,
-        so_push_token: "",
         shenma_push_enabled: false,
         shenma_token: "",
         enable_push_notification: false,
@@ -1369,10 +1360,34 @@ export default {
     // 按钮大小
     buttonSize() {
       return this.isMobile ? 'medium' : 'small';
+    },
+
+    configuredSiteAddress() {
+      try {
+        const mainStore = useMainStore();
+        return this.normalizeSiteAddress(mainStore?.webInfo?.siteAddress);
+      } catch (error) {
+        return '';
+      }
+    },
+
+    baiduPushSubmitUrl() {
+      const baseUrl = 'https://ziyuan.baidu.com/linksubmit/index';
+      return this.configuredSiteAddress
+        ? `${baseUrl}?site=${encodeURIComponent(this.configuredSiteAddress)}`
+        : baseUrl;
     }
   },
   
   methods: {
+    normalizeSiteAddress(siteAddress) {
+      if (!siteAddress || typeof siteAddress !== 'string') {
+        return '';
+      }
+
+      return siteAddress.trim().replace(/\/+$/, '');
+    },
+
     // 检测移动端设备
     detectMobileDevice() {
       // 检测屏幕尺寸
@@ -2370,6 +2385,17 @@ export default {
     line-height: 1.4;
     letter-spacing: 0.2px;
   }
+
+  .tip-link {
+    color: #0071e3;
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .tip-link:hover,
+  .tip-link:focus {
+    text-decoration: underline;
+  }
   
   /* 帮助图标 */
   .help-icon {
@@ -2551,6 +2577,22 @@ export default {
     font-size: 16px;
     margin-top: 15px;
     color: #1d1d1f;
+  }
+
+  .analysis-summary {
+    margin-top: 12px;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: #86868b;
+    font-size: 13px;
+  }
+
+  .analysis-summary span {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(0, 113, 227, 0.08);
   }
   
   /* 分析建议样式 */

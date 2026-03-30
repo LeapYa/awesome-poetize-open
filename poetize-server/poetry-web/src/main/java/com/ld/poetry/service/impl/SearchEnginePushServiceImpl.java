@@ -72,7 +72,7 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
     private RedisUtil redisUtil;
 
     private static final String[] SUPPORTED_ENGINES = {
-        "baidu", "google", "bing", "yandex", "yahoo", "sogou", "so", "shenma"
+        "baidu", "bing", "yandex", "sogou", "shenma"
     };
     
     // Redis缓存键名和过期时间（使用Redis分布式缓存替代实例变量）
@@ -235,18 +235,12 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
             switch (engine.toLowerCase()) {
                 case "baidu":
                     return pushToBaidu(url, seoConfig);
-                case "google":
-                    return pushToGoogle(url, seoConfig);
                 case "bing":
                     return pushToBing(url, seoConfig);
                 case "yandex":
                     return pushToYandex(url, seoConfig);
-                case "yahoo":
-                    return pushToYahoo(url, seoConfig);
                 case "sogou":
                     return pushToSogou(url, seoConfig);
-                case "so":
-                    return pushToSo(url, seoConfig);
                 case "shenma":
                     return pushToShenma(url, seoConfig);
                 default:
@@ -339,12 +333,9 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
         
         // 所有搜索引擎推送都禁用，避免无有效API Token时的推送
         fallbackConfig.put("baidu_push_enabled", false);
-        fallbackConfig.put("google_index_enabled", false);
         fallbackConfig.put("bing_push_enabled", false);
         fallbackConfig.put("yandex_push_enabled", false);
-        fallbackConfig.put("yahoo_push_enabled", false);
         fallbackConfig.put("sogou_push_enabled", false);
-        fallbackConfig.put("so_push_enabled", false);
         fallbackConfig.put("shenma_push_enabled", false);
         
         return fallbackConfig;
@@ -394,12 +385,9 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
     private String getEngineEnabledKey(String engine) {
         switch (engine.toLowerCase()) {
             case "baidu": return "baidu_push_enabled";
-            case "google": return "google_index_enabled";
             case "bing": return "bing_push_enabled";
             case "yandex": return "yandex_push_enabled";
-            case "yahoo": return "yahoo_push_enabled";
             case "sogou": return "sogou_push_enabled";
-            case "so": return "so_push_enabled";
             case "shenma": return "shenma_push_enabled";
             default: return null;
         }
@@ -463,79 +451,6 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
     }
 
     /**
-     * 推送到Google搜索引擎
-     */
-    private Map<String, Object> pushToGoogle(String url, Map<String, Object> seoConfig) {
-        Map<String, Object> result = new HashMap<>();
-        
-        try {
-            String apiKey = (String) seoConfig.get("google_api_key");
-            if (!StringUtils.hasText(apiKey)) {
-                // 回退到简单ping方式
-                return pushToGooglePing(url, seoConfig);
-            }
-            
-            // 使用Google Indexing API
-            String indexingUrl = "https://indexing.googleapis.com/v3/urlNotifications:publish";
-            
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(apiKey);
-            headers.set("User-Agent", "poetize-java/1.0.0");
-            
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("url", url);
-            requestBody.put("type", "URL_UPDATED");
-            
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-            
-            ResponseEntity<String> response = restTemplate.postForEntity(indexingUrl, entity, String.class);
-            
-            if (response.getStatusCode() == HttpStatus.OK) {
-                JSONObject responseJson = JSON.parseObject(response.getBody());
-                result.put("success", true);
-                result.put("message", "Google索引提交成功");
-                result.put("response", responseJson);
-            } else {
-                result.put("success", false);
-                result.put("message", "Google索引提交失败: HTTP " + response.getStatusCode());
-            }
-            
-        } catch (Exception e) {
-            log.error("Google索引提交失败", e);
-            result.put("success", false);
-            result.put("message", "Google索引提交异常: " + e.getMessage());
-        }
-        
-        return result;
-    }
-
-    /**
-     * Google简单ping方式（当没有API key时使用）
-     */
-    private Map<String, Object> pushToGooglePing(String url, Map<String, Object> seoConfig) {
-        Map<String, Object> result = new HashMap<>();
-        
-        try {
-            String encodedUrl = java.net.URLEncoder.encode(url, "UTF-8");
-            String pingUrl = "http://www.google.com/ping?sitemap=" + encodedUrl;
-            
-            String response = restTemplate.getForObject(pingUrl, String.class);
-            
-            result.put("success", true);
-            result.put("message", "Google ping推送成功");
-            result.put("response", response != null ? response : "");
-            
-        } catch (Exception e) {
-            log.error("Google ping推送失败", e);
-            result.put("success", false);
-            result.put("message", "Google ping推送异常: " + e.getMessage());
-        }
-        
-        return result;
-    }
-
-    /**
      * 推送到Bing搜索引擎（使用 IndexNow 协议）
      *
      * <p>IndexNow 协议要求：
@@ -551,8 +466,9 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
         try {
             String apiKey = (String) seoConfig.get("bing_api_key");
             if (!StringUtils.hasText(apiKey)) {
-                // 回退到简单ping方式
-                return pushToBingPing(url, seoConfig);
+                result.put("success", false);
+                result.put("message", "Bing IndexNow key未配置");
+                return result;
             }
             
             // 获取站点地址，用于构建 keyLocation
@@ -598,31 +514,6 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
             log.error("Bing IndexNow提交失败", e);
             result.put("success", false);
             result.put("message", "Bing IndexNow提交异常: " + e.getMessage());
-        }
-        
-        return result;
-    }
-
-    /**
-     * Bing简单ping方式
-     */
-    private Map<String, Object> pushToBingPing(String url, Map<String, Object> seoConfig) {
-        Map<String, Object> result = new HashMap<>();
-        
-        try {
-            String encodedUrl = java.net.URLEncoder.encode(url, "UTF-8");
-            String pingUrl = "http://www.bing.com/ping?sitemap=" + encodedUrl;
-            
-            String response = restTemplate.getForObject(pingUrl, String.class);
-            
-            result.put("success", true);
-            result.put("message", "Bing ping推送成功");
-            result.put("response", response != null ? response : "");
-            
-        } catch (Exception e) {
-            log.error("Bing ping推送失败", e);
-            result.put("success", false);
-            result.put("message", "Bing ping推送异常: " + e.getMessage());
         }
         
         return result;
@@ -693,31 +584,6 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
     }
 
     /**
-     * 推送到Yahoo搜索引擎
-     */
-    private Map<String, Object> pushToYahoo(String url, Map<String, Object> seoConfig) {
-        Map<String, Object> result = new HashMap<>();
-        
-        try {
-            String encodedUrl = java.net.URLEncoder.encode(url, "UTF-8");
-            String pingUrl = "http://search.yahooapis.com/SiteExplorerService/V1/ping?sitemap=" + encodedUrl;
-            
-            String response = restTemplate.getForObject(pingUrl, String.class);
-            
-            result.put("success", true);
-            result.put("message", "Yahoo推送成功");
-            result.put("response", response != null ? response : "");
-            
-        } catch (Exception e) {
-            log.error("Yahoo推送失败", e);
-            result.put("success", false);
-            result.put("message", "Yahoo推送异常: " + e.getMessage());
-        }
-        
-        return result;
-    }
-
-    /**
      * 推送到搜狗搜索引擎
      */
     private Map<String, Object> pushToSogou(String url, Map<String, Object> seoConfig) {
@@ -768,63 +634,6 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
             log.error("搜狗推送失败", e);
             result.put("success", false);
             result.put("message", "搜狗推送异常: " + e.getMessage());
-        }
-        
-        return result;
-    }
-
-    /**
-     * 推送到360搜索引擎
-     */
-    private Map<String, Object> pushToSo(String url, Map<String, Object> seoConfig) {
-        Map<String, Object> result = new HashMap<>();
-        
-        try {
-            String token = (String) seoConfig.get("so_token");
-            String pushToken = (String) seoConfig.get("so_push_token");
-            
-            // 优先使用so_push_token，如果没有则使用so_token
-            String finalToken = StringUtils.hasText(pushToken) ? pushToken : token;
-            
-            if (!StringUtils.hasText(finalToken)) {
-                result.put("success", false);
-                result.put("message", "360推送Token未配置");
-                return result;
-            }
-            
-            // 直接从 MailUtil 获取网站地址
-            String siteAddress = mailUtil.getSiteUrl();
-            if (!StringUtils.hasText(siteAddress)) {
-                result.put("success", false);
-                result.put("message", "网站地址未配置");
-                return result;
-            }
-            
-            // 360站长工具API
-            String soUrl = String.format("http://data.so.com/urls?site=%s&token=%s", siteAddress, finalToken);
-            
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.TEXT_PLAIN);
-            headers.set("User-Agent", "poetize-java/1.0.0");
-            
-            HttpEntity<String> entity = new HttpEntity<>(url, headers);
-            
-            ResponseEntity<String> response = restTemplate.postForEntity(soUrl, entity, String.class);
-            
-            if (response.getStatusCode() == HttpStatus.OK) {
-                JSONObject responseJson = JSON.parseObject(response.getBody());
-                result.put("success", true);
-                result.put("message", "360推送成功");
-                result.put("response", responseJson);
-            } else {
-                result.put("success", false);
-                result.put("message", "360推送失败: HTTP " + response.getStatusCode());
-            }
-            
-        } catch (Exception e) {
-            log.error("360推送失败", e);
-            result.put("success", false);
-            result.put("message", "360推送异常: " + e.getMessage());
         }
         
         return result;
@@ -1144,12 +953,9 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
     private String getEngineDisplayName(String engineName) {
         switch (engineName.toLowerCase()) {
             case "baidu": return "百度";
-            case "google": return "Google";
             case "bing": return "必应";
             case "yandex": return "Yandex";
-            case "yahoo": return "Yahoo";
             case "sogou": return "搜狗";
-            case "so": return "360搜索";
             case "shenma": return "神马搜索";
             default: return engineName;
         }

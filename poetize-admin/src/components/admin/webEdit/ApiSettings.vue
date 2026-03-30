@@ -699,7 +699,6 @@ X-API-KEY: {{apiConfig.apiKey}}
   "twitter_site": "@poetize",
   "twitter_creator": "@poetize",
   "baidu_push_enabled": true,
-  "google_index_enabled": true,
   "bing_push_enabled": false,
   "baidu_site_verification": "token-1",
   "google_site_verification": "token-2"

@@ -368,7 +368,6 @@ Allowed SEO config fields:
 - `twitter_site`
 - `twitter_creator`
 - `baidu_push_enabled`
-- `google_index_enabled`
 - `bing_push_enabled`
 - `baidu_site_verification`
 - `google_site_verification`

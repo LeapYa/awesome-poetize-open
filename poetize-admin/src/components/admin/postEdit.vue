@@ -110,14 +110,23 @@
       </el-form-item>
 
       <el-form-item label="推送至搜索引擎" prop="submitToSearchEngine">
-        <el-tag :type="article.submitToSearchEngine === false ? 'info' : 'success'"
+        <el-tag :type="searchPushSwitchDisabled || article.submitToSearchEngine === false ? 'info' : 'success'"
                 disable-transitions>
-          {{article.submitToSearchEngine === false ? '否' : '是'}}
+          {{searchPushSwitchDisabled || article.submitToSearchEngine === false ? '否' : '是'}}
         </el-tag>
-        <el-switch v-model="article.submitToSearchEngine"></el-switch>
-        <div class="tip-text">
-          <i class="el-icon-info"></i> 
-          是否在保存后自动推送文章到搜索引擎（百度、谷歌等）以便提高收录速度
+        <el-switch v-model="article.submitToSearchEngine" :disabled="searchPushSwitchDisabled"></el-switch>
+        <div class="tip-text" :class="{ 'tip-text-warning': searchPushSwitchDisabled }">
+          <i :class="searchPushSwitchDisabled ? 'el-icon-warning-outline' : 'el-icon-info'"></i>
+          <template v-if="searchPushConfigLoading">
+            正在加载搜索引擎推送配置...
+          </template>
+          <template v-else-if="searchPushSwitchDisabled">
+            当前没有可用的搜索引擎推送配置，请先前往 SEO 配置页启用并填写至少一个推送通道
+            <el-button type="text" class="tip-action-link" @click="goToSeoConfig">前往SEO配置</el-button>
+          </template>
+          <template v-else>
+            保存后将自动推送文章到 {{ configuredSearchPushEnginesText }} 等已配置渠道
+          </template>
         </div>
       </el-form-item>
 
@@ -416,6 +425,8 @@ const uploadPicture = () => import("../common/uploadPicture");
         shouldRenderTranslationEditor: false,
         mainEditor: null,
         deferredTaskHandles: [],
+        searchPushConfigLoading: true,
+        searchPushConfiguredEngines: [],
         article: createDefaultArticle(),
         // 付费插件状态
         paymentPluginActive: false,
@@ -514,6 +525,12 @@ const uploadPicture = () => import("../common/uploadPicture");
       mainStore() {
         return useMainStore();
       },
+      searchPushSwitchDisabled() {
+        return this.searchPushConfigLoading || this.searchPushConfiguredEngines.length === 0;
+      },
+      configuredSearchPushEnginesText() {
+        return this.searchPushConfiguredEngines.join('、');
+      },
       // 检查是否有暂存的翻译数据
       hasPendingTranslation() {
         return this.pendingTranslation.title &&
@@ -584,6 +601,7 @@ const uploadPicture = () => import("../common/uploadPicture");
         this.shouldRenderEditor = false;
         this.mainEditor = null;
         this.clearDeferredTasks();
+        this.searchPushConfigLoading = true;
         try {
           const tasks = [this.getSortAndLabel(false)];
           if (!this.$common.isEmpty(this.id)) {
@@ -591,8 +609,12 @@ const uploadPicture = () => import("../common/uploadPicture");
           } else {
             this.article = createDefaultArticle();
           }
+          tasks.push(this.loadSearchPushAvailability());
 
           await Promise.all(tasks);
+          if (this.searchPushConfiguredEngines.length === 0) {
+            this.article.submitToSearchEngine = false;
+          }
           this.scheduleEditorMount();
           this.scheduleNonCriticalStartupTasks();
         } catch (error) {
@@ -661,6 +683,47 @@ const uploadPicture = () => import("../common/uploadPicture");
             this.checkAndSetTranslationMode();
           }, 900);
         }
+      },
+
+      async loadSearchPushAvailability() {
+        try {
+          const res = await this.$http.get(this.$constant.baseURL + '/admin/seo/getSeoConfig', {}, true);
+          const config = res && res.code === 200 && res.data ? res.data : {};
+          const configuredEngines = [];
+
+          if (Boolean.TRUE.equals(config.enable)) {
+            if (Boolean.TRUE.equals(config.baidu_push_enabled) && !this.$common.isEmpty(config.baidu_push_token)) {
+              configuredEngines.push('百度');
+            }
+            if (Boolean.TRUE.equals(config.bing_push_enabled) && !this.$common.isEmpty(config.bing_api_key)) {
+              configuredEngines.push('Bing(IndexNow)');
+            }
+            if (Boolean.TRUE.equals(config.yandex_push_enabled) && !this.$common.isEmpty(config.yandex_api_key)) {
+              configuredEngines.push('Yandex');
+            }
+            if (Boolean.TRUE.equals(config.sogou_push_enabled) && !this.$common.isEmpty(config.sogou_push_token)) {
+              configuredEngines.push('搜狗');
+            }
+            if (Boolean.TRUE.equals(config.shenma_push_enabled) && !this.$common.isEmpty(config.shenma_token)) {
+              configuredEngines.push('神马');
+            }
+          }
+
+          this.searchPushConfiguredEngines = configuredEngines;
+          if (configuredEngines.length === 0) {
+            this.article.submitToSearchEngine = false;
+          }
+        } catch (error) {
+          console.error('获取搜索引擎推送配置失败:', error);
+          this.searchPushConfiguredEngines = [];
+          this.article.submitToSearchEngine = false;
+        } finally {
+          this.searchPushConfigLoading = false;
+        }
+      },
+
+      goToSeoConfig() {
+        this.$router.push({ path: '/seoConfig' }).catch(() => {});
       },
       
       // 检查是否有已启用的付费插件
@@ -1718,5 +1781,17 @@ const uploadPicture = () => import("../common/uploadPicture");
   }
 </script>
 
+<style scoped>
+.tip-text-warning {
+  color: #e6a23c;
+}
+
+.tip-action-link {
+  margin-left: 6px;
+  padding: 0;
+  font-size: 12px;
+  vertical-align: baseline;
+}
+</style>
 <style scoped src="@/assets/css/postedit.css"></style>
 <style src="@/assets/css/postedit-global.css"></style>

@@ -250,12 +250,9 @@ public class SeoConfigServiceImpl extends ServiceImpl<SeoConfigMapper, SeoConfig
 
             // 转换搜索引擎配置到JSON格式
             addSearchEngineConfig(jsonConfig, pushMap, "baidu", "baidu_push_enabled", "baidu_token", "baidu_push_token");
-            addSearchEngineConfig(jsonConfig, pushMap, "google", "google_index_enabled", "google_api_key", null);
             addSearchEngineConfig(jsonConfig, pushMap, "bing", "bing_push_enabled", "bing_api_key", null);
             addSearchEngineConfig(jsonConfig, pushMap, "yandex", "yandex_push_enabled", "yandex_api_key", null);
-            addSearchEngineConfig(jsonConfig, pushMap, "yahoo", "yahoo_push_enabled", "yahoo_api_key", null);
             addSearchEngineConfig(jsonConfig, pushMap, "sogou", "sogou_push_enabled", "sogou_token", "sogou_push_token");
-            addSearchEngineConfig(jsonConfig, pushMap, "so", "so_push_enabled", "so_token", "so_push_token");
             addSearchEngineConfig(jsonConfig, pushMap, "shenma", "shenma_push_enabled", "shenma_token", null);
             addSearchEngineConfig(jsonConfig, pushMap, "duckduckgo", "duckduckgo_push_enabled", null, null);
 
@@ -567,8 +564,6 @@ public class SeoConfigServiceImpl extends ServiceImpl<SeoConfigMapper, SeoConfig
                     defaultConfig.put("baidu_site_verification", "");
                     break;
                 case "google":
-                    defaultConfig.put("google_index_enabled", false);
-                    defaultConfig.put("google_api_key", "");
                     defaultConfig.put("google_site_verification", "");
                     break;
                 case "bing":
@@ -582,8 +577,6 @@ public class SeoConfigServiceImpl extends ServiceImpl<SeoConfigMapper, SeoConfig
                     defaultConfig.put("yandex_site_verification", "");
                     break;
                 case "yahoo":
-                    defaultConfig.put("yahoo_push_enabled", false);
-                    defaultConfig.put("yahoo_api_key", "");
                     defaultConfig.put("yahoo_site_verification", "");
                     break;
                 case "sogou":
@@ -593,9 +586,6 @@ public class SeoConfigServiceImpl extends ServiceImpl<SeoConfigMapper, SeoConfig
                     defaultConfig.put("sogou_site_verification", "");
                     break;
                 case "so":
-                    defaultConfig.put("so_push_enabled", false);
-                    defaultConfig.put("so_token", "");
-                    defaultConfig.put("so_push_token", "");
                     defaultConfig.put("so_site_verification", "");
                     break;
                 case "shenma":
@@ -650,12 +640,9 @@ public class SeoConfigServiceImpl extends ServiceImpl<SeoConfigMapper, SeoConfig
         // 创建搜索引擎推送配置
         List<Map<String, Object>> engineConfigs = Arrays.asList(
             createEngineConfigMap("baidu", "百度", "baidu_push_enabled", "baidu_token", "baidu_push_token"),
-            createEngineConfigMap("google", "Google", "google_index_enabled", "google_api_key", null),
             createEngineConfigMap("bing", "必应", "bing_push_enabled", "bing_api_key", null),
             createEngineConfigMap("yandex", "Yandex", "yandex_push_enabled", "yandex_api_key", null),
-            createEngineConfigMap("yahoo", "Yahoo", "yahoo_push_enabled", "yahoo_api_key", null),
             createEngineConfigMap("sogou", "搜狗", "sogou_push_enabled", "sogou_token", "sogou_push_token"),
-            createEngineConfigMap("so", "360搜索", "so_push_enabled", "so_token", "so_push_token"),
             createEngineConfigMap("shenma", "神马搜索", "shenma_push_enabled", "shenma_token", null),
             createEngineConfigMap("duckduckgo", "DuckDuckGo", "duckduckgo_push_enabled", null, null)
         );

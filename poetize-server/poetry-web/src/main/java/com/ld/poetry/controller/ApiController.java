@@ -91,7 +91,6 @@ public class ApiController {
             "twitter_site",
             "twitter_creator",
             "baidu_push_enabled",
-            "google_index_enabled",
             "bing_push_enabled",
             "baidu_site_verification",
             "google_site_verification"
@@ -1558,7 +1557,6 @@ public class ApiController {
     private Map<String, Object> buildSearchEnginePushOverview(Map<String, Object> config) {
         Map<String, Object> overview = new LinkedHashMap<>();
         overview.put("baidu", Boolean.TRUE.equals(config.get("baidu_push_enabled")));
-        overview.put("google", Boolean.TRUE.equals(config.get("google_index_enabled")));
         overview.put("bing", Boolean.TRUE.equals(config.get("bing_push_enabled")));
         return overview;
     }
@@ -1585,7 +1583,6 @@ public class ApiController {
             warnings.add("默认作者未配置");
         }
         if (!Boolean.TRUE.equals(config.get("baidu_push_enabled"))
-                && !Boolean.TRUE.equals(config.get("google_index_enabled"))
                 && !Boolean.TRUE.equals(config.get("bing_push_enabled"))) {
             warnings.add("搜索引擎推送尚未启用");
         }

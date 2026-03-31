@@ -4,6 +4,7 @@ import com.ld.poetry.service.SitemapService;
 import com.ld.poetry.service.TranslationService;
 import com.ld.poetry.service.SysAiConfigService;
 import com.ld.poetry.service.SeoService;
+import com.ld.poetry.service.ArticleService;
 import com.ld.poetry.utils.PrerenderClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,10 @@ public class ArticleEventListener {
     @Autowired
     private SeoService seoService;
     
+    @org.springframework.context.annotation.Lazy
+    @Autowired
+    private ArticleService articleService;
+    
     // 用于去重的延迟调度器（使用虚拟线程工厂）
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, 
         Thread.ofVirtual().name("article-event-scheduler-", 0).factory());
@@ -67,7 +72,7 @@ public class ArticleEventListener {
                     if (Boolean.TRUE.equals(event.getViewStatus())) {
                         // 新建可见文章，使用延迟去重机制进行预渲染
                         scheduleRenderWithDeduplication(event.getArticleId(), event.getSortId(), "CREATE", 
-                                event.getSubmitToSearchEngine(), event.getViewStatus());
+                                event.getSubmitToSearchEngine(), event.getViewStatus(), event.getTaskId());
                         log.info("已安排新文章预渲染任务: ID={}", event.getArticleId());
                         
                         // 文章创建后更新sitemap
@@ -82,12 +87,12 @@ public class ArticleEventListener {
                     if (Boolean.TRUE.equals(event.getViewStatus())) {
                         // 文章可见，使用延迟去重机制进行预渲染
                         scheduleRenderWithDeduplication(event.getArticleId(), event.getSortId(), "RENDER", 
-                                event.getSubmitToSearchEngine(), event.getViewStatus());
+                                event.getSubmitToSearchEngine(), event.getViewStatus(), event.getTaskId());
                         log.info("已安排文章更新预渲染任务: ID={}", event.getArticleId());
                     } else {
                         // 文章不可见，删除预渲染文件
                         scheduleRenderWithDeduplication(event.getArticleId(), event.getSortId(), "DELETE", 
-                                null, null);
+                                null, null, event.getTaskId());
                         log.info("已安排文章预渲染删除任务: ID={}", event.getArticleId());
                     }
                     
@@ -98,7 +103,7 @@ public class ArticleEventListener {
                 case "DELETE":
                     // 删除操作立即执行，不需要去重
                     scheduleRenderWithDeduplication(event.getArticleId(), event.getSortId(), "DELETE", 
-                            null, null);
+                            null, null, event.getTaskId());
                     log.info("已安排文章删除预渲染任务: ID={}, 分类ID={}", event.getArticleId(), event.getSortId());
                     
                     // 文章删除后更新sitemap
@@ -118,7 +123,7 @@ public class ArticleEventListener {
      * 去重调度预渲染任务
      * 如果短时间内同一文章有多次渲染请求，只执行最后一次
      */
-    private void scheduleRenderWithDeduplication(Integer articleId, Integer sortId, String action, Boolean submitToSearchEngine, Boolean viewStatus) {
+    private void scheduleRenderWithDeduplication(Integer articleId, Integer sortId, String action, Boolean submitToSearchEngine, Boolean viewStatus, String taskId) {
         Runnable renderTask = () -> {
             try {
                 // 从待处理任务中移除
@@ -135,7 +140,7 @@ public class ArticleEventListener {
                     
                     // 预渲染完成后，如果需要推送到搜索引擎，则执行SEO推送
                     if (Boolean.TRUE.equals(submitToSearchEngine) && Boolean.TRUE.equals(viewStatus)) {
-                        performSeoSubmission(articleId, "CREATE");
+                        performSeoSubmission(articleId, "CREATE", taskId);
                     }
                     
                 } else if ("RENDER".equals(action)) {
@@ -146,7 +151,7 @@ public class ArticleEventListener {
                     
                     // 预渲染完成后，如果需要推送到搜索引擎，则执行SEO推送
                     if (Boolean.TRUE.equals(submitToSearchEngine) && Boolean.TRUE.equals(viewStatus)) {
-                        performSeoSubmission(articleId, "UPDATE");
+                        performSeoSubmission(articleId, "UPDATE", taskId);
                     }
                     
                 } else if ("DELETE".equals(action)) {
@@ -262,16 +267,31 @@ public class ArticleEventListener {
     
     /**
      * 执行SEO推送（预渲染完成后立即执行）
+     * 向搜索引擎推送新增/更新的文章并记录状态
      * 
      * @param articleId 文章ID
      * @param operation 操作类型
+     * @param taskId 异步任务ID（如果有）
      */
-    private void performSeoSubmission(Integer articleId, String operation) {
+    private void performSeoSubmission(Integer articleId, String operation, String taskId) {
         try {
+            if (taskId != null) {
+                articleService.updateSeoPushStatus(taskId, "pushing", "正在推送到搜索引擎...");
+            }
             
             Map<String, Object> result = seoService.submitToSearchEngines(articleId);
             String status = (String) result.get("status");
             String message = (String) result.get("message");
+            
+            // 写入任务状态（让前端SSE流可以感知到SEO推送结果）
+            if (taskId != null) {
+                // 如果是"skipped"或"disabled"，前端一般显示为完成状态（无需红色警告）
+                // 我们在 ArticleServiceImpl 中写回
+                String pushStatus = "pushed".equals(status) ? "success" 
+                                  : "skipped".equals(status) || "disabled".equals(status) ? "skipped"
+                                  : "failed";
+                articleService.updateSeoPushStatus(taskId, pushStatus, message);
+            }
             
             // 根据不同状态输出不同的日志
             switch (status) {
@@ -288,12 +308,18 @@ public class ArticleEventListener {
                     break;
                 case "error":
                     log.error("搜索引擎推送错误，文章ID: {}, {}", articleId, message);
+                    if (taskId != null) {
+                        articleService.updateSeoPushStatus(taskId, "failed", message);
+                    }
                     break;
                 default:
                     log.info("搜索引擎推送完成，文章ID: {}, 状态: {}", articleId, status);
             }
         } catch (Exception e) {
             log.error("搜索引擎推送异常，文章ID: {}, 错误: {}", articleId, e.getMessage(), e);
+            if (taskId != null) {
+                articleService.updateSeoPushStatus(taskId, "failed", "推送执行异常: " + e.getMessage());
+            }
         }
     }
     

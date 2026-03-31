@@ -1612,6 +1612,9 @@
             progressStatus: '',
             translationText: '',
             summaryText: '',
+            seoPushRequired: false,
+            seoPushStatus: 'pending',
+            seoPushMessage: '',
             finalized: false
           };
         }
@@ -1804,12 +1807,18 @@
 
         task.status = taskStatus.status || task.status;
         task.stage = taskStatus.stage || task.stage;
-        task.message = taskStatus.message || task.message;
+        task.message = taskStatus.seoPushMessage || taskStatus.message || task.message;
+        task.seoPushRequired = !!taskStatus.seoPushRequired;
+        task.seoPushStatus = taskStatus.seoPushStatus || task.seoPushStatus;
+        task.seoPushMessage = taskStatus.seoPushMessage || task.seoPushMessage;
         if (taskStatus.translationStatus === 'streaming' || taskStatus.translationStatus === 'retrying') {
           task.statusLabel = '翻译中';
           task.statusColor = '#409EFF';
         } else if (taskStatus.summaryStatus === 'streaming') {
           task.statusLabel = '摘要中';
+          task.statusColor = '#409EFF';
+        } else if (this.isImportTaskWaitingForSeoPush(taskStatus)) {
+          task.statusLabel = '推送中';
           task.statusColor = '#409EFF';
         }
 
@@ -1819,21 +1828,38 @@
 
         this.applyImportTaskVisualState(task, taskStatus);
 
-        if (taskStatus.status === 'success' || taskStatus.status === 'partial_success' || taskStatus.status === 'failed') {
+        if (this.isImportTaskTerminal(taskStatus)) {
           this.finalizeImportTask(task, taskStatus);
         }
+      },
+
+      isImportTaskWaitingForSeoPush(taskStatus) {
+        if (!taskStatus || !taskStatus.seoPushRequired) {
+          return false;
+        }
+        return !taskStatus.seoPushStatus || taskStatus.seoPushStatus === 'pending' || taskStatus.seoPushStatus === 'pushing';
+      },
+
+      isImportTaskTerminal(taskStatus) {
+        if (!taskStatus) {
+          return false;
+        }
+        if (taskStatus.status !== 'success' && taskStatus.status !== 'partial_success' && taskStatus.status !== 'failed') {
+          return false;
+        }
+        return !this.isImportTaskWaitingForSeoPush(taskStatus);
       },
 
       finalizeImportTask(task, taskStatus) {
         if (task.finalized) {
           task.status = taskStatus.status || task.status;
-          task.message = taskStatus.message || task.message;
+          task.message = taskStatus.seoPushMessage || taskStatus.message || task.message;
           return;
         }
 
         task.finalized = true;
         task.status = taskStatus.status || task.status;
-        task.message = taskStatus.message || task.message;
+        task.message = taskStatus.seoPushMessage || taskStatus.message || task.message;
 
         if (task.status === 'success') {
           task.statusLabel = '成功';
@@ -1872,8 +1898,13 @@
         var stage = (taskStatus && taskStatus.stage) || task.stage || 'queued';
         var translationStatus = (taskStatus && taskStatus.translationStatus) || '';
         var summaryStatus = (taskStatus && taskStatus.summaryStatus) || '';
+        var seoPushRequired = taskStatus && taskStatus.seoPushRequired;
+        var seoPushStatus = (taskStatus && taskStatus.seoPushStatus) || '';
 
         if (status === 'success' || status === 'partial_success' || status === 'failed') {
+          if (seoPushRequired && (!seoPushStatus || seoPushStatus === 'pending' || seoPushStatus === 'pushing')) {
+            return seoPushStatus === 'pushing' ? 96 : 92;
+          }
           return 100;
         }
         if (summaryStatus === 'streaming' || stage === 'generating_summary') {
@@ -1902,7 +1933,10 @@
         var stage = (taskStatus && taskStatus.stage) || task.stage || 'queued';
         var translationStatus = (taskStatus && taskStatus.translationStatus) || '';
         var summaryStatus = (taskStatus && taskStatus.summaryStatus) || '';
+        var seoPushRequired = taskStatus && taskStatus.seoPushRequired;
+        var seoPushStatus = (taskStatus && taskStatus.seoPushStatus) || '';
 
+        if (seoPushRequired && (!seoPushStatus || seoPushStatus === 'pending' || seoPushStatus === 'pushing')) return '搜索推送';
         if (status === 'success') return '已完成';
         if (status === 'partial_success') return '部分完成';
         if (status === 'failed') return '执行失败';
@@ -1918,6 +1952,7 @@
 
       inferImportTaskProgressStatus(task, taskStatus) {
         var status = (taskStatus && taskStatus.status) || task.status || 'processing';
+        if (this.isImportTaskWaitingForSeoPush(taskStatus || task)) return '';
         if (status === 'success') return 'success';
         if (status === 'failed') return 'exception';
         if (status === 'partial_success') return 'warning';

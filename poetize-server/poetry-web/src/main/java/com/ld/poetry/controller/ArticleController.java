@@ -43,7 +43,6 @@ import com.ld.poetry.entity.SysPlugin;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import java.util.concurrent.Executor;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -400,7 +399,7 @@ public class ArticleController {
         if (result.getCode() == 200) {
             // 发布文章删除事件，触发预渲染清理（在事务提交后执行）
             // 传递正确的分类ID，确保分类页面也会被重新渲染
-            eventPublisher.publishEvent(new ArticleSavedEvent(id, sortId, false, "DELETE", null));
+            eventPublisher.publishEvent(new ArticleSavedEvent(id, sortId, null, false, "DELETE", null));
             
             // 清除文章二维码缓存
             qrCodeService.evictArticleQRCode(id);

@@ -21,6 +21,11 @@ public class ArticleSavedEvent {
     private Integer sortId;
     
     /**
+     * 异步任务ID（用于状态回传）
+     */
+    private String taskId;
+
+    /**
      * 是否可见
      */
     private Boolean viewStatus;

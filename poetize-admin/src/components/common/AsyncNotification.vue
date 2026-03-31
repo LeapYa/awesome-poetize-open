@@ -67,6 +67,27 @@ export default {
      * @param {string} notification.taskId - 任务ID（用于更新状态）
      */
     addNotification(notification) {
+      if (notification.taskId) {
+        const existingIndex = this.notifications.findIndex(n => n.taskId === notification.taskId)
+        if (existingIndex > -1) {
+          const existingNotification = this.notifications[existingIndex]
+          Object.assign(existingNotification, {
+            title: notification.title || existingNotification.title || '通知',
+            message: notification.message || existingNotification.message || '',
+            type: notification.type || existingNotification.type || 'info',
+            duration: notification.duration !== undefined ? notification.duration : existingNotification.duration,
+            onClick: notification.onClick || existingNotification.onClick || null
+          })
+
+          if (existingIndex > 0) {
+            this.notifications.splice(existingIndex, 1)
+            this.notifications.unshift(existingNotification)
+          }
+
+          return existingNotification.id
+        }
+      }
+
       const id = Date.now() + Math.random();
       const newNotification = {
         id,
@@ -385,6 +406,11 @@ export default {
         return;
       }
 
+      if (eventName === 'seo_push') {
+        this.applyTaskStatus(taskId, payload || {});
+        return;
+      }
+
       if (eventName === 'stage' || eventName === 'start' || eventName === 'retry') {
         this.applyTaskStatus(taskId, payload || {});
         return;
@@ -412,8 +438,95 @@ export default {
       return status === 'success' || status === 'failed' || status === 'partial_success';
     },
 
+    requiresSeoPush(status) {
+      return !!(status && status.seoPushRequired);
+    },
+
+    isSeoPushPending(status) {
+      if (!this.requiresSeoPush(status)) {
+        return false;
+      }
+      const seoPushStatus = status && status.seoPushStatus;
+      return !seoPushStatus || seoPushStatus === 'pending' || seoPushStatus === 'pushing';
+    },
+
+    getSeoPushProgress(status) {
+      if (!this.requiresSeoPush(status)) {
+        return 100;
+      }
+      if (this.isSeoPushPending(status)) {
+        return status && status.seoPushStatus === 'pushing' ? 98 : 95;
+      }
+      return 100;
+    },
+
+    resolvePendingSeoMessage(status) {
+      if (status && status.seoPushStatus === 'pushing' && status.seoPushMessage) {
+        return status.seoPushMessage;
+      }
+      return (status && status.seoPushMessage) || '文章已保存，正在推送到搜索引擎...';
+    },
+
+    resolveFinalTaskNotification(status) {
+      if (status.status === 'failed') {
+        return {
+          type: 'error',
+          title: '保存失败',
+          message: status.message || '文章保存失败',
+          progress: 100
+        };
+      }
+
+      if (status.status === 'partial_success') {
+        return {
+          type: 'info',
+          title: '部分完成',
+          message: status.seoPushStatus === 'failed'
+            ? (status.seoPushMessage || status.summaryMessage || status.message || '文章已保存，但后续任务部分失败')
+            : (status.summaryMessage || status.message || '文章已保存，但摘要未完成'),
+          progress: 100,
+          duration: 5000
+        };
+      }
+
+      if (status.seoPushStatus === 'failed') {
+        return {
+          type: 'info',
+          title: '保存成功，推送失败',
+          message: status.seoPushMessage || status.message || '文章已保存，但搜索引擎推送失败',
+          progress: 100,
+          duration: 5000
+        };
+      }
+
+      if (status.seoPushStatus === 'skipped') {
+        return {
+          type: 'info',
+          title: '保存成功',
+          message: status.seoPushMessage || status.message || '文章保存成功，搜索引擎推送已跳过',
+          progress: 100,
+          duration: 4000
+        };
+      }
+
+      return {
+        type: 'success',
+        title: '保存成功',
+        message: status.seoPushMessage || status.message || '文章保存成功！',
+        progress: 100
+      };
+    },
+
     applyTaskStatus(taskId, status) {
-      const message = status.message || '任务处理中...';
+      if (this.isTerminalTaskStatus(status.status) && this.isSeoPushPending(status)) {
+        this.updateNotificationByTaskId(taskId, {
+          message: this.resolvePendingSeoMessage(status),
+          progress: this.getSeoPushProgress(status)
+        });
+        return;
+      }
+
+      const message = status.seoPushMessage || status.message || '任务处理中...';
       const progress = this.getProgressByStage(status.stage, status.status);
 
       this.updateNotificationByTaskId(taskId, {
@@ -421,35 +534,10 @@ export default {
         progress
       });
 
-      if (status.status === 'success') {
+      if (this.isTerminalTaskStatus(status.status)) {
         this.stopPolling(taskId);
         this.stopStream(taskId);
-        this.updateNotificationByTaskId(taskId, {
-          type: 'success',
-          title: '保存成功',
-          message: status.message || '文章保存成功！',
-          progress: 100
-        });
-      } else if (status.status === 'partial_success') {
-        this.stopPolling(taskId);
-        this.stopStream(taskId);
-        const partialMessage = status.summaryMessage || status.message || '文章已保存，但摘要未完成';
-        this.updateNotificationByTaskId(taskId, {
-          type: 'info',
-          title: '部分完成',
-          message: partialMessage,
-          progress: 100,
-          duration: 5000
-        });
-      } else if (status.status === 'failed') {
-        this.stopPolling(taskId);
-        this.stopStream(taskId);
-        this.updateNotificationByTaskId(taskId, {
-          type: 'error',
-          title: '保存失败',
-          message: status.message || '文章保存失败',
-          progress: 100
-        });
+        this.updateNotificationByTaskId(taskId, this.resolveFinalTaskNotification(status));
       }
     },
 

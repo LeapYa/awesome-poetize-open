@@ -111,6 +111,14 @@ public interface ArticleService extends IService<Article> {
     SseEmitter streamArticleSaveStatusBatch(List<String> taskIds);
 
     /**
+     * 回写异步任务的 SEO 推送状态
+     * @param taskId 异步任务ID
+     * @param seoPushStatus 推送状态
+     * @param seoPushMessage 推送描述
+     */
+    void updateSeoPushStatus(String taskId, String seoPushStatus, String seoPushMessage);
+
+    /**
      * 获取翻译匹配的内容
      * @param id 文章ID
      * @param searchKey 搜索关键词

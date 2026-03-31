@@ -214,7 +214,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 if (eventPublisher == null) {
                     log.error("eventPublisher为空，无法发布事件");
                 } else {
-                    eventPublisher.publishEvent(new ArticleSavedEvent(savedArticleId, articleVO.getSortId(),
+                    eventPublisher.publishEvent(new ArticleSavedEvent(savedArticleId, articleVO.getSortId(), null,
                             articleVO.getViewStatus(), "CREATE",
                             articleVO.getSubmitToSearchEngine()));
                     log.info("已发布文章保存事件，文章ID: {}, 可见: {}", savedArticleId, articleVO.getViewStatus());
@@ -255,9 +255,6 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     public PoetryResult<String> saveArticleAsync(ArticleVO articleVO, boolean skipAiTranslation,
             Map<String, String> pendingTranslation) {
-        // 生成任务ID
-        String taskId = "article_save_" + System.currentTimeMillis() + "_" + (int) (Math.random() * 1000);
-
         // 基础验证
         if (articleVO.getViewStatus() != null && !articleVO.getViewStatus()
                 && !StringUtils.hasText(articleVO.getPassword())) {
@@ -272,10 +269,20 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         // 在主线程中获取用户信息，避免异步线程中无法访问RequestContext
         String currentUsername = resolveAsyncActorUsername(articleVO);
         final String finalUsername = currentUsername;
+        String newTaskId = generateAsyncTaskId("article_save");
+        String taskId = registerOrReuseAsyncTask(
+                buildAsyncCreateTaskKey(articleVO, userId),
+                newTaskId);
+        if (!newTaskId.equals(taskId)) {
+            log.info("复用进行中的异步保存任务，任务ID: {}", taskId);
+            return PoetryResult.success(taskId);
+        }
 
         // 初始化保存状态
         ArticleSaveStatus initialStatus = new ArticleSaveStatus(taskId, "processing", "正在保存文章...", null);
         initialStatus.setStage("queued");
+        initialStatus.setSeoPushRequired(Boolean.TRUE.equals(articleVO.getViewStatus())
+                && Boolean.TRUE.equals(articleVO.getSubmitToSearchEngine()));
         ARTICLE_SAVE_STATUS.put(taskId, initialStatus);
         log.info("初始化异步保存任务，任务ID: {}", taskId);
 
@@ -350,7 +357,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     if (eventPublisher == null) {
                         log.error("eventPublisher为空，无法发布事件，任务ID: {}", taskId);
                     } else {
-                        eventPublisher.publishEvent(new ArticleSavedEvent(savedArticleId, articleVO.getSortId(),
+                        eventPublisher.publishEvent(new ArticleSavedEvent(savedArticleId, articleVO.getSortId(), taskId,
                                 articleVO.getViewStatus(), "CREATE",
                                 articleVO.getSubmitToSearchEngine()));
                         log.info("已发布文章保存事件，任务ID: {}, 文章ID: {}, 可见: {}", taskId, savedArticleId,
@@ -368,12 +375,16 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 updateTaskStage(taskId, "complete", translationOutcome.translationStatus(), getSummaryStatus(taskId), finalMessage, null,
                         false);
                 emitTaskEvent(taskId, "complete", buildFinalTaskPayload(
+                        taskId,
                         finalTaskStatus,
                         savedArticleId,
                         finalMessage,
                         translationOutcome.translationStatus(),
                         getSummaryStatus(taskId),
-                        getSummaryMessage(taskId)));
+                        getSummaryMessage(taskId),
+                        initialStatus.getSeoPushRequired(),
+                        initialStatus.getSeoPushStatus(),
+                        initialStatus.getSeoPushMessage()));
                 log.info("异步文章保存流程全部完成，任务ID: {}, 文章ID: {}", taskId, savedArticleId);
 
             } catch (Exception e) {
@@ -384,6 +395,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                         "status", "failed",
                         "message", "保存失败：" + e.getMessage(),
                         "retryable", false));
+            } finally {
+                releaseAsyncTaskGuard(taskId);
             }
         });
 
@@ -408,6 +421,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 && System.currentTimeMillis() - status.getLastUpdateTime() > 10 * 60 * 1000) {
             ARTICLE_SAVE_STATUS.remove(taskId);
             ARTICLE_SAVE_EMITTERS.remove(taskId);
+            releaseAsyncTaskGuard(taskId);
             return PoetryResult.fail("任务已过期");
         }
 
@@ -566,6 +580,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     // 文章保存状态缓存（内存级别，重启后清空）
     private static final Map<String, ArticleSaveStatus> ARTICLE_SAVE_STATUS = new ConcurrentHashMap<>();
     private static final Map<String, CopyOnWriteArrayList<SseEmitter>> ARTICLE_SAVE_EMITTERS = new ConcurrentHashMap<>();
+    private static final Map<String, String> ACTIVE_ASYNC_ARTICLE_TASKS = new ConcurrentHashMap<>();
+    private static final Map<String, String> ASYNC_TASK_DEDUP_KEYS = new ConcurrentHashMap<>();
 
     /**
      * 更新保存状态
@@ -752,6 +768,93 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         }
     }
 
+    private String generateAsyncTaskId(String prefix) {
+        return prefix + "_" + System.currentTimeMillis() + "_" + (int) (Math.random() * 1000);
+    }
+
+    private String buildAsyncCreateTaskKey(ArticleVO articleVO, Integer userId) {
+        String fingerprintSource = String.join("|",
+                Objects.toString(userId, ""),
+                Objects.toString(articleVO.getArticleTitle(), ""),
+                SecureUtil.md5(Objects.toString(articleVO.getArticleContent(), "")),
+                Objects.toString(articleVO.getSortId(), ""),
+                Objects.toString(articleVO.getLabelId(), ""),
+                Objects.toString(articleVO.getViewStatus(), ""),
+                Objects.toString(articleVO.getSubmitToSearchEngine(), ""));
+        return "article_create:" + userId + ":" + SecureUtil.md5(fingerprintSource);
+    }
+
+    private String buildAsyncUpdateTaskKey(Integer articleId, Integer userId) {
+        return "article_update:" + userId + ":" + articleId;
+    }
+
+    private String registerOrReuseAsyncTask(String dedupKey, String newTaskId) {
+        while (true) {
+            String existingTaskId = ACTIVE_ASYNC_ARTICLE_TASKS.putIfAbsent(dedupKey, newTaskId);
+            if (existingTaskId == null) {
+                ASYNC_TASK_DEDUP_KEYS.put(newTaskId, dedupKey);
+                return newTaskId;
+            }
+
+            if (isAsyncTaskStillActive(existingTaskId)) {
+                return existingTaskId;
+            }
+
+            ACTIVE_ASYNC_ARTICLE_TASKS.remove(dedupKey, existingTaskId);
+            ASYNC_TASK_DEDUP_KEYS.remove(existingTaskId, dedupKey);
+        }
+    }
+
+    private boolean isAsyncTaskStillActive(String taskId) {
+        ArticleSaveStatus saveStatus = ARTICLE_SAVE_STATUS.get(taskId);
+        if (saveStatus == null) {
+            return ASYNC_TASK_DEDUP_KEYS.containsKey(taskId);
+        }
+        return isAsyncTaskStillActive(saveStatus);
+    }
+
+    private boolean isAsyncTaskStillActive(ArticleSaveStatus saveStatus) {
+        if (saveStatus == null) {
+            return false;
+        }
+        if (!isTerminalTaskStatus(saveStatus.getStatus())) {
+            return true;
+        }
+        return isSeoPushPending(saveStatus);
+    }
+
+    private boolean isTerminalTaskStatus(String status) {
+        return "success".equals(status) || "failed".equals(status) || "partial_success".equals(status);
+    }
+
+    private boolean isSeoPushPending(ArticleSaveStatus saveStatus) {
+        if (saveStatus == null || !saveStatus.getSeoPushRequired()) {
+            return false;
+        }
+        String seoPushStatus = saveStatus.getSeoPushStatus();
+        return !StringUtils.hasText(seoPushStatus)
+                || "pending".equals(seoPushStatus)
+                || "pushing".equals(seoPushStatus);
+    }
+
+    private void releaseAsyncTaskGuard(String taskId) {
+        if (!StringUtils.hasText(taskId)) {
+            return;
+        }
+
+        ArticleSaveStatus saveStatus = ARTICLE_SAVE_STATUS.get(taskId);
+        if (isAsyncTaskStillActive(saveStatus)) {
+            return;
+        }
+
+        String dedupKey = ASYNC_TASK_DEDUP_KEYS.remove(taskId);
+        if (!StringUtils.hasText(dedupKey)) {
+            return;
+        }
+
+        ACTIVE_ASYNC_ARTICLE_TASKS.remove(dedupKey, taskId);
+    }
+
     private void removeEmitter(String taskId, SseEmitter emitter) {
         CopyOnWriteArrayList<SseEmitter> emitters = ARTICLE_SAVE_EMITTERS.get(taskId);
         if (emitters == null) {
@@ -788,8 +891,34 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         payload.put("summaryMessage", status.getSummaryMessage());
         payload.put("summaryReceivedChars", status.getSummaryReceivedChars());
         payload.put("summaryPreview", status.getSummaryPreview());
+        payload.put("seoPushRequired", status.getSeoPushRequired());
+        payload.put("seoPushStatus", status.getSeoPushStatus());
+        payload.put("seoPushMessage", status.getSeoPushMessage());
         payload.put("lastUpdateTime", status.getLastUpdateTime());
         return payload;
+    }
+
+    /**
+     * 更新SEO推送状态（供 ArticleEventListener 回写推送结果）
+     * 
+     * @param taskId 异步任务ID
+     * @param seoPushStatus 推送状态: pending, pushing, success, partial, failed
+     * @param seoPushMessage 推送结果描述
+     */
+    @Override
+    public void updateSeoPushStatus(String taskId, String seoPushStatus, String seoPushMessage) {
+        ArticleSaveStatus saveStatus = ARTICLE_SAVE_STATUS.get(taskId);
+        if (saveStatus == null) {
+            // 任务可能已过期被清理，仅记录日志
+            releaseAsyncTaskGuard(taskId);
+            log.debug("SEO推送状态更新跳过 - 任务ID不存在或已过期: {}", taskId);
+            return;
+        }
+        saveStatus.setSeoPushStatus(seoPushStatus);
+        saveStatus.setSeoPushMessage(seoPushMessage);
+        saveStatus.setLastUpdateTime(System.currentTimeMillis());
+        emitTaskEvent(taskId, "seo_push", buildStagePayload(saveStatus));
+        releaseAsyncTaskGuard(taskId);
     }
 
     private AsyncTranslationOutcome processAsyncTranslation(String taskId, Integer articleId, String title,
@@ -917,9 +1046,11 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         };
     }
 
-    private Map<String, Object> buildFinalTaskPayload(String finalStatus, Integer articleId, String message,
-            String translationStatus, String summaryStatus, String summaryMessage) {
+    private Map<String, Object> buildFinalTaskPayload(String taskId, String finalStatus, Integer articleId, String message,
+            String translationStatus, String summaryStatus, String summaryMessage,
+            boolean seoPushRequired, String seoPushStatus, String seoPushMessage) {
         Map<String, Object> payload = new HashMap<>();
+        payload.put("taskId", taskId);
         payload.put("status", finalStatus);
         payload.put("stage", "complete");
         payload.put("articleId", articleId);
@@ -927,6 +1058,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         payload.put("translationStatus", translationStatus);
         payload.put("summaryStatus", summaryStatus);
         payload.put("summaryMessage", summaryMessage);
+        payload.put("seoPushRequired", seoPushRequired);
+        payload.put("seoPushStatus", seoPushStatus);
+        payload.put("seoPushMessage", seoPushMessage);
         return payload;
     }
 
@@ -1040,6 +1174,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         private Boolean streaming;
         private String translatedTitlePreview;
         private String translatedContentPreview;
+        private boolean seoPushRequired;
+        private String seoPushStatus;   // pending, pushing, success, partial, failed
+        private String seoPushMessage;
         private long lastUpdateTime;
 
         public ArticleSaveStatus(String taskId, String status, String message, Integer articleId) {
@@ -1057,6 +1194,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             this.streaming = false;
             this.translatedTitlePreview = "";
             this.translatedContentPreview = "";
+            this.seoPushRequired = false;
+            this.seoPushStatus = "pending";
+            this.seoPushMessage = "";
             this.lastUpdateTime = System.currentTimeMillis();
         }
 
@@ -1171,6 +1311,30 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
         public void setTranslatedContentPreview(String translatedContentPreview) {
             this.translatedContentPreview = translatedContentPreview;
+        }
+
+        public boolean getSeoPushRequired() {
+            return seoPushRequired;
+        }
+
+        public void setSeoPushRequired(boolean seoPushRequired) {
+            this.seoPushRequired = seoPushRequired;
+        }
+
+        public String getSeoPushStatus() {
+            return seoPushStatus;
+        }
+
+        public void setSeoPushStatus(String seoPushStatus) {
+            this.seoPushStatus = seoPushStatus;
+        }
+
+        public String getSeoPushMessage() {
+            return seoPushMessage;
+        }
+
+        public void setSeoPushMessage(String seoPushMessage) {
+            this.seoPushMessage = seoPushMessage;
         }
 
         public long getLastUpdateTime() {
@@ -1353,7 +1517,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
             // ========== 步骤5：发布文章更新事件 ==========
             try {
-                eventPublisher.publishEvent(new ArticleSavedEvent(updatedArticleId, articleVO.getSortId(),
+                eventPublisher.publishEvent(new ArticleSavedEvent(updatedArticleId, articleVO.getSortId(), null,
                         articleVO.getViewStatus(), "UPDATE",
                         articleVO.getSubmitToSearchEngine()));
             } catch (Exception e) {
@@ -2289,9 +2453,6 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     public PoetryResult<String> updateArticleAsync(ArticleVO articleVO, boolean skipAiTranslation,
             Map<String, String> pendingTranslation) {
-        // 生成任务ID
-        String taskId = "article_update_" + System.currentTimeMillis() + "_" + (int) (Math.random() * 1000);
-
         // 基础验证
         if (articleVO.getId() == null) {
             return PoetryResult.fail("文章ID不能为空！");
@@ -2309,10 +2470,20 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         // 在主线程中获取用户信息，避免异步线程中无法访问RequestContext
         String currentUsername = resolveAsyncActorUsername(articleVO);
         final String finalUsername = currentUsername;
+        String newTaskId = generateAsyncTaskId("article_update");
+        String taskId = registerOrReuseAsyncTask(
+                buildAsyncUpdateTaskKey(articleVO.getId(), userId),
+                newTaskId);
+        if (!newTaskId.equals(taskId)) {
+            log.info("复用进行中的异步更新任务，任务ID: {}, 文章ID: {}", taskId, articleVO.getId());
+            return PoetryResult.success(taskId);
+        }
 
         // 初始化更新状态
         ArticleSaveStatus initialStatus = new ArticleSaveStatus(taskId, "processing", "正在更新文章...", articleVO.getId());
         initialStatus.setStage("queued");
+        initialStatus.setSeoPushRequired(Boolean.TRUE.equals(articleVO.getViewStatus())
+                && Boolean.TRUE.equals(articleVO.getSubmitToSearchEngine()));
         ARTICLE_SAVE_STATUS.put(taskId, initialStatus);
         log.info("初始化异步更新任务，任务ID: {}, 文章ID: {}", taskId, articleVO.getId());
 
@@ -2407,7 +2578,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
                 // ========== 步骤5：发布文章更新事件 ==========
                 try {
-                    eventPublisher.publishEvent(new ArticleSavedEvent(articleVO.getId(), articleVO.getSortId(),
+                    eventPublisher.publishEvent(new ArticleSavedEvent(articleVO.getId(), articleVO.getSortId(), taskId,
                             articleVO.getViewStatus(), "UPDATE",
                             articleVO.getSubmitToSearchEngine()));
                 } catch (Exception e) {
@@ -2422,12 +2593,16 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 updateTaskStage(taskId, "complete", translationOutcome.translationStatus(), getSummaryStatus(taskId), finalMessage, null,
                         false);
                 emitTaskEvent(taskId, "complete", buildFinalTaskPayload(
+                        taskId,
                         finalTaskStatus,
                         articleVO.getId(),
                         finalMessage,
                         translationOutcome.translationStatus(),
                         getSummaryStatus(taskId),
-                        getSummaryMessage(taskId)));
+                        getSummaryMessage(taskId),
+                        initialStatus.getSeoPushRequired(),
+                        initialStatus.getSeoPushStatus(),
+                        initialStatus.getSeoPushMessage()));
                 log.info("异步文章更新流程全部完成，任务ID: {}, 文章ID: {}", taskId, articleVO.getId());
 
             } catch (Exception e) {
@@ -2438,6 +2613,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                         "status", "failed",
                         "message", "更新失败：" + e.getMessage(),
                         "retryable", false));
+            } finally {
+                releaseAsyncTaskGuard(taskId);
             }
         });
 

@@ -1303,6 +1303,7 @@ public class ApiController {
             eventPublisher.publishEvent(new ArticleSavedEvent(
                     article.getId(),
                     article.getSortId(),
+                    null,
                     article.getViewStatus(),
                     "UPDATE",
                     article.getSubmitToSearchEngine()

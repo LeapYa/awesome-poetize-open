@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
+import java.net.URI;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -127,21 +128,19 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                             try {
                                 Map<String, Object> singleUrlResult = pushUrlToEngine(urlToPush, engine);
                                 urlResults.add(Map.of(
-                                    "url", urlToPush,
-                                    "success", singleUrlResult.get("success"),
-                                    "message", singleUrlResult.get("message")
-                                ));
-                                
+                                        "url", urlToPush,
+                                        "success", singleUrlResult.get("success"),
+                                        "message", singleUrlResult.get("message")));
+
                                 if (Boolean.TRUE.equals(singleUrlResult.get("success"))) {
                                     engineSuccessCount++;
                                 }
                             } catch (Exception e) {
                                 log.warn("推送{}到{}失败: {}", urlToPush, engine, e.getMessage());
                                 urlResults.add(Map.of(
-                                    "url", urlToPush,
-                                    "success", false,
-                                    "message", e.getMessage()
-                                ));
+                                        "url", urlToPush,
+                                        "success", false,
+                                        "message", e.getMessage()));
                             }
                         }
                         
@@ -149,8 +148,9 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                         engineResult.put("successCount", engineSuccessCount);
                         engineResult.put("totalUrls", urlsToPush.size());
                         engineResult.put("urlResults", urlResults);
-                        engineResult.put("message", String.format("成功推送 %d/%d 个URL", engineSuccessCount, urlsToPush.size()));
-                        
+                        engineResult.put("message",
+                                String.format("成功推送 %d/%d 个URL", engineSuccessCount, urlsToPush.size()));
+
                         return engineResult;
                     }));
                 } else {
@@ -181,9 +181,8 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 } else {
                     log.error("搜索引擎{}推送失败", engine);
                     engineResults.put(engine, Map.of(
-                        "success", false,
-                        "message", "推送任务执行失败"
-                    ));
+                            "success", false,
+                            "message", "推送任务执行失败"));
                 }
             }
             
@@ -200,17 +199,17 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
         result.put("successCount", successCount.get());
         result.put("totalUrlsPushed", totalUrlsPushed.get());
         result.put("successfulUrlsPushed", successfulUrlsPushed.get());
-        result.put("url", url);  // 原始URL
-        result.put("allUrls", urlsToPush);  // 所有推送的URL
+        result.put("url", url); // 原始URL
+        result.put("allUrls", urlsToPush); // 所有推送的URL
         result.put("results", engineResults);
         result.put("timestamp", new Date());
         
         if (successCount.get() > 0) {
-            result.put("message", String.format("成功推送到 %d/%d 个搜索引擎，共推送 %d/%d 个URL", 
+            result.put("message", String.format("成功推送到 %d/%d 个搜索引擎，共推送 %d/%d 个URL",
                     successCount.get(), totalEngines.get(), successfulUrlsPushed.get(), totalUrlsPushed.get()));
         } else {
             result.put("message", totalEngines.get() > 0 ? "所有启用的搜索引擎推送都失败了" : "没有启用任何搜索引擎");
-            log.warn("URL推送完成，成功引擎: {}/{}, 成功URL: {}/{}", 
+            log.warn("URL推送完成，成功引擎: {}/{}, 成功URL: {}/{}",
                     successCount.get(), totalEngines.get(), successfulUrlsPushed.get(), totalUrlsPushed.get());
         }
         
@@ -404,8 +403,9 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
             String pushToken = (String) seoConfig.get("baidu_push_token");
             
             // 优先使用baidu_push_token，如果没有则使用baidu_token
-            String finalToken = StringUtils.hasText(pushToken) ? pushToken : token;
-            
+            String finalToken = StringUtils.hasText(pushToken) ? pushToken.trim()
+                    : (token != null ? token.trim() : null);
+
             if (!StringUtils.hasText(finalToken)) {
                 result.put("success", false);
                 result.put("message", "百度推送Token未配置");
@@ -419,17 +419,24 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("message", "网站地址未配置");
                 return result;
             }
-            
-            String pushUrl = String.format("http://data.zz.baidu.com/urls?site=%s&token=%s", siteAddress, finalToken);
-            
+
+            // 记录日志，排查线上发送的实际参数（脱敏token）
+            String maskedToken = finalToken.length() > 4 ? finalToken.substring(0, 4) + "***" : "***";
+            log.info("准备百度推送，使用 site: {}, token: {}", siteAddress, maskedToken);
+
+            // 使用 URI.create() 构建 URI 对象，避免 RestTemplate 对查询参数值中的
+            // https:// 进行 URL 编码（编码后 site=https%3A%2F%2F... 会导致百度返回 401）
+            URI pushUri = URI.create(String.format(
+                    "http://data.zz.baidu.com/urls?site=%s&token=%s", siteAddress, finalToken));
+
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.TEXT_PLAIN);
             headers.set("User-Agent", "poetize-java/1.0.0");
             
             HttpEntity<String> entity = new HttpEntity<>(url, headers);
-            
-            ResponseEntity<String> response = restTemplate.postForEntity(pushUrl, entity, String.class);
-            
+
+            ResponseEntity<String> response = restTemplate.postForEntity(pushUri, entity, String.class);
+
             if (response.getStatusCode() == HttpStatus.OK) {
                 JSONObject responseJson = JSON.parseObject(response.getBody());
                 result.put("success", true);
@@ -440,9 +447,15 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("message", "百度推送失败: HTTP " + response.getStatusCode());
                 result.put("response", response.getBody());
             }
-            
+
+        } catch (org.springframework.web.client.RestClientResponseException e) {
+            // 使用更通用的 RestClientResponseException 捕获 Spring 的 4xx/5xx 异常，避免漏捕捞并打印真实失败原因
+            String responseBody = e.getResponseBodyAsString();
+            log.warn("百度推送请求失败, 状态码: {}, 错误信息: {}", e.getStatusCode(), responseBody);
+            result.put("success", false);
+            result.put("message", String.format("百度推送失败(%s): %s", e.getStatusCode(), responseBody));
         } catch (Exception e) {
-            log.error("百度推送失败", e);
+            log.error("百度推送异常", e);
             result.put("success", false);
             result.put("message", "百度推送异常: " + e.getMessage());
         }
@@ -470,7 +483,8 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("message", "Bing IndexNow key未配置");
                 return result;
             }
-            
+            apiKey = apiKey.trim();
+
             // 获取站点地址，用于构建 keyLocation
             String siteAddress = mailUtil.getSiteUrl();
             if (!StringUtils.hasText(siteAddress)) {
@@ -509,7 +523,11 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("message", "Bing IndexNow提交失败: HTTP " + response.getStatusCode());
                 log.warn("Bing IndexNow推送失败: url={}, status={}", url, response.getStatusCode());
             }
-            
+
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            log.warn("Bing IndexNow提交请求失败, 状态码: {}, 错误信息: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            result.put("success", false);
+            result.put("message", "Bing IndexNow提交失败: " + e.getResponseBodyAsString());
         } catch (Exception e) {
             log.error("Bing IndexNow提交失败", e);
             result.put("success", false);
@@ -535,7 +553,8 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("message", "Yandex API密钥未配置");
                 return result;
             }
-            
+            apiKey = apiKey.trim();
+
             // 获取站点地址，用于构建 keyLocation
             String siteAddress = mailUtil.getSiteUrl();
             if (!StringUtils.hasText(siteAddress)) {
@@ -572,7 +591,11 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("message", "Yandex IndexNow推送失败: HTTP " + response.getStatusCode());
                 log.warn("Yandex IndexNow推送失败: url={}, status={}", url, response.getStatusCode());
             }
-            
+
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            log.warn("Yandex推送请求失败, 状态码: {}, 错误信息: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            result.put("success", false);
+            result.put("message", "Yandex推送失败: " + e.getResponseBodyAsString());
         } catch (Exception e) {
             log.error("Yandex推送失败", e);
 
@@ -594,8 +617,9 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
             String pushToken = (String) seoConfig.get("sogou_push_token");
             
             // 优先使用sogou_push_token，如果没有则使用sogou_token
-            String finalToken = StringUtils.hasText(pushToken) ? pushToken : token;
-            
+            String finalToken = StringUtils.hasText(pushToken) ? pushToken.trim()
+                    : (token != null ? token.trim() : null);
+
             if (!StringUtils.hasText(finalToken)) {
                 result.put("success", false);
                 result.put("message", "搜狗推送Token未配置");
@@ -609,18 +633,19 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("message", "网站地址未配置");
                 return result;
             }
-            
-            // 搜狗站长平台API
-            String sogouUrl = String.format("http://zhanzhang.sogou.com/linksubmit/url?site=%s&token=%s", siteAddress, finalToken);
-            
+
+            // 搜狗站长平台API（使用 URI.create 防止 RestTemplate 编码 site 参数中的 https://）
+            URI sogouUri = URI.create(String.format(
+                    "http://zhanzhang.sogou.com/linksubmit/url?site=%s&token=%s", siteAddress, finalToken));
+
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.TEXT_PLAIN);
             headers.set("User-Agent", "poetize-java/1.0.0");
             
             HttpEntity<String> entity = new HttpEntity<>(url, headers);
-            
-            ResponseEntity<String> response = restTemplate.postForEntity(sogouUrl, entity, String.class);
-            
+
+            ResponseEntity<String> response = restTemplate.postForEntity(sogouUri, entity, String.class);
+
             if (response.getStatusCode() == HttpStatus.OK) {
                 result.put("success", true);
                 result.put("message", "搜狗推送成功");
@@ -629,7 +654,11 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("success", false);
                 result.put("message", "搜狗推送失败: HTTP " + response.getStatusCode());
             }
-            
+
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            log.warn("搜狗推送请求失败, 状态码: {}, 错误信息: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            result.put("success", false);
+            result.put("message", "搜狗推送失败: " + e.getResponseBodyAsString());
         } catch (Exception e) {
             log.error("搜狗推送失败", e);
             result.put("success", false);
@@ -652,7 +681,8 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("message", "神马推送Token未配置");
                 return result;
             }
-            
+            token = token.trim();
+
             // 直接从 MailUtil 获取网站地址
             String siteAddress = mailUtil.getSiteUrl();
             if (!StringUtils.hasText(siteAddress)) {
@@ -660,18 +690,19 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("message", "网站地址未配置");
                 return result;
             }
-            
-            // 神马搜索站长平台API
-            String shenmaUrl = String.format("http://data.sm.cn/webmaster/url/submit?site=%s&token=%s", siteAddress, token);
-            
+
+            // 神马搜索站长平台API（使用 URI.create 防止 RestTemplate 编码 site 参数中的 https://）
+            URI shenmaUri = URI.create(String.format(
+                    "http://data.sm.cn/webmaster/url/submit?site=%s&token=%s", siteAddress, token));
+
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.TEXT_PLAIN);
             headers.set("User-Agent", "poetize-java/1.0.0");
             
             HttpEntity<String> entity = new HttpEntity<>(url, headers);
-            
-            ResponseEntity<String> response = restTemplate.postForEntity(shenmaUrl, entity, String.class);
-            
+
+            ResponseEntity<String> response = restTemplate.postForEntity(shenmaUri, entity, String.class);
+
             if (response.getStatusCode() == HttpStatus.OK) {
                 JSONObject responseJson = JSON.parseObject(response.getBody());
                 result.put("success", true);
@@ -681,7 +712,11 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 result.put("success", false);
                 result.put("message", "神马推送失败: HTTP " + response.getStatusCode());
             }
-            
+
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            log.warn("神马推送请求失败, 状态码: {}, 错误信息: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            result.put("success", false);
+            result.put("message", "神马推送失败: " + e.getResponseBodyAsString());
         } catch (Exception e) {
             log.error("神马推送失败", e);
             result.put("success", false);
@@ -858,29 +893,34 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
         Integer successfulUrlsPushed = (Integer) pushResult.get("successfulUrlsPushed");
         @SuppressWarnings("unchecked")
         List<String> allUrls = (List<String>) pushResult.get("allUrls");
-        
+
         // 推送结果摘要
         if (Boolean.TRUE.equals(success)) {
             mainContent.append("✅ <span style='color: #52c41a; font-weight: bold;'>推送成功</span><br>");
-            mainContent.append("成功推送到 <strong>").append(successCount).append("/").append(totalEngines).append("</strong> 个搜索引擎<br>");
+            mainContent.append("成功推送到 <strong>").append(successCount).append("/").append(totalEngines)
+                    .append("</strong> 个搜索引擎<br>");
             if (totalUrlsPushed != null && totalUrlsPushed > 1) {
-                mainContent.append("共推送 <strong>").append(successfulUrlsPushed).append("/").append(totalUrlsPushed).append("</strong> 个URL（包含翻译版本）<br><br>");
+                mainContent.append("共推送 <strong>").append(successfulUrlsPushed).append("/").append(totalUrlsPushed)
+                        .append("</strong> 个URL（包含翻译版本）<br><br>");
             } else {
                 mainContent.append("<br>");
             }
         } else {
             mainContent.append("❌ <span style='color: #ff4d4f; font-weight: bold;'>推送失败</span><br>");
-            mainContent.append("成功推送到 <strong>").append(successCount).append("/").append(totalEngines).append("</strong> 个搜索引擎<br>");
+            mainContent.append("成功推送到 <strong>").append(successCount).append("/").append(totalEngines)
+                    .append("</strong> 个搜索引擎<br>");
             if (totalUrlsPushed != null && totalUrlsPushed > 1) {
-                mainContent.append("共推送 <strong>").append(successfulUrlsPushed != null ? successfulUrlsPushed : 0).append("/").append(totalUrlsPushed).append("</strong> 个URL（包含翻译版本）<br><br>");
+                mainContent.append("共推送 <strong>").append(successfulUrlsPushed != null ? successfulUrlsPushed : 0)
+                        .append("/").append(totalUrlsPushed).append("</strong> 个URL（包含翻译版本）<br><br>");
             } else {
                 mainContent.append("<br>");
             }
         }
-        
+
         // 文章链接
-        mainContent.append("📝 文章链接：<a href='").append(url).append("' style='color: #1890ff;'>").append(url).append("</a><br>");
-        
+        mainContent.append("📝 文章链接：<a href='").append(url).append("' style='color: #1890ff;'>").append(url)
+                .append("</a><br>");
+
         // 如果有翻译版本，显示翻译链接
         if (allUrls != null && allUrls.size() > 1) {
             mainContent.append("🌐 翻译文章: ").append(allUrls.size() - 1).append(" 个语言版本");
@@ -905,41 +945,45 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 String message = (String) engineResult.get("message");
                 Integer engineSuccessCount = (Integer) engineResult.get("successCount");
                 Integer totalUrls = (Integer) engineResult.get("totalUrls");
-                
-                detailContent.append("        <div style=\"margin: 8px 0; padding: 8px; background: #f9f9f9; border-radius: 4px;\">\n");
-                detailContent.append("            <strong>").append(getEngineDisplayName(engineName)).append("</strong>: ");
-                
+
+                detailContent.append(
+                        "        <div style=\"margin: 8px 0; padding: 8px; background: #f9f9f9; border-radius: 4px;\">\n");
+                detailContent.append("            <strong>").append(getEngineDisplayName(engineName))
+                        .append("</strong>: ");
+
                 if (Boolean.TRUE.equals(engineSuccess)) {
                     detailContent.append("<span style='color: #52c41a;'>✅ 成功</span>");
                     if (engineSuccessCount != null && totalUrls != null && totalUrls > 1) {
-                        detailContent.append(" (").append(engineSuccessCount).append("/").append(totalUrls).append(" URLs)");
+                        detailContent.append(" (").append(engineSuccessCount).append("/").append(totalUrls)
+                                .append(" URLs)");
                     }
                 } else {
                     detailContent.append("<span style='color: #ff4d4f;'>❌ 失败</span>");
                     if (engineSuccessCount != null && totalUrls != null && totalUrls > 1) {
-                        detailContent.append(" (").append(engineSuccessCount).append("/").append(totalUrls).append(" URLs)");
+                        detailContent.append(" (").append(engineSuccessCount).append("/").append(totalUrls)
+                                .append(" URLs)");
                     }
                 }
-                
+
                 if (message != null && !message.isEmpty()) {
                     detailContent.append("<br><small style='color: #666;'>").append(message).append("</small>");
                 }
                 detailContent.append("        </div>\n");
             }
-            
+
             detailContent.append("    </div>\n");
             detailContent.append("</div>");
         }
-        
+
         // 动态获取网站名称
         String siteName = getSiteName();
-        
+
         // 使用统一的邮件模板
         // 模板参数：网站名称, 时间戳, 发件人名称, 邮件内容, 引用内容, 网站名称
         String emailTemplate = mailUtil.getMailText();
         return String.format(emailTemplate,
                 siteName, // 网站名称
-                timestamp, // 时间戳  
+                timestamp, // 时间戳
                 "SEO推送系统", // 发件人名称
                 mainContent.toString(), // 邮件主体内容
                 detailContent.toString(), // 详细结果（引用内容）
@@ -973,9 +1017,9 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
         } catch (Exception e) {
             log.warn("获取网站名称失败，使用默认值", e);
         }
-        return "POETIZE"; // 默认网站名称
+        return ""; // 默认网站名称
     }
-    
+
     /**
      * 获取包括翻译版本在内的所有URL
      * 如果是文章URL，会返回源文章和所有翻译版本的URL
@@ -983,27 +1027,27 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
      */
     private List<String> getUrlsIncludingTranslations(String url) {
         List<String> urls = new ArrayList<>();
-        
+
         if (!StringUtils.hasText(url)) {
             return urls;
         }
-        
+
         // 首先添加原始URL
         urls.add(url);
-        
+
         try {
             // 检查是否是文章URL格式: {site_address}/article/{id}
             Integer articleId = extractArticleIdFromUrl(url);
             if (articleId == null) {
                 return urls;
             }
-            
+
             // 获取文章的所有翻译语言
             List<String> availableLanguages = translationService.getArticleAvailableLanguages(articleId);
             if (availableLanguages == null || availableLanguages.isEmpty()) {
                 return urls;
             }
-            
+
             // 构建翻译文章URL
             for (String language : availableLanguages) {
                 String translatedUrl = buildTranslatedArticleUrl(url, articleId, language);
@@ -1011,15 +1055,14 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                     urls.add(translatedUrl);
                 }
             }
-            
-            
+
         } catch (Exception e) {
             log.warn("获取翻译URL时出错，仅推送原始URL: {}", url, e);
         }
-        
+
         return urls;
     }
-    
+
     /**
      * 安全地构建翻译文章URL
      * 使用 URI 类处理，支持带查询参数和 fragment 的 URL
@@ -1039,14 +1082,14 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
                 log.warn("URL路径为空，无法构建翻译URL: {}", originalUrl);
                 return null;
             }
-            
+
             // 查找 /article/ 的位置
             int articleIndex = originalPath.lastIndexOf("/article/");
             if (articleIndex == -1) {
                 log.warn("URL路径中未找到 /article/ 标识，无法构建翻译URL: {}", originalUrl);
                 return null;
             }
-            
+
             // 构建新路径：保留 /article/ 之前的部分 + /article/ + 语言 + / + 文章ID
             String basePath = originalPath.substring(0, articleIndex);
             String newPath = basePath + "/article/" + language + "/" + articleId;
@@ -1058,12 +1101,12 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
             if (originalUri.getScheme() != null) {
                 translatedUrl.append(originalUri.getScheme()).append("://");
             }
-            
+
             // Host
             if (originalUri.getHost() != null) {
                 translatedUrl.append(originalUri.getHost());
             }
-            
+
             // Port (如果不是默认端口)
             if (originalUri.getPort() != -1) {
                 translatedUrl.append(":").append(originalUri.getPort());
@@ -1071,21 +1114,21 @@ public class SearchEnginePushServiceImpl implements SearchEnginePushService {
             
             // Path
             translatedUrl.append(newPath);
-            
+
             // Query parameters (保留原始查询参数，如 ?ref=twitter)
             if (originalUri.getQuery() != null) {
                 translatedUrl.append("?").append(originalUri.getQuery());
             }
-            
+
             // Fragment (保留原始fragment，如 #comments)
             if (originalUri.getFragment() != null) {
                 translatedUrl.append("#").append(originalUri.getFragment());
             }
-            
+
             return translatedUrl.toString();
-            
+
         } catch (Exception e) {
-            log.error("构建翻译文章URL失败，原始URL: {}, 语言: {}, 错误: {}", 
+            log.error("构建翻译文章URL失败，原始URL: {}, 语言: {}, 错误: {}",
                     originalUrl, language, e.getMessage(), e);
             return null;
         }

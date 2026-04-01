@@ -6,11 +6,14 @@
 import { useMainStore } from '@/stores/main'
 import router from '@/router'
 import constant from '@/utils/constant'
+import { resetSessionValidation } from '@/utils/sessionValidation'
 
 /**
  * 清除所有认证相关的状态
  */
 export function clearAuthState() {
+  resetSessionValidation({ status: 'invalid' })
+
   // 清除localStorage中的用户信息（token由后端通过cookie管理）
   localStorage.removeItem("currentUser");
   localStorage.removeItem("currentAdmin");

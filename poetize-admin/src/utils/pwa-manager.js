@@ -5,6 +5,12 @@
 
 import { useMainStore } from '../stores/main';
 
+const SW_BASE_URL = import.meta.env.BASE_URL || '/';
+
+function getScopedAssetUrl(relativePath) {
+  return new URL(relativePath, window.location.origin + SW_BASE_URL).pathname;
+}
+
 /**
  * 获取 PWA 通知图标
  * 优先级：Manifest 图标 > SEO 配置图标 > 网站头像 > 默认图标
@@ -13,7 +19,7 @@ async function getPwaNotificationIcon() {
   try {
     // 1. 尝试从 manifest.json 获取图标
     try {
-      const manifestResponse = await fetch('/manifest.json');
+      const manifestResponse = await fetch(getScopedAssetUrl('manifest.json'));
       if (manifestResponse.ok) {
         const manifest = await manifestResponse.json();
         if (manifest.icons && manifest.icons.length > 0) {
@@ -54,9 +60,9 @@ async function getPwaNotificationIcon() {
     if (webInfo.avatar) return webInfo.avatar;
     
     // 4. 默认图标
-    return '/poetize.jpg';
+    return getScopedAssetUrl('poetize.jpg');
   } catch (error) {
-    return '/poetize.jpg';
+    return getScopedAssetUrl('poetize.jpg');
   }
 }
 
@@ -108,7 +114,9 @@ export function registerServiceWorker(notifyFn = null) {
     return;
   }
 
-  navigator.serviceWorker.register('/sw.js')
+  navigator.serviceWorker.register(getScopedAssetUrl('sw.js'), {
+    scope: SW_BASE_URL,
+  })
     .then(function(registration) {
       // 检查是否有等待中的 Service Worker
       if (registration.waiting) {

@@ -1,10 +1,14 @@
 <template>
-  <div class="sidebar" :class="{ 'sidebar-dark': isAdminDark }">
+  <div class="sidebar" :class="{ 'sidebar-dark': isAdminDark, 'sidebar-busy': isBusy }">
     <div @click="collapse()" class="collapse-btn" :class="{ 'collapse-dark': isAdminDark }">
       <i class="el-icon-menu" style="margin: 14px;font-size: 17px"></i>
       <div style="font-size: 15px;margin-top: 13px">折叠</div>
     </div>
-    <el-menu class="sidebar-el-menu"
+    <div v-if="!isAuthReady" class="sidebar-placeholder">
+      <i class="el-icon-loading"></i>
+      <span>正在验证登录状态...</span>
+    </div>
+    <el-menu v-else class="sidebar-el-menu"
              :background-color="isAdminDark ? '#2d2d2d' : '#ebf1f6'"
              :text-color="isAdminDark ? '#b0b0b0' : '#606266'"
              active-text-color="#20a0ff"
@@ -52,6 +56,14 @@
 export default {
     props: {
       isAdminDark: {
+        type: Boolean,
+        default: false
+      },
+      isAuthReady: {
+        type: Boolean,
+        default: false
+      },
+      isBusy: {
         type: Boolean,
         default: false
       }
@@ -261,6 +273,20 @@ export default {
     height: 100%;
   }
 
+  .sidebar-placeholder {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 18px 14px;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .sidebar-placeholder i {
+    color: #409EFF;
+  }
+
   .sidebar-el-menu .el-menu-item {
     padding: 0 10px !important;
     white-space: nowrap;
@@ -302,5 +328,18 @@ export default {
   .collapse-dark {
     background-color: #2d2d2d !important;
     color: #b0b0b0 !important;
+  }
+
+  .sidebar-dark .sidebar-placeholder {
+    color: #cbd5e1;
+  }
+
+  .sidebar-busy .sidebar-el-menu,
+  .sidebar-busy .collapse-btn {
+    pointer-events: none;
+  }
+
+  .sidebar-busy .sidebar-el-menu {
+    opacity: 0.72;
   }
 </style>

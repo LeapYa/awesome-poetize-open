@@ -1,16 +1,37 @@
 ﻿<template>
   <div :class="{ 'admin-dark-mode': isAdminDark }">
     <myHeader :isAdminDark="isAdminDark" @toggle-theme="toggleAdminTheme"></myHeader>
-    <sidebar :isAdminDark="isAdminDark"></sidebar>
+    <sidebar
+      :isAdminDark="isAdminDark"
+      :isAuthReady="canRenderProtectedContent"
+      :isBusy="showAuthGate || isRedirectingToLogin"
+    ></sidebar>
     <div class="content-box">
       <div class="content">
-        <router-view></router-view>
+        <div v-if="showAuthGate" class="auth-gate">
+          <div class="auth-gate-card">
+            <i class="el-icon-loading auth-gate-icon"></i>
+            <div class="auth-gate-title">{{ authGateTitle }}</div>
+            <div class="auth-gate-desc">{{ authGateDescription }}</div>
+          </div>
+        </div>
+        <div v-else class="content-stage">
+          <router-view></router-view>
+        </div>
+        <transition name="el-fade-in-linear">
+          <div v-if="showNavigationOverlay && !showAuthGate" class="content-overlay">
+            <div class="content-overlay-chip">
+              <i class="el-icon-loading"></i>
+              <span>{{ navigationOverlayText }}</span>
+            </div>
+          </div>
+        </transition>
       </div>
     </div>
 
     <!-- Dynamic Guide Island -->
     <transition name="el-fade-in-linear">
-      <div v-if="showGuideWidget" class="guide-island" @click="resumeGuide">
+      <div v-if="showGuideWidget && canRenderProtectedContent" class="guide-island" @click="resumeGuide">
         <div class="island-content">
           <div class="island-status">
             <span class="island-dot"></span>
@@ -33,8 +54,8 @@
 
 <script>
   import { useMainStore } from '@/stores/main';
-  import { driver } from 'driver.js';
-  import 'driver.js/dist/driver.css';
+  import { ensureSessionValid, getSessionState } from '@/utils/sessionValidation';
+  import { handleTokenExpire } from '@/utils/tokenExpireHandler';
 
   import myHeader from "./common/myHeader.vue";
   import sidebar from "./common/sidebar.vue";
@@ -68,12 +89,55 @@
         guideStep: 0,
         showGuideWidget: false,
         driverObj: null,
+        driverFactory: null,
+        driverLoaderPromise: null,
+        isRedirectingToLogin: false,
+        routePrefetchStarted: false,
       }
     },
 
     computed: {
       mainStore() {
         return useMainStore();
+      },
+      sessionState() {
+        return getSessionState();
+      },
+      authStatus() {
+        return this.sessionState.status;
+      },
+      hasVerifiedSession() {
+        return this.sessionState.verifiedAt > 0;
+      },
+      canRenderProtectedContent() {
+        return this.hasVerifiedSession && !this.isRedirectingToLogin && this.authStatus !== 'invalid';
+      },
+      showAuthGate() {
+        return !this.canRenderProtectedContent;
+      },
+      showNavigationOverlay() {
+        return this.canRenderProtectedContent && (this.sessionState.navigationPending || this.authStatus === 'validating');
+      },
+      authGateTitle() {
+        if (this.isRedirectingToLogin || this.authStatus === 'invalid') {
+          return '登录状态已失效';
+        }
+        if (this.authStatus === 'validating') {
+          return '正在验证后台登录状态';
+        }
+        return '正在初始化后台';
+      },
+      authGateDescription() {
+        if (this.isRedirectingToLogin || this.authStatus === 'invalid') {
+          return '正在返回登录页，请稍候。';
+        }
+        return '验证完成前不会渲染后台页面内容。';
+      },
+      navigationOverlayText() {
+        if (this.authStatus === 'validating') {
+          return '正在重新验证登录状态...';
+        }
+        return '页面加载中...';
       },
       totalGuideSteps() {
         return GUIDE_STEPS.length;
@@ -98,6 +162,8 @@
         if (to.query.focus) {
           this.scrollToFocus(to.query.focus);
         }
+
+        this.ensureAdminSession();
       }
     },
 
@@ -111,7 +177,7 @@
           root.style.setProperty("--backgroundPicture", "url(" + webStaticResourcePrefix + "assets/backgroundPicture.jpg)");
         }
         this.getWebsitConfig();
-        this.checkAdminToken();
+        this.ensureAdminSession({ force: true });
       });
     },
 
@@ -151,6 +217,71 @@
         };
         // Small delay to ensure route component has mounted
         setTimeout(() => attemptScroll(), 100);
+      },
+      runWhenIdle(callback, options = {}) {
+        const { delay = 0, timeout = 1500 } = options;
+
+        const invoke = () => {
+          if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(() => callback(), { timeout });
+          } else {
+            window.setTimeout(callback, timeout);
+          }
+        };
+
+        if (delay > 0) {
+          window.setTimeout(invoke, delay);
+        } else {
+          invoke();
+        }
+      },
+      scheduleRoutePrefetch() {
+        if (this.routePrefetchStarted) {
+          return;
+        }
+
+        this.routePrefetchStarted = true;
+        const loaders = [
+          () => import('./welcome'),
+          () => import('./main'),
+          () => import('./webEdit'),
+          () => import('./webAppearance'),
+          () => import('./postList'),
+          () => import('./seoConfig')
+        ];
+
+        const preloadNext = (index) => {
+          if (index >= loaders.length) {
+            return;
+          }
+
+          loaders[index]().catch(() => {
+            // 预取失败不影响正常导航，忽略即可。
+          }).finally(() => {
+            this.runWhenIdle(() => preloadNext(index + 1), { delay: 250, timeout: 1800 });
+          });
+        };
+
+        this.runWhenIdle(() => preloadNext(0), { delay: 1200, timeout: 2200 });
+      },
+      ensureDriverLoaded() {
+        if (this.driverFactory) {
+          return Promise.resolve(this.driverFactory);
+        }
+
+        if (!this.driverLoaderPromise) {
+          this.driverLoaderPromise = Promise.all([
+            import('driver.js'),
+            import('driver.js/dist/driver.css')
+          ]).then(([module]) => {
+            this.driverFactory = module.driver;
+            return this.driverFactory;
+          }).finally(() => {
+            this.driverLoaderPromise = null;
+          });
+        }
+
+        return this.driverLoaderPromise;
       },
 
       // 初始化后台主题
@@ -390,7 +521,8 @@
         }, 100);
       },
 
-      showDriverPopover(step, index) {
+      async showDriverPopover(step, index) {
+        const driver = await this.ensureDriverLoaded();
         const self = this;
         
         // Configurable hook to force scroll again after driver highlight
@@ -491,7 +623,8 @@
         footer.insertBefore(progress, nextBtn);
       },
 
-      showIslandTutorial() {
+      async showIslandTutorial() {
+        const driver = await this.ensureDriverLoaded();
         const self = this;
         // Show a tutorial pointing to the dynamic island
         const tutorialDriver = driver({
@@ -580,13 +713,24 @@
             console.error("获取系统配置失败:", error);
           });
       },
-      checkAdminToken() {
-        // 主动发送一个需要Admin Token的请求，验证Token在后端是否已过期
-        // 由于welcome等页面可能不发送需要Token的请求，此处用于进入后台时的强制校验
-        this.$http.get(this.$constant.baseURL + '/webInfo/ai/config/articleAi/get', {}, true)
-          .catch(() => {
-            // 如果401过期，拦截器会自动处理跳转，不需额外逻辑
-          });
+      async ensureAdminSession(options = {}) {
+        const { force = false } = options;
+
+        if (this.isRedirectingToLogin) {
+          return false;
+        }
+
+        const sessionValid = await ensureSessionValid({ force });
+        if (!sessionValid && !this.isRedirectingToLogin) {
+          this.isRedirectingToLogin = true;
+          handleTokenExpire(true, this.$route.fullPath, { showMessage: false });
+        }
+
+        if (sessionValid) {
+          this.scheduleRoutePrefetch();
+        }
+
+        return sessionValid;
       },
       loadFont() {
         
@@ -607,6 +751,7 @@
   }
 
   .content {
+    position: relative;
     width: auto;
     height: 100%;
     padding: 30px;
@@ -618,6 +763,94 @@
   /* ========== 后台深色模式样式 ========== */
   .admin-dark-mode .content {
     background-color: #1e1e1e;
+  }
+
+  .content-stage {
+    position: relative;
+    min-height: 100%;
+  }
+
+  .auth-gate,
+  .content-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .auth-gate {
+    z-index: 2;
+  }
+
+  .auth-gate-card,
+  .content-overlay-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: #334155;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12);
+    backdrop-filter: blur(10px);
+  }
+
+  .auth-gate-card {
+    min-width: 300px;
+    max-width: 420px;
+    padding: 22px 24px;
+    border-radius: 18px;
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .auth-gate-icon {
+    font-size: 28px;
+    color: #409EFF;
+  }
+
+  .auth-gate-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1e293b;
+  }
+
+  .auth-gate-desc {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #64748b;
+  }
+
+  .content-overlay {
+    z-index: 3;
+    background: rgba(245, 247, 250, 0.55);
+  }
+
+  .content-overlay-chip {
+    padding: 10px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .admin-dark-mode .auth-gate-card,
+  .admin-dark-mode .content-overlay-chip {
+    color: #e2e8f0;
+    background: rgba(30, 41, 59, 0.92);
+    border-color: rgba(148, 163, 184, 0.18);
+    box-shadow: 0 18px 40px rgba(2, 6, 23, 0.35);
+  }
+
+  .admin-dark-mode .auth-gate-title {
+    color: #f8fafc;
+  }
+
+  .admin-dark-mode .auth-gate-desc {
+    color: #cbd5e1;
+  }
+
+  .admin-dark-mode .content-overlay {
+    background: rgba(15, 23, 42, 0.52);
   }
 
   /* ========== Guide Dynamic Island ========== */

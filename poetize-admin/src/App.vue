@@ -18,7 +18,7 @@
     />
     <!-- AI聊天（支持Live2D看板娘模式或简单按钮模式） -->
     <!-- mode从后台配置读取，默认为 'live2d' -->
-    <Live2DAsync :mode="waifuDisplayMode" />
+    <Live2DAsync v-if="showLive2D" :mode="waifuDisplayMode" />
   </div>
 </template>
 
@@ -26,7 +26,6 @@
   import { defineAsyncComponent } from 'vue';
   import { useMainStore } from '@/stores/main';
   import globalEmailCollectionMixin from '@/mixins/globalEmailCollection.js';
-  import { initMouseClickEffect } from '@/utils/mouseClickEffect';
 
 export default {
   name: "App",
@@ -39,7 +38,9 @@ export default {
     return {
       currentLang: 'zh', // 默认中文
       captchaContainerComponent: null,
-      captchaContainerLoadingPromise: null
+      captchaContainerLoadingPromise: null,
+      markdownWarmupRequested: false,
+      showLive2D: false
     };
   },
 
@@ -70,6 +71,8 @@ export default {
         document.title = webTitle;
         window.OriginTitile = webTitle;
       }
+
+      this.scheduleMarkdownWarmup(newPath);
     }
   },
 
@@ -113,18 +116,8 @@ export default {
       this.$notify.setInstance(this.$refs.globalNotification);
     }
 
-    // 初始化鼠标点击特效
-    this.mouseClickEffectCleanup = initMouseClickEffect(this.mainStore);
-
-    // 后台预热 Markdown 核心包
-    // 使用 import 动态导入确保只有在 App 渲染后才开始下载
-    import('@/utils/markdownLazyRenderer').then(m => {
-      if (window.requestIdleCallback) {
-        window.requestIdleCallback(() => m.warmupMarkdown());
-      } else {
-        setTimeout(() => m.warmupMarkdown(), 2000);
-      }
-    });
+    this.scheduleNonCriticalUi();
+    this.scheduleMarkdownWarmup(this.$route.path);
   },
 
   beforeDestroy() {
@@ -135,6 +128,52 @@ export default {
   },
 
   methods: {
+    runWhenIdle(callback, options = {}) {
+      const { delay = 0, timeout = 1500 } = options;
+
+      const invoke = () => {
+        if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => callback(), { timeout });
+        } else {
+          window.setTimeout(callback, timeout);
+        }
+      };
+
+      if (delay > 0) {
+        window.setTimeout(invoke, delay);
+      } else {
+        invoke();
+      }
+    },
+    shouldWarmupMarkdown(path = this.$route.path) {
+      return path === '/postEdit';
+    },
+    scheduleMarkdownWarmup(path = this.$route.path) {
+      if (this.markdownWarmupRequested || !this.shouldWarmupMarkdown(path)) {
+        return;
+      }
+
+      this.markdownWarmupRequested = true;
+      this.runWhenIdle(() => {
+        import('@/utils/markdownLazyRenderer')
+          .then(m => m.warmupMarkdown())
+          .catch(error => {
+            console.error('Markdown 核心预热失败:', error);
+          });
+      }, { delay: 600, timeout: 2500 });
+    },
+    scheduleNonCriticalUi() {
+      this.runWhenIdle(() => {
+        this.showLive2D = true;
+        import('@/utils/mouseClickEffect')
+          .then(({ initMouseClickEffect }) => {
+            this.mouseClickEffectCleanup = initMouseClickEffect(this.mainStore);
+          })
+          .catch(error => {
+            console.error('初始化鼠标点击特效失败:', error);
+          });
+      }, { delay: 1500, timeout: 2500 });
+    },
     ensureCaptchaContainerLoaded() {
       if (this.captchaContainerComponent) {
         return Promise.resolve(this.captchaContainerComponent);

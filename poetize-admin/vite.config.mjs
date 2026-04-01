@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue2';
+import Components from 'unplugin-vue-components/vite';
+import { ElementUiResolver } from 'unplugin-vue-components/resolvers';
 import path from 'path';
 import viteCompression from 'vite-plugin-compression';
 import envCompatible from 'vite-plugin-env-compatible';
@@ -22,10 +24,49 @@ function getGitVersion() {
     }
 }
 
+const MERMAID_CHUNK_PACKAGES = [
+    'mermaid',
+    '@mermaid-js',
+    '@braintree/sanitize-url',
+    '@iconify/utils',
+    'dagre-d3-es',
+    'cytoscape',
+    'cytoscape-cose-bilkent',
+    'cytoscape-fcose',
+    'dayjs',
+    'd3',
+    'd3-sankey',
+    'dompurify',
+    'langium',
+    'khroma',
+    'lodash-es',
+    'marked',
+    'roughjs',
+    'stylis',
+    'uuid',
+    'chevrotain',
+    'chevrotain-allstar',
+    'vscode-jsonrpc',
+    'vscode-languageserver',
+    'vscode-languageserver-protocol',
+    'vscode-languageserver-textdocument',
+    'vscode-languageserver-types',
+    'vscode-uri',
+];
+
+function matchesPackage(id, pkgName) {
+    return id.includes(`/node_modules/${pkgName}/`) || id.includes(`\\node_modules\\${pkgName}\\`);
+}
+
 export default defineConfig({
     base: '/admin/',
     plugins: [
         vue(),
+        Components({
+            dirs: [],
+            dts: false,
+            resolvers: [ElementUiResolver()],
+        }),
         viteCompression({
             algorithm: 'gzip',
             threshold: 8192,
@@ -77,6 +118,25 @@ export default defineConfig({
         minify: 'esbuild', // 使用 esbuild 替代 terser，内存效率更高
         assetsDir: 'static', // 静态资源输出目录，与原 Vue CLI 配置一致
         chunkSizeWarningLimit: 2000,
+        modulePreload: {
+            resolveDependencies(filename, deps, context) {
+                if (context.hostType !== 'html') {
+                    return deps;
+                }
+
+                return deps.filter(dep => {
+                    if (dep === filename) {
+                        return false;
+                    }
+
+                    if (dep.includes('/mermaid-') || dep.startsWith('static/mermaid-')) {
+                        return false;
+                    }
+
+                    return true;
+                });
+            },
+        },
         // 处理 CommonJS 模块兼容性
         commonjsOptions: {
             transformMixedEsModules: true,
@@ -86,39 +146,43 @@ export default defineConfig({
             output: {
                 manualChunks(id) {
                     if (id.includes('node_modules')) {
-                        // Vue 核心 + Element UI 必须在同一 chunk (CommonJS 兼容性要求)
-                        if (id.includes('vue') || id.includes('element-ui') || id.includes('vue-router') || id.includes('pinia')) {
+                        // 仅保留真正的框架运行时在首屏框架包里，Element UI 组件交给 Rollup 按实际引用拆分。
+                        if ((id.includes('/vue/') || id.includes('\\vue\\')) || id.includes('vue-router') || id.includes('pinia')) {
                             return 'framework';
                         }
-                        // ECharts 图表库
+                        if (id.includes('element-ui')) {
+                            return undefined;
+                        }
                         if (id.includes('echarts') || id.includes('zrender')) {
                             return 'echarts';
                         }
-                        // 代码高亮
                         if (id.includes('highlight.js')) {
                             return 'highlight';
                         }
-                        // Vditor 编辑器
+                        if (MERMAID_CHUNK_PACKAGES.some(pkgName => matchesPackage(id, pkgName))) {
+                            return 'mermaid';
+                        }
+                        if (matchesPackage(id, 'driver.js')) {
+                            return 'driver';
+                        }
+                        if (matchesPackage(id, '@fingerprintjs/fingerprintjs')) {
+                            return 'fingerprint';
+                        }
                         if (id.includes('vditor')) {
                             return 'vditor';
                         }
-                        // HTML -> Markdown (按需加载)
                         if (id.includes('turndown')) {
                             return 'turndown';
                         }
-                        // Markdown 解析
                         if (id.includes('markdown-it') || id.includes('katex')) {
                             return 'markdown';
                         }
-                        // 工具库 (axios, qs, qiniu 等)
-                        if (id.includes('axios') || id.includes('qs') || id.includes('qiniu') || id.includes('fingerprint') || id.includes('anime')) {
+                        if (id.includes('axios') || id.includes('qs') || id.includes('qiniu') || id.includes('anime')) {
                             return 'libs';
                         }
-                        // Polyfills
                         if (id.includes('core-js') || id.includes('babel-runtime')) {
                             return 'polyfills';
                         }
-                        // 其他第三方库
                         return 'vendors';
                     }
                 },

@@ -1,16 +1,18 @@
 // POETIZE PWA Service Worker
 // 提供智能缓存和PWA功能
 
-const CACHE_NAME = 'pwa-cache-v1.0.0';
+const CACHE_PREFIX = 'poetize-admin-cache-';
+const CACHE_NAME = `${CACHE_PREFIX}v1.0.1`;
+const BASE_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, '');
+
+function withBase(path = '') {
+  return `${BASE_PATH}${path}`;
+}
 
 // 需要预缓存的关键资源
 const PRECACHE_RESOURCES = [
-  '/',
-  '/static/css/inline-styles.css',
-  '/libs/css/highlight.min.css',
-  '/libs/js/anime.min.js',
-  '/libs/js/highlight.min.js',
-  '/poetize.jpg'
+  withBase('/'),
+  withBase('/poetize.jpg')
 ];
 
 // 安装Service Worker时预缓存关键资源
@@ -30,7 +32,7 @@ self.addEventListener('activate', event => {
       .then(cacheNames => {
         return Promise.all(
           cacheNames.map(cacheName => {
-            if (cacheName !== CACHE_NAME) {
+            if (cacheName.startsWith(CACHE_PREFIX) && cacheName !== CACHE_NAME) {
               return caches.delete(cacheName);
             }
           })

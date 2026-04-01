@@ -55,6 +55,7 @@
     "eslint-plugin-standard": "^4.0.0",
     "eslint-plugin-vue": "^7.20.0",
     "html-minifier-terser": "^7.2.0",
+    "unplugin-vue-components": "^0.27.5",
     "vite": "^7.3.0",
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-env-compatible": "^2.0.1",

@@ -1,10 +1,6 @@
 import Vue from 'vue'
 import VueRouter from 'vue-router'
-import { useMainStore } from '../stores/main'
-import constant from '../utils/constant'
-import common from '../utils/common'
-import { handleTokenExpire, isLoggedIn, getValidToken } from '../utils/tokenExpireHandler'
-import { ensureSessionValid, hasStoredSessionHint } from '../utils/sessionValidation'
+import { beginSessionValidation, isSessionFresh, setAdminNavigationPending } from '../utils/sessionValidation'
 
 const originalPush = VueRouter.prototype.push;
 VueRouter.prototype.push = function push(location) {
@@ -141,37 +137,30 @@ const router = new VueRouter({
   }
 })
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach((to, from, next) => {
   // 检查是否需要重定向到403页面
   if (to.query.redirect === '403') {
+    setAdminNavigationPending(false)
     next('/403');
     return;
   }
 
-  // Token过期检查
-  const publicPaths = ['/user', '/403', '/404'];
-  const isPublicPath = publicPaths.includes(to.path);
+  const requiresAuth = to.matched.some(record => record.meta && record.meta.requiresAuth)
+  setAdminNavigationPending(requiresAuth)
 
-  if (!isPublicPath) {
-    // 如果store中有用户信息（可能来自localStorage缓存），需要通过后端验证会话
-    const hasHint = hasStoredSessionHint();
-    if (hasHint) {
-      const sessionValid = await ensureSessionValid({ force: false });
-      if (!sessionValid) {
-        handleTokenExpire(true, to.fullPath, { showMessage: false });
-        return;
-      }
-    } else {
-      // store中没有用户信息，尝试通过cookie验证会话
-      const sessionValid = await ensureSessionValid({ force: true });
-      if (!sessionValid) {
-        handleTokenExpire(true, to.fullPath, { showMessage: false });
-        return;
-      }
-    }
+  if (requiresAuth && !isSessionFresh()) {
+    beginSessionValidation()
   }
 
   next();
+})
+
+router.afterEach(() => {
+  setAdminNavigationPending(false)
+})
+
+router.onError(() => {
+  setAdminNavigationPending(false)
 })
 
 export default router

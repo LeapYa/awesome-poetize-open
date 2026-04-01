@@ -6,16 +6,14 @@
 import Vue from 'vue'
 import App from './App.vue'
 import router from './router'
-import ElementUI from 'element-ui-ce'
-import 'element-ui-ce/lib/theme-chalk/index.css'
 import { createPinia, PiniaVuePlugin } from 'pinia'
+import { installElementUI } from './plugins/element-ui'
 
 // 工具函数
 import http from './utils/request'
 import common from './utils/common'
 import constant from './utils/constant'
 import initAntiDebug from './utils/anti-debug'
-import { loadFonts } from './utils/font-loader'
 import { getDefaultAvatar, getAvatarUrl } from './utils/default-avatar'
 import animateDirective from './utils/animateDirective'
 
@@ -23,8 +21,6 @@ import animateDirective from './utils/animateDirective'
 import { notificationManager } from './utils/notification'
 import { initVueErrorHandler, initPromiseErrorHandler } from './utils/error-handler'
 import { initGrayMode } from './utils/gray-mode'
-import { initImageLoader } from './utils/image-loader'
-import { registerServiceWorker } from './utils/pwa-manager'
 
 // Stores
 import { useMainStore } from './stores/main'
@@ -49,7 +45,7 @@ Vue.config.productionTip = false
 
 // 插件注册
 Vue.use(PiniaVuePlugin)
-Vue.use(ElementUI)
+installElementUI(Vue)
 Vue.component('AsyncNotification', AsyncNotification)
 
 // 注册全局指令
@@ -96,6 +92,27 @@ if (disposeAntiDebug) {
 
 // ==================== 创建 Vue 实例 ====================
 
+function runWhenIdle(task, options = {}) {
+  const { delay = 0, timeout = 1500 } = options
+
+  const invoke = () => {
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(() => {
+        task()
+      }, { timeout })
+      return
+    }
+
+    window.setTimeout(task, timeout)
+  }
+
+  if (delay > 0) {
+    window.setTimeout(invoke, delay)
+  } else {
+    invoke()
+  }
+}
+
 const app = new Vue({
   router,
   pinia,
@@ -129,16 +146,36 @@ app.$nextTick(() => {
     appElement.classList.add('vue-mounted')
   }
 
-  // 初始化图片懒加载
-  initImageLoader()
+  // 把非关键初始化延后到浏览器空闲阶段，避免和后台首屏渲染抢资源。
+  runWhenIdle(() => {
+    import('./utils/image-loader')
+      .then(({ initImageLoader }) => {
+        initImageLoader()
+      })
+      .catch(err => {
+        console.error('初始化图片懒加载失败:', err)
+      })
+  }, { delay: 400, timeout: 1200 })
 
-  // 注册 PWA Service Worker
-  registerServiceWorker(Vue.prototype.$notify.info)
+  runWhenIdle(() => {
+    if (mainStore.sysConfig) {
+      import('./utils/font-loader')
+        .then(({ loadFonts }) => {
+          return loadFonts(mainStore.sysConfig)
+        })
+        .catch(err => {
+          console.error('加载字体失败:', err)
+        })
+    }
+  }, { delay: 1200, timeout: 2000 })
 
-  // 字体加载 - 在应用挂载后执行，确保 store 已完全初始化
-  if (mainStore.sysConfig) {
-    loadFonts(mainStore.sysConfig).catch(err => {
-      console.error('加载字体失败:', err)
-    })
-  }
+  runWhenIdle(() => {
+    import('./utils/pwa-manager')
+      .then(({ registerServiceWorker }) => {
+        registerServiceWorker(Vue.prototype.$notify.info)
+      })
+      .catch(err => {
+        console.error('注册 Service Worker 失败:', err)
+      })
+  }, { delay: 2200, timeout: 3000 })
 })

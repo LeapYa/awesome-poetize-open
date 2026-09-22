@@ -51,6 +51,12 @@ const getFromLocalStorage = (key, defaultValue, maxAge = 86400000) => {
   }
 }
 
+// 首屏网站信息缓存快照：命中缓存说明背景等站点配置已知，
+// 未命中则首屏需要等 bootstrap 接口返回，期间不应渲染兜底内容（否则会先闪默认背景再切到真实配置）
+const cachedWebInfo = getFromLocalStorage('webInfo', null)
+const initialWebInfo =
+  cachedWebInfo && typeof cachedWebInfo === 'object' ? cachedWebInfo : null
+
 export const useMainStore = defineStore('main', {
   state: () => ({
     // 工具栏状态
@@ -69,23 +75,29 @@ export const useMainStore = defineStore('main', {
     }),
 
     // 网站信息
-    webInfo: getFromLocalStorage('webInfo', {
-      webName: '',
-      webTitle: '',
-      logoImage: '', // 网站Logo图片URL，非空时导航栏优先显示Logo
-      homeTitle: '',
-      notices: [],
-      randomCover: [],
-      footer: '',
-      backgroundImage: '',
-      avatar: '',
-      minimalFooter: false,
-      navConfig: '[]', // 初始为空数组字符串
-      homePagePullUpHeight: 50, // 首页横幅高度默认值
-      mobileDrawerConfig: '', // 移动端侧边栏配置
-      enableDynamicTitle: true, // 动态标题开关，默认开启
-      mouseClickEffect: 'none', // 鼠标点击效果：none/text/firework
-    }),
+    webInfo:
+      initialWebInfo ||
+      {
+        webName: '',
+        webTitle: '',
+        logoImage: '', // 网站Logo图片URL，非空时导航栏优先显示Logo
+        homeTitle: '',
+        notices: [],
+        randomCover: [],
+        footer: '',
+        backgroundImage: '',
+        avatar: '',
+        minimalFooter: false,
+        navConfig: '[]', // 初始为空数组字符串
+        homePagePullUpHeight: 50, // 首页横幅高度默认值
+        mobileDrawerConfig: '', // 移动端侧边栏配置
+        enableDynamicTitle: true, // 动态标题开关，默认开启
+        mouseClickEffect: 'none', // 鼠标点击效果：none/text/firework
+      },
+
+    // 网站信息是否已就绪（缓存命中或接口已返回）。
+    // 为 false 时表示站点配置未知，首屏依赖 webInfo 的元素应保持不渲染，避免兜底内容闪现
+    webInfoLoaded: initialWebInfo !== null,
 
     // 访问量统计
     visitCounts: {},
@@ -305,6 +317,7 @@ export const useMainStore = defineStore('main', {
       // 合并数据展示
       this.webInfo = { ...webInfoToCache, ...visitCounts }
       localStorage.setItem('webInfo', JSON.stringify(cacheData))
+      this.webInfoLoaded = true
 
       // 单独存储访问量数据，不做持久化缓存
       this.visitCounts = visitCounts
@@ -336,6 +349,14 @@ export const useMainStore = defineStore('main', {
 
       this.webInfo = webInfo
       localStorage.setItem('webInfo', JSON.stringify(cacheData))
+      this.webInfoLoaded = true
+    },
+
+    /**
+     * 标记网站信息已就绪（接口失败等异常场景下调用，避免首屏元素一直等待配置）
+     */
+    markWebInfoLoaded() {
+      this.webInfoLoaded = true
     },
 
     /**

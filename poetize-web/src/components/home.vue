@@ -993,6 +993,9 @@ export default {
             }
 
             this.maybeApplyAutoNight()
+          } else {
+            // 接口未返回站点信息：标记就绪，避免首页横幅背景一直等待配置
+            this.mainStore.markWebInfoLoaded()
           }
 
           if (!this.$common.isEmpty(sysConfig)) {
@@ -1035,9 +1038,13 @@ export default {
 
             // 获取完 webInfo 后再执行一次自动夜间判断
             this.maybeApplyAutoNight()
+          } else {
+            this.mainStore.markWebInfoLoaded()
           }
         })
         .catch((error) => {
+          // 接口失败：同样标记就绪，页面回落到默认背景而不是一直空白
+          this.mainStore.markWebInfoLoaded()
           this.$message({
             message: error.message,
             type: 'error',

@@ -3,20 +3,10 @@
 
         <!-- 首页图片 -->
         <el-image
+          v-if="bannerBackgroundUrl"
           :style="bannerStyle"
           class="background-image-index"
-          :src="
-            !$common.isEmpty(mainStore.webInfo.backgroundImage)
-              ? mainStore.webInfo.backgroundImage
-              : !$common.isEmpty(mainStore.webInfo.randomCover) &&
-                mainStore.webInfo.randomCover.length > 0
-              ? mainStore.webInfo.randomCover[
-                  Math.floor(
-                    Math.random() * mainStore.webInfo.randomCover.length
-                  )
-                ]
-              : './assets/backgroundPicture.jpg'
-          "
+          :src="bannerBackgroundUrl"
           fit="cover"
         >
           <template v-slot:error>
@@ -303,6 +293,30 @@ export default {
         height: finalHeight,
         animation: 'header-effect 2s',
       }
+    },
+    /**
+     * 首页横幅背景图。
+     * 站点配置（webInfo）尚未就绪时返回空串，先不渲染兜底图，
+     * 避免"先闪默认背景、拿到配置后再替换成后台设置的背景"。
+     */
+    bannerBackgroundUrl() {
+      const webInfo = this.mainStore.webInfo
+
+      if (!this.$common.isEmpty(webInfo.backgroundImage)) {
+        return webInfo.backgroundImage
+      }
+
+      // 配置未知：保持空白，等待缓存或 bootstrap 接口返回后自然渲染
+      if (!this.mainStore.webInfoLoaded) {
+        return ''
+      }
+
+      const randomCover = webInfo.randomCover
+      if (!this.$common.isEmpty(randomCover) && randomCover.length > 0) {
+        return randomCover[Math.floor(Math.random() * randomCover.length)]
+      }
+
+      return './assets/backgroundPicture.jpg'
     },
   },
   mounted() {

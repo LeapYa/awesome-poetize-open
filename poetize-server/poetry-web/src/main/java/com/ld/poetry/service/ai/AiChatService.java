@@ -1768,10 +1768,20 @@ public class AiChatService {
                 Collections.synchronizedList(new ArrayList<Map<String, Object>>()));
         // 注入用户身份，供 SkillAdminTools 等需要身份感知的工具读取
         toolContext.put(ToolCallbackEventBridge.USER_NAME_CONTEXT_KEY, identity.name());
-        toolContext.put(ToolCallbackEventBridge.USER_TYPE_CONTEXT_KEY, identity.userType());
         toolContext.put(ToolCallbackEventBridge.USER_IS_ADMIN_CONTEXT_KEY, identity.admin());
-        // 当前页面上下文：供 get_current_page 工具按需读取，避免对"当前页面"提问时凭空猜测
-        toolContext.put(ToolCallbackEventBridge.CURRENT_PAGE_CONTEXT_KEY, currentPage);
+        if (identity.userType() != null) {
+            toolContext.put(ToolCallbackEventBridge.USER_TYPE_CONTEXT_KEY, identity.userType());
+        }
+        // 当前页面上下文：供 get_current_page 工具按需读取，避免对"当前页面"提问时凭空猜测。
+        // 仅在存在时才写入（附加页面时 currentPage 为 null，工具侧按 key 缺失处理）
+        if (currentPage != null && !currentPage.isEmpty()) {
+            toolContext.put(ToolCallbackEventBridge.CURRENT_PAGE_CONTEXT_KEY, currentPage);
+        }
+
+        // Spring AI 的 ChatClient 校验 toolContext 的 value 不允许为 null
+        // （DefaultChatClientRequestSpec 抛 "context values cannot contain null elements"），
+        // 此处统一剔除空值，避免因匿名用户/无页面上下文等场景导致整个请求失败。
+        toolContext.values().removeIf(Objects::isNull);
 
         return new ToolSpec(wrapped, toolContext);
     }

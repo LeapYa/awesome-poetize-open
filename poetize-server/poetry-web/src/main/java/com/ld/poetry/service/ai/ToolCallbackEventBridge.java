@@ -43,6 +43,9 @@ public class ToolCallbackEventBridge {
      * <p>
      * 由前端随聊天请求一并提交，供 {@code get_current_page} 工具按需读取，
      * 避免在用户未手动附加页面、却针对"当前页面"提问时凭空猜测。
+     * <p>
+     * 页面上下文为空时不写入该 key（Spring AI 不允许 toolContext 的 value 为 null），
+     * 读取方需按 key 缺失处理。
      */
     public static final String CURRENT_PAGE_CONTEXT_KEY = "currentPage";
 

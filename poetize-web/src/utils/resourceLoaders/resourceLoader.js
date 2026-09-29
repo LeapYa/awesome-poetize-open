@@ -488,9 +488,7 @@ export async function loadHighlightResources() {
     // 动态导入行号插件
     await import('highlightjs-line-numbers.js')
 
-    // 动态加载 highlight.js 样式
-    await loadExternalResource('/libs/css/highlight.min.css', 'css')
-
+    // 语法高亮配色由 article-style-protection.css 统一提供
     return true
   } catch (error) {
     console.error('highlight.js 模块化加载失败:', error)

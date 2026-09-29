@@ -7,7 +7,6 @@ const CACHE_NAME = 'pwa-cache-v1.0.3-live2d';
 const PRECACHE_RESOURCES = [
   '/',
   '/static/css/inline-styles.css',
-  '/libs/css/highlight.min.css',
   '/libs/js/anime.min.js',
   '/libs/js/highlight.min.js'
 ];

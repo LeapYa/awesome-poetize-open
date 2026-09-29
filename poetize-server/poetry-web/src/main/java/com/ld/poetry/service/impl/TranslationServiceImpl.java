@@ -5,6 +5,8 @@ import com.ld.poetry.dao.ArticleMapper;
 import com.ld.poetry.dao.ArticleTranslationMapper;
 import com.ld.poetry.entity.Article;
 import com.ld.poetry.entity.ArticleTranslation;
+import com.ld.poetry.event.ArticleSavedEvent;
+import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.TranslationService;
 import com.ld.poetry.service.ai.ApiTranslationProviderRegistry;
 import com.ld.poetry.service.ai.LlmTranslationService;
@@ -12,6 +14,7 @@ import com.ld.poetry.utils.ArticleSummaryTextUtil;
 import com.ld.poetry.utils.MarkdownSectionEditor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -47,6 +50,12 @@ public class TranslationServiceImpl implements TranslationService {
 
     @Autowired
     private ApiTranslationProviderRegistry apiTranslationProviderRegistry;
+
+    @Autowired
+    private CacheService cacheService;
+
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     @Override
     public void translateAndSaveArticle(Integer articleId) {
@@ -410,10 +419,12 @@ public class TranslationServiceImpl implements TranslationService {
             queryWrapper.eq(ArticleTranslation::getArticleId, articleId);
             int rows = articleTranslationMapper.delete(queryWrapper);
             if (rows > 0) {
-                translateAndSaveArticle(articleId); // 重新翻译并将在内部触发 prerender
+                // 重新翻译（translateAndSaveArticle 本身不发布文章事件，预渲染需在本方法末尾显式刷新）
+                translateAndSaveArticle(articleId);
 
                 // 刷新翻译后，清除sitemap缓存（翻译URL可能发生变化）
                 updateSitemapForTranslation(articleId, "刷新翻译");
+                refreshArticleAfterTranslationChange(articleId, "重新生成翻译");
             }
             log.info("删除文章翻译成功，文章ID: {}", articleId);
         } catch (Exception e) {
@@ -534,6 +545,7 @@ public class TranslationServiceImpl implements TranslationService {
                 result.put("message", "翻译保存成功");
                 log.info("手动翻译保存成功，文章ID: {}, 目标语言: {}", articleId, targetLanguage);
                 // 注意：sitemap更新已经在saveOrUpdateTranslation方法中处理
+                refreshArticleAfterTranslationChange(articleId, "手动保存翻译");
             } else {
                 result.put("success", false);
                 result.put("message", "翻译保存失败");
@@ -627,6 +639,7 @@ public class TranslationServiceImpl implements TranslationService {
             // 删除翻译后，清除sitemap缓存（翻译URL需要从sitemap中移除）
             if (rows > 0) {
                 updateSitemapForTranslation(articleId, "删除所有翻译");
+                refreshArticleAfterTranslationChange(articleId, "删除所有翻译");
             }
         } catch (Exception e) {
             log.error("删除文章翻译失败，文章ID: {}", articleId, e);
@@ -646,6 +659,7 @@ public class TranslationServiceImpl implements TranslationService {
             // 删除特定语言翻译后，清除sitemap缓存（该语言的翻译URL需要从sitemap中移除）
             if (rows > 0) {
                 updateSitemapForTranslation(articleId, "删除" + language + "翻译");
+                refreshArticleAfterTranslationChange(articleId, "删除" + language + "翻译");
             }
 
             return rows > 0;
@@ -656,8 +670,71 @@ public class TranslationServiceImpl implements TranslationService {
     }
 
     /**
-     * 翻译操作后更新sitemap的辅助方法（只清除缓存）
-     * 
+     * 翻译表变更后刷新文章对外产物（缓存 + 预渲染静态页）。
+     *
+     * <p>手动保存/删除翻译走的是独立接口，不经过文章保存流程，
+     * 因此必须显式补上文章保存流程里的那两步，否则文章页与
+     * {@code /article/{lang}/{id}} 预渲染静态页会一直停留在旧内容：
+     * <ol>
+     *   <li>{@link CacheService#evictArticleRelatedCache(Integer)} 清理文章详情/列表/榜单缓存；</li>
+     *   <li>发布 {@link ArticleSavedEvent}（UPDATE），由 ArticleEventListener 在事务提交后
+     *       重渲染文章页及其各语言静态页。</li>
+     * </ol>
+     *
+     * <p>预渲染快照在执行时才读取 article_translation 表，所以新增/删除语言都能被正确识别：
+     * 新增语言会多渲染一个 {@code index-{lang}.html}，删除语言则因本次清理会一并删除
+     * {@code article/{id}} 与 {@code article/{slug}} 目录，旧语言的静态页随之消失。
+     *
+     * @param articleId 文章ID
+     * @param operation 操作描述，仅用于日志
+     */
+    private void refreshArticleAfterTranslationChange(Integer articleId, String operation) {
+        if (articleId == null) {
+            return;
+        }
+
+        try {
+            cacheService.evictArticleRelatedCache(articleId);
+        } catch (Exception e) {
+            log.error("{}后清除文章缓存失败，文章ID: {}，错误: {}", operation, articleId, e.getMessage(), e);
+        }
+
+        try {
+            Article article = articleMapper.selectById(articleId);
+            if (article == null) {
+                log.warn("{}后未找到文章，跳过预渲染刷新，文章ID: {}", operation, articleId);
+                return;
+            }
+            // previousArticleSlug 传当前 slug：预渲染清理会同时删除 article/{id} 与 article/{slug} 目录，
+            // 这是带走“已删除语言”旧静态页的唯一途径（slug 未变，重复清理无副作用）
+            // submitToSearchEngine 传 false：管理端改翻译不应触发搜索引擎推送（翻译常连续多次保存）；
+            // 若日后希望「手动精修翻译后重新推送」，改为 article.getSubmitToSearchEngine() 即可
+            eventPublisher.publishEvent(new ArticleSavedEvent(
+                    articleId,
+                    article.getSortId(),
+                    article.getLabelId(),
+                    null,
+                    null,
+                    null,
+                    article.getViewStatus(),
+                    "UPDATE",
+                    Boolean.FALSE,
+                    article.getArticleSlug()));
+            log.info("{}后已发布文章更新事件，文章ID: {}, 可见: {}",
+                    operation, articleId, article.getViewStatus());
+        } catch (Exception e) {
+            log.error("{}后发布文章更新事件失败，文章ID: {}，错误: {}", operation, articleId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 翻译操作后更新sitemap的辅助方法（只清除缓存，不重建）
+     *
+     * <p>这是一次事件链之外的**同步兜底**：翻译变更随后发布 {@link ArticleSavedEvent}，
+     * ArticleEventListener.updateSitemapAsync 会再清一次同一个 key（该方法内部只是一次 Redis DEL），
+     * 属幂等重复。保留同步这次是为了 sitemap 失效不依赖异步事件链；
+     * 该重复在 AI 翻译路径上本就存在（saveOrUpdateTranslation + 文章事件各清一次），并非本次新增。
+     *
      * @param articleId 文章ID
      * @param operation 操作描述
      */

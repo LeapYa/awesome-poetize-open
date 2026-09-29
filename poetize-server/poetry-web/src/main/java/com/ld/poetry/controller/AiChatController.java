@@ -87,9 +87,9 @@ public class AiChatController {
             // 业务验证错误（如消息过长、频率限制）：可以将具体原因告知用户
             return PoetryResult.fail(e.getMessage());
         } catch (Exception e) {
-            // 系统内部错误：只记录日志，不向前端暴露内部信息
+            // 系统内部错误：不向前端暴露原始异常，返回分类后的精细提示（超时/限流/鉴权等）
             logger.error("非流式聊天失败", e);
-            return PoetryResult.fail("AI 服务暂时不可用，请稍后重试");
+            return PoetryResult.fail(aiChatService.describeAiFailure(e));
         }
     }
 
@@ -120,9 +120,9 @@ public class AiChatController {
             // 业务验证错误：通过 SSE error 事件将原因告知客户端
             return buildErrorEmitter(e.getMessage());
         } catch (Exception e) {
-            // 系统内部错误：只记录日志，向前端返回通用错误提示
+            // 系统内部错误：不向前端暴露原始异常，返回分类后的精细提示（超时/限流/鉴权等）
             logger.error("流式聊天初始化失败", e);
-            return buildErrorEmitter("AI 服务暂时不可用，请稍后重试");
+            return buildErrorEmitter(aiChatService.describeAiFailure(e));
         }
     }
 
@@ -156,7 +156,7 @@ public class AiChatController {
             return buildErrorEmitter(e.getMessage());
         } catch (Exception e) {
             logger.error("GET 流式聊天初始化失败", e);
-            return buildErrorEmitter("AI 服务暂时不可用，请稍后重试");
+            return buildErrorEmitter(aiChatService.describeAiFailure(e));
         }
     }
 

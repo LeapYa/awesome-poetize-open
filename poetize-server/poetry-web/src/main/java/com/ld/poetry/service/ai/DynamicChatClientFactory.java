@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -113,6 +114,7 @@ public class DynamicChatClientFactory {
                 nullSafe(config.getModel()),
                 nullSafe(config.getTemperature()),
                 nullSafe(config.getMaxTokens()),
+                nullSafe(config.getHttpReadTimeoutSeconds()),
                 nullSafe(config.getTopP()),
                 nullSafe(config.getFrequencyPenalty()),
                 nullSafe(config.getPresencePenalty()),
@@ -152,6 +154,16 @@ public class DynamicChatClientFactory {
         var optionsBuilder = OpenAiChatOptions.builder()
                 .model(model)
                 .temperature(temperature);
+
+        // Spring AI 2.x：OpenAiChatOptions.timeout 为 null 时默认 60 秒（AbstractOpenAiOptions.DEFAULT_TIMEOUT），
+        // 该值会随每个请求写入 RequestOptions，并覆盖 OkHttp 的 callTimeout。
+        // 长文流式翻译/生成耗时普遍超过 60 秒（实测 7000 字中文译英文约 130-370 秒），
+        // 不显式设置时流会在 60 秒处被看门狗掐断（StreamResetException: CANCEL），导致重试 3 次全部失败。
+        // 优先使用管理员配置的 httpReadTimeoutSeconds（llmConfig JSON 的 "timeout" 字段），未配置时默认 600 秒。
+        int requestTimeoutSeconds = config.getHttpReadTimeoutSeconds() != null && config.getHttpReadTimeoutSeconds() > 0
+                ? config.getHttpReadTimeoutSeconds()
+                : 600;
+        optionsBuilder.timeout(Duration.ofSeconds(requestTimeoutSeconds));
 
         if (config.getMaxTokens() != null) {
             optionsBuilder.maxTokens(config.getMaxTokens());

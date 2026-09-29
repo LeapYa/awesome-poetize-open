@@ -17,6 +17,7 @@ import com.ld.poetry.service.ai.image.GenericImageClient;
 import com.ld.poetry.service.ai.image.ImageConfigDto;
 import com.ld.poetry.service.ai.image.OpenAiCompatibleImageClient;
 import com.ld.poetry.utils.ArticleSummaryTextUtil;
+import com.ld.poetry.utils.ExceptionDiagnosticUtil;
 import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.vo.FileVO;
 import lombok.extern.slf4j.Slf4j;
@@ -327,7 +328,12 @@ public class AiImageServiceImpl implements AiImageService {
             }
             if (failure != null) {
                 detail.put("errorType", classifyImageError(failure));
-                detail.put("error", truncate(failure.getMessage(), 200));
+                // 补充异常链诊断信息（类名+消息、根因），便于对照日志定位失败环节
+                detail.put("error", truncate(ExceptionDiagnosticUtil.describe(failure), 200));
+                String rootCause = ExceptionDiagnosticUtil.describeRootCause(failure);
+                if (rootCause != null) {
+                    detail.put("cause", truncate(rootCause, 200));
+                }
             }
 
             sysAuditLogService.recordAi(action, success, targetType, targetId, summary, detail,

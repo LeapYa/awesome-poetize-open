@@ -488,13 +488,23 @@ export default {
       }
 
       const now = Date.now()
+      let timedOutCount = 0
       this.pendingAiReplies = this.pendingAiReplies.filter((task) => {
         if (now - task.startTime > 120000) {
-          console.warn(`AI reply polling timed out for comment ID: ${task.commentId}`)
+          timedOutCount += 1
           return false
         }
         return true
       })
+
+      if (timedOutCount > 0) {
+        const botName =
+          (this.aiChatConfig && this.aiChatConfig.chat_name) || 'AI'
+        this.$message({
+          type: 'warning',
+          message: `${botName}暂时没能回复，请稍后刷新查看`,
+        })
+      }
 
       if (this.pendingAiReplies.length === 0) {
         this.stopAiReplyPolling()

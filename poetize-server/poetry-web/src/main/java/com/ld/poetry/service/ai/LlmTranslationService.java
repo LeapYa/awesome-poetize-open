@@ -1,5 +1,6 @@
 package com.ld.poetry.service.ai;
 
+import com.ld.poetry.utils.ExceptionDiagnosticUtil;
 import com.ld.poetry.utils.JsonUtils;
 import com.ld.poetry.entity.SysAiConfig;
 import com.ld.poetry.service.SummaryService;
@@ -633,6 +634,19 @@ public class LlmTranslationService {
         }
     }
 
+    /**
+     * 失败审计详情：在业务字段基础上补充异常链诊断信息（错误描述与根因）
+     */
+    private Map<String, Object> failureDetail(Map<String, Object> base, Throwable cause) {
+        Map<String, Object> detail = new LinkedHashMap<>(base);
+        detail.put("error", ExceptionDiagnosticUtil.describe(cause));
+        String rootCause = ExceptionDiagnosticUtil.describeRootCause(cause);
+        if (rootCause != null) {
+            detail.put("cause", rootCause);
+        }
+        return detail;
+    }
+
     private StreamingTranslationState streamArticleTranslationAttempt(ChatModel chatModel, String title, String content,
             String sourceLang, String targetLang, SysAiConfig config, int attempt, AtomicInteger receivedChars,
             TranslationService.TranslationProgressListener progressListener) {
@@ -687,9 +701,8 @@ public class LlmTranslationService {
             recordAiAudit("AI_TRANSLATE", "translate", false, startedAt,
                     "AI翻译[" + sourceLang + "→" + targetLang + "]: " + title, prompt, null,
                     usageAcc, AiTokenEstimator.countTokens(prompt),
-                    Map.of("attempt", attempt, "sourceLang", String.valueOf(sourceLang),
-                            "targetLang", String.valueOf(targetLang),
-                            "error", String.valueOf(ex.getMessage())));
+                    failureDetail(Map.of("attempt", attempt, "sourceLang", String.valueOf(sourceLang),
+                            "targetLang", String.valueOf(targetLang)), ex));
             throw ex;
         }
 
@@ -849,7 +862,7 @@ public class LlmTranslationService {
             recordAiAudit("AI_SUMMARY", "summary", false, startedAt,
                     "AI摘要生成", prompt, null,
                     usageAcc, AiTokenEstimator.countTokens(prompt),
-                    Map.of("error", String.valueOf(ex.getMessage())));
+                    failureDetail(Map.of(), ex));
             throw ex;
         }
 

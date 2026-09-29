@@ -12,6 +12,7 @@ import com.ld.poetry.oauth.state.OAuthStateService;
 import com.ld.poetry.service.SysAuditLogService;
 import com.ld.poetry.service.UserService;
 import com.ld.poetry.utils.AuthCookieUtil;
+import com.ld.poetry.utils.ExceptionDiagnosticUtil;
 import com.ld.poetry.vo.UserVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -91,10 +92,10 @@ public class OAuthLoginController {
 
         } catch (ConfigurationException e) {
             log.warn("OAuth配置错误: provider={}, error={}", provider, e.getMessage());
-            redirectToError(response, "未配置信息，请先在后台设置", provider);
+            redirectToError(response, "未配置信息，请先在后台设置", provider, e);
         } catch (Exception e) {
             log.error("OAuth登录失败: provider={}", provider, e);
-            redirectToError(response, "登录服务暂时不可用", provider);
+            redirectToError(response, "登录服务暂时不可用", provider, e);
         }
     }
 
@@ -123,7 +124,7 @@ public class OAuthLoginController {
 
         } catch (Exception e) {
             log.error("Twitter登录失败", e);
-            redirectToError(response, "Twitter登录服务暂时不可用", "x");
+            redirectToError(response, "Twitter登录服务暂时不可用", "x", e);
         }
     }
 
@@ -199,13 +200,13 @@ public class OAuthLoginController {
 
         } catch (ConfigurationException e) {
             log.warn("OAuth配置错误: provider={}, error={}", provider, e.getMessage());
-            redirectToError(response, "配置错误", provider);
+            redirectToError(response, "配置错误", provider, e);
         } catch (OAuthException e) {
-            log.error("OAuth回调处理失败: provider={}, error={}", provider, e.getMessage());
-            redirectToError(response, "授权失败，请重试", provider);
+            log.error("OAuth回调处理失败: provider={}, errorCode={}, error={}", provider, e.getErrorCode(), e.getMessage());
+            redirectToError(response, "授权失败，请重试", provider, e);
         } catch (Exception e) {
             log.error("OAuth回调异常: provider={}", provider, e);
-            redirectToError(response, "回调处理失败", provider);
+            redirectToError(response, "回调处理失败", provider, e);
         }
     }
 
@@ -248,7 +249,7 @@ public class OAuthLoginController {
 
         } catch (Exception e) {
             log.error("Twitter回调处理失败", e);
-            redirectToError(response, "Twitter授权失败", "x");
+            redirectToError(response, "Twitter授权失败", "x", e);
         }
     }
 
@@ -282,10 +283,10 @@ public class OAuthLoginController {
 
         } catch (OAuthException e) {
             log.error("Steam回调处理失败: error={}", e.getMessage());
-            redirectToError(response, "Steam授权失败，请重试", "steam");
+            redirectToError(response, "Steam授权失败，请重试", "steam", e);
         } catch (Exception e) {
             log.error("Steam回调处理失败", e);
-            redirectToError(response, "Steam授权失败", "steam");
+            redirectToError(response, "Steam授权失败", "steam", e);
         }
     }
 
@@ -329,7 +330,7 @@ public class OAuthLoginController {
                 StringBuilder redirectUrl = new StringBuilder("/?code=").append(authCode);
 
                 log.info("OAuth登录成功: provider={}, userId={}", provider, userVO.getId());
-                recordOAuthLogin(true, provider, userVO, "OAuth登录成功", "SUCCESS");
+                recordOAuthLogin(true, provider, userVO, "OAuth登录成功", "SUCCESS", null);
                 response.sendRedirect(redirectUrl.toString());
 
             } else {
@@ -339,7 +340,7 @@ public class OAuthLoginController {
 
         } catch (Exception e) {
             log.error("处理登录结果失败", e);
-            redirectToError(response, "登录处理失败", provider);
+            redirectToError(response, "登录处理失败", provider, e);
         }
     }
 
@@ -347,18 +348,40 @@ public class OAuthLoginController {
      * 重定向到错误页面（使用相对路径）
      */
     private void redirectToError(HttpServletResponse response, String error, String provider) throws IOException {
-        recordOAuthLogin(false, provider, null, "OAuth登录失败", error);
+        redirectToError(response, error, provider, null);
+    }
+
+    /**
+     * 重定向到错误页面，并记录失败原因。
+     * cause 为触发失败的异常，仅写入审计日志详情用于诊断，不展示给用户。
+     */
+    private void redirectToError(HttpServletResponse response, String error, String provider, Throwable cause)
+            throws IOException {
+        recordOAuthLogin(false, provider, null, "OAuth登录失败", error, cause);
         String errorUrl = "/oauth-callback?error=" + URLEncoder.encode(error, StandardCharsets.UTF_8.name())
                 + "&platform=" + provider;
         response.sendRedirect(errorUrl);
     }
 
-    private void recordOAuthLogin(boolean success, String provider, UserVO userVO, String summary, String reason) {
+    private void recordOAuthLogin(boolean success, String provider, UserVO userVO, String summary, String reason,
+            Throwable cause) {
         try {
             Map<String, Object> detail = new LinkedHashMap<>();
             detail.put("method", "OAUTH");
             detail.put("provider", provider);
             detail.put("reason", reason);
+            // 失败时补充可诊断信息：异常类名+消息、根因、OAuth 错误码，便于后台日志定位失败环节
+            if (cause != null) {
+                detail.put("error", ExceptionDiagnosticUtil.describe(cause));
+                String rootCause = ExceptionDiagnosticUtil.describeRootCause(cause);
+                if (rootCause != null) {
+                    detail.put("cause", rootCause);
+                }
+                if (cause instanceof OAuthException oauthException
+                        && StringUtils.hasText(oauthException.getErrorCode())) {
+                    detail.put("errorCode", oauthException.getErrorCode());
+                }
+            }
             sysAuditLogService.recordLogin("OAUTH_LOGIN", success,
                     userVO == null ? provider : userVO.getEmail() != null ? userVO.getEmail() : userVO.getUsername(),
                     userVO == null ? null : userVO.getId(),

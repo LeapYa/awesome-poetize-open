@@ -12,6 +12,7 @@ import org.springframework.http.*;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -139,8 +140,16 @@ public abstract class OAuth2Provider implements BaseOAuthProvider {
 
                 return tokenData;
             } else {
-                throw new TokenException("获取访问令牌失败: HTTP " + response.getStatusCode(), getProviderName());
+                throw new TokenException("获取访问令牌失败: HTTP " + response.getStatusCode().value()
+                        + summarizeErrorBody(response.getBody()), getProviderName());
             }
+        } catch (HttpStatusCodeException e) {
+            // 供应商对授权码/回调地址等校验失败的响应体含 error/error_description，
+            // 记录进日志与异常消息，避免被笼统当作"网络请求失败"而误导排查
+            log.warn("获取访问令牌失败: provider={}, status={}, body={}", getProviderName(),
+                    e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new TokenException("获取访问令牌失败: HTTP " + e.getStatusCode().value()
+                    + summarizeErrorBody(e.getResponseBodyAsString()), getProviderName());
         } catch (RestClientException e) {
             log.error("获取访问令牌网络错误: provider={}", getProviderName(), e);
             throw new TokenException("网络请求失败", getProviderName(), e);
@@ -189,6 +198,20 @@ public abstract class OAuth2Provider implements BaseOAuthProvider {
     }
 
     /**
+     * 截取失败响应体摘要用于错误诊断（失败响应通常含 error/error_description，不含凭证）。
+     */
+    private String summarizeErrorBody(String body) {
+        if (!StringUtils.hasText(body)) {
+            return "";
+        }
+        String normalized = body.replaceAll("\\s+", " ").trim();
+        if (normalized.length() > 300) {
+            normalized = normalized.substring(0, 300) + "...";
+        }
+        return "，响应: " + normalized;
+    }
+
+    /**
      * 发送带认证头的GET请求
      */
     protected Map<String, Object> sendAuthenticatedGetRequest(String url, String accessToken) {
@@ -205,10 +228,17 @@ public abstract class OAuth2Provider implements BaseOAuthProvider {
                 Map<String, Object> data = objectMapper.readValue(response.getBody(), Map.class);
                 return data;
             } else {
-                throw new OAuthException("请求失败: HTTP " + response.getStatusCode(), "http_error", getProviderName());
+                throw new OAuthException("请求失败: HTTP " + response.getStatusCode().value()
+                        + summarizeErrorBody(response.getBody()), "http_error", getProviderName());
             }
+        } catch (HttpStatusCodeException e) {
+            throw new OAuthException("请求失败: HTTP " + e.getStatusCode().value()
+                    + summarizeErrorBody(e.getResponseBodyAsString()), "http_error", getProviderName());
         } catch (RestClientException e) {
             throw new OAuthException("网络请求失败", "network_error", getProviderName(), e);
+        } catch (OAuthException e) {
+            // 上面的 HTTP 失败信息需原样保留，避免被兜底分支改写成"解析响应失败"
+            throw e;
         } catch (Exception e) {
             throw new OAuthException("解析响应失败", "parse_error", getProviderName(), e);
         }

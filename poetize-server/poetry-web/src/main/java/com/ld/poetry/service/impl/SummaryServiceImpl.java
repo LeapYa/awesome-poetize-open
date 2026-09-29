@@ -360,9 +360,9 @@ public class SummaryServiceImpl implements SummaryService {
     private SummaryTaskResult buildFailureResult(Exception e) {
         String taskName = getSummaryTaskName();
         if (e instanceof java.util.concurrent.TimeoutException) {
-            return new SummaryTaskResult("timeout", taskName + "生成超时", true);
+            return new SummaryTaskResult("timeout", taskName + "生成超时（可尝试在AI配置中调大timeout）", true);
         }
-        return new SummaryTaskResult("failed", taskName + "生成失败", true);
+        return new SummaryTaskResult("failed", taskName + "生成失败（可尝试在AI配置中调大timeout）", true);
     }
 
     private SummaryTaskResult buildSuccessResult() {

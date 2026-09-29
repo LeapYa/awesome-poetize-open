@@ -14,6 +14,7 @@ import com.ld.poetry.service.ai.tools.VisionTools;
 import com.ld.poetry.service.ai.tools.WebFetchTools;
 import com.ld.poetry.service.ai.rag.KnowledgeRetrievalService;
 import com.ld.poetry.service.provider.Ip2RegionProvider;
+import com.ld.poetry.utils.ExceptionDiagnosticUtil;
 import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.utils.RedisUtil;
 import jakarta.servlet.http.HttpServletRequest;
@@ -361,7 +362,7 @@ public class AiChatService {
             logChatRequestFailed("sync", resolvedUserId, resolvedConversationId, startedAt, message, ex);
             recordAiAudit("AI_CHAT", "sync", false, startedAt, resolvedUserId, resolvedConversationId,
                     message, null, null, null, "conversation", resolvedConversationId,
-                    Map.of("error", String.valueOf(ex.getMessage())), callCtx, null,
+                    null, callCtx, null,
                     config, historyTurns, historyTokens, ex);
             throw ex;
         }
@@ -443,7 +444,7 @@ public class AiChatService {
             logChatRequestFailed("comment", resolvedUserId, resolvedConversationId, startedAt, message, ex);
             recordAiAudit("AI_COMMENT_REPLY", "comment", false, startedAt, resolvedUserId, resolvedConversationId,
                     message, null, null, null, "comment", resolvedConversationId,
-                    Map.of("error", String.valueOf(ex.getMessage())), callCtx, null,
+                    null, callCtx, null,
                     config, 0, 0, ex);
             throw ex;
         }
@@ -634,11 +635,13 @@ public class AiChatService {
                     logChatRequestFailed("stream", resolvedUserId, resolvedConversationId, startedAt, message, error);
                     recordAiAudit("AI_CHAT_STREAM", "stream", false, startedAt, resolvedUserId, resolvedConversationId,
                             message, null, usageAcc, fallbackInputTokens, "conversation", resolvedConversationId,
-                            Map.of("error", String.valueOf(error.getMessage())), callCtx, toolCalls,
+                            null, callCtx, toolCalls,
                             config, historyTurns, historyTokens, error);
-                    sendSseEvent(emitter, "error", Map.of("message",
-                            error.getMessage() != null ? error.getMessage() : "未知错误"), streamCancelled,
-                            subscriptionRef);
+                    // 返回分类后的精细提示（而非原始异常文本），并附带 errorType 供前端与 AI Agent 类调用方判断
+                    String failureType = classifyAiError(error, null);
+                    sendSseEvent(emitter, "error", Map.of(
+                            "message", failureMessage(failureType),
+                            "errorType", failureType), streamCancelled, subscriptionRef);
                     completeEmitterQuietly(emitter);
                 },
                 () -> {
@@ -848,6 +851,14 @@ public class AiChatService {
             // 错误类型分类：按失败原因归类，便于按 errorType 筛选统计
             if (!success) {
                 detail.put("errorType", classifyAiError(failureCause, extraDetail));
+                // 补充异常链诊断信息（类名+消息、根因），便于对照日志定位失败环节
+                if (failureCause != null) {
+                    detail.put("error", ExceptionDiagnosticUtil.describe(failureCause));
+                    String rootCause = ExceptionDiagnosticUtil.describeRootCause(failureCause);
+                    if (rootCause != null) {
+                        detail.put("cause", rootCause);
+                    }
+                }
             }
             AiUsageSupport.Snapshot snapshot = usageAcc != null ? usageAcc.snapshot() : AiUsageSupport.Snapshot.empty();
             snapshot = snapshot.withInputFallback(fallbackInputTokens);
@@ -908,8 +919,20 @@ public class AiChatService {
             // 没有异常对象（如 IllegalArgumentException 业务拒绝走 rejected 分支但未带 cause）
             return "rejected";
         }
-        String name = cause.getClass().getName();
-        String msg = cause.getMessage() != null ? cause.getMessage().toLowerCase() : "";
+        // 沿 cause 链收集异常名与消息：超时、限流等失败常被包装在外层异常里
+        StringBuilder nameBuilder = new StringBuilder();
+        StringBuilder msgBuilder = new StringBuilder();
+        Throwable current = cause;
+        int depth = 0;
+        while (current != null && depth++ < 8) {
+            nameBuilder.append(current.getClass().getName().toLowerCase()).append(' ');
+            if (current.getMessage() != null) {
+                msgBuilder.append(current.getMessage().toLowerCase()).append(' ');
+            }
+            current = current.getCause();
+        }
+        String name = nameBuilder.toString();
+        String msg = msgBuilder.toString();
         if (name.contains("timeout") || msg.contains("timeout") || msg.contains("timed out")) {
             return "timeout";
         }
@@ -935,6 +958,28 @@ public class AiChatService {
             return "rejected";
         }
         return "unknown";
+    }
+
+    /**
+     * 将异常转换为可读的失败提示：让调用方（前端页面 / AI Agent）知道具体发生了什么，
+     * 而不是只看到泛泛的失败文案。完整异常链仍会写入日志与审计记录。
+     */
+    public String describeAiFailure(Throwable cause) {
+        return failureMessage(classifyAiError(cause, null));
+    }
+
+    /**
+     * 失败类型 → 可读提示文案（供 SSE error 事件与 API 错误响应复用）。
+     */
+    private String failureMessage(String errorType) {
+        return switch (errorType) {
+            case "timeout" -> "AI 响应超时：模型未在超时时间内完成响应，请稍后重试或精简输入";
+            case "rate_limit" -> "AI 请求被限流：触发频率或额度限制，请稍后重试";
+            case "auth" -> "AI 调用鉴权失败：API Key 无效或已过期，请检查 AI 配置";
+            case "content_filter" -> "AI 内容审核未通过：输入内容被模型服务商安全策略拦截";
+            case "network" -> "AI 服务连接失败：无法连接模型服务，请检查 API 地址与网络";
+            default -> "AI 回复失败，请稍后重试";
+        };
     }
 
     /**

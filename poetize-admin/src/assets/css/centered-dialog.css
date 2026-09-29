@@ -220,6 +220,13 @@
     margin: 0 !important;
   }
   
+  /* 按钮常包在内层容器（如 span.dialog-footer）里，footer 上的 gap 作用不到按钮，
+     这里给相邻按钮补一条外边距，避免纵向堆叠时贴合 */
+  .centered-dialog .el-dialog__footer .el-button + .el-button,
+  .test-dialog .el-dialog__footer .el-button + .el-button {
+    margin-top: 8px !important;
+  }
+  
   /* 对话框内的标签 */
   .centered-dialog .el-tag,
   .test-dialog .el-tag {

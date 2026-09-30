@@ -1,9 +1,15 @@
 package com.ld.poetry.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.conditions.update.LambdaUpdateChainWrapper;
+import com.ld.poetry.config.AsyncUserContext;
 import com.ld.poetry.config.PoetryResult;
+import com.ld.poetry.dao.ArticleMapper;
 import com.ld.poetry.entity.Article;
 import com.ld.poetry.entity.SysAiConfig;
+import com.ld.poetry.entity.User;
 import com.ld.poetry.event.ArticleSavedEvent;
 import com.ld.poetry.service.impl.ArticleServiceImpl;
 import com.ld.poetry.service.impl.ArticleServiceImpl.ArticleSaveStatus;
@@ -11,10 +17,11 @@ import com.ld.poetry.service.SummaryService;
 import com.ld.poetry.service.SysAiConfigService;
 import com.ld.poetry.service.TranslationService;
 import com.ld.poetry.vo.ArticleVO;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Answers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -37,7 +44,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -62,17 +69,42 @@ class ArticleServiceAsyncStatusTest {
     @Mock
     private SysAiConfigService sysAiConfigService;
 
+    @Mock
+    private ArticleMapper articleMapper;
+
+    @Mock
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
     private ArticleServiceImpl service;
+
+    /**
+     * 真实链式包装器解析 {@code Article::getId} 等 lambda 需要 MyBatis-Plus 实体元数据；
+     * 纯 Mockito 单元测试未启动 Spring，需手动初始化，否则会抛 can not find lambda cache。
+     */
+    @BeforeAll
+    static void initMybatisPlusLambdaCache() {
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, Article.class);
+    }
 
     @BeforeEach
     void setUp() {
         service = spy(new ArticleServiceImpl());
 
+        ReflectionTestUtils.setField(service, "baseMapper", articleMapper);
         ReflectionTestUtils.setField(service, "translationService", translationService);
         ReflectionTestUtils.setField(service, "summaryService", summaryService);
         ReflectionTestUtils.setField(service, "cacheService", cacheService);
         ReflectionTestUtils.setField(service, "eventPublisher", eventPublisher);
         ReflectionTestUtils.setField(service, "sysAiConfigService", sysAiConfigService);
+        ReflectionTestUtils.setField(service, "transactionManager", transactionManager);
+        // 文章更新走 TransactionTemplate（保证快照与更新同事务）
+        when(transactionManager.getTransaction(any()))
+                .thenReturn(new org.springframework.transaction.support.SimpleTransactionStatus());
+
+        // 真实链式包装器 + mock 底层 mapper：IRepository.lambdaXxx() 依赖真实 mapper 代理，无法作用于 mock mapper
+        doAnswer(invocation -> new LambdaQueryChainWrapper<>(articleMapper)).when(service).lambdaQuery();
+        doAnswer(invocation -> new LambdaUpdateChainWrapper<>(articleMapper)).when(service).lambdaUpdate();
 
         doAnswer(invocation -> {
             Article article = invocation.getArgument(0);
@@ -225,7 +257,7 @@ class ArticleServiceAsyncStatusTest {
     @Test
     void updateArticleAsync_whenPendingTranslationExists_marksManualSavedAndStillSucceeds() throws Exception {
         when(sysAiConfigService.getArticleAiConfigInternal("default")).thenReturn(configWithType("llm"));
-        stubUpdateWrapper(true);
+        stubUpdateWrapper();
 
         Map<String, String> pendingTranslation = Map.of(
                 "title", "Updated Manual Title",
@@ -246,7 +278,7 @@ class ArticleServiceAsyncStatusTest {
     void updateArticleAsync_whenAiTranslationFails_stillRunsSummaryAndEndsPartialSuccess() throws Exception {
         when(sysAiConfigService.getArticleAiConfigInternal("default")).thenReturn(configWithType("llm"));
         when(translationService.translateArticleOnly(anyString(), anyString(), anyBoolean(), any(), any())).thenReturn(null);
-        stubUpdateWrapper(true);
+        stubUpdateWrapper();
 
         ArticleVO articleVO = buildUpdateArticle(303);
         PoetryResult<String> result = service.updateArticleAsync(articleVO, false, null);
@@ -257,7 +289,35 @@ class ArticleServiceAsyncStatusTest {
         verify(summaryService, times(1)).updateSummary(eq(303), eq(articleVO.getArticleContent()), any());
     }
 
-    private void stubUpdateWrapper(boolean updateResult) {
+    @Test
+    void deleteArticleShouldSoftDeleteToTrashWithoutRemovingTranslations() {
+        Article article = new Article();
+        article.setId(101);
+        article.setUserId(1001);
+        article.setArticleSlug("slug");
+        article.setArticleTitle("标题");
+        User author = new User();
+        author.setId(1001);
+        author.setUsername("author");
+        AsyncUserContext.setUser(author);
+        try {
+            // deleteArticle 通过 lambdaQuery().eq(...).one() 取文章：真实链式包装器 + mock 底层 mapper
+            when(articleMapper.selectOne(any())).thenReturn(article);
+            when(articleMapper.softDeleteToTrash(101)).thenReturn(1);
+
+            PoetryResult<?> result = service.deleteArticle(101);
+
+            assertTrue(result.isSuccess());
+            verify(articleMapper).softDeleteToTrash(101);
+            // 翻译与历史版本随文章保留，彻底删除（purge）时才做物理清理
+            verify(translationService, never()).deleteArticleTranslation(anyInt());
+            verify(articleMapper, never()).deleteById(anyInt());
+        } finally {
+            AsyncUserContext.clear();
+        }
+    }
+
+    private void stubUpdateWrapper() {
         Article existingArticle = new Article();
         existingArticle.setId(202);
         existingArticle.setSortId(1);
@@ -265,14 +325,8 @@ class ArticleServiceAsyncStatusTest {
         existingArticle.setArticleSlug("old-slug");
         doReturn(existingArticle).when(service).getById(anyInt());
 
-        @SuppressWarnings("unchecked")
-        LambdaUpdateChainWrapper<Article> updateWrapper =
-                mock(LambdaUpdateChainWrapper.class, Answers.RETURNS_SELF);
-        doReturn(updateWrapper).when(updateWrapper).eq(any(), any());
-        doReturn(updateWrapper).when(updateWrapper).set(any(), any());
-        doReturn(updateWrapper).when(updateWrapper).set(anyBoolean(), any(), any());
-        when(updateWrapper.update()).thenReturn(updateResult);
-        doReturn(updateWrapper).when(service).lambdaUpdate();
+        // updateArticleAsync 走 lambdaUpdate() 链式更新：真实包装器 + mock 底层 mapper 返回受影响行数
+        when(articleMapper.update(any(), any())).thenReturn(1);
     }
 
     private ArticleSaveStatus awaitTerminalStatus(String taskId) throws Exception {

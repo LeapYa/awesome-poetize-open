@@ -331,8 +331,11 @@ public class RssServiceImpl implements RssService {
     /** 是否存在指定语言的任何翻译记录（决定是否值得广告该语言的 feed） */
     private boolean hasAnyTranslation(String lang) {
         try {
+            // 仅统计仍存在的文章：回收站中的文章会保留翻译，但不应对外广告其语言 feed
             LambdaQueryWrapper<ArticleTranslation> wrapper = new LambdaQueryWrapper<>();
-            wrapper.eq(ArticleTranslation::getLanguage, lang).last("LIMIT 1");
+            wrapper.eq(ArticleTranslation::getLanguage, lang)
+                    .exists("select 1 from article a where a.id = article_translation.article_id and a.deleted = 0")
+                    .last("LIMIT 1");
             Long count = articleTranslationMapper.selectCount(wrapper);
             return count != null && count > 0;
         } catch (Exception e) {

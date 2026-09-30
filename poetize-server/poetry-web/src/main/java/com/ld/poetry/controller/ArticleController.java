@@ -403,14 +403,8 @@ public class ArticleController {
         }
         // 清理文章相关缓存
         cacheService.evictSortArticleList();
-        
-        // 删除文章翻译（仅删除，不重新翻译）
-        try {
-            translationService.deleteArticleTranslation(id);
-        } catch (Exception e) {
-            log.error("删除文章翻译失败", e);
-        }
 
+        // 删除文章（进回收站）：翻译随文章保留，恢复时一并还原；彻底删除时才物理清理
         PoetryResult result = articleService.deleteArticle(id);
 
         if (result.getCode() == 200) {

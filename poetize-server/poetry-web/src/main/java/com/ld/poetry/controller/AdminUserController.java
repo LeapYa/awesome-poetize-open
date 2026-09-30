@@ -11,6 +11,7 @@ import com.ld.poetry.enums.CodeMsg;
 import com.ld.poetry.enums.PoetryEnum;
 import com.ld.poetry.im.websocket.ImSessionManager;
 import com.ld.poetry.service.CacheService;
+import com.ld.poetry.service.SysAuditLogService;
 import com.ld.poetry.service.UserService;
 import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.vo.BaseRequestVO;
@@ -40,6 +41,9 @@ public class AdminUserController {
 
     @Autowired(required = false)
     private ImSessionManager imSessionManager;
+
+    @Autowired
+    private SysAuditLogService sysAuditLogService;
 
     /**
      * 查询用户
@@ -72,7 +76,7 @@ public class AdminUserController {
             updateChainWrapper.eq(User::getUserStatus, PoetryEnum.STATUS_ENABLE.getCode())
                     .set(User::getUserStatus, PoetryEnum.STATUS_DISABLE.getCode()).update();
         }
-        logout(userId);
+        logout(userId, null, Boolean.TRUE.equals(flag) ? "管理员解禁用户" : "管理员封禁用户");
         return PoetryResult.success();
     }
 
@@ -116,7 +120,7 @@ public class AdminUserController {
         }
         userService.lambdaUpdate().eq(User::getId, userId).set(User::getUserType, userType).update();
 
-        logout(userId);
+        logout(userId, null, "管理员变更用户类型");
         return PoetryResult.success();
     }
 
@@ -151,7 +155,7 @@ public class AdminUserController {
             return PoetryResult.fail("删除失败！");
         }
 
-        logout(userId);
+        logout(userId, user.getUsername(), "管理员删除用户");
         try {
             cacheService.deleteKey(CacheConstants.ADMIRE_LIST_KEY);
         } catch (Exception e) {
@@ -161,7 +165,7 @@ public class AdminUserController {
         return PoetryResult.success();
     }
 
-    private void logout(Integer userId) {
+    private void logout(Integer userId, String username, String reason) {
         try {
             log.info("管理员强制用户下线: userId={}", userId);
 
@@ -173,6 +177,16 @@ public class AdminUserController {
             if (imSessionManager != null) {
                 imSessionManager.closeUserSession(userId, "管理员强制下线");
             }
+
+            // 用户名缺省时兜底查询（删除用户场景用户已软删，调用方需直接传入）
+            if (username == null) {
+                try {
+                    User user = userService.getById(userId);
+                    username = user == null ? null : user.getUsername();
+                } catch (Exception ignored) {
+                }
+            }
+            sysAuditLogService.recordForcedLogout(userId, username, reason);
 
             log.info("用户强制下线完成: userId={}", userId);
         } catch (Exception e) {

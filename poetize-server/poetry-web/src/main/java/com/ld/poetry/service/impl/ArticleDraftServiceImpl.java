@@ -567,8 +567,21 @@ public class ArticleDraftServiceImpl extends ServiceImpl<ArticleDraftMapper, Art
         detailVO.setLastEditorUsername(lastEditor != null ? lastEditor.getUsername() : null);
         detailVO.setSourceArticleTitle(sourceArticle != null ? sourceArticle.getArticleTitle() : null);
         detailVO.setSourceArticle(buildSourceArticleVO(sourceArticle));
+        detailVO.setArticleUpdatedAfterDraft(isArticleNewerThanDraft(draft, sourceArticle));
         detailVO.setCollaborators(loadCollaborators(draft.getId(), users));
         return detailVO;
+    }
+
+    /**
+     * 文章是否在草稿之后被修改（草稿可能已过期）。
+     * 时间任一为空时按"未过期"处理，避免误报。
+     */
+    private boolean isArticleNewerThanDraft(ArticleDraft draft, Article sourceArticle) {
+        if (draft == null || sourceArticle == null
+                || draft.getUpdateTime() == null || sourceArticle.getUpdateTime() == null) {
+            return false;
+        }
+        return sourceArticle.getUpdateTime().isAfter(draft.getUpdateTime());
     }
 
     private ArticleDraftSummaryVO buildSummary(ArticleDraft draft) {
@@ -580,6 +593,7 @@ public class ArticleDraftServiceImpl extends ServiceImpl<ArticleDraftMapper, Art
         summaryVO.setOwnerUsername(owner != null ? owner.getUsername() : null);
         summaryVO.setLastEditorUsername(lastEditor != null ? lastEditor.getUsername() : null);
         summaryVO.setSourceArticleTitle(loadSourceArticleTitle(draft));
+        summaryVO.setHasContent(StringUtils.hasText(draft.getCrdtSnapshotBase64()));
         summaryVO.setCollaborators(loadCollaborators(draft.getId(), users));
         return summaryVO;
     }

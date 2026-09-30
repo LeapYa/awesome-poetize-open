@@ -2,6 +2,7 @@ package com.ld.poetry.config;
 
 import com.ld.poetry.constants.CacheConstants;
 import com.ld.poetry.service.CacheService;
+import com.ld.poetry.service.SysAuditLogService;
 import com.ld.poetry.service.provider.Ip2RegionProvider;
 import com.ld.poetry.utils.IpUtil;
 import com.ld.poetry.utils.RedisUtil;
@@ -20,6 +21,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -41,6 +43,9 @@ public class SecurityFilter extends OncePerRequestFilter {
 
     @Autowired
     private Ip2RegionProvider ip2RegionProvider;
+
+    @Autowired
+    private SysAuditLogService sysAuditLogService;
 
     // 攻击次数阈值 - 超过此次数将被拉黑
     private static final int ATTACK_THRESHOLD = 3;
@@ -113,6 +118,7 @@ public class SecurityFilter extends OncePerRequestFilter {
         // 检查IP是否被拉黑
         if (isIPBlacklisted(clientIP)) {
             log.warn("拒绝已拉黑IP的访问: {} from IP: {}", requestURI, clientIP);
+            recordBlockEvent("IP_BLOCKED", false, "拦截已拉黑IP的访问", null, requestURI, null, clientIP);
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.getWriter().write("403 Forbidden - IP Blacklisted");
             return;
@@ -121,6 +127,8 @@ public class SecurityFilter extends OncePerRequestFilter {
         // 检查自动化浏览器拦截（探针上报判定 score >= 70 时写入）
         if (isAutomationBlocked(clientIP)) {
             log.warn("拒绝自动化浏览器访问: {} from IP: {}", requestURI, clientIP);
+            recordBlockEvent("AUTOMATION_BLOCKED", false, "拦截自动化浏览器访问", "探针上报判定",
+                    requestURI, null, clientIP);
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.getWriter().write("403 Forbidden - Automation Detected");
             return;
@@ -141,6 +149,8 @@ public class SecurityFilter extends OncePerRequestFilter {
         String userAgent = request.getHeader("User-Agent");
         if (isBlockedAiCrawler(userAgent)) {
             log.info("拦截 AI 爬虫: {} from IP: {}", userAgent, clientIP);
+            recordBlockEvent("AI_CRAWLER_BLOCKED", false, "拦截AI爬虫访问", "AI爬虫UA",
+                    requestURI, userAgent, clientIP);
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.getWriter().write("403 Forbidden - AI Crawler Blocked");
             return;
@@ -155,6 +165,8 @@ public class SecurityFilter extends OncePerRequestFilter {
             String blockKey = CacheConstants.buildAutomationBlockKey(clientIP);
             cacheService.set(blockKey, "UA声明自动化工具",
                     CacheConstants.AUTOMATION_BLOCK_EXPIRE_TIME);
+            recordBlockEvent("AUTOMATION_BLOCKED", false, "拦截自动化工具访问", "UA声明自动化工具",
+                    requestURI, userAgent, clientIP);
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.getWriter().write("403 Forbidden - Automation Detected");
             return;
@@ -165,18 +177,24 @@ public class SecurityFilter extends OncePerRequestFilter {
         // 本地开发（无 Nginx）或 Nginx 规则刷新延迟内，Java 层兜底。
         if (!cidrRules.isEmpty() && isCidrBanned(clientIP)) {
             log.warn("拒绝CIDR网段封禁访问: {} from IP: {}", requestURI, clientIP);
+            recordBlockEvent("RULE_BANNED_BLOCKED", false, "拦截CIDR网段封禁访问", "CIDR规则",
+                    requestURI, null, clientIP);
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.getWriter().write("403 Forbidden - CIDR Blacklisted");
             return;
         }
         if (!uaRules.isEmpty() && isUaBannedByAdmin(userAgent)) {
             log.warn("拒绝管理员UA封禁访问: {} from IP: {}", requestURI, clientIP);
+            recordBlockEvent("RULE_BANNED_BLOCKED", false, "拦截管理员UA封禁访问", "UA规则",
+                    requestURI, userAgent, clientIP);
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.getWriter().write("403 Forbidden - UA Blacklisted");
             return;
         }
         if (resolvedRegion != null && isRegionBannedByRules(resolvedRegion)) {
             log.warn("拒绝地区封禁访问: {} from IP: {}", requestURI, clientIP);
+            recordBlockEvent("RULE_BANNED_BLOCKED", false, "拦截地区封禁访问", "地区规则",
+                    requestURI, null, clientIP);
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
             response.getWriter().write("403 Forbidden - Region Blacklisted");
             return;
@@ -212,6 +230,8 @@ public class SecurityFilter extends OncePerRequestFilter {
 
             // 记录攻击并检查是否需要拉黑
             recordAttackAndCheckBlacklist(clientIP, requestURI, attackType);
+
+            recordBlockEvent("MALICIOUS_REQUEST", false, "拦截恶意请求", attackType, requestURI, null, clientIP);
 
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
             response.getWriter().write("404 Not Found");
@@ -607,8 +627,44 @@ public class SecurityFilter extends OncePerRequestFilter {
                     ip, currentCount, BLACKLIST_DURATION_HOURS,
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
+            Map<String, Object> banDetail = new LinkedHashMap<>();
+            banDetail.put("attackType", attackType);
+            banDetail.put("attackCount", currentCount);
+            banDetail.put("durationHours", BLACKLIST_DURATION_HOURS);
+            try {
+                sysAuditLogService.recordSecurityDedup("IP_AUTO_BLACKLISTED", false, null, null, null,
+                        "IP因连续恶意请求被自动拉黑", banDetail, ip, null, 0);
+            } catch (Exception e) {
+                log.debug("记录IP自动拉黑审计日志失败: ip={}, error={}", ip, e.getMessage());
+            }
+
             // 重置攻击计数
             redisUtil.del(attackKey);
+        }
+    }
+
+    /**
+     * 记录拦截类安全事件（log_type=SECURITY）。
+     * Filter 层 RequestContextHolder 未就绪，必须显式传 clientIP，否则审计行拿不到真实 IP；
+     * 同一 IP 同类事件 60 秒内只落库一条，防止扫描期间高频拦截刷爆审计表。
+     */
+    private void recordBlockEvent(String action, boolean success, String summary,
+            String attackType, String requestURI, String userAgent, String clientIP) {
+        try {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            if (attackType != null) {
+                detail.put("attackType", attackType);
+            }
+            if (requestURI != null) {
+                detail.put("path", requestURI);
+            }
+            if (userAgent != null) {
+                detail.put("userAgent", userAgent);
+            }
+            sysAuditLogService.recordSecurityDedup(action, success, null, null, null, summary, detail,
+                    clientIP, clientIP, 60_000L);
+        } catch (Exception e) {
+            log.debug("记录拦截审计日志失败: action={}, error={}", action, e.getMessage());
         }
     }
 

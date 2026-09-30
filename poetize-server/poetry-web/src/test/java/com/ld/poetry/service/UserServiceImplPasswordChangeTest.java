@@ -1,21 +1,25 @@
 package com.ld.poetry.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.ld.poetry.config.AsyncUserContext;
 import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.constants.CacheConstants;
 import com.ld.poetry.constants.CommonConst;
+import com.ld.poetry.dao.UserMapper;
 import com.ld.poetry.entity.User;
 import com.ld.poetry.entity.WebInfo;
 import com.ld.poetry.service.impl.UserServiceImpl;
 import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.utils.mail.MailUtil;
 import com.ld.poetry.vo.UserVO;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -31,8 +35,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -55,11 +59,27 @@ class UserServiceImplPasswordChangeTest {
     @Mock
     private PasswordService passwordService;
 
+    @Mock
+    private SysAuditLogService sysAuditLogService;
+
+    @Mock
+    private UserMapper userMapper;
+
     private UserServiceImpl service;
     private User currentUser;
     private User adminUser;
     private User refreshedUser;
     private String expectedEmailCodeKey;
+
+    /**
+     * 真实链式包装器解析 {@code User::getId} 等 lambda 需要 MyBatis-Plus 实体元数据；
+     * 纯 Mockito 单元测试未启动 Spring，需手动初始化，否则会抛 can not find lambda cache。
+     */
+    @BeforeAll
+    static void initMybatisPlusLambdaCache() {
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        TableInfoHelper.initTableInfo(assistant, User.class);
+    }
 
     @BeforeEach
     void setUp() {
@@ -69,6 +89,7 @@ class UserServiceImplPasswordChangeTest {
         ReflectionTestUtils.setField(service, "mailUtil", mailUtil);
         ReflectionTestUtils.setField(service, "sysConfigService", sysConfigService);
         ReflectionTestUtils.setField(service, "passwordService", passwordService);
+        ReflectionTestUtils.setField(service, "sysAuditLogService", sysAuditLogService);
 
         currentUser = new User();
         currentUser.setId(1001);
@@ -105,12 +126,9 @@ class UserServiceImplPasswordChangeTest {
         when(mailUtil.getMailText()).thenReturn("%s %s %s %s %s %s");
         when(sysConfigService.getConfigValueByKey("user.code.format")).thenReturn("验证码：%s");
 
-        @SuppressWarnings("unchecked")
-        LambdaQueryChainWrapper<User> queryWrapper =
-                mock(LambdaQueryChainWrapper.class, Answers.RETURNS_SELF);
-        doReturn(queryWrapper).when(queryWrapper).eq(any(), any());
-        when(queryWrapper.one()).thenReturn(refreshedUser);
-        doReturn(queryWrapper).when(service).lambdaQuery();
+        // 真实链式包装器 + mock 底层 mapper：mock 的包装器对泛型链式方法不会返回自身，易在新增链式调用时静默返回 null
+        doAnswer(invocation -> new LambdaQueryChainWrapper<>(userMapper)).when(service).lambdaQuery();
+        when(userMapper.selectOne(any())).thenReturn(refreshedUser);
         doReturn(true).when(service).updateById(any(User.class));
     }
 
@@ -175,6 +193,10 @@ class UserServiceImplPasswordChangeTest {
         verify(cacheService).deleteKey(expectedEmailCodeKey);
         verify(cacheService).evictAllUserTokens(currentUser.getId());
         verify(cacheService).evictUser(currentUser.getId());
+        verify(sysAuditLogService).recordSecurityDedup(eq("USER_PASSWORD_CHANGE"), eq(true), any(), any(),
+                any(), any(), any(), any(), any(), anyLong());
+        verify(sysAuditLogService).recordForcedLogout(eq(currentUser.getId()), eq(currentUser.getUsername()),
+                eq("本人修改密码"));
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.ld.poetry.controller;
 import com.ld.poetry.dao.LabelMapper;
 import com.ld.poetry.dao.SortMapper;
 import com.ld.poetry.entity.Label;
+import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.SitemapService;
 import com.ld.poetry.service.prerender.PrerenderFacade;
 import com.ld.poetry.utils.CommonQuery;
@@ -38,6 +39,9 @@ class SortLabelControllerTest {
     @Mock
     private SitemapService sitemapService;
 
+    @Mock
+    private CacheService cacheService;
+
     private SortLabelController controller;
 
     @BeforeEach
@@ -49,6 +53,7 @@ class SortLabelControllerTest {
         ReflectionTestUtils.setField(controller, "prerenderFacade", prerenderFacade);
         ReflectionTestUtils.setField(controller, "ragSyncService", ragSyncService);
         ReflectionTestUtils.setField(controller, "sitemapService", sitemapService);
+        ReflectionTestUtils.setField(controller, "cacheService", cacheService);
     }
 
     @Test

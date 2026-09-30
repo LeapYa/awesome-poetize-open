@@ -23,6 +23,7 @@ import com.ld.poetry.im.websocket.ImConfigConst;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.PasswordService;
 import com.ld.poetry.service.PasswordUpgradeService;
+import com.ld.poetry.service.SysAuditLogService;
 import com.ld.poetry.service.SysConfigService;
 import com.ld.poetry.service.ThirdPartyOauthConfigService;
 import com.ld.poetry.service.UserService;
@@ -31,6 +32,7 @@ import com.ld.poetry.utils.*;
 import com.ld.poetry.utils.mail.MailUtil;
 import com.ld.poetry.vo.BaseRequestVO;
 import com.ld.poetry.vo.UserVO;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +45,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -94,6 +97,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Autowired
     private PasswordUpgradeService passwordUpgradeService;
+
+    @Autowired
+    private SysAuditLogService sysAuditLogService;
 
     /**
      * 检查IP是否在管理员IP白名单中
@@ -187,6 +193,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 String lockKey = CacheConstants.CACHE_PREFIX + "login:lock:" + account;
                 cacheService.set(lockKey, true, CommonConst.LOGIN_LOCKOUT_TIME);
                 log.warn("账号 {} 因多次登录失败被锁定 {} 秒", account, CommonConst.LOGIN_LOCKOUT_TIME);
+                Map<String, Object> lockDetail = new LinkedHashMap<>();
+                lockDetail.put("attempts", attempts);
+                lockDetail.put("lockSeconds", CommonConst.LOGIN_LOCKOUT_TIME);
+                sysAuditLogService.recordSecurityDedup("ACCOUNT_LOCKED", false, account, null, null,
+                        "账号因连续登录失败被临时锁定", lockDetail, null, "lock:" + account, 60_000L);
             }
 
             return attempts;
@@ -577,6 +588,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         u.setPassword(passwordService.encodeBCrypt(decryptedPassword));
         u.setAvatar(PoetryUtil.getRandomAvatar(null));
         save(u);
+
+        Map<String, Object> registerDetail = new LinkedHashMap<>();
+        registerDetail.put("method", "PASSWORD");
+        sysAuditLogService.recordSecurityDedup("USER_REGISTER", true, filteredUsername, u.getId(), filteredUsername,
+                "新用户注册", registerDetail, null, null, 0);
 
         User one = lambdaQuery().eq(User::getId, u.getId()).one();
 
@@ -974,6 +990,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             cacheService.evictAllUserTokens(user.getId());
             cacheService.evictUser(user.getId());
             log.info("修改密码成功，已强制下线用户的所有Session - 用户ID: {}", user.getId());
+            sysAuditLogService.recordSecurityDedup("USER_PASSWORD_CHANGE", true, user.getUsername(), user.getId(),
+                    user.getUsername(), "用户修改密码", null, null, null, 0);
+            sysAuditLogService.recordForcedLogout(user.getId(), user.getUsername(), "本人修改密码");
         }
 
         User one = lambdaQuery().eq(User::getId, user.getId()).one();
@@ -1042,6 +1061,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
             String forgetPasswordKey = CacheConstants.buildForgetPasswordKey(filteredPlace, String.valueOf(flag));
             cacheService.set(forgetPasswordKey, i, 300);
+            // 验证码 5 分钟有效期内同一邮箱只记一条，防止被刷
+            sysAuditLogService.recordSecurityDedup("FORGOT_PASSWORD_CODE", true, filteredPlace, null, username,
+                    "发送忘记密码验证码", null, null, "code:" + filteredPlace, 300_000L);
             return PoetryResult.success();
         }
         return PoetryResult.fail("参数异常！");
@@ -1113,6 +1135,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             cacheService.evictUser(user.getId());
             cacheService.evictAllUserTokens(user.getId()); // 清理所有token，强制重新登录
             log.info("通过手机号重置密码成功 - 用户ID: {}", user.getId());
+            sysAuditLogService.recordSecurityDedup("USER_PASSWORD_RESET", true, filteredPlace, user.getId(), username,
+                    "通过手机号重置密码", null, null, null, 0);
+            sysAuditLogService.recordForcedLogout(user.getId(), user.getUsername(), "忘记密码重置");
         } else if (flag == 2) {
             User user = lambdaQuery().eq(User::getEmail, filteredPlace).eq(User::getUsername, username).one();
             if (user == null) {
@@ -1127,6 +1152,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             cacheService.evictUser(user.getId());
             cacheService.evictAllUserTokens(user.getId()); // 清理所有token，强制重新登录
             log.info("通过邮箱重置密码成功 - 用户ID: {}", user.getId());
+            sysAuditLogService.recordSecurityDedup("USER_PASSWORD_RESET", true, filteredPlace, user.getId(), username,
+                    "通过邮箱重置密码", null, null, null, 0);
+            sysAuditLogService.recordForcedLogout(user.getId(), user.getUsername(), "忘记密码重置");
         }
 
         return PoetryResult.success();
@@ -1217,6 +1245,26 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return PoetryResult.success(userVOS);
     }
 
+    /**
+     * 记录 /user/token 自动登录的 Token 失效事件。
+     * 该接口不走 @LoginCheck 切面，若不在此补录，审计表将看不到最高频的过期路径；
+     * 未携带 Token 的游客访问属正常流量，不记录。
+     * 同一用户/IP 60 秒内只落库一条，防止失效后被前端反复调用刷爆审计表。
+     */
+    private void recordTokenFailure(String action, String userToken, String summary) {
+        try {
+            Integer userId = TokenValidationUtil.extractUserId(userToken);
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("maskedPrefix", TokenValidationUtil.getTokenPrefix(userToken));
+            HttpServletRequest request = PoetryUtil.getRequest();
+            String clientIp = request == null ? "-" : PoetryUtil.getIpAddr(request);
+            sysAuditLogService.recordSecurityDedup(action, false, null, userId, null, summary, detail,
+                    null, (userId == null ? "-" : userId) + ":" + clientIp, 60_000L);
+        } catch (Exception e) {
+            log.debug("记录Token失效审计日志失败: {}", e.getMessage());
+        }
+    }
+
     @Override
     public PoetryResult<UserVO> token(String userToken) {
         if (StringUtils.hasText(userToken)) {
@@ -1232,6 +1280,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         // 首先验证token的安全性和有效性
         if (!TokenValidationUtil.isValidToken(userToken)) {
             log.warn("Token验证失败");
+            recordTokenFailure("INVALID_TOKEN", userToken, "自动登录失败：Token签名或格式无效");
             throw new PoetryLoginException("Token无效，请重新登陆！");
         }
 
@@ -1254,9 +1303,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             // 检查token是否在有效期内且格式正确
             Integer userIdFromToken = TokenValidationUtil.extractUserId(userToken);
             if (userIdFromToken != null) {
+                recordTokenFailure("TOKEN_EXPIRED", userToken, "自动登录失败：登录已过期");
                 throw new PoetryLoginException("登录已过期，请重新登陆！");
             } else {
                 // token格式无效
+                recordTokenFailure("INVALID_TOKEN", userToken, "自动登录失败：Token格式无效");
                 throw new PoetryLoginException("Token无效，请重新登陆！");
             }
         }

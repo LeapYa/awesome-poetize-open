@@ -36,6 +36,9 @@ class ThirdPartyOauthConfigServiceTest {
     @Mock
     private JsonMapper objectMapper;
 
+    @Mock
+    private CacheService cacheService;
+
     @Spy
     @InjectMocks
     private ThirdPartyOauthConfigServiceImpl configService;

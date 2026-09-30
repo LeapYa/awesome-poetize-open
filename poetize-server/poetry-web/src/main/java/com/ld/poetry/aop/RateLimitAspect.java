@@ -2,6 +2,7 @@ package com.ld.poetry.aop;
 
 import com.ld.poetry.entity.User;
 import com.ld.poetry.handle.RateLimitException;
+import com.ld.poetry.service.SysAuditLogService;
 import com.ld.poetry.utils.PoetryUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -22,6 +23,8 @@ import org.springframework.stereotype.Component;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 限流切面
@@ -73,6 +76,9 @@ public class RateLimitAspect {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
+    @Autowired
+    private SysAuditLogService sysAuditLogService;
+
     private final SpelExpressionParser spelParser = new SpelExpressionParser();
     private final DefaultParameterNameDiscoverer parameterNameDiscoverer = new DefaultParameterNameDiscoverer();
 
@@ -122,6 +128,7 @@ public class RateLimitAspect {
                 // 触发限流
                 log.warn("[RateLimit] 触发限流: name={}, key={}, limit={}/{}",
                         rateLimit.name(), maskKey(limitKey), rateLimit.count(), rateLimit.time());
+                recordRateLimited(rateLimit, limitKey);
                 throw new RateLimitException(
                         rateLimit.message(),
                         rateLimit.name(),
@@ -257,6 +264,23 @@ public class RateLimitAspect {
         } catch (Exception e) {
             log.error("[RateLimit] SpEL表达式解析失败: expression={}", spelExpression, e);
             return null;
+        }
+    }
+
+    /**
+     * 记录限流触发审计事件。
+     * 同一规则+限流键 60 秒内只落库一条，防止攻击期间高频触发刷爆审计表。
+     */
+    private void recordRateLimited(RateLimit rateLimit, String limitKey) {
+        try {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("ruleName", rateLimit.name());
+            detail.put("limit", rateLimit.count() + "次/" + rateLimit.time() + "秒");
+            detail.put("maskedKey", maskKey(limitKey));
+            sysAuditLogService.recordSecurityDedup("RATE_LIMITED", false, null, null, null,
+                    "触发接口限流", detail, null, rateLimit.name() + ":" + maskKey(limitKey), 60_000L);
+        } catch (Exception e) {
+            log.debug("记录限流审计日志失败: {}", e.getMessage());
         }
     }
 

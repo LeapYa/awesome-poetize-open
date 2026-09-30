@@ -4,6 +4,7 @@ import com.ld.poetry.im.websocket.ImWebSocketHandler;
 import com.ld.poetry.im.websocket.ImWebSocketInterceptor;
 import com.ld.poetry.websocket.article.ArticleDraftWebSocketHandler;
 import com.ld.poetry.websocket.article.ArticleDraftWebSocketInterceptor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,6 +18,7 @@ import org.springframework.web.socket.server.standard.ServletServerContainerFact
  */
 @Configuration
 @EnableWebSocket
+@Slf4j
 public class WebSocketConfig implements WebSocketConfigurer {
 
     /**
@@ -26,7 +28,18 @@ public class WebSocketConfig implements WebSocketConfigurer {
      */
     @Bean
     public ServletServerContainerFactoryBean createWebSocketContainer() {
-        ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean();
+        ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean() {
+            @Override
+            public void afterPropertiesSet() {
+                // 仅 MOCK ServletContext（如 @SpringBootTest 默认环境）缺少 WebSocket ServerContainer；
+                // 真实容器（嵌入式 Tomcat 等）必定提供，此时行为与原生实现完全一致
+                try {
+                    super.afterPropertiesSet();
+                } catch (IllegalStateException e) {
+                    log.info("当前 ServletContext 未提供 WebSocket ServerContainer，跳过消息缓冲配置");
+                }
+            }
+        };
         int maxBufferSize = 512 * 1024;
         container.setMaxTextMessageBufferSize(maxBufferSize);
         container.setMaxBinaryMessageBufferSize(maxBufferSize);

@@ -1,16 +1,24 @@
 package com.ld.poetry.service.prerender;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.ld.poetry.dao.ResourcePathMapper;
+import com.ld.poetry.dao.WeiYanMapper;
 import com.ld.poetry.entity.Article;
 import com.ld.poetry.entity.WebInfo;
+import com.ld.poetry.entity.WeiYan;
 import com.ld.poetry.service.ArticleService;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.SeoConfigService;
 import com.ld.poetry.service.SeoMetaService;
 import com.ld.poetry.service.TranslationService;
 import com.ld.poetry.service.WebInfoService;
+import com.ld.poetry.service.WeiYanService;
 import com.ld.poetry.utils.CommonQuery;
 import com.ld.poetry.utils.mail.MailUtil;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -27,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -66,6 +75,12 @@ class PrerenderServiceTest {
     @Mock
     private MailUtil mailUtil;
 
+    @Mock
+    private WeiYanService weiYanService;
+
+    @Mock
+    private WeiYanMapper weiYanMapper;
+
     @InjectMocks
     private PrerenderService service;
 
@@ -83,12 +98,13 @@ class PrerenderServiceTest {
         when(languageSupport.getSourceLanguage()).thenReturn("zh");
         when(languageSupport.resolveLanguages(List.of("en"))).thenReturn(List.of("en"));
         when(mailUtil.getSiteUrl()).thenReturn("https://example.com");
-        when(engine.renderMarkdown(anyString())).thenReturn("<p>preview</p>");
+        when(engine.renderMarkdown(anyString(), any())).thenReturn("<p>preview</p>");
         when(engine.buildPage(any())).thenReturn("<html>preview</html>");
+        stubNoArticleNews();
 
         service.renderArticle(1, List.of("en"));
 
-        verify(engine).renderMarkdown("abc");
+        verify(engine).renderMarkdown(eq("abc"), any());
         verify(engine).writePage("article/1", "en", "<html>preview</html>");
     }
 
@@ -106,12 +122,24 @@ class PrerenderServiceTest {
         when(languageSupport.getSourceLanguage()).thenReturn("zh");
         when(languageSupport.resolveLanguages(List.of("pt"))).thenReturn(List.of("pt"));
         when(mailUtil.getSiteUrl()).thenReturn("https://example.com");
-        when(engine.renderMarkdown(anyString())).thenReturn("<p>preview</p>");
+        when(engine.renderMarkdown(anyString(), any())).thenReturn("<p>preview</p>");
         when(engine.buildPage(any())).thenReturn("<html>preview</html>");
+        stubNoArticleNews();
 
         assertDoesNotThrow(() -> service.renderArticle(1, List.of("pt")));
 
         verify(engine).writePage("article/1", "pt", "<html>preview</html>");
+    }
+
+    /**
+     * buildArticleNewsHtml 会经 weiYanService.lambdaQuery() 链式查询文章"最新进展"；
+     * 用真实 LambdaQueryChainWrapper（需 WeiYan 的 MP 元数据）+ mock 底层 mapper 让查询返回空列表
+     */
+    @SuppressWarnings("unchecked")
+    private void stubNoArticleNews() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), WeiYan.class);
+        when(weiYanService.lambdaQuery()).thenReturn(new LambdaQueryChainWrapper<>(weiYanMapper));
+        when(weiYanMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
     }
 
     private Article createPaidArticle() {

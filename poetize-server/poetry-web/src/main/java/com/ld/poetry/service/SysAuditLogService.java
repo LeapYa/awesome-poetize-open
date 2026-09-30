@@ -18,6 +18,31 @@ public interface SysAuditLogService extends IService<SysAuditLog> {
     void recordSecurity(String action, boolean success, String account, Integer userId, String username,
                         String summary, Map<String, Object> detail);
 
+    /**
+     * 记录安全事件（支持直传调用方 IP 与去重窗口），log_type='SECURITY'。
+     *
+     * <p>用于限流触发、IP 拦截、Token 失效等高频安全事件，防止审计表被攻击流量刷爆：
+     * 同一 dedupKey 在 dedupWindowMillis 窗口内只落库第一条，其余抑制；
+     * 上一窗口被抑制的次数随下一窗口首条记录写入 detail.suppressedInPrevWindow。
+     *
+     * @param callerIp          调用方 IP：非空时直接使用，为空时从当前 HTTP 请求上下文解析。
+     *                          Filter 层等 RequestContextHolder 未就绪的场景必须显式传入
+     * @param dedupKey          去重键（如 IP、账号、规则+限流键）；为空时不去重、直接落库
+     * @param dedupWindowMillis 去重窗口毫秒数；非正数时取默认 60000
+     */
+    void recordSecurityDedup(String action, boolean success, String account, Integer userId, String username,
+                             String summary, Map<String, Object> detail,
+                             String callerIp, String dedupKey, long dedupWindowMillis);
+
+    /**
+     * 记录强制下线事件（action=FORCED_LOGOUT，log_type='SECURITY'）。
+     *
+     * @param userId   被下线的用户 ID
+     * @param username 被下线的用户名（可空）
+     * @param reason   下线原因（如：本人修改密码 / 忘记密码重置 / 管理员删除用户）
+     */
+    void recordForcedLogout(Integer userId, String username, String reason);
+
     void recordOperation(String logType, String action, boolean success, String targetType, String targetId,
                          String summary, Map<String, Object> detail);
 

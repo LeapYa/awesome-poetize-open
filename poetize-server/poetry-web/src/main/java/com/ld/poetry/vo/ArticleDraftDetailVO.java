@@ -21,5 +21,12 @@ public class ArticleDraftDetailVO {
     private LocalDateTime updateTime;
     private String sourceArticleTitle;
     private ArticleVO sourceArticle;
+    /**
+     * 文章最后修改时间是否晚于草稿最后编辑时间。
+     *
+     * <p>为 true 表示草稿可能已过期：例如自动化工具 / 其他设备 / API 直接改过文章，
+     * 编辑页需要提示用户，避免静默用旧草稿覆盖这些更新。</p>
+     */
+    private Boolean articleUpdatedAfterDraft;
     private List<ArticleDraftCollaboratorVO> collaborators;
 }

@@ -25,6 +25,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Slf4j
@@ -34,6 +35,12 @@ public class SysAuditLogServiceImpl extends ServiceImpl<SysAuditLogMapper, SysAu
     private static final int MAX_PAGE_SIZE = 100;
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter ISO_DATE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
+    // 高频安全事件去重状态：key=action|dedupKey，
+    // value=[窗口起始时间戳, 窗口长度ms, 当前窗口已抑制数, 上一窗口已抑制数]
+    private static final ConcurrentHashMap<String, long[]> SECURITY_DEDUP_STATE = new ConcurrentHashMap<>();
+    private static final int SECURITY_DEDUP_MAX_ENTRIES = 10000;
+    private static final long DEFAULT_SECURITY_DEDUP_WINDOW_MS = 60_000L;
 
     @Autowired
     private LocationService locationService;
@@ -80,6 +87,72 @@ public class SysAuditLogServiceImpl extends ServiceImpl<SysAuditLogMapper, SysAu
     public void recordSecurity(String action, boolean success, String account, Integer userId, String username,
                                String summary, Map<String, Object> detail) {
         record("SECURITY", action, success, account, userId, username, null, null, summary, detail, null, null, null);
+    }
+
+    @Override
+    public void recordSecurityDedup(String action, boolean success, String account, Integer userId, String username,
+                                    String summary, Map<String, Object> detail,
+                                    String callerIp, String dedupKey, long dedupWindowMillis) {
+        long window = dedupWindowMillis > 0 ? dedupWindowMillis : DEFAULT_SECURITY_DEDUP_WINDOW_MS;
+        long now = System.currentTimeMillis();
+        long[] state = null;
+        if (StringUtils.hasText(dedupKey)) {
+            String key = action + "|" + dedupKey;
+            state = SECURITY_DEDUP_STATE.compute(key, (k, v) -> {
+                if (v == null) {
+                    return new long[]{now, window, 0, 0};
+                }
+                if (now - v[0] >= v[1]) {
+                    // 进入新窗口：暂存上一窗口被抑制的次数，随本窗口首条记录落库
+                    v[3] = v[2];
+                    v[2] = 0;
+                    v[0] = now;
+                    return v;
+                }
+                // 窗口内重复事件：抑制落库，仅累加计数
+                v[2]++;
+                return v;
+            });
+            evictStaleDedupState(now);
+            if (state[2] > 0) {
+                return;
+            }
+        }
+        try {
+            Map<String, Object> safeDetail = detail == null ? new LinkedHashMap<>() : new LinkedHashMap<>(detail);
+            if (state != null && state[3] > 0) {
+                safeDetail.put("suppressedInPrevWindow", state[3]);
+            }
+            record("SECURITY", action, success, account, userId, username, null, null, summary, safeDetail,
+                    null, null, null, callerIp, null);
+        } catch (Exception e) {
+            log.warn("记录去重安全日志失败: action={}, error={}", action, e.getMessage());
+        }
+    }
+
+    @Override
+    public void recordForcedLogout(Integer userId, String username, String reason) {
+        try {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("reason", reason);
+            detail.put("scope", "ALL_DEVICES");
+            recordSecurity("FORCED_LOGOUT", true, username, userId, username,
+                    "已强制下线该账号的所有设备", detail);
+        } catch (Exception e) {
+            log.warn("记录强制下线日志失败: userId={}, error={}", userId, e.getMessage());
+        }
+    }
+
+    /**
+     * 去重状态表容量兜底：超过上限时清理已过期至少一个窗口的条目，
+     * 防止被大量一次性 IP 撑爆内存。
+     */
+    private void evictStaleDedupState(long now) {
+        if (SECURITY_DEDUP_STATE.size() <= SECURITY_DEDUP_MAX_ENTRIES) {
+            return;
+        }
+        SECURITY_DEDUP_STATE.entrySet().removeIf(
+                entry -> now - entry.getValue()[0] >= entry.getValue()[1] * 2);
     }
 
     @Override

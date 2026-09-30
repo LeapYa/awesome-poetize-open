@@ -19,5 +19,10 @@ public class ArticleDraftSummaryVO {
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private String sourceArticleTitle;
+    /**
+     * 草稿是否已有内容（快照非空）。
+     * 未编辑过的空草稿（仅打开过编辑页）不应触发"是否继续编辑草稿"之类的询问。
+     */
+    private Boolean hasContent;
     private List<ArticleDraftCollaboratorVO> collaborators;
 }

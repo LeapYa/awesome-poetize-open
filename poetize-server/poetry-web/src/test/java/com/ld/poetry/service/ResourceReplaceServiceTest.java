@@ -65,6 +65,9 @@ class ResourceReplaceServiceTest {
     @Mock
     private FileSecurityValidator fileSecurityValidator;
 
+    @Mock
+    private ResourceTrashService resourceTrashService;
+
     private final Map<String, ResourceContentReplacementService.ReplacementClaim> replacementClaims =
             new HashMap<>();
     private final AtomicLong replacementIds = new AtomicLong(1);
@@ -80,6 +83,9 @@ class ResourceReplaceServiceTest {
         ReflectionTestUtils.setField(service, "resourceLocationService", resourceLocationService);
         ReflectionTestUtils.setField(service, "contentReplacementService", contentReplacementService);
         ReflectionTestUtils.setField(service, "fileSecurityValidator", fileSecurityValidator);
+        // 替换终态会把旧文件备份登记进回收站而非直接删除，测试必须注入该协作者，
+        // 否则 registerReplacementBackup 分支恒被跳过，等于没覆盖删除策略
+        ReflectionTestUtils.setField(service, "resourceTrashService", resourceTrashService);
         lenient().when(contentReplacementService.begin(any(), any(), anyString(), anyList()))
                 .thenAnswer(this::beginReplacement);
         lenient().when(contentReplacementService.commit(anyString(), anyList()))
@@ -99,6 +105,27 @@ class ResourceReplaceServiceTest {
         ReflectionTestUtils.setField(service, "localDownloadUrl", "/static/");
         ReflectionTestUtils.setField(service, "staticResourceRoots", "");
         ReflectionTestUtils.setField(service, "autoStaticRootDiscovery", false);
+    }
+
+    @Test
+    void replaceResourceShouldRegisterReplacementBackupInsteadOfDeletingIt() throws Exception {
+        Path targetFile = tempDir.resolve("uploads/assets/keep-backup.png");
+        byte[] oldBytes = imageBytes("png", 1, 1);
+        byte[] newBytes = imageBytes("png", 2, 3);
+        Files.createDirectories(targetFile.getParent());
+        Files.write(targetFile, oldBytes);
+
+        Resource resource = resource(7, "/static/assets/keep-backup.png", "local");
+        when(resourceService.getById(7)).thenReturn(resource);
+        when(fileSecurityValidator.validateFile(any(), eq("keep-backup.png"), eq("image/png")))
+                .thenReturn(FileSecurityValidator.ValidationResult.success("png"));
+
+        MockMultipartFile file = new MockMultipartFile("file", "keep-backup.png", "image/png", newBytes);
+        PoetryResult<Resource> result = service.replaceResource(7, "/static/assets/keep-backup.png", file);
+
+        assertThat(result.isSuccess()).isTrue();
+        // 误替换必须可回滚：旧备份登记进回收站，而不是被静默删除
+        verify(resourceTrashService).registerReplacementBackup(any(), any(), any());
     }
 
     @Test

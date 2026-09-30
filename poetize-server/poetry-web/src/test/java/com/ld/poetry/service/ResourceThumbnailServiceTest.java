@@ -153,6 +153,9 @@ class ResourceThumbnailServiceTest {
         resource.setStoreType(storeType);
         resource.setMimeType(mimeType);
         resource.setOriginalName(path);
+        // 状态门控要求资源处于"启用且内容可用"才允许生成缩略图
+        resource.setStatus(true);
+        resource.setContentState(com.ld.poetry.enums.ResourceContentState.ACTIVE.name());
         return resource;
     }
 

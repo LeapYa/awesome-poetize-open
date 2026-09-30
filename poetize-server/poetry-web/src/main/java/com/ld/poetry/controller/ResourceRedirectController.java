@@ -1,7 +1,10 @@
 package com.ld.poetry.controller;
 
+import com.ld.poetry.dao.ResourceMapper;
 import com.ld.poetry.dao.ResourceRedirectMapper;
+import com.ld.poetry.entity.Resource;
 import com.ld.poetry.entity.ResourceRedirect;
+import com.ld.poetry.enums.ResourceContentState;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.util.StringUtils;
@@ -22,6 +25,8 @@ public class ResourceRedirectController {
 
     private final ResourceRedirectMapper resourceRedirectMapper;
 
+    private final ResourceMapper resourceMapper;
+
     @GetMapping("/resource/redirect")
     public void redirect(
             @RequestHeader(value = "X-Resource-Source-Path", required = false) String sourcePathHeader,
@@ -30,6 +35,16 @@ public class ResourceRedirectController {
         String encodedSourcePath = StringUtils.hasText(sourcePathHeader) ? sourcePathHeader : sourcePathParam;
         String sourcePath = decodePath(stripQueryString(encodedSourcePath));
         if (!isAllowedSourcePath(sourcePath)) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+
+        // 源路径仍归属某个资源、且该资源处于回收站/删除中/已停用时，不得再 302：
+        // 否则 302 会成为绕过 content_state 门控的又一条读通道（彻底删除时才会清 redirect 行）
+        Resource owner = resourceMapper.findByPath(sourcePath);
+        if (owner != null
+                && (!Boolean.TRUE.equals(owner.getStatus())
+                || !ResourceContentState.isActive(owner.getContentState()))) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
             return;
         }

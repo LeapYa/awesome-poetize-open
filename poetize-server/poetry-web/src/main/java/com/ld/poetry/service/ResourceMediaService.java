@@ -37,6 +37,13 @@ public class ResourceMediaService {
             throw notFound("稳定资源不存在或未启用");
         }
         if (!ResourceContentState.isActive(resource.getContentState())) {
+            // 区分回收站 / 删除中 / 替换中，避免把"已移入回收站"误报成"替换尚未完成"
+            if (ResourceContentState.TRASH.name().equals(resource.getContentState())) {
+                throw unavailable("资源已移入回收站，恢复后可访问");
+            }
+            if (ResourceContentState.DELETION_PENDING.name().equals(resource.getContentState())) {
+                throw unavailable("资源正在删除，无法访问");
+            }
             throw unavailable("资源内容替换尚未完成");
         }
         if (resource.getActiveLocationId() == null) {

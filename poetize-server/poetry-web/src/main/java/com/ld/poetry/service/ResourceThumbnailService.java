@@ -2,6 +2,7 @@ package com.ld.poetry.service;
 
 import com.ld.poetry.entity.Resource;
 import com.ld.poetry.entity.ResourceLocation;
+import com.ld.poetry.enums.ResourceContentState;
 import com.ld.poetry.utils.storage.StoreEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -137,6 +138,12 @@ public class ResourceThumbnailService {
         Resource resource = resourceService.getById(id);
         if (resource == null || !StringUtils.hasText(resource.getPath())) {
             throw new ThumbnailException(HttpServletResponse.SC_NOT_FOUND, "资源不存在或路径为空");
+        }
+        // 与 /media 读取门控口径一致：回收站/删除中/替换中/已停用的资源不得再读出字节，
+        // 否则缩略图会成为绕过 content_state 门控的第二条读通道
+        if (!Boolean.TRUE.equals(resource.getStatus())
+                || !ResourceContentState.isActive(resource.getContentState())) {
+            throw new ThumbnailException(HttpServletResponse.SC_NOT_FOUND, "资源不存在或当前不可访问");
         }
         if (!isLocalStore(resource)) {
             throw new ThumbnailException(HttpServletResponse.SC_BAD_REQUEST, "仅支持服务器本地资源生成缩略图");

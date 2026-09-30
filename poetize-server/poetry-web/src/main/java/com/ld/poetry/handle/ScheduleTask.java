@@ -2,8 +2,14 @@ package com.ld.poetry.handle;
 
 import com.ld.poetry.dao.HistoryInfoMapper;
 import com.ld.poetry.constants.CommonConst;
+import com.ld.poetry.service.ArticleRecycleService;
+import com.ld.poetry.service.ArticleVersionService;
 import com.ld.poetry.service.CacheService;
+import com.ld.poetry.service.ResourceTrashService;
 import com.ld.poetry.service.SysAuditLogService;
+import com.ld.poetry.service.impl.ArticleRecycleServiceImpl;
+import com.ld.poetry.service.impl.ArticleVersionServiceImpl;
+import com.ld.poetry.service.impl.ResourceTrashServiceImpl;
 import com.ld.poetry.utils.HistoryInfoRecordMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,30 +41,86 @@ public class ScheduleTask {
     @Autowired
     private SysAuditLogService sysAuditLogService;
 
+    @Autowired
+    private ArticleRecycleService articleRecycleService;
+
+    @Autowired
+    private ArticleVersionService articleVersionService;
+
+    @Autowired
+    private ResourceTrashService resourceTrashService;
+
     /**
      * 每天凌晨执行的完整清理和统计任务
      * 此时访问量统计会刷新，包括总访问量和今日访问量
      */
     @Scheduled(cron = "0 0 0 * * ?")
     public void cleanIpHistory() {
-        try {
-            log.info("====================开始执行每日访问记录同步和统计任务====================");
+        log.info("====================开始执行每日访问记录同步和统计任务====================");
+
+        // 各清理步骤相互隔离：任一步失败只记日志，不拖垮当晚其余清理与统计
+        runQuietly("清理180天前后台审计日志", () -> {
             int removedAuditLogs = sysAuditLogService.cleanExpiredLogs(180);
             if (removedAuditLogs > 0) {
                 log.info("已清理180天前后台审计日志: {} 条", removedAuditLogs);
             }
-            
+        });
+
+        // 回收站超期文章彻底清理（含翻译与历史版本），保留期 30 天
+        runQuietly("清理回收站超期文章", () -> {
+            int purgedArticles = articleRecycleService.purgeExpiredTrash(ArticleRecycleServiceImpl.TRASH_RETENTION_DAYS);
+            if (purgedArticles > 0) {
+                log.info("已彻底清理回收站超期文章: {} 篇", purgedArticles);
+            }
+        });
+
+        // 文章历史版本按保留期（默认 90 天）裁剪
+        runQuietly("裁剪超龄文章历史版本", () -> {
+            int prunedVersions = articleVersionService.pruneExpiredVersions(ArticleVersionServiceImpl.VERSION_RETENTION_DAYS);
+            if (prunedVersions > 0) {
+                log.info("已清理超龄文章历史版本: {} 条", prunedVersions);
+            }
+        });
+
+        // 资源回收站超期彻底清理（含替换旧版备份），保留期 30 天
+        runQuietly("清理资源回收站超期项", () -> {
+            int purgedResources = resourceTrashService.purgeExpiredTrash(ResourceTrashServiceImpl.TRASH_RETENTION_DAYS);
+            int purgedBackups = resourceTrashService.purgeExpiredBackups(ResourceTrashServiceImpl.TRASH_RETENTION_DAYS);
+            if (purgedResources > 0 || purgedBackups > 0) {
+                log.info("已彻底清理资源回收站超期项: 资源 {} 个, 替换备份 {} 份", purgedResources, purgedBackups);
+            }
+        });
+
+        // 兜底：删除流程中断导致停留在 DELETION_PENDING 的资源退回回收站，恢复可见与可恢复入口
+        runQuietly("回收删除未收尾的资源", () -> {
+            int reclaimedResources = resourceTrashService.reclaimStalePendingToTrash();
+            if (reclaimedResources > 0) {
+                log.warn("已将删除未收尾的资源退回回收站: {} 个", reclaimedResources);
+            }
+        });
+
+        try {
             // 同步昨天的Redis访问记录到数据库
             syncVisitRecordsToDatabase();
 
             // 重新生成统计数据（仅基于数据库数据，无Redis实时计数）
             cacheService.refreshLocationStatisticsCache();
             log.info("IP历史记录清理和统计任务执行完成，访问量统计已更新");
-            
         } catch (Exception e) {
             log.error("IP历史记录清理和统计任务执行失败", e);
             // 确保缓存不为空，避免前端显示异常
             ensureStatisticsCache();
+        }
+    }
+
+    /**
+     * 执行单个清理步骤；失败只记日志，不影响同批其它步骤
+     */
+    private void runQuietly(String step, Runnable action) {
+        try {
+            action.run();
+        } catch (Exception e) {
+            log.error("每日清理步骤执行失败: {}", step, e);
         }
     }
     

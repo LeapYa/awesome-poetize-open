@@ -1,5 +1,6 @@
 package com.ld.poetry.controller;
 
+import com.ld.poetry.dao.ResourceMapper;
 import com.ld.poetry.dao.ResourceRedirectMapper;
 import com.ld.poetry.entity.ResourceRedirect;
 import jakarta.servlet.http.HttpServletResponse;
@@ -22,11 +23,14 @@ class ResourceRedirectControllerTest {
     @Mock
     private ResourceRedirectMapper resourceRedirectMapper;
 
+    @Mock
+    private ResourceMapper resourceMapper;
+
     private ResourceRedirectController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new ResourceRedirectController(resourceRedirectMapper);
+        controller = new ResourceRedirectController(resourceRedirectMapper, resourceMapper);
     }
 
     @Test

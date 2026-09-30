@@ -1,5 +1,8 @@
 package com.ld.poetry.config;
 
+import com.ld.poetry.dao.ResourceMapper;
+import com.ld.poetry.entity.Resource;
+import com.ld.poetry.enums.ResourceContentState;
 import com.ld.poetry.utils.security.FileDownloadUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -28,6 +31,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Autowired
     private PoetryFilter poetryFilter;
+
+    @Autowired
+    private ResourceMapper resourceMapper;
     
     @Value("${local.uploadUrl:/app/static/}")
     private String uploadUrl;
@@ -83,6 +89,46 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registration.addUrlPatterns("/static/*");
         registration.setName("executableAttachmentHeaderFilter");
         registration.setOrder(3);
+        return registration;
+    }
+
+    /**
+     * 上传资源状态门控：/static/** 与 nginx 的物理直链共用同一 upload root，
+     * 应用层的 content_state 门控（/media）因此被绕过，回收站/删除中的资源在保留期内仍可被直接下载。
+     * 这里按路径反查 resource 行，非"启用且内容可用"的资源一律返回 404，保证"删除即下线"。
+     */
+    @Bean
+    public FilterRegistrationBean<OncePerRequestFilter> trashedStaticResourceFilterRegistration() {
+        FilterRegistrationBean<OncePerRequestFilter> registration = new FilterRegistrationBean<>();
+        registration.setFilter(new OncePerRequestFilter() {
+            @Override
+            protected void doFilterInternal(HttpServletRequest request,
+                                            HttpServletResponse response,
+                                            FilterChain filterChain) throws ServletException, IOException {
+                String uri = request.getRequestURI();
+                String method = request.getMethod();
+                if (uri != null && uri.startsWith("/static/")
+                        && ("GET".equals(method) || "HEAD".equals(method))) {
+                    try {
+                        Resource resource = resourceMapper.findByPath(uri);
+                        if (resource != null
+                                && (!Boolean.TRUE.equals(resource.getStatus())
+                                || !ResourceContentState.isActive(resource.getContentState()))) {
+                            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                            response.setHeader("Cache-Control", "no-store");
+                            return;
+                        }
+                    } catch (Exception e) {
+                        // 反查失败按放行处理，避免门控本身成为静态资源不可用的故障点
+                        log.warn("静态资源状态门控查询失败，按放行处理: uri={}, error={}", uri, e.getMessage());
+                    }
+                }
+                filterChain.doFilter(request, response);
+            }
+        });
+        registration.addUrlPatterns("/static/*");
+        registration.setName("trashedStaticResourceFilter");
+        registration.setOrder(4);
         return registration;
     }
 

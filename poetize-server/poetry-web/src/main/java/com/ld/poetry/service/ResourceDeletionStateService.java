@@ -11,6 +11,7 @@ import com.ld.poetry.entity.ResourceLocation;
 import com.ld.poetry.entity.ResourceRedirect;
 import com.ld.poetry.enums.ResourceContentState;
 import com.ld.poetry.enums.ResourceLocationStatus;
+import com.ld.poetry.utils.storage.StoreEnum;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +35,7 @@ public class ResourceDeletionStateService {
     private final ResourceAliasMapper resourceAliasMapper;
     private final ResourceRedirectMapper resourceRedirectMapper;
     private final ResourceReferenceService referenceService;
+    private final LocalResourceFileService localResourceFileService;
 
     public Resource requireResource(Integer resourceId) {
         if (resourceId == null) {
@@ -44,6 +46,170 @@ public class ResourceDeletionStateService {
             throw new IllegalArgumentException("资源不存在：" + resourceId);
         }
         return resource;
+    }
+
+    // ================================ 回收站 ================================
+
+    /**
+     * 移入回收站：status=false + content_state=TRASH + 记录 trash_time。
+     * 不动任何物理文件；/media/{publicId} 因 content_state 非 ACTIVE 自动不可读。
+     * 被引用且非 force 时拒绝（与直接删除的引用防线一致）。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Resource moveToTrash(Integer resourceId, boolean forceReferenced) {
+        Resource resource = resourceMapper.selectByIdForUpdate(resourceId);
+        if (resource == null) {
+            throw new IllegalArgumentException("资源不存在：" + resourceId);
+        }
+        boolean active = Boolean.TRUE.equals(resource.getStatus())
+                && ResourceContentState.isActive(resource.getContentState());
+        if (!active) {
+            throw new IllegalStateException("资源当前状态不允许移入回收站");
+        }
+        if (!forceReferenced) {
+            int referenceCount = countReferences(resource);
+            if (referenceCount > 0) {
+                throw new ConcurrentModificationException(
+                        "稳定地址或历史别名仍有 " + referenceCount + " 处引用，不能删除"
+                );
+            }
+        }
+        int version = resource.getLocationVersion() == null ? 0 : resource.getLocationVersion();
+        int updated = resourceMapper.update(null, Wrappers.<Resource>lambdaUpdate()
+                .eq(Resource::getId, resource.getId())
+                .eq(Resource::getStatus, true)
+                .eq(Resource::getLocationVersion, version)
+                .set(Resource::getStatus, false)
+                .set(Resource::getContentState, ResourceContentState.TRASH.name())
+                .set(Resource::getTrashTime, LocalDateTime.now().withNano(0))
+                .set(Resource::getLocationVersion, version + 1));
+        if (updated != 1) {
+            throw new ConcurrentModificationException("资源移入回收站期间状态已变化");
+        }
+        resource.setStatus(false);
+        resource.setContentState(ResourceContentState.TRASH.name());
+        resource.setLocationVersion(version + 1);
+        return resource;
+    }
+
+    /**
+     * 从回收站恢复：status=true + content_state=ACTIVE + 清除 trash_time。
+     * 物理文件在回收站期间未被移动，恢复即重新可见。
+     * 恢复前校验活动物理副本仍然存在：文件缺失时若照常恢复，资源会回到 ACTIVE
+     * 却每次访问都报"活动物理副本不可用"，因此缺失时引导改用彻底删除。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Resource restoreTrash(Integer resourceId) {
+        Resource resource = resourceMapper.selectByIdForUpdate(resourceId);
+        if (resource == null) {
+            throw new IllegalArgumentException("资源不存在：" + resourceId);
+        }
+        if (!ResourceContentState.TRASH.name().equals(resource.getContentState())) {
+            throw new IllegalStateException("资源不在回收站中");
+        }
+        requireRestorableActiveLocation(resource);
+        int version = resource.getLocationVersion() == null ? 0 : resource.getLocationVersion();
+        int updated = resourceMapper.update(null, Wrappers.<Resource>lambdaUpdate()
+                .eq(Resource::getId, resource.getId())
+                .eq(Resource::getStatus, false)
+                .eq(Resource::getContentState, ResourceContentState.TRASH.name())
+                .eq(Resource::getLocationVersion, version)
+                .set(Resource::getStatus, true)
+                .set(Resource::getContentState, ResourceContentState.ACTIVE.name())
+                .set(Resource::getTrashTime, null)
+                .set(Resource::getLocationVersion, version + 1));
+        if (updated != 1) {
+            throw new ConcurrentModificationException("资源恢复期间状态已变化");
+        }
+        resource.setStatus(true);
+        resource.setContentState(ResourceContentState.ACTIVE.name());
+        resource.setLocationVersion(version + 1);
+        return resource;
+    }
+
+    /**
+     * 校验活动物理副本的登记完整且本地文件仍然存在，缺失时抛出引导彻底删除的异常。
+     * 远程存储不在恢复事务内发起网络探测（仅做数据库侧登记校验），避免恢复路径被外部存储抖动阻塞。
+     */
+    private void requireRestorableActiveLocation(Resource resource) {
+        String missing = "文件已缺失，无法恢复，请改用彻底删除";
+        if (resource.getActiveLocationId() == null) {
+            throw new IllegalStateException(missing);
+        }
+        ResourceLocation location = resourceLocationMapper.selectById(resource.getActiveLocationId());
+        if (location == null
+                || !resource.getId().equals(location.getResourceId())
+                || !ResourceLocationStatus.ACTIVE.name().equals(location.getStatus())
+                || !StringUtils.hasText(location.getAccessPath())) {
+            throw new IllegalStateException(missing);
+        }
+        if (StoreEnum.LOCAL.getCode().equals(location.getStoreType())
+                && !localResourceFileService.exists(location.getAccessPath())) {
+            throw new IllegalStateException(missing);
+        }
+    }
+
+    /**
+     * 回收站资源进入正式删除声明状态（TRASH → DELETION_PENDING），
+     * 之后复用既有 claim → 删文件 → finalizeDeletion 管线彻底清理。
+     *
+     * <p>非 TRASH（例如已被并发恢复成 ACTIVE）时抛并发异常，绝不静默返回：
+     * 静默返回会让调用方继续走删除管线，把刚恢复的活资源物理删掉。</p>
+     *
+     * <p>不清空 trash_time：删除失败回退回收站时保留期倒计时仍从原进站时间起算，
+     * 否则每次回退都会把保留期顺延 30 天，超期清理永不收敛。</p>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void transitionTrashToPending(Integer resourceId) {
+        Resource resource = resourceMapper.selectByIdForUpdate(resourceId);
+        if (resource == null) {
+            throw new IllegalArgumentException("资源不存在：" + resourceId);
+        }
+        if (!ResourceContentState.TRASH.name().equals(resource.getContentState())) {
+            throw new ConcurrentModificationException("资源已不在回收站中，无法彻底删除");
+        }
+        int version = resource.getLocationVersion() == null ? 0 : resource.getLocationVersion();
+        int updated = resourceMapper.update(null, Wrappers.<Resource>lambdaUpdate()
+                .eq(Resource::getId, resource.getId())
+                .eq(Resource::getStatus, false)
+                .eq(Resource::getContentState, ResourceContentState.TRASH.name())
+                .eq(Resource::getLocationVersion, version)
+                .set(Resource::getContentState, ResourceContentState.DELETION_PENDING.name())
+                .set(Resource::getDeletionPendingTime, LocalDateTime.now().withNano(0))
+                .set(Resource::getLocationVersion, version + 1));
+        if (updated != 1) {
+            throw new ConcurrentModificationException("资源进入删除状态期间状态已变化");
+        }
+    }
+
+    /**
+     * 彻底删除未完成时把资源退回回收站（DELETION_PENDING → TRASH），
+     * 保留"恢复/重试彻底删除"入口，避免资源卡在既不可恢复也不在回收站的中间态。
+     *
+     * <p>保留原 trash_time（transitionTrashToPending 不再清空它），使保留期倒计时继续收敛；
+     * CAS 影响 0 行说明状态已被其它流程改变，抛并发异常让调用方给出真实结果。</p>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void rollbackPendingToTrash(Integer resourceId) {
+        Resource resource = resourceMapper.selectByIdForUpdate(resourceId);
+        if (resource == null
+                || Boolean.TRUE.equals(resource.getStatus())
+                || !ResourceContentState.DELETION_PENDING.name().equals(resource.getContentState())) {
+            // 已不是待删除空壳（可能已删除成功或已被其它流程处理），无需回退
+            return;
+        }
+        int version = resource.getLocationVersion() == null ? 0 : resource.getLocationVersion();
+        int updated = resourceMapper.update(null, Wrappers.<Resource>lambdaUpdate()
+                .eq(Resource::getId, resource.getId())
+                .eq(Resource::getStatus, false)
+                .eq(Resource::getContentState, ResourceContentState.DELETION_PENDING.name())
+                .eq(Resource::getLocationVersion, version)
+                .set(Resource::getContentState, ResourceContentState.TRASH.name())
+                .set(Resource::getDeletionPendingTime, null)
+                .set(Resource::getLocationVersion, version + 1));
+        if (updated != 1) {
+            throw new ConcurrentModificationException("资源退回回收站期间状态已变化");
+        }
     }
 
     public List<ResourceLocation> listLocations(Integer resourceId) {
@@ -127,6 +293,7 @@ public class ResourceDeletionStateService {
                     update
                             .set(Resource::getStatus, false)
                             .set(Resource::getContentState, ResourceContentState.DELETION_PENDING.name())
+                            .set(Resource::getDeletionPendingTime, LocalDateTime.now().withNano(0))
                             .set(Resource::getLocationVersion, version + 1)
             );
             if (updated != 1) {

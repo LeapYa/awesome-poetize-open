@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapp
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ld.poetry.constants.CacheConstants;
 import com.ld.poetry.entity.Resource;
+import com.ld.poetry.enums.ResourceContentState;
 import com.ld.poetry.utils.RedisUtil;
 import com.ld.poetry.vo.ResourceScanTaskVO;
 import lombok.extern.slf4j.Slf4j;
@@ -78,7 +79,10 @@ public class ResourceAvailabilityService {
     }
 
     public Page<Resource> listInvalidResources(Page<Resource> page, String order, boolean asc) {
-        LambdaQueryChainWrapper<Resource> query = resourceService.lambdaQuery();
+        // 回收站中的资源不参与可用性检查（列表页也不展示）
+        LambdaQueryChainWrapper<Resource> query = resourceService.lambdaQuery()
+                .and(w -> w.isNull(Resource::getContentState)
+                        .or().ne(Resource::getContentState, ResourceContentState.TRASH.name()));
         applyResourceOrder(query, order, asc);
         List<Resource> resources = query.list();
         return buildInvalidResourcePage(resources, page.getCurrent(), page.getSize());
@@ -217,7 +221,10 @@ public class ResourceAvailabilityService {
             task.setStartedAt(System.currentTimeMillis());
             saveTask(task);
 
-            LambdaQueryChainWrapper<Resource> query = resourceService.lambdaQuery();
+            // 回收站中的资源不参与可用性扫描
+            LambdaQueryChainWrapper<Resource> query = resourceService.lambdaQuery()
+                    .and(w -> w.isNull(Resource::getContentState)
+                            .or().ne(Resource::getContentState, ResourceContentState.TRASH.name()));
             applyResourceOrder(query, order, asc);
             List<Resource> resources = query.list();
             task.setTotal(resources.size());
@@ -337,7 +344,10 @@ public class ResourceAvailabilityService {
         List<Integer> pageIds = new ArrayList<>(hitIds.subList((int) from, (int) to));
 
         LambdaQueryChainWrapper<Resource> query = resourceService.lambdaQuery()
-                .in(Resource::getId, pageIds);
+                .in(Resource::getId, pageIds)
+                // 旧扫描缓存可能包含已被移入回收站的资源，读取时再兜底过滤
+                .and(w -> w.isNull(Resource::getContentState)
+                        .or().ne(Resource::getContentState, ResourceContentState.TRASH.name()));
         applyResourceOrder(query, order, asc);
         List<Resource> records = query.list();
 

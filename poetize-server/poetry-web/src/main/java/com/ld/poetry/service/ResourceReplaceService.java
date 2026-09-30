@@ -68,6 +68,9 @@ public class ResourceReplaceService {
     private ResourceContentReplacementService contentReplacementService;
 
     @Autowired
+    private com.ld.poetry.service.ResourceTrashService resourceTrashService;
+
+    @Autowired
     private FileSecurityValidator fileSecurityValidator;
 
     @Value("${local.uploadUrl:/app/static/}")
@@ -100,7 +103,8 @@ public class ResourceReplaceService {
             }
             for (ResourceContentReplacementService.ReplacementClaim claim
                     : contentReplacementService.listTerminalClaimsWithArtifacts()) {
-                cleanupTerminalArtifacts(claim);
+                cleanupTerminalArtifacts(claim,
+                        ResourceReplacementStatus.COMMITTED.name().equals(claim.operation().getStatus()));
             }
         } catch (Exception e) {
             log.info("资源内容替换表尚未就绪或恢复扫描失败，将保持数据库状态不变: {}", e.getMessage());
@@ -116,7 +120,8 @@ public class ResourceReplaceService {
                     observeTargetsBestEffort(claim)
             );
             if (first.resolution() != ResourceReplacementResolution.KEEP_BLOCKED) {
-                cleanupTerminalArtifacts(claim);
+                cleanupTerminalArtifacts(claim,
+                        first.resolution() == ResourceReplacementResolution.COMMIT_NEW);
                 return;
             }
 
@@ -126,7 +131,8 @@ public class ResourceReplaceService {
                     observeTargetsBestEffort(claim)
             );
             if (restored.resolution() != ResourceReplacementResolution.KEEP_BLOCKED) {
-                cleanupTerminalArtifacts(claim);
+                cleanupTerminalArtifacts(claim,
+                        restored.resolution() == ResourceReplacementResolution.COMMIT_NEW);
                 return;
             }
             log.error("内容替换恢复后仍无法取得一致哈希证据: operationId={}", operationId);
@@ -214,7 +220,7 @@ public class ResourceReplaceService {
                     claim.operation().getOperationId(),
                     evidence
             );
-            cleanupTerminalArtifacts(claim);
+            cleanupTerminalArtifacts(claim, true);
             return PoetryResult.success(persistedResource);
         } catch (Exception e) {
             if (claim == null) {
@@ -1054,11 +1060,11 @@ public class ResourceReplaceService {
             return FailureResolution.blockedResolution();
         }
         if (ResourceReplacementStatus.COMMITTED.name().equals(latest.getStatus())) {
-            cleanupTerminalArtifacts(claim);
+            cleanupTerminalArtifacts(claim, true);
             return FailureResolution.committed(resourceService.getById(latest.getResourceId()));
         }
         if (ResourceReplacementStatus.ABORTED.name().equals(latest.getStatus())) {
-            cleanupTerminalArtifacts(claim);
+            cleanupTerminalArtifacts(claim, false);
             return FailureResolution.restored();
         }
 
@@ -1070,11 +1076,11 @@ public class ResourceReplaceService {
                     evidence
             );
             if (recovered.resolution() == ResourceReplacementResolution.COMMIT_NEW) {
-                cleanupTerminalArtifacts(claim);
+                cleanupTerminalArtifacts(claim, true);
                 return FailureResolution.committed(recovered.resource());
             }
             if (recovered.resolution() == ResourceReplacementResolution.RESTORE_OLD) {
-                cleanupTerminalArtifacts(claim);
+                cleanupTerminalArtifacts(claim, false);
                 return FailureResolution.restored();
             }
             return FailureResolution.blockedResolution();
@@ -1276,14 +1282,40 @@ public class ResourceReplaceService {
         }
     }
 
+    /**
+     * 清理替换事务的恢复文件。
+     *
+     * @param preserveBackups true（COMMIT_NEW 终态）：旧文件备份保留并登记回收站，
+     *                        误替换可回滚；false（RESTORE_OLD/ABORTED 终态）：备份已被
+     *                        恢复动作用掉或事务已回滚，直接删除残留文件。
+     */
     private void cleanupTerminalArtifacts(
-            ResourceContentReplacementService.ReplacementClaim claim) {
+            ResourceContentReplacementService.ReplacementClaim claim,
+            boolean preserveBackups) {
         boolean cleaned = true;
         for (ResourceContentReplacementTarget target : claim.targets()) {
             try {
                 ArtifactPaths paths = validateArtifactPaths(target);
                 cleaned &= deleteArtifact(paths.tempPath());
-                cleaned &= deleteArtifact(paths.backupPath());
+                if (preserveBackups) {
+                    if (resourceTrashService == null) {
+                        // 登记服务不可用时必须保留备份文件（fail-closed），等启动恢复扫描重试；
+                        // 绝不能落入"直接删除备份"分支，那会丢失可回滚的旧版文件
+                        cleaned = false;
+                        log.error("替换备份登记服务不可用，保留备份文件原地待重试: targetId={}", target.getId());
+                    } else {
+                        try {
+                            resourceTrashService.registerReplacementBackup(
+                                    claim.operation(), target, paths.backupPath());
+                        } catch (Exception e) {
+                            // 登记失败时保留备份文件原地，等启动恢复扫描重试（不标记 artifactsCleaned）
+                            cleaned = false;
+                            log.warn("登记替换旧版备份失败，备份文件保留原地: targetId={}", target.getId(), e);
+                        }
+                    }
+                } else {
+                    cleaned &= deleteArtifact(paths.backupPath());
+                }
             } catch (Exception e) {
                 cleaned = false;
                 log.warn("清理内容替换恢复文件失败: targetId={}", target.getId(), e);

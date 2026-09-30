@@ -10,6 +10,7 @@ import com.ld.poetry.constants.CacheConstants;
 import com.ld.poetry.dao.*;
 import com.ld.poetry.entity.*;
 import com.ld.poetry.enums.PoetryEnum;
+import com.ld.poetry.enums.ResourceContentState;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.SysAiConfigService;
 import com.ld.poetry.service.SysConfigService;
@@ -1046,7 +1047,11 @@ public class WebInfoController {
                 result.put("user_count", userMapper.selectCount(null));
                 result.put("article_count", articleMapper.selectCount(null));
                 result.put("sort_count", sortMapper.selectCount(null));
-                result.put("resource_count", resourceMapper.selectCount(null));
+                // 资源总数排除回收站中的资源，与资源列表口径一致
+                result.put("resource_count", new LambdaQueryChainWrapper<>(resourceMapper)
+                        .and(w -> w.isNull(Resource::getContentState)
+                                .or().ne(Resource::getContentState, ResourceContentState.TRASH.name()))
+                        .count());
                 result.put("comment_count", commentMapper.selectCount(null));
                 result.put("tree_hole_count", treeHoleMapper.selectCount(null));
                 result.put("love_count", familyMapper.selectCount(null));

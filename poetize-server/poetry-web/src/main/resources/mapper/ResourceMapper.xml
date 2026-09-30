@@ -17,12 +17,16 @@
         <result column="store_type" property="storeType"/>
         <result column="storage_key" property="storageKey"/>
         <result column="status" property="status"/>
+        <result column="location_version" property="locationVersion"/>
+        <result column="content_state" property="contentState"/>
+        <result column="trash_time" property="trashTime"/>
+        <result column="deletion_pending_time" property="deletionPendingTime"/>
         <result column="create_time" property="createTime"/>
     </resultMap>
 
     <!-- 通用查询结果列 -->
     <sql id="Base_Column_List">
-        id, user_id, type, size, mime_type, resource_hash, original_name, path, width, height, store_type, storage_key, status, create_time
+        id, user_id, type, size, mime_type, resource_hash, original_name, path, width, height, store_type, storage_key, status, location_version, content_state, trash_time, deletion_pending_time, create_time
     </sql>
 
     <sql id="Reference_Column_Selects">
@@ -113,6 +117,8 @@
         <include refid="Base_Column_List"/>
         FROM resource r
         WHERE COALESCE(r.path, '') != ''
+        <!-- 回收站中的资源不参与孤儿扫描：删除登记后由回收站管线负责清理 -->
+        AND (r.content_state IS NULL OR r.content_state != 'TRASH')
         <if test="excludedTypes != null and excludedTypes.size() &gt; 0">
             AND r.type NOT IN
             <foreach collection="excludedTypes" item="excludedType" open="(" separator="," close=")">

@@ -46,6 +46,8 @@ class ResourceDeletionStateServiceTest {
     private ResourceRedirectMapper resourceRedirectMapper;
     @Mock
     private ResourceReferenceService referenceService;
+    @Mock
+    private LocalResourceFileService localResourceFileService;
 
     private ResourceDeletionStateService service;
 
@@ -72,7 +74,8 @@ class ResourceDeletionStateServiceTest {
                 resourceLocationMapper,
                 resourceAliasMapper,
                 resourceRedirectMapper,
-                referenceService
+                referenceService,
+                localResourceFileService
         );
     }
 
@@ -284,6 +287,131 @@ class ResourceDeletionStateServiceTest {
 
         assertThat(finalized).isTrue();
         verify(referenceService, never()).countReferences(any());
+    }
+
+    // ================================ 回收站状态迁移 ================================
+
+    @Test
+    void moveToTrashShouldDeclareTrashState() {
+        Resource resource = activeResource(1, 11L);
+        when(resourceMapper.selectByIdForUpdate(1)).thenReturn(resource);
+        when(resourceAliasMapper.selectList(any())).thenReturn(List.of());
+        when(referenceService.countReferences(STABLE_PATH)).thenReturn(0);
+        when(resourceMapper.update(any(), any())).thenReturn(1);
+
+        Resource trashed = service.moveToTrash(1, false);
+
+        assertThat(trashed.getStatus()).isFalse();
+        assertThat(trashed.getContentState()).isEqualTo(ResourceContentState.TRASH.name());
+        assertThat(trashed.getLocationVersion()).isEqualTo(1);
+    }
+
+    @Test
+    void moveToTrashShouldRejectNonActiveResource() {
+        Resource resource = activeResource(1, 11L);
+        resource.setStatus(false);
+        when(resourceMapper.selectByIdForUpdate(1)).thenReturn(resource);
+
+        assertThatThrownBy(() -> service.moveToTrash(1, false))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("不允许移入回收站");
+        verify(resourceMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void moveToTrashShouldRejectReferencedWithoutForce() {
+        Resource resource = activeResource(1, 11L);
+        when(resourceMapper.selectByIdForUpdate(1)).thenReturn(resource);
+        when(resourceAliasMapper.selectList(any())).thenReturn(List.of());
+        when(referenceService.countReferences(STABLE_PATH)).thenReturn(3);
+
+        assertThatThrownBy(() -> service.moveToTrash(1, false))
+                .isInstanceOf(ConcurrentModificationException.class)
+                .hasMessageContaining("3 处引用");
+        verify(resourceMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void restoreTrashShouldReturnResourceToActive() {
+        Resource resource = activeResource(1, 11L);
+        resource.setStatus(false);
+        resource.setContentState(ResourceContentState.TRASH.name());
+        when(resourceMapper.selectByIdForUpdate(1)).thenReturn(resource);
+        when(resourceLocationMapper.selectById(11L)).thenReturn(location(11L, ResourceLocationStatus.ACTIVE));
+        when(localResourceFileService.exists("/physical/11.png")).thenReturn(true);
+        when(resourceMapper.update(any(), any())).thenReturn(1);
+
+        Resource restored = service.restoreTrash(1);
+
+        assertThat(restored.getStatus()).isTrue();
+        assertThat(restored.getContentState()).isEqualTo(ResourceContentState.ACTIVE.name());
+    }
+
+    @Test
+    void restoreTrashShouldRejectMissingActiveFile() {
+        Resource resource = activeResource(1, 11L);
+        resource.setStatus(false);
+        resource.setContentState(ResourceContentState.TRASH.name());
+        when(resourceMapper.selectByIdForUpdate(1)).thenReturn(resource);
+        when(resourceLocationMapper.selectById(11L)).thenReturn(location(11L, ResourceLocationStatus.ACTIVE));
+        when(localResourceFileService.exists("/physical/11.png")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.restoreTrash(1))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("文件已缺失")
+                .hasMessageContaining("彻底删除");
+
+        verify(resourceMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void restoreTrashShouldRejectMissingLocationRegistration() {
+        Resource resource = activeResource(1, 11L);
+        resource.setStatus(false);
+        resource.setContentState(ResourceContentState.TRASH.name());
+        when(resourceMapper.selectByIdForUpdate(1)).thenReturn(resource);
+        when(resourceLocationMapper.selectById(11L)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.restoreTrash(1))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("文件已缺失")
+                .hasMessageContaining("彻底删除");
+
+        verify(resourceMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void transitionTrashToPendingShouldDeclareDeletion() {
+        Resource resource = activeResource(1, 11L);
+        resource.setStatus(false);
+        resource.setContentState(ResourceContentState.TRASH.name());
+        when(resourceMapper.selectByIdForUpdate(1)).thenReturn(resource);
+        when(resourceMapper.update(any(), any())).thenReturn(1);
+
+        service.transitionTrashToPending(1);
+
+        verify(resourceMapper).update(any(), any());
+    }
+
+    @Test
+    void rollbackPendingToTrashShouldReturnResourceToTrash() {
+        Resource resource = pendingResource(1, 11L);
+        when(resourceMapper.selectByIdForUpdate(1)).thenReturn(resource);
+        when(resourceMapper.update(any(), any())).thenReturn(1);
+
+        service.rollbackPendingToTrash(1);
+
+        verify(resourceMapper).update(any(), any());
+    }
+
+    @Test
+    void rollbackPendingToTrashShouldIgnoreResourceNotPending() {
+        Resource resource = activeResource(1, 11L);
+        when(resourceMapper.selectByIdForUpdate(1)).thenReturn(resource);
+
+        service.rollbackPendingToTrash(1);
+
+        verify(resourceMapper, never()).update(any(), any());
     }
 
     private Resource activeResource(Integer id, Long activeLocationId) {

@@ -41,6 +41,8 @@ public class BaseRequestVO extends Page {
 
     private String resourceType;
 
+    private Integer resourceId;
+
     private List<String> resourceTypes;
 
     private Boolean status;

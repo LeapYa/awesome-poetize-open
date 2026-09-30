@@ -1,25 +1,24 @@
 package com.ld.poetry.controller;
 
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ld.poetry.aop.AuditLog;
 import com.ld.poetry.aop.LoginCheck;
 import com.ld.poetry.config.PoetryResult;
 import com.ld.poetry.constants.CommonConst;
-import com.ld.poetry.controller.dto.ResourceBatchDeleteRequest;
-import com.ld.poetry.controller.dto.ResourceBatchDeleteResult;
 import com.ld.poetry.dao.ResourceMapper;
 import com.ld.poetry.entity.Resource;
 import com.ld.poetry.enums.PoetryEnum;
 import com.ld.poetry.enums.ResourceContentState;
 import com.ld.poetry.service.ManagedResourceUploadService;
 import com.ld.poetry.service.ResourceAvailabilityService;
-import com.ld.poetry.service.ResourceBatchDeleteService;
 import com.ld.poetry.service.ResourceLocationService;
 import com.ld.poetry.service.ResourceReplaceService;
 import com.ld.poetry.service.ResourceService;
 import com.ld.poetry.service.ResourceThumbnailService;
+import com.ld.poetry.service.ResourceTrashService;
 import com.ld.poetry.utils.*;
 import com.ld.poetry.utils.storage.StoreEnum;
 import com.ld.poetry.utils.image.ImageCompressUtil;
@@ -133,9 +132,6 @@ public class ResourceController {
     private ResourceAvailabilityService resourceAvailabilityService;
 
     @Autowired
-    private ResourceBatchDeleteService resourceBatchDeleteService;
-
-    @Autowired
     private ResourceReplaceService resourceReplaceService;
 
     @Autowired
@@ -149,6 +145,9 @@ public class ResourceController {
 
     @Autowired
     private FileSecurityValidator fileSecurityValidator;
+
+    @Autowired
+    private com.ld.poetry.service.ResourceTrashService resourceTrashService;
 
     @Value("${local.uploadUrl:/app/static/}")
     private String localUploadUrl;
@@ -510,12 +509,13 @@ public class ResourceController {
     }
 
     /**
-     * 删除
+     * 删除（进回收站）：物理文件不动，30 天保留期内可恢复；
+     * 彻底删除走 /resource/purgeTrash 或批量清理
      */
     @PostMapping("/deleteResource")
     @LoginCheck(0)
-    @AuditLog(action = "RESOURCE_DELETE", targetType = "RESOURCE", targetIdParam = "path", summary = "删除资源")
-    public PoetryResult<ResourceBatchDeleteResult> deleteResource(@RequestParam("path") String path) {
+    @AuditLog(action = "RESOURCE_DELETE", targetType = "RESOURCE", targetIdParam = "path", summary = "删除资源（移入回收站）")
+    public PoetryResult<Resource> deleteResource(@RequestParam("path") String path) {
         Resource resource = resourceService.lambdaQuery()
                 .select(Resource::getId, Resource::getPath)
                 .eq(Resource::getPath, path)
@@ -523,21 +523,81 @@ public class ResourceController {
         if (resource == null) {
             return PoetryResult.fail("文件不存在：" + path);
         }
-
-        ResourceBatchDeleteRequest request = new ResourceBatchDeleteRequest(
-                List.of(new ResourceBatchDeleteRequest.Target(resource.getId(), resource.getPath())),
-                false,
-                false,
-                false
-        );
-        ResourceBatchDeleteResult result = resourceBatchDeleteService.delete(request);
-        if (result.deletedCount() == 1) {
-            return PoetryResult.success(result);
+        try {
+            return PoetryResult.success(resourceTrashService.moveToTrash(resource.getId(), false));
+        } catch (IllegalArgumentException | IllegalStateException | java.util.ConcurrentModificationException e) {
+            return PoetryResult.fail(e.getMessage());
         }
-        String message = result.items().isEmpty()
-                ? "删除失败"
-                : result.items().getFirst().message();
-        return PoetryResult.fail(500, message, result);
+    }
+
+    /**
+     * 回收站资源分页列表（只读：管理员可查看，恢复/彻底删除仍需站长权限）
+     */
+    @PostMapping("/trashList")
+    @LoginCheck(1)
+    public PoetryResult<IPage<Resource>> trashList(@RequestBody BaseRequestVO baseRequestVO) {
+        return PoetryResult.success(resourceTrashService.listTrash(
+                baseRequestVO.getCurrent(), baseRequestVO.getSize(), baseRequestVO.getSearchKey()));
+    }
+
+    /**
+     * 从回收站恢复资源
+     */
+    @PostMapping("/restoreTrash")
+    @LoginCheck(0)
+    @AuditLog(action = "RESOURCE_TRASH_RESTORE", targetType = "RESOURCE", targetIdParam = "id", summary = "从回收站恢复资源")
+    public PoetryResult<Resource> restoreTrash(@RequestParam("id") Integer id) {
+        try {
+            return PoetryResult.success(resourceTrashService.restoreTrash(id));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return PoetryResult.fail(e.getMessage());
+        }
+    }
+
+    /**
+     * 彻底删除回收站资源（物理删除文件与登记行），仅站长可操作
+     */
+    @PostMapping("/purgeTrash")
+    @LoginCheck(0)
+    @AuditLog(action = "RESOURCE_TRASH_PURGE", targetType = "RESOURCE", targetIdParam = "id", summary = "彻底删除回收站资源")
+    public PoetryResult<?> purgeTrash(@RequestParam("id") Integer id) {
+        try {
+            return resourceTrashService.purgeTrash(id);
+        } catch (IllegalArgumentException | IllegalStateException | java.util.ConcurrentModificationException e) {
+            return PoetryResult.fail(e.getMessage());
+        }
+    }
+
+    /**
+     * 替换旧版备份分页列表（只读：管理员可查看，恢复操作仍需站长权限）
+     */
+    @PostMapping("/backupList")
+    @LoginCheck(1)
+    public PoetryResult<IPage<com.ld.poetry.entity.ResourceTrash>> backupList(
+            @RequestBody BaseRequestVO baseRequestVO) {
+        Integer resourceId = baseRequestVO.getResourceId();
+        return PoetryResult.success(resourceTrashService.listBackups(
+                baseRequestVO.getCurrent(), baseRequestVO.getSize(), resourceId));
+    }
+
+    /**
+     * 恢复替换前的旧版本文件（当前文件会先对称备份进回收站）
+     */
+    @PostMapping("/restoreBackup")
+    @LoginCheck(0)
+    @AuditLog(action = "RESOURCE_BACKUP_RESTORE", targetType = "RESOURCE_TRASH", targetIdParam = "id", summary = "恢复替换旧版")
+    public PoetryResult<String> restoreBackup(@RequestParam("id") Long id) {
+        return resourceTrashService.restoreBackup(id);
+    }
+
+    /**
+     * 删除替换旧版备份（物理删除备份文件与登记行）
+     */
+    @PostMapping("/deleteBackup")
+    @LoginCheck(0)
+    @AuditLog(action = "RESOURCE_BACKUP_DELETE", targetType = "RESOURCE_TRASH", targetIdParam = "id", summary = "删除替换旧版备份")
+    public PoetryResult deleteBackup(@RequestParam("id") Long id) {
+        return resourceTrashService.deleteBackup(id);
     }
 
     /**
@@ -577,6 +637,44 @@ public class ResourceController {
             response.getOutputStream().write(thumbnail.getBytes());
         } catch (ResourceThumbnailService.ThumbnailException e) {
             response.sendError(e.getStatusCode(), e.getMessage());
+        }
+    }
+
+    /**
+     * 回收站资源原文件预览（站长专属）：回收站资源本应不可读，这里为站长/自动化提供在线确认入口
+     */
+    @GetMapping("/trashPreview")
+    @LoginCheck(0)
+    public void trashPreview(@RequestParam("id") Integer id, HttpServletResponse response) {
+        servePreview(response, () -> resourceTrashService.previewTrashResource(id));
+    }
+
+    /**
+     * 替换备份原文件预览（站长专属）
+     */
+    @GetMapping("/backupPreview")
+    @LoginCheck(0)
+    public void backupPreview(@RequestParam("id") Long id, HttpServletResponse response) {
+        servePreview(response, () -> resourceTrashService.previewBackup(id));
+    }
+
+    private void servePreview(HttpServletResponse response,
+                              java.util.function.Supplier<ResourceTrashService.ResourcePreview> supplier) {
+        try {
+            ResourceTrashService.ResourcePreview preview = supplier.get();
+            response.setStatus(HttpServletResponse.SC_OK);
+            response.setContentType(preview.contentType());
+            response.setContentLength(preview.bytes().length);
+            response.setHeader("Cache-Control", "no-store");
+            response.setHeader("X-Content-Type-Options", "nosniff");
+            response.getOutputStream().write(preview.bytes());
+        } catch (Exception e) {
+            try {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND,
+                        e.getMessage() == null ? "预览失败" : e.getMessage());
+            } catch (IOException ignored) {
+                // 响应已提交时无法再写错误码
+            }
         }
     }
 
@@ -788,6 +886,10 @@ public class ResourceController {
 
         Resource resource = resourceService.lambdaQuery()
                 .eq(Resource::getPath, path)
+                // 与 /media 读取口径一致：仅 content_state 为空或 ACTIVE 的资源可下载，
+                // 回收站/删除中/替换中的资源一律拒绝（不再只排除 TRASH）
+                .and(wrapper -> wrapper.isNull(Resource::getContentState)
+                        .or().eq(Resource::getContentState, ResourceContentState.ACTIVE.name()))
                 .last("limit 1")
                 .one();
         if (resource == null) {
@@ -845,7 +947,10 @@ public class ResourceController {
             page = cached != null ? cached : resourceAvailabilityService.listInvalidResources(page, order, asc);
         } else {
             LambdaQueryChainWrapper<Resource> query = resourceService.lambdaQuery()
-                    .eq(StringUtils.hasText(baseRequestVO.getResourceType()), Resource::getType, baseRequestVO.getResourceType());
+                    .eq(StringUtils.hasText(baseRequestVO.getResourceType()), Resource::getType, baseRequestVO.getResourceType())
+                    // 回收站中的资源不在资源管理列表展示（在回收站页单独管理）
+                    .and(w -> w.isNull(Resource::getContentState)
+                            .or().ne(Resource::getContentState, "TRASH"));
             applyResourceOrder(query, order, asc);
             query.page(page);
         }
@@ -905,11 +1010,13 @@ public class ResourceController {
                     .eq(Resource::getId, id)
                     .and(wrapper -> wrapper.isNull(Resource::getContentState)
                             .or()
-                            .ne(Resource::getContentState, ResourceContentState.DELETION_PENDING.name()))
+                            .notIn(Resource::getContentState,
+                                    ResourceContentState.DELETION_PENDING.name(),
+                                    ResourceContentState.TRASH.name()))
                     .set(Resource::getStatus, true)
                     .update();
             if (!updated) {
-                return PoetryResult.fail("资源不存在或正在删除，不能重新启用");
+                return PoetryResult.fail("资源不存在、正在删除或已在回收站，不能重新启用");
             }
             return PoetryResult.success();
         }
@@ -1330,6 +1437,9 @@ public class ResourceController {
             } else {
                 Resource matched = resourceService.lambdaQuery()
                         .eq(Resource::getPath, path)
+                        // 回收站中的资源不回填宽高（不修改其行数据）
+                        .and(wrapper -> wrapper.isNull(Resource::getContentState)
+                                .or().ne(Resource::getContentState, ResourceContentState.TRASH.name()))
                         .select(Resource::getId, Resource::getWidth, Resource::getHeight)
                         .one();
                 if (matched != null && matched.getId() != null) {

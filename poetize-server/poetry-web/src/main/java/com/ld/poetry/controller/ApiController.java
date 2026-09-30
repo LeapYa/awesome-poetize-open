@@ -5,13 +5,18 @@ import com.ld.poetry.utils.MarkdownSectionEditor;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.ld.poetry.config.PoetryResult;
+import com.ld.poetry.aop.AuditLog;
 import com.ld.poetry.constants.CacheConstants;
 import com.ld.poetry.constants.CommonConst;
 import com.ld.poetry.dao.HistoryInfoMapper;
 import com.ld.poetry.dao.LabelMapper;
+import com.ld.poetry.dao.ResourceMapper;
 import com.ld.poetry.dao.SortMapper;
 import com.ld.poetry.entity.Article;
+import com.ld.poetry.entity.ArticleVersion;
+import com.ld.poetry.entity.Resource;
 import com.ld.poetry.entity.Label;
 import com.ld.poetry.entity.SeoConfig;
 import com.ld.poetry.entity.SeoSearchEnginePush;
@@ -22,6 +27,10 @@ import com.ld.poetry.entity.WebInfo;
 import com.ld.poetry.event.ArticleSavedEvent;
 import com.ld.poetry.handle.PoetryRuntimeException;
 import com.ld.poetry.service.ArticleService;
+import com.ld.poetry.service.ArticleRecycleService;
+import com.ld.poetry.service.ArticleVersionService;
+import com.ld.poetry.service.ResourceTrashService;
+import com.ld.poetry.service.impl.ArticleRecycleServiceImpl;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.LabelService;
 import com.ld.poetry.service.ManagedResourceUploadService;
@@ -142,6 +151,14 @@ public class ApiController {
     
     private final CommentService commentService;
 
+    private final ArticleRecycleService articleRecycleService;
+
+    private final ArticleVersionService articleVersionService;
+
+    private final ResourceTrashService resourceTrashService;
+
+    private final ResourceMapper resourceMapper;
+
     public ApiController(ArticleService articleService,
                         LabelMapper labelMapper,
                         SortMapper sortMapper,
@@ -162,7 +179,11 @@ public class ApiController {
                         FileSecurityValidator fileSecurityValidator,
                         ApplicationEventPublisher eventPublisher,
                         @Qualifier("asyncExecutor") Executor asyncExecutor,
-                        CommentService commentService) {
+                        CommentService commentService,
+                        ArticleRecycleService articleRecycleService,
+                        ArticleVersionService articleVersionService,
+                        ResourceTrashService resourceTrashService,
+                        ResourceMapper resourceMapper) {
         this.articleService = articleService;
         this.labelMapper = labelMapper;
         this.sortMapper = sortMapper;
@@ -184,6 +205,10 @@ public class ApiController {
         this.eventPublisher = eventPublisher;
         this.asyncExecutor = asyncExecutor;
         this.commentService = commentService;
+        this.articleRecycleService = articleRecycleService;
+        this.articleVersionService = articleVersionService;
+        this.resourceTrashService = resourceTrashService;
+        this.resourceMapper = resourceMapper;
     }
 
     /**
@@ -432,6 +457,641 @@ public class ApiController {
         } catch (Exception e) {
             log.error("API查询文章任务状态出现未知错误", e);
             return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API文章回收站列表：删除的文章在此保留，超期由系统自动清理
+     */
+    @GetMapping("/article/trashList")
+    public PoetryResult<Map<String, Object>> listArticleTrash(
+            @RequestParam(value = "current", defaultValue = "1") long current,
+            @RequestParam(value = "size", defaultValue = "10") long size,
+            @RequestParam(value = "searchKey", required = false) String searchKey,
+            HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            IPage<Article> page = articleRecycleService.listTrash(Math.max(current, 1),
+                    Math.min(Math.max(size, 1), 100), searchKey);
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("total", page.getTotal());
+            data.put("current", page.getCurrent());
+            data.put("size", page.getSize());
+            data.put("records", page.getRecords());
+            data.put("retentionDays", ArticleRecycleServiceImpl.TRASH_RETENTION_DAYS);
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API查询文章回收站失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API查询文章回收站出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API删除文章：仅移入回收站（30天保留期内可恢复），不提供彻底删除
+     */
+    @PostMapping("/article/delete")
+    @AuditLog(action = "ARTICLE_DELETE", targetType = "ARTICLE", targetIdParam = "id", summary = "API删除文章（移入回收站）")
+    public PoetryResult<Map<String, Object>> deleteArticleToTrash(@RequestBody Map<String, Object> payload,
+                                                                  HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            Integer articleId = readIntParam(payload, "id");
+            if (articleId == null || articleId <= 0) {
+                return PoetryResult.fail("文章ID不能为空");
+            }
+
+            // API Key 校验通过即等同站长操作：不能复用 deleteArticle（其权限校验依赖登录态，API 请求无登录上下文）
+            PoetryResult<String> result = articleRecycleService.deleteAsBoss(articleId);
+            if (result.getCode() != 200) {
+                return PoetryResult.fail(result.getMessage() != null ? result.getMessage() : "文章删除失败");
+            }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("articleId", articleId);
+            data.put("deleted", true);
+            data.put("retentionDays", ArticleRecycleServiceImpl.TRASH_RETENTION_DAYS);
+            data.put("restorable", true);
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API删除文章失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API删除文章出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API从回收站恢复文章
+     */
+    @PostMapping("/article/restore")
+    @AuditLog(action = "ARTICLE_RESTORE", targetType = "ARTICLE", targetIdParam = "id", summary = "API从回收站恢复文章")
+    public PoetryResult<Map<String, Object>> restoreArticleFromTrash(@RequestBody Map<String, Object> payload,
+                                                                     HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            Integer articleId = readIntParam(payload, "id");
+            if (articleId == null || articleId <= 0) {
+                return PoetryResult.fail("文章ID不能为空");
+            }
+
+            PoetryResult<String> result = articleRecycleService.restoreAsBoss(articleId);
+            if (result.getCode() != 200) {
+                return PoetryResult.fail(result.getMessage() != null ? result.getMessage() : "文章恢复失败");
+            }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("articleId", articleId);
+            data.put("restored", true);
+            data.put("notice", result.getMessage());
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API恢复文章失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API恢复文章出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API文章历史版本列表（新版本在前，不含正文大字段）
+     */
+    @GetMapping("/article/versions")
+    public PoetryResult<Map<String, Object>> listArticleVersions(
+            @RequestParam("articleId") Integer articleId,
+            HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            if (articleId == null || articleId <= 0) {
+                return PoetryResult.fail("文章ID不能为空");
+            }
+            // 与其它端点保持一致的归属校验：避免用任意 ID 枚举版本元数据
+            if (articleService.getById(articleId) == null) {
+                return PoetryResult.fail("文章不存在");
+            }
+
+            List<ArticleVersion> versions = articleVersionService.listByArticleId(articleId);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("articleId", articleId);
+            data.put("total", versions.size());
+            data.put("records", versions);
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API查询文章版本失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API查询文章版本出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API恢复文章到指定历史版本（恢复前自动快照当前版，可反复撤销）
+     */
+    @PostMapping("/article/restoreVersion")
+    @AuditLog(action = "ARTICLE_VERSION_RESTORE", targetType = "ARTICLE", targetIdParam = "articleId", summary = "API恢复文章历史版本")
+    public PoetryResult<Map<String, Object>> restoreArticleVersion(@RequestBody Map<String, Object> payload,
+                                                                   HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            Integer articleId = readIntParam(payload, "articleId");
+            Long versionId = readLongParam(payload, "versionId");
+            if (articleId == null || articleId <= 0 || versionId == null || versionId <= 0) {
+                return PoetryResult.fail("articleId 与 versionId 不能为空");
+            }
+
+            // API 无登录态，传入操作人标识避免版本快照记录为 null（版本列表显示"未知"）
+            PoetryResult<String> result = articleRecycleService.restoreVersionAsBoss(articleId, versionId, "API");
+            if (result.getCode() != 200) {
+                return PoetryResult.fail(result.getMessage() != null ? result.getMessage() : "版本恢复失败");
+            }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("articleId", articleId);
+            data.put("versionId", versionId);
+            data.put("restored", true);
+            data.put("notice", result.getMessage());
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API恢复文章版本失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API恢复文章版本出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API回收站文章详情：返回被删除文章的正文与全部翻译，供自动化判断"该恢复哪一篇"
+     */
+    @GetMapping("/article/trashDetail")
+    public PoetryResult<Map<String, Object>> getArticleTrashDetail(
+            @RequestParam("id") Integer id,
+            HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            if (id == null || id <= 0) {
+                return PoetryResult.fail("文章ID不能为空");
+            }
+            Article article = articleRecycleService.getTrashedArticle(id);
+            if (article == null) {
+                return PoetryResult.fail("文章不在回收站中");
+            }
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("articleId", article.getId());
+            data.put("articleTitle", article.getArticleTitle());
+            data.put("articleSlug", article.getArticleSlug());
+            data.put("articleCover", article.getArticleCover());
+            data.put("summary", article.getSummary());
+            data.put("viewStatus", article.getViewStatus());
+            data.put("sortId", article.getSortId());
+            data.put("labelId", article.getLabelId());
+            data.put("publishTime", article.getPublishTime());
+            data.put("createTime", article.getCreateTime());
+            data.put("updateTime", article.getUpdateTime());
+            data.put("deletedTime", article.getDeletedTime());
+            data.put("articleContent", article.getArticleContent());
+            data.put("translations", articleRecycleService.listArticleTranslations(id));
+            data.put("retentionDays", ArticleRecycleServiceImpl.TRASH_RETENTION_DAYS);
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API查询回收站文章详情失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API查询回收站文章详情出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API历史版本详情：返回该版本的完整正文与翻译快照，供自动化判断"该回滚到哪一版"
+     */
+    @GetMapping("/article/versionDetail")
+    public PoetryResult<Map<String, Object>> getArticleVersionDetail(
+            @RequestParam("versionId") Long versionId,
+            HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            if (versionId == null || versionId <= 0) {
+                return PoetryResult.fail("版本ID不能为空");
+            }
+            ArticleVersion version = articleVersionService.getVersion(versionId);
+            if (version == null) {
+                return PoetryResult.fail("版本不存在");
+            }
+            if (articleService.getById(version.getArticleId()) == null) {
+                return PoetryResult.fail("文章不存在或已进入回收站，请先恢复文章");
+            }
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("versionId", version.getId());
+            data.put("articleId", version.getArticleId());
+            data.put("versionNo", version.getVersionNo());
+            data.put("snapshotType", version.getSnapshotType());
+            data.put("editorUsername", version.getEditorUsername());
+            data.put("createTime", version.getCreateTime());
+            data.put("articleTitle", version.getArticleTitle());
+            data.put("articleSlug", version.getArticleSlug());
+            data.put("summary", version.getSummary());
+            data.put("articleCover", version.getArticleCover());
+            data.put("viewStatus", version.getViewStatus());
+            data.put("articleContent", version.getArticleContent());
+            data.put("translations", readTranslationsJson(version.getTranslationsJson()));
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API查询文章版本详情失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API查询文章版本详情出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * 解析版本快照里的翻译 JSON；为空返回空数组，格式非法返回 null（不阻断详情读取）
+     */
+    private Object readTranslationsJson(String translationsJson) {
+        if (!StringUtils.hasText(translationsJson)) {
+            return List.of();
+        }
+        try {
+            return JsonUtils.getMapper().readTree(translationsJson);
+        } catch (Exception e) {
+            log.warn("版本翻译快照解析失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    // ================================ 资源回收站（可恢复删除） ================================
+
+    /**
+     * API资源列表（供自动化浏览定位资源，排除回收站中的资源）
+     */
+    @GetMapping("/resource/list")
+    public PoetryResult<Map<String, Object>> listResourcesForApi(
+            @RequestParam(value = "current", defaultValue = "1") long current,
+            @RequestParam(value = "size", defaultValue = "10") long size,
+            @RequestParam(value = "searchKey", required = false) String searchKey,
+            HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            // 仅返回可用资源（排除回收站），供自动化浏览定位；回收站清单见 /resource/trashList
+            IPage<Resource> page = resourceMapper.selectActivePage(
+                    new Page<>(Math.max(current, 1), Math.min(Math.max(size, 1), 100)),
+                    StringUtils.hasText(searchKey) ? searchKey.trim() : null);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("total", page.getTotal());
+            data.put("current", page.getCurrent());
+            data.put("size", page.getSize());
+            data.put("records", page.getRecords());
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API查询资源列表失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API查询资源列表出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API资源回收站列表
+     */
+    @GetMapping("/resource/trashList")
+    public PoetryResult<Map<String, Object>> listResourceTrash(
+            @RequestParam(value = "current", defaultValue = "1") long current,
+            @RequestParam(value = "size", defaultValue = "10") long size,
+            @RequestParam(value = "searchKey", required = false) String searchKey,
+            HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            IPage<Resource> page = resourceTrashService.listTrash(Math.max(current, 1),
+                    Math.min(Math.max(size, 1), 100), searchKey);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("total", page.getTotal());
+            data.put("current", page.getCurrent());
+            data.put("size", page.getSize());
+            data.put("records", page.getRecords());
+            data.put("retentionDays", com.ld.poetry.service.impl.ResourceTrashServiceImpl.TRASH_RETENTION_DAYS);
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API查询资源回收站失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API查询资源回收站出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API删除资源：仅移入回收站（30天保留期内可恢复），不提供彻底删除
+     */
+    @PostMapping("/resource/delete")
+    @AuditLog(action = "RESOURCE_DELETE", targetType = "RESOURCE", targetIdParam = "id", summary = "API删除资源（移入回收站）")
+    public PoetryResult<Map<String, Object>> deleteResourceToTrash(@RequestBody Map<String, Object> payload,
+                                                                   HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            Integer resourceId = readIntParam(payload, "id");
+            String path = payload == null ? null : (payload.get("path") == null ? null
+                    : payload.get("path").toString());
+            Resource resource;
+            if (resourceId != null && resourceId > 0) {
+                resource = resourceTrashService.moveToTrash(resourceId, false);
+            } else if (StringUtils.hasText(path)) {
+                resource = resourceTrashService.moveToTrashByPath(path, false);
+            } else {
+                return PoetryResult.fail("资源ID或路径不能为空");
+            }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("resourceId", resource.getId());
+            data.put("path", resource.getPath());
+            data.put("deleted", true);
+            data.put("retentionDays", com.ld.poetry.service.impl.ResourceTrashServiceImpl.TRASH_RETENTION_DAYS);
+            data.put("restorable", true);
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API删除资源失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (IllegalArgumentException | IllegalStateException | java.util.ConcurrentModificationException e) {
+            log.error("API删除资源被拒绝：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API删除资源出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API从回收站恢复资源
+     */
+    @PostMapping("/resource/restore")
+    @AuditLog(action = "RESOURCE_TRASH_RESTORE", targetType = "RESOURCE", targetIdParam = "id", summary = "API从回收站恢复资源")
+    public PoetryResult<Map<String, Object>> restoreResourceFromTrash(@RequestBody Map<String, Object> payload,
+                                                                      HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            Integer resourceId = readIntParam(payload, "id");
+            if (resourceId == null || resourceId <= 0) {
+                return PoetryResult.fail("资源ID不能为空");
+            }
+
+            Resource resource = resourceTrashService.restoreTrash(resourceId);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("resourceId", resource.getId());
+            data.put("path", resource.getPath());
+            data.put("restored", true);
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API恢复资源失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            log.error("API恢复资源被拒绝：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API恢复资源出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API替换旧版备份列表（误替换可从这里恢复）
+     */
+    @GetMapping("/resource/backupList")
+    public PoetryResult<Map<String, Object>> listResourceBackups(
+            @RequestParam(value = "resourceId", required = false) Integer resourceId,
+            @RequestParam(value = "current", defaultValue = "1") long current,
+            @RequestParam(value = "size", defaultValue = "10") long size,
+            HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            IPage<com.ld.poetry.entity.ResourceTrash> page = resourceTrashService.listBackups(
+                    Math.max(current, 1), Math.min(Math.max(size, 1), 100), resourceId);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("total", page.getTotal());
+            data.put("current", page.getCurrent());
+            data.put("size", page.getSize());
+            data.put("records", page.getRecords());
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API查询替换备份失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API查询替换备份出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API恢复替换前的旧版本文件（当前文件会先对称备份进回收站）
+     */
+    @PostMapping("/resource/restoreBackup")
+    @AuditLog(action = "RESOURCE_BACKUP_RESTORE", targetType = "RESOURCE_TRASH", targetIdParam = "id", summary = "API恢复替换前的旧版文件")
+    public PoetryResult<Map<String, Object>> restoreResourceBackup(@RequestBody Map<String, Object> payload,
+                                                                   HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            Long trashId = readLongParam(payload, "id");
+            if (trashId == null || trashId <= 0) {
+                return PoetryResult.fail("备份ID不能为空");
+            }
+
+            PoetryResult<String> result = resourceTrashService.restoreBackup(trashId);
+            if (result.getCode() != 200) {
+                return PoetryResult.fail(result.getMessage() != null ? result.getMessage() : "备份恢复失败");
+            }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("backupId", trashId);
+            data.put("restored", true);
+            data.put("notice", result.getData());
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API恢复替换备份失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API恢复替换备份出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API回收站资源详情：返回完整元数据与预览地址，供自动化判断"该恢复哪个资源"
+     */
+    @GetMapping("/resource/trashDetail")
+    public PoetryResult<Map<String, Object>> getResourceTrashDetail(
+            @RequestParam("id") Integer id,
+            HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            if (id == null || id <= 0) {
+                return PoetryResult.fail("资源ID不能为空");
+            }
+            Resource resource = resourceMapper.selectById(id);
+            if (resource == null || !"TRASH".equals(resource.getContentState())) {
+                return PoetryResult.fail("资源不在回收站中");
+            }
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("resourceId", resource.getId());
+            data.put("publicId", resource.getPublicId());
+            data.put("path", resource.getPath());
+            data.put("originalName", resource.getOriginalName());
+            data.put("mimeType", resource.getMimeType());
+            data.put("size", resource.getSize());
+            data.put("width", resource.getWidth());
+            data.put("height", resource.getHeight());
+            data.put("storeType", resource.getStoreType());
+            data.put("trashTime", resource.getTrashTime());
+            data.put("createTime", resource.getCreateTime());
+            data.put("retentionDays", com.ld.poetry.service.impl.ResourceTrashServiceImpl.TRASH_RETENTION_DAYS);
+            data.put("previewPath", "/api/api/resource/trashPreview?id=" + id);
+            data.put("previewUrl", buildPreviewUrl(webInfo, request, "/api/api/resource/trashPreview?id=" + id));
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API查询回收站资源详情失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API查询回收站资源详情出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API替换备份详情：返回备份元数据与预览地址，供自动化判断"该恢复哪一份旧版"
+     */
+    @GetMapping("/resource/backupDetail")
+    public PoetryResult<Map<String, Object>> getResourceBackupDetail(
+            @RequestParam("id") Long id,
+            HttpServletRequest request) {
+        try {
+            WebInfo webInfo = validateApiKey(request);
+            if (id == null || id <= 0) {
+                return PoetryResult.fail("备份ID不能为空");
+            }
+            com.ld.poetry.entity.ResourceTrash trash = resourceTrashService.getBackup(id);
+            if (trash == null) {
+                return PoetryResult.fail("备份不存在");
+            }
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("backupId", trash.getId());
+            data.put("resourceId", trash.getResourceId());
+            data.put("publicId", trash.getPublicId());
+            data.put("itemType", trash.getItemType());
+            data.put("originalPath", trash.getOriginalPath());
+            data.put("originalName", trash.getOriginalName());
+            data.put("fileSize", trash.getFileSize());
+            data.put("mimeType", trash.getMimeType());
+            data.put("fileHash", trash.getFileHash());
+            data.put("createTime", trash.getCreateTime());
+            data.put("previewPath", "/api/api/resource/backupPreview?id=" + id);
+            data.put("previewUrl", buildPreviewUrl(webInfo, request, "/api/api/resource/backupPreview?id=" + id));
+            return PoetryResult.success(enrichWithSiteInfo(data, webInfo, request));
+        } catch (PoetryRuntimeException e) {
+            log.error("API查询替换备份详情失败：{}", e.getMessage());
+            return PoetryResult.fail(e.getMessage());
+        } catch (Exception e) {
+            log.error("API查询替换备份详情出现未知错误", e);
+            return PoetryResult.fail("服务器内部错误");
+        }
+    }
+
+    /**
+     * API回收站资源预览：直接返回图片/文件字节（回收站资源本应不可读，此端点需 API Key = 站长）
+     */
+    @GetMapping("/resource/trashPreview")
+    public void previewResourceTrash(@RequestParam("id") Integer id,
+                                     HttpServletRequest request,
+                                     jakarta.servlet.http.HttpServletResponse response) {
+        try {
+            validateApiKey(request);
+            writePreview(response, resourceTrashService.previewTrashResource(id));
+        } catch (Exception e) {
+            log.error("API预览回收站资源失败: id={}, error={}", id, e.getMessage());
+            writePreviewError(response, e);
+        }
+    }
+
+    /**
+     * API替换备份预览：直接返回备份文件字节（需 API Key = 站长）
+     */
+    @GetMapping("/resource/backupPreview")
+    public void previewResourceBackup(@RequestParam("id") Long id,
+                                      HttpServletRequest request,
+                                      jakarta.servlet.http.HttpServletResponse response) {
+        try {
+            validateApiKey(request);
+            writePreview(response, resourceTrashService.previewBackup(id));
+        } catch (Exception e) {
+            log.error("API预览替换备份失败: id={}, error={}", id, e.getMessage());
+            writePreviewError(response, e);
+        }
+    }
+
+    private String buildPreviewUrl(WebInfo webInfo, HttpServletRequest request, String path) {
+        String baseUrl = webInfo != null && StringUtils.hasText(webInfo.getSiteAddress())
+                ? webInfo.getSiteAddress().trim() : buildApiBaseUrl(request);
+        if (!StringUtils.hasText(baseUrl)) {
+            return null;
+        }
+        return baseUrl.replaceAll("/+$", "") + path;
+    }
+
+    private void writePreview(jakarta.servlet.http.HttpServletResponse response,
+                              ResourceTrashService.ResourcePreview preview) throws java.io.IOException {
+        response.setStatus(200);
+        response.setContentType(preview.contentType());
+        response.setContentLength(preview.bytes().length);
+        response.setHeader("Cache-Control", "no-store");
+        response.setHeader("X-Content-Type-Options", "nosniff");
+        response.getOutputStream().write(preview.bytes());
+        response.getOutputStream().flush();
+    }
+
+    private void writePreviewError(jakarta.servlet.http.HttpServletResponse response, Exception error) {
+        try {
+            String message = StringUtils.hasText(error.getMessage()) ? error.getMessage() : "预览失败";
+            response.reset();
+            response.setStatus(java.net.HttpURLConnection.HTTP_NOT_FOUND);
+            response.setContentType("application/json;charset=UTF-8");
+            response.setHeader("Cache-Control", "no-store");
+            response.getWriter().write("{\"code\":404,\"message\":\"" + message.replace("\"", "'") + "\"}");
+        } catch (Exception ignored) {
+            // 写错误响应失败时无需再处理
+        }
+    }
+
+    private Integer readIntParam(Map<String, Object> payload, String key) {
+        if (payload == null) {
+            return null;
+        }
+        Object value = payload.get(key);
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return value == null ? null : Integer.valueOf(value.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Long readLongParam(Map<String, Object> payload, String key) {
+        if (payload == null) {
+            return null;
+        }
+        Object value = payload.get(key);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return value == null ? null : Long.valueOf(value.toString());
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -1504,6 +2164,24 @@ public class ApiController {
             data.put("articleUrl", buildArticleUrl(webInfo, request, status.getArticleId()));
         }
 
+        return data;
+    }
+
+    /**
+     * 为回收站/版本类响应附加站点基础信息（与文章类响应的结构习惯保持一致）
+     */
+    private Map<String, Object> enrichWithSiteInfo(Map<String, Object> data, WebInfo webInfo,
+                                                   HttpServletRequest request) {
+        String baseUrl = null;
+        if (webInfo != null && StringUtils.hasText(webInfo.getSiteAddress())) {
+            baseUrl = webInfo.getSiteAddress().trim();
+        }
+        if (!StringUtils.hasText(baseUrl)) {
+            baseUrl = buildApiBaseUrl(request);
+        }
+        if (StringUtils.hasText(baseUrl)) {
+            data.put("siteUrl", baseUrl.replaceAll("/+$", ""));
+        }
         return data;
     }
 
@@ -2641,17 +3319,13 @@ public class ApiController {
                 return PoetryResult.success(data);
             }
 
-            // 保存修改后的内容（仅更新必要字段，避免全量写回覆盖并发 viewCount 等字段）
+            // 保存修改后的内容：CAS 更新与"更新前版本快照"同事务提交，正文变更同样可回滚
             // CAS 保护：仅当 content 仍为读取时的原值才更新，防止并发编辑互相覆盖
             User adminUser = PoetryUtil.getAdminUser();
             String updateBy = adminUser != null ? adminUser.getUsername() : null;
-            boolean updated = articleService.lambdaUpdate()
-                    .eq(Article::getId, articleId)
-                    .eq(Article::getArticleContent, originalContent)
-                    .set(Article::getArticleContent, updatedContent)
-                    .set(Article::getUpdateTime, LocalDateTime.now())
-                    .set(updateBy != null, Article::getUpdateBy, updateBy)
-                    .update();
+            Integer editorUserId = adminUser != null ? adminUser.getId() : null;
+            boolean updated = articleService.updateArticleContentWithSnapshot(
+                    articleId, originalContent, updatedContent, updateBy, editorUserId);
             if (!updated) {
                 return PoetryResult.fail("章节内容更新失败：文章内容可能已被其他请求修改，请重试");
             }

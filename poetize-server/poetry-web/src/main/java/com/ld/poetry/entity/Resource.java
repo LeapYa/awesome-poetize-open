@@ -104,6 +104,18 @@ public class Resource implements Serializable {
     private String contentState;
 
     /**
+     * 进入回收站时间（content_state=TRASH 时用于保留期倒计时）
+     */
+    @TableField("trash_time")
+    private java.time.LocalDateTime trashTime;
+
+    /**
+     * 进入删除声明状态时间（回收兜底的时间护栏）
+     */
+    @TableField("deletion_pending_time")
+    private java.time.LocalDateTime deletionPendingTime;
+
+    /**
      * 资源内容哈希（SHA-256）
      */
     @TableField("resource_hash")

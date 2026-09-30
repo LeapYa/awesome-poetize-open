@@ -75,10 +75,12 @@ CREATE TABLE `poetize`.`article` (
   `update_time` datetime  DEFAULT CURRENT_TIMESTAMP COMMENT '最终修改时间',
   `update_by` varchar(32) DEFAULT NULL COMMENT '最终修改人',
   `deleted` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否启用[0:未删除，1:已删除]',
+  `deleted_time` datetime DEFAULT NULL COMMENT '进入回收站时间',
 
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_article_slug` (`article_slug`),
-  KEY `idx_article_publish_time` (`publish_time`)
+  KEY `idx_article_publish_time` (`publish_time`),
+  KEY `idx_article_deleted_time` (`deleted`, `deleted_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文章表';
 
 DROP TABLE IF EXISTS `poetize`.`comment`;
@@ -239,14 +241,39 @@ CREATE TABLE `poetize`.`resource` (
   `storage_key` varchar(512) DEFAULT NULL COMMENT '存储平台对象键，用于校验和删除远端文件',
   `active_location_id` bigint DEFAULT NULL COMMENT '当前活动物理副本ID',
   `location_version` int NOT NULL DEFAULT 0 COMMENT '活动副本乐观锁版本',
-  `content_state` varchar(32) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/REPLACEMENT_PENDING/DELETION_PENDING',
+  `content_state` varchar(32) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/REPLACEMENT_PENDING/DELETION_PENDING/TRASH',
+  `trash_time` datetime DEFAULT NULL COMMENT '进入回收站时间',
+  `deletion_pending_time` datetime DEFAULT NULL COMMENT '进入删除声明状态时间（回收兜底的时间护栏）',
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_resource_path_hash` (`path_hash`),
   UNIQUE KEY `uk_resource_public_id` (`public_id`),
-  KEY `idx_resource_active_location` (`active_location_id`)
+  KEY `idx_resource_active_location` (`active_location_id`),
+  KEY `idx_resource_content_state_time` (`content_state`, `trash_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='资源信息';
+
+DROP TABLE IF EXISTS `poetize`.`resource_trash`;
+
+CREATE TABLE `poetize`.`resource_trash` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `resource_id` int NOT NULL COMMENT '资源ID',
+  `public_id` varchar(64) DEFAULT NULL COMMENT '资源公开ID',
+  `item_type` varchar(32) NOT NULL DEFAULT 'REPLACEMENT_BACKUP' COMMENT '条目类型 REPLACEMENT_BACKUP:替换旧版备份',
+  `original_path` varchar(512) NOT NULL COMMENT '被替换的目标文件路径（恢复目标）',
+  `backup_path` varchar(512) NOT NULL COMMENT '备份文件路径',
+  `backup_path_hash` char(64) NOT NULL COMMENT '备份路径SHA-256（唯一键用，规避长路径前缀索引冲突）',
+  `file_hash` char(64) DEFAULT NULL COMMENT '备份文件SHA-256',
+  `file_size` bigint DEFAULT NULL COMMENT '备份文件大小(字节)',
+  `mime_type` varchar(128) DEFAULT NULL COMMENT '备份文件MIME类型',
+  `original_name` varchar(256) DEFAULT NULL COMMENT '资源原始文件名',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '进入回收站时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_resource_trash_backup_path_hash` (`backup_path_hash`),
+  KEY `idx_resource_trash_backup_path` (`backup_path`(255)),
+  KEY `idx_resource_trash_resource` (`resource_id`),
+  KEY `idx_resource_trash_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='资源回收站（替换旧版备份）表';
 
 DROP TABLE IF EXISTS `poetize`.`resource_migration_task`;
 CREATE TABLE `poetize`.`resource_migration_task` (
@@ -822,6 +849,41 @@ CREATE TABLE `poetize`.`article_translation` (
   UNIQUE KEY `uk_article_language` (`article_id`, `language`),
   KEY `idx_article_id` (`article_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文章翻译内容表';
+
+DROP TABLE IF EXISTS `poetize`.`article_version`;
+
+CREATE TABLE `poetize`.`article_version` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `article_id` int NOT NULL COMMENT '文章ID',
+  `version_no` int NOT NULL COMMENT '版本号（每篇文章自增）',
+  `snapshot_type` varchar(16) NOT NULL DEFAULT 'UPDATE' COMMENT '快照类型 UPDATE:更新前/RESTORE:恢复前',
+  `editor_user_id` int DEFAULT NULL COMMENT '操作人用户ID',
+  `editor_username` varchar(64) DEFAULT NULL COMMENT '操作人用户名',
+  `article_title` varchar(500) DEFAULT NULL COMMENT '博文标题快照',
+  `article_slug` varchar(160) DEFAULT NULL COMMENT 'URL别名快照',
+  `article_content` longtext DEFAULT NULL COMMENT '博文内容快照',
+  `summary` varchar(500) DEFAULT NULL COMMENT '文章摘要快照',
+  `article_cover` varchar(256) DEFAULT NULL COMMENT '封面快照',
+  `video_url` varchar(1024) DEFAULT NULL COMMENT '视频链接快照',
+  `password` varchar(128) DEFAULT NULL COMMENT '访问密码快照',
+  `tips` varchar(128) DEFAULT NULL COMMENT '提示快照',
+  `view_status` tinyint(1) DEFAULT NULL COMMENT '是否可见快照[0:否，1:是]',
+  `comment_status` tinyint(1) DEFAULT NULL COMMENT '是否启用评论快照[0:否，1:是]',
+  `recommend_status` tinyint(1) DEFAULT NULL COMMENT '是否推荐快照[0:否，1:是]',
+  `submit_to_search_engine` tinyint(1) DEFAULT NULL COMMENT '是否推送搜索引擎快照[0:否，1:是]',
+  `pay_type` tinyint(1) DEFAULT NULL COMMENT '付费类型快照',
+  `pay_amount` decimal(10,2) DEFAULT NULL COMMENT '付费金额快照(元)',
+  `free_percent` int DEFAULT NULL COMMENT '免费预览百分比快照(0-100)',
+  `sort_id` int DEFAULT NULL COMMENT '分类ID快照',
+  `label_id` int DEFAULT NULL COMMENT '标签ID快照',
+  `publish_time` datetime DEFAULT NULL COMMENT '首次公开发布时间快照',
+  `translations_json` mediumtext DEFAULT NULL COMMENT '全部语言翻译快照JSON[{language,title,content,summary}]',
+  `content_hash` char(64) DEFAULT NULL COMMENT '内容SHA-256（去重用）',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '快照时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_article_version_article` (`article_id`, `version_no`),
+  KEY `idx_article_version_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文章历史版本快照表';
 
 -- 主SEO配置表
 CREATE TABLE IF NOT EXISTS `poetize`.`seo_config` (

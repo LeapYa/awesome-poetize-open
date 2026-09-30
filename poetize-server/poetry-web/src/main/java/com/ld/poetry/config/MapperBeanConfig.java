@@ -7,6 +7,7 @@ import com.ld.poetry.dao.ArticleDraftMapper;
 import com.ld.poetry.dao.ArticleMapper;
 import com.ld.poetry.dao.ArticlePaymentMapper;
 import com.ld.poetry.dao.ArticleTranslationMapper;
+import com.ld.poetry.dao.ArticleVersionMapper;
 import com.ld.poetry.dao.CommentMapper;
 import com.ld.poetry.dao.FamilyMapper;
 import com.ld.poetry.dao.HistoryInfoMapper;
@@ -22,6 +23,7 @@ import com.ld.poetry.dao.ResourceMigrationItemMapper;
 import com.ld.poetry.dao.ResourceMigrationTaskMapper;
 import com.ld.poetry.dao.ResourcePathMapper;
 import com.ld.poetry.dao.ResourceRedirectMapper;
+import com.ld.poetry.dao.ResourceTrashMapper;
 import com.ld.poetry.dao.SeoConfigMapper;
 import com.ld.poetry.dao.SeoNotificationConfigMapper;
 import com.ld.poetry.dao.SeoPwaConfigMapper;
@@ -55,56 +57,6 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class MapperBeanConfig {
 
-    static final Class<?>[] MAPPER_TYPES = {
-            ArticleDraftMapper.class,
-            ArticleDraftCollaboratorMapper.class,
-            AiKnowledgeDocumentMapper.class,
-            AiSkillMapper.class,
-            WebInfoMapper.class,
-            ArticleMapper.class,
-            ArticleTranslationMapper.class,
-            ArticlePaymentMapper.class,
-            HistoryInfoMapper.class,
-            WeiYanMapper.class,
-            ThirdPartyOauthConfigMapper.class,
-            TreeHoleMapper.class,
-            UserMapper.class,
-            SysPluginActiveMapper.class,
-            SysPluginMapper.class,
-            SysConfigMapper.class,
-            SysAuditLogMapper.class,
-            SysMailConfigMapper.class,
-            SysCaptchaConfigMapper.class,
-            SeoSocialMediaMapper.class,
-            SortMapper.class,
-            SysAiConfigMapper.class,
-            SeoPwaConfigMapper.class,
-            SeoSearchEnginePushMapper.class,
-            SeoSiteVerificationMapper.class,
-            ResourcePathMapper.class,
-            ResourceMigrationTaskMapper.class,
-            ResourceMigrationItemMapper.class,
-            ResourceRedirectMapper.class,
-            ResourceLocationMapper.class,
-            ResourceAliasMapper.class,
-            ResourceContentReplacementMapper.class,
-            ResourceContentReplacementTargetMapper.class,
-            ResourceAdoptionTaskMapper.class,
-            ResourceAdoptionItemMapper.class,
-            SeoConfigMapper.class,
-            SeoNotificationConfigMapper.class,
-            LabelMapper.class,
-            ResourceMapper.class,
-            CommentMapper.class,
-            FamilyMapper.class,
-            ImChatUserMessageMapper.class,
-            ImChatUserFriendMapper.class,
-            ImChatUserGroupMessageMapper.class,
-            ImChatLastReadMapper.class,
-            ImChatGroupMapper.class,
-            ImChatGroupUserMapper.class
-    };
-
     @Bean
     public static MapperScannerConfigurer mapperScannerConfigurer() {
         MapperScannerConfigurer configurer = new MapperScannerConfigurer();
@@ -126,6 +78,8 @@ public class MapperBeanConfig {
     public ArticleMapper articleMapper(SqlSessionTemplate sqlSessionTemplate) { return mapper(sqlSessionTemplate, ArticleMapper.class); }
     @Bean
     public ArticleTranslationMapper articleTranslationMapper(SqlSessionTemplate sqlSessionTemplate) { return mapper(sqlSessionTemplate, ArticleTranslationMapper.class); }
+    @Bean
+    public ArticleVersionMapper articleVersionMapper(SqlSessionTemplate sqlSessionTemplate) { return mapper(sqlSessionTemplate, ArticleVersionMapper.class); }
     @Bean
     public ArticlePaymentMapper articlePaymentMapper(SqlSessionTemplate sqlSessionTemplate) { return mapper(sqlSessionTemplate, ArticlePaymentMapper.class); }
     @Bean
@@ -170,6 +124,8 @@ public class MapperBeanConfig {
     public ResourceMigrationItemMapper resourceMigrationItemMapper(SqlSessionTemplate sqlSessionTemplate) { return mapper(sqlSessionTemplate, ResourceMigrationItemMapper.class); }
     @Bean
     public ResourceRedirectMapper resourceRedirectMapper(SqlSessionTemplate sqlSessionTemplate) { return mapper(sqlSessionTemplate, ResourceRedirectMapper.class); }
+    @Bean
+    public ResourceTrashMapper resourceTrashMapper(SqlSessionTemplate sqlSessionTemplate) { return mapper(sqlSessionTemplate, ResourceTrashMapper.class); }
     @Bean
     public ResourceLocationMapper resourceLocationMapper(SqlSessionTemplate sqlSessionTemplate) { return mapper(sqlSessionTemplate, ResourceLocationMapper.class); }
     @Bean

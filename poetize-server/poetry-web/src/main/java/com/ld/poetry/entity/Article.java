@@ -174,4 +174,10 @@ public class Article implements Serializable {
     @TableLogic
     private Boolean deleted;
 
+    /**
+     * 进入回收站时间（deleted=1 时用于保留期倒计时）
+     */
+    @TableField("deleted_time")
+    private LocalDateTime deletedTime;
+
 }

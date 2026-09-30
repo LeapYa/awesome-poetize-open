@@ -21,6 +21,10 @@
         <template v-if="isDraftMode">
           <span class="draft-inline-divider"></span>
           <span class="draft-inline-chip" :data-type="draftStatusType">{{ compactDraftStatusText }}</span>
+          <span v-if="draftArticleUpdatedAfterDraft" class="draft-inline-chip" data-type="warning"
+                title="文章在草稿之后被更新过（可能是自动化工具或其他设备），发布草稿会覆盖这些更新">
+            草稿可能过期
+          </span>
           <span v-if="draftId || draftLastSyncedAt" class="draft-inline-divider"></span>
           <span v-if="draftId" class="draft-inline-meta">草稿ID：{{ shortDraftId }}</span>
           <span v-if="draftLastSyncedAt" class="draft-inline-meta">{{ draftLastSyncedAt }}</span>
@@ -672,6 +676,8 @@ const uploadPicture = () => import("../common/uploadPicture");
       localStorage.removeItem('poetize_article_default_config');
     }
   } catch (e) { /* 忽略迁移失败 */ }
+  // 与后端 ArticleDraftServiceImpl.DEFAULT_DRAFT_TITLE 保持一致：视为"还没写标题"
+  const DEFAULT_DRAFT_TITLE = '未命名草稿';
   const DRAFT_SNAPSHOT_INTERVAL = 5000;
   const DRAFT_SNAPSHOT_RESCHEDULE_DELAY = 800;
   const DRAFT_WS_UPDATE_FLUSH_DELAY = 350;
@@ -820,6 +826,10 @@ const uploadPicture = () => import("../common/uploadPicture");
         draftCollaboratorOptions: [],
         draftInviteAccepting: false,
         draftReady: false,
+        // 本次会话是否发生过用户修改（用于离开页面拦截与提示）
+        draftSessionDirty: false,
+        // 草稿是否已落后于文章（文章在草稿之后被自动化工具/其他设备更新过）
+        draftArticleUpdatedAfterDraft: false,
         draftSnapshotDirty: false,
         draftSnapshotSaving: false,
         draftSnapshotSaveQueued: false,
@@ -837,6 +847,7 @@ const uploadPicture = () => import("../common/uploadPicture");
         skipDraftSync: false,
         draftSnapshotTimer: null,
         draftPageHideHandler: null,
+        draftBeforeUnloadHandler: null,
         draftType: null,
         draftOwnerUserId: null,
         sourceArticleId: null,
@@ -1127,6 +1138,17 @@ const uploadPicture = () => import("../common/uploadPicture");
         this.persistDraftSnapshot(true);
       };
       window.addEventListener('pagehide', this.draftPageHideHandler);
+      // 刷新/关闭标签页时给出原生离开确认（SPA 内跳转由 beforeRouteLeave 处理）
+      this.draftBeforeUnloadHandler = (event) => {
+        if (!this.draftSessionDirty) {
+          return undefined;
+        }
+        this.persistDraftSnapshot(true);
+        event.preventDefault();
+        event.returnValue = '';
+        return '';
+      };
+      window.addEventListener('beforeunload', this.draftBeforeUnloadHandler);
     },
     
     mounted() {
@@ -1141,7 +1163,38 @@ const uploadPicture = () => import("../common/uploadPicture");
       window.removeEventListener('resize', this.handleWindowResize);
       this.clearDeferredTasks();
       window.removeEventListener('pagehide', this.draftPageHideHandler);
+      window.removeEventListener('beforeunload', this.draftBeforeUnloadHandler);
       this.destroyDraftSession();
+    },
+
+    /**
+     * 离开编辑页拦截：本次会话有修改时提示"已自动保存到草稿"，避免用户误以为修改丢失。
+     * 覆盖侧边栏跳转等所有 SPA 内导航（Vue Router 钩子）。
+     */
+    beforeRouteLeave(to, from, next) {
+      if (!this.draftSessionDirty) {
+        next();
+        return;
+      }
+      const saveHint = this.draftSnapshotDirty
+        ? '当前修改正在同步，离开前会自动保存'
+        : '当前修改已自动保存到草稿';
+      this.$confirm(`${saveHint}，可从「草稿箱」随时继续编辑。确定离开吗？`, '离开编辑页', {
+        confirmButtonText: '离开',
+        cancelButtonText: '留在本页',
+        type: 'warning',
+        center: true,
+        customClass: 'mobile-responsive-confirm'
+      }).then(async () => {
+        try {
+          await this.persistDraftSnapshot(true);
+        } catch (error) {
+          // 保存失败不阻塞离开：beforeDestroy 仍会做最后一次本地编码上传
+        }
+        next();
+      }).catch(() => {
+        next(false);
+      });
     },
 
 
@@ -1306,28 +1359,213 @@ const uploadPicture = () => import("../common/uploadPicture");
           }
           detail = res.data;
         } else {
-          const res = await this.$http.post(this.$constant.baseURL + '/admin/articleDraft/create', {}, true);
-          if (res.code !== 200 || !res.data) {
-            throw new Error(res.message || '创建草稿失败');
+          // 新增文章：若已有未完成的新建草稿，先询问"继续编辑"还是"新建空白"，
+          // 避免旧草稿被静默遗忘在草稿箱（用户以为内容丢了，实际是又建了一份空白草稿）
+          const found = await this.findReusableCreateDraft();
+          if (found && await this.askReuseCreateDraft(found) === 'existing') {
+            this.draftId = found.latest.id;
+            this.suppressNextDraftRouteReload = true;
+            this.$router.replace({ path: '/postEdit', query: { draftId: this.draftId } });
+            const existing = await this.$http.get(this.$constant.baseURL + `/admin/articleDraft/${this.draftId}`, {}, true);
+            if (existing.code !== 200 || !existing.data) {
+              throw new Error(existing.message || '加载草稿失败');
+            }
+            detail = existing.data;
+          } else {
+            const res = await this.$http.post(this.$constant.baseURL + '/admin/articleDraft/create', {}, true);
+            if (res.code !== 200 || !res.data) {
+              throw new Error(res.message || '创建草稿失败');
+            }
+            detail = res.data;
+            this.draftId = detail.id;
+            this.suppressNextDraftRouteReload = true;
+            this.$router.replace({ path: '/postEdit', query: { draftId: detail.id } });
           }
-          detail = res.data;
-          this.draftId = detail.id;
-          this.suppressNextDraftRouteReload = true;
-          this.$router.replace({ path: '/postEdit', query: { draftId: detail.id } });
         }
         await this.initializeDraftSession(detail, loadToken);
+      },
+      /**
+       * 查找当前用户未完成的新建草稿（按最后编辑时间倒序，取最近一份）。
+       * 查询失败时静默降级为"没有草稿"，不阻塞新建流程。
+       *
+       * @returns {Promise<{latest: Object, total: number}|null>}
+       */
+      async findReusableCreateDraft() {
+        try {
+          const res = await this.$http.post(this.$constant.baseURL + '/admin/articleDraft/list',
+            { current: 1, size: 100 }, true);
+          if (res.code !== 200 || !res.data || !Array.isArray(res.data.records)) {
+            return null;
+          }
+          const currentAdminId = this.mainStore && this.mainStore.currentAdmin
+            ? this.mainStore.currentAdmin.id : null;
+          if (currentAdminId === null) {
+            // 拿不到当前用户时不做询问，避免把他人草稿当成自己的展示
+            return null;
+          }
+          // hasContent !== false：旧后端不返回该字段时保留，避免漏掉真实草稿
+          const mine = res.data.records.filter((item) => item
+            && item.draftType === 'CREATE'
+            && item.hasContent !== false
+            && item.ownerUserId === currentAdminId);
+          if (!mine.length) {
+            return null;
+          }
+          return { latest: mine[0], total: mine.length };
+        } catch (error) {
+          return null;
+        }
+      },
+      /**
+       * 询问是否继续编辑已有新建草稿。
+       *
+       * @returns {Promise<'existing'|'blank'>} existing：载入最近一份草稿；blank：创建空白草稿
+       */
+      async askReuseCreateDraft(found) {
+        const latest = found.latest;
+        const editedAt = latest.updateTime
+          ? String(latest.updateTime).replace('T', ' ').slice(0, 19) : '未知时间';
+        let titleText = String(latest.titleCache || '').trim();
+        let preview = '';
+        // 还没写标题时，补一份正文开头做识别依据，避免所有草稿都显示"未命名草稿"
+        if (!titleText || titleText === DEFAULT_DRAFT_TITLE) {
+          const snapshotInfo = await this.loadDraftDocPreview(latest.id);
+          if (snapshotInfo.title) {
+            titleText = snapshotInfo.title;
+          }
+          preview = snapshotInfo.preview;
+        }
+        const heading = titleText ? `《${this.escapeDraftPreview(titleText)}》` : '（无标题草稿）';
+        const previewTip = preview
+          ? `<br>内容开头：${this.escapeDraftPreview(preview)}`
+          : '<br>（暂无正文，可能只改过文章设置）';
+        const moreTip = found.total > 1 ? `<br>草稿箱中共有 ${found.total} 份未完成的新建草稿。` : '';
+        const message = `检测到未完成的新建草稿：${heading}（最后编辑 ${editedAt}）。${previewTip}${moreTip}<br><br>`
+          + '「继续编辑草稿」载入这份草稿；「新建空白草稿」创建全新空白草稿（旧草稿仍保留在草稿箱，可随时处理）。';
+        return new Promise((resolve) => {
+          this.$confirm(message, '检测到未完成的新建草稿', {
+            confirmButtonText: '继续编辑草稿',
+            cancelButtonText: '新建空白草稿',
+            distinguishCancelAndClose: true,
+            dangerouslyUseHTMLString: true,
+            type: 'info',
+            center: true,
+            customClass: 'mobile-responsive-confirm'
+          }).then(() => resolve('existing'))
+            .catch(() => resolve('blank'));
+        });
+      },
+      /**
+       * 读取草稿快照里的标题与正文开头（仅用于弹窗识别，失败时返回空值）。
+       * 用独立的临时 Y.Doc 解析，不影响当前会话。
+       */
+      async loadDraftDocPreview(draftId) {
+        try {
+          const res = await this.$http.get(this.$constant.baseURL + `/admin/articleDraft/${draftId}`, {}, true);
+          const snapshot = res && res.data ? res.data.crdtSnapshotBase64 : null;
+          if (!snapshot) {
+            return { title: '', preview: '' };
+          }
+          const doc = new Y.Doc();
+          try {
+            Y.applyUpdate(doc, base64ToUint8Array(snapshot));
+            const title = doc.getText('articleTitle').toString().trim();
+            const content = doc.getText('articleContent').toString().replace(/\s+/g, ' ').trim();
+            return {
+              title,
+              preview: content.length > 80 ? content.slice(0, 80) + '…' : content
+            };
+          } finally {
+            doc.destroy();
+          }
+        } catch (error) {
+          return { title: '', preview: '' };
+        }
+      },
+      /**
+       * 弹窗为 HTML 渲染，草稿标题/正文需转义，避免破坏提示结构
+       */
+      escapeDraftPreview(text) {
+        return String(text)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
       },
       async ensureRevisionDraftSessionCreated(loadToken) {
         const res = await this.$http.post(this.$constant.baseURL + `/admin/articleDraft/revision/${this.id}`, {}, true);
         if (res.code !== 200 || !res.data) {
           throw new Error(res.message || '创建修订草稿失败');
         }
-        const detail = res.data;
+        let detail = res.data;
+        // 带内容的草稿不能静默套用：文章可能已被自动化工具/其他设备改过，先让用户决定
+        if (await this.resolveExistingRevisionDraft(detail) === 'discard') {
+          detail = await this.recreateRevisionDraftFromArticle();
+          if (!detail) {
+            throw new Error('重置修订草稿失败');
+          }
+        }
+        if (loadToken !== this.pageDataLoadToken) {
+          return;
+        }
         this.draftId = detail.id;
         this.suppressNextIdRouteReload = true;
         this.suppressNextDraftRouteReload = true;
         this.$router.replace({ path: '/postEdit', query: { draftId: detail.id } });
         await this.initializeDraftSession(detail, loadToken);
+      },
+      /**
+       * 打开已有文章的编辑页时，若该文章存在带内容的修订草稿，先询问用户：
+       * 继续编辑草稿，还是丢弃草稿、以文章当前内容重新开始。
+       *
+       * <p>解决协作场景：Agent（博客自动化技能）直接更新了文章，而此前的修订草稿仍是旧内容，
+       * 静默恢复会让用户误以为 Agent 的修改没有生效，必须手动删除草稿才能看到最新文章。</p>
+       *
+       * @returns {Promise<'keep'|'discard'>} keep：沿用草稿；discard：丢弃草稿改用最新文章
+       */
+      resolveExistingRevisionDraft(detail) {
+        if (!detail || !detail.crdtSnapshotBase64) {
+          // 空草稿不会覆盖文章内容（初始化时用文章内容填充），无需打断
+          return Promise.resolve('keep');
+        }
+        const editor = detail.lastEditorUsername || detail.ownerUsername || '未知用户';
+        const editedAt = detail.updateTime ? String(detail.updateTime).replace('T', ' ').slice(0, 19) : '未知时间';
+        const articleTitle = String(detail.sourceArticleTitle || '').trim();
+        const titleTip = articleTitle ? `文章：《${this.escapeDraftPreview(articleTitle)}》<br>` : '';
+        const staleTip = detail.articleUpdatedAfterDraft
+          ? '<br><br><span style="color:#e6a23c">注意：文章在草稿之后被更新过（可能是自动化工具或其他设备），继续使用草稿会覆盖这些更新。</span>'
+          : '';
+        const message = `该文章存在未发布的修订草稿。<br>${titleTip}最后编辑：${editor}（${editedAt}）${staleTip}<br><br>`
+          + '「继续编辑草稿」载入草稿内容；「使用最新文章」丢弃草稿，改为基于文章当前内容编辑。';
+        return new Promise((resolve) => {
+          this.$confirm(message, '检测到未发布的草稿', {
+            confirmButtonText: '继续编辑草稿',
+            cancelButtonText: '使用最新文章',
+            distinguishCancelAndClose: true,
+            dangerouslyUseHTMLString: true,
+            type: detail.articleUpdatedAfterDraft ? 'warning' : 'info',
+            center: true,
+            customClass: 'mobile-responsive-confirm'
+          }).then(() => resolve('keep'))
+            .catch((action) => resolve(action === 'cancel' ? 'discard' : 'keep'));
+        });
+      },
+      /**
+       * 丢弃已有修订草稿并以文章最新内容重建（"使用最新文章"分支）
+       */
+      async recreateRevisionDraftFromArticle() {
+        try {
+          await this.$http.delete(this.$constant.baseURL + `/admin/articleDraft/${this.draftId}`, {}, true);
+        } catch (error) {
+          this.$message({ message: '删除旧草稿失败：' + (error.message || '未知错误'), type: 'error' });
+          return null;
+        }
+        const res = await this.$http.post(this.$constant.baseURL + `/admin/articleDraft/revision/${this.id}`, {}, true);
+        if (res.code !== 200 || !res.data) {
+          this.$message({ message: res.message || '重建修订草稿失败', type: 'error' });
+          return null;
+        }
+        this.$message({ message: '已丢弃旧草稿，改用文章最新内容', type: 'success' });
+        return res.data;
       },
       async acceptDraftInviteIfNeeded() {
         const inviteToken = this.$route.query.inviteToken;
@@ -1364,6 +1602,8 @@ const uploadPicture = () => import("../common/uploadPicture");
         this.draftOwnerUserId = detail.ownerUserId !== undefined && detail.ownerUserId !== null ? detail.ownerUserId : null;
         this.sourceArticleId = detail.articleId || null;
         this.sourceArticleTitle = detail.sourceArticleTitle || '';
+        // 文章在草稿之后被改过（如自动化工具写入）时，页面顶部给出"草稿可能过期"提示
+        this.draftArticleUpdatedAfterDraft = Boolean(detail.articleUpdatedAfterDraft);
         this.draftCollaboratorIds = (detail.collaborators || []).map(item => item.userId);
         this.article = detail.sourceArticle ? {
           ...createDefaultArticle(),
@@ -1443,6 +1683,8 @@ const uploadPicture = () => import("../common/uploadPicture");
         // 它只排队不编码，而下方会立即清空队列标志并销毁 ydoc，导致排队丢失。
         // 因此这里同步编码快照、fire-and-forget 上传，确保 ydoc 销毁前数据已捕获。
         this.draftSessionDestroyed = true;
+        // 会话结束时清除"本次有修改"标记：发布成功、切换草稿等场景不应再触发离开拦截
+        this.draftSessionDirty = false;
         if (this.isDraftMode && this.draftId && this.ydoc && this.draftSnapshotDirty) {
           try {
             const snapshotBase64 = uint8ArrayToBase64(Y.encodeStateAsUpdate(this.ydoc));
@@ -1761,6 +2003,10 @@ const uploadPicture = () => import("../common/uploadPicture");
         this.draftSnapshotDirty = true;
         this.draftSnapshotVersion += 1;
         if (origin !== 'remote') {
+          // 会话就绪后的本地变更才算"本次编辑"，初始化阶段的快照/IndexedDB 回放不算
+          if (this.draftReady) {
+            this.draftSessionDirty = true;
+          }
           this.queueDraftUpdate(update);
           this.draftStatusText = '同步中';
           this.draftStatusType = 'warning';
@@ -2652,10 +2898,15 @@ const uploadPicture = () => import("../common/uploadPicture");
       saveArticle(article, url) {
         const actionText = this.isRevisionDraft ? '发布修订' : this.isDraftMode ? '发布' : '保存';
         const successText = this.isRevisionDraft ? '修订发布' : `文章${actionText}`;
-        this.$confirm(`确认${actionText}文章？`, '提示', {
+        // 草稿已落后于文章时，发布前明确提示会覆盖自动化工具/其他设备的更新
+        const staleWarning = this.draftArticleUpdatedAfterDraft
+          ? '<br><br><span style="color:#e6a23c">注意：文章在草稿之后被更新过（可能是自动化工具或其他设备），本次发布将覆盖这些更新。</span>'
+          : '';
+        this.$confirm(`确认${actionText}文章？${staleWarning}`, '提示', {
           confirmButtonText: '确定',
           cancelButtonText: '取消',
-          type: 'success',
+          type: staleWarning ? 'warning' : 'success',
+          dangerouslyUseHTMLString: Boolean(staleWarning),
           center: true
         }).then(() => {
           // 显示加载中
@@ -2866,10 +3117,15 @@ const uploadPicture = () => import("../common/uploadPicture");
           : this.isDraftMode
             ? '草稿将在后台发布为文章，您可以立即返回文章列表，发布状态会显示在右侧通知中。'
             : '文章将在后台保存，您可以立即返回文章列表，保存状态会显示在右侧通知中。';
-        this.$confirm(confirmMessage, `确认异步${actionText}`, {
+        // 与同步发布一致：草稿落后于文章时提示会覆盖自动化工具/其他设备的更新
+        const staleWarning = this.draftArticleUpdatedAfterDraft
+          ? '<br><br><span style="color:#e6a23c">注意：文章在草稿之后被更新过（可能是自动化工具或其他设备），本次发布将覆盖这些更新。</span>'
+          : '';
+        this.$confirm(`${confirmMessage}${staleWarning}`, `确认异步${actionText}`, {
           confirmButtonText: actionAndLeaveText,
           cancelButtonText: '取消',
-          type: 'info',
+          type: staleWarning ? 'warning' : 'info',
+          dangerouslyUseHTMLString: Boolean(staleWarning),
           center: true
         }).then(() => {
           this.asyncSaveLoading = true;

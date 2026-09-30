@@ -265,6 +265,29 @@ def _positive_float(value: str) -> float:
     return f
 
 
+RECYCLE_BIN_UPGRADE_HINT = (
+    "此命令依赖回收站能力（需要 awesome-poetize-open v5.2.7+）。"
+    "旧版后端没有对应端点，HTTP 层可能返回 404 或 500；"
+    "若博客已升级到 v5.2.7+ 仍出现本提示，请查看后端日志排查。"
+)
+
+
+def call_recycle_bin_api(method: str, url: str, api_key: str,
+                         payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """回收站命令专用请求兜底。
+
+    旧后端（<v5.2.7）没有这些端点，HTTP 层可能返回 404 或 500；
+    统一翻译为带升级指引的结构化错误，模型无需主动探测能力。
+    """
+    response = request_json(method, url, api_key, payload, return_error_dict=True)
+    if response.get("code") != 200 and response.get("detail") is not None:
+        response["agent_guide"] = {
+            "message": RECYCLE_BIN_UPGRADE_HINT,
+            "next_steps": ["升级博客后端到 v5.2.7+ 后重试；若已升级，请检查后端日志。"],
+        }
+    return response
+
+
 def add_global_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--base-url", default=None, help="Poetize base URL. Falls back to POETIZE_BASE_URL env or ~/.config/poetize/credentials.json.")
     parser.add_argument("--api-key", default=None, help="Poetize API key. Falls back to POETIZE_API_KEY env or ~/.config/poetize/credentials.json.")
@@ -434,6 +457,87 @@ def add_manage_subparsers(parser: argparse.ArgumentParser) -> None:
     p.add_argument("--stdin-brief", action="store_true", help="Read brief JSON from stdin.")
     p.add_argument("--password", help="Password for hidden article.")
     p.add_argument("--tips", help="Preview tip for hidden article.")
+
+    # delete-article（移入回收站，保留期内可恢复；彻底删除不受支持）
+    p = sub.add_parser("delete-article", help="Move an article to the recycle bin (recoverable during the retention window).")
+    add_global_args(p)
+    add_article_target_args(p)
+    p.add_argument("--brief-file", help="JSON brief file for strategy validation.")
+    p.add_argument("--stdin-brief", action="store_true", help="Read brief JSON from stdin.")
+
+    # restore-article
+    p = sub.add_parser("restore-article", help="Restore an article from the recycle bin.")
+    add_global_args(p)
+    p.add_argument("--article-id", type=int, required=True, help="Trashed article ID (see list-trash).")
+
+    # list-trash
+    p = sub.add_parser("list-trash", help="List articles in the recycle bin.")
+    add_global_args(p)
+    p.add_argument("--search-key", help="Filter by title fragment.")
+    p.add_argument("--current", type=int, default=1, help="Page number.")
+    p.add_argument("--size", type=int, default=10, help="Page size.")
+
+    # list-versions
+    p = sub.add_parser("list-versions", help="List historical version snapshots of an article (newest first).")
+    add_global_args(p)
+    p.add_argument("--article-id", type=int, required=True, help="Target article ID.")
+
+    # restore-version
+    p = sub.add_parser("restore-version",
+                       help="Restore an article to a historical version (auto-snapshots the current version first).")
+    add_global_args(p)
+    p.add_argument("--article-id", type=int, required=True, help="Target article ID.")
+    p.add_argument("--version-id", type=int, required=True, help="Version ID from list-versions.")
+
+    # trash-detail（回收站文章详情，含正文与翻译，用于判断恢复对象）
+    p = sub.add_parser("trash-detail", help="Fetch a trashed article's full content and translations (to decide what to restore).")
+    add_global_args(p)
+    p.add_argument("--article-id", type=int, required=True, help="Trashed article ID (see list-trash).")
+
+    # version-detail（历史版本详情，含正文与翻译快照，用于判断回滚目标）
+    p = sub.add_parser("version-detail", help="Fetch a version snapshot's full content and translations (to decide what to roll back to).")
+    add_global_args(p)
+    p.add_argument("--version-id", type=int, required=True, help="Version ID from list-versions.")
+
+    # 资源回收站（删除进回收站，30 天内可恢复；彻底删除不受支持）
+    p = sub.add_parser("list-resources", help="List resources (excludes trashed ones).")
+    add_global_args(p)
+    p.add_argument("--search-key", help="Filter by path or original name fragment.")
+    p.add_argument("--current", type=int, default=1, help="Page number.")
+    p.add_argument("--size", type=int, default=10, help="Page size.")
+
+    p = sub.add_parser("delete-resource", help="Move a resource to the recycle bin (recoverable during the retention window).")
+    add_global_args(p)
+    p.add_argument("--resource-id", type=int, help="Target resource ID.")
+    p.add_argument("--path", help="Target resource path (when id unknown).")
+
+    p = sub.add_parser("restore-resource", help="Restore a resource from the recycle bin.")
+    add_global_args(p)
+    p.add_argument("--resource-id", type=int, required=True, help="Trashed resource ID (see list-resource-trash).")
+
+    p = sub.add_parser("list-resource-trash", help="List resources in the recycle bin.")
+    add_global_args(p)
+    p.add_argument("--search-key", help="Filter by path or original name fragment.")
+    p.add_argument("--current", type=int, default=1, help="Page number.")
+    p.add_argument("--size", type=int, default=10, help="Page size.")
+
+    p = sub.add_parser("list-resource-backups", help="List replacement backups (old versions kept after replace).")
+    add_global_args(p)
+    p.add_argument("--resource-id", type=int, help="Filter backups by resource ID.")
+    p.add_argument("--current", type=int, default=1, help="Page number.")
+    p.add_argument("--size", type=int, default=10, help="Page size.")
+
+    p = sub.add_parser("restore-resource-backup", help="Restore a resource to a pre-replacement old version (the current file is backed up first).")
+    add_global_args(p)
+    p.add_argument("--backup-id", type=int, required=True, help="Backup ID from list-resource-backups.")
+
+    p = sub.add_parser("resource-trash-detail", help="Fetch a trashed resource's metadata and preview URL (to decide what to restore).")
+    add_global_args(p)
+    p.add_argument("--resource-id", type=int, required=True, help="Trashed resource ID (see list-resource-trash).")
+
+    p = sub.add_parser("resource-backup-detail", help="Fetch a replacement backup's metadata and preview URL (to decide which old version to restore).")
+    add_global_args(p)
+    p.add_argument("--backup-id", type=int, required=True, help="Backup ID from list-resource-backups.")
 
     # article-analytics
     p = sub.add_parser("article-analytics", help="Get article analytics.")
@@ -838,6 +942,236 @@ def cmd_manage(args: argparse.Namespace) -> None:
                     f"To make it public again: edit markdown and run: python poetize_cli.py publish --markdown-file <file> --article-id {id_str} --publish --wait"
                 ]
             }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "delete-article":
+            article_id = resolve_article_id(args)
+            brief = resolve_brief(args)
+            payload = apply_ops_strategy(brief, {"id": article_id}, expected_task_type="delete_article")
+            response = call_recycle_bin_api("POST", f"{args.base_url.rstrip('/')}/api/api/article/delete", args.api_key,
+                                    payload)
+            if response.get("code") == 200:
+                # 保留天数以后端返回为准，避免与后端策略变化脱节
+                retention_days = (response.get("data") or {}).get("retentionDays")
+                window = f"{retention_days} days" if retention_days else "the retention window"
+                response["agent_guide"] = {
+                    "message": f"Article moved to the recycle bin. It is recoverable during the retention window "
+                               f"({window}); permanent purge happens automatically only after that.",
+                    "next_steps": [
+                        "Verify it is in trash: python poetize_cli.py manage list-trash",
+                        f"Restore it: python poetize_cli.py manage restore-article --article-id {article_id}"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "restore-article":
+            response = call_recycle_bin_api("POST", f"{args.base_url.rstrip('/')}/api/api/article/restore", args.api_key,
+                                    {"id": args.article_id})
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Article restored from the recycle bin.",
+                    "next_steps": [
+                        f"Verify: python poetize_cli.py manage get-article --article-id {args.article_id}"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "list-trash":
+            params: dict[str, Any] = {"current": args.current, "size": args.size}
+            if args.search_key:
+                params["searchKey"] = args.search_key
+            query = urllib.parse.urlencode(params)
+            response = call_recycle_bin_api("GET", f"{args.base_url.rstrip('/')}/api/api/article/trashList?{query}",
+                                    args.api_key)
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Recycle bin listed. Items are auto-purged after retentionDays.",
+                    "next_steps": [
+                        "Restore one item: python poetize_cli.py manage restore-article --article-id <id>"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "list-versions":
+            query = urllib.parse.urlencode({"articleId": args.article_id})
+            response = call_recycle_bin_api("GET", f"{args.base_url.rstrip('/')}/api/api/article/versions?{query}",
+                                    args.api_key)
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Version snapshots listed (newest first). Each update creates one snapshot; "
+                               "version restores are themselves snapshotted and reversible.",
+                    "next_steps": [
+                        "Restore one version: python poetize_cli.py manage restore-version "
+                        f"--article-id {args.article_id} --version-id <id>"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "restore-version":
+            response = call_recycle_bin_api("POST", f"{args.base_url.rstrip('/')}/api/api/article/restoreVersion",
+                                    args.api_key,
+                                    {"articleId": args.article_id, "versionId": args.version_id})
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Article restored to the requested version. The pre-restore state was snapshotted, "
+                               "so this restore can be undone with another restore-version.",
+                    "next_steps": [
+                        f"Verify: python poetize_cli.py manage get-article --article-id {args.article_id}"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "trash-detail":
+            query = urllib.parse.urlencode({"id": args.article_id})
+            response = call_recycle_bin_api("GET", f"{args.base_url.rstrip('/')}/api/api/article/trashDetail?{query}",
+                                    args.api_key)
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Trashed article content fetched. Read content/translations to confirm this is the article to restore.",
+                    "next_steps": [
+                        f"Restore it: python poetize_cli.py manage restore-article --article-id {args.article_id}"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "version-detail":
+            query = urllib.parse.urlencode({"versionId": args.version_id})
+            response = call_recycle_bin_api("GET", f"{args.base_url.rstrip('/')}/api/api/article/versionDetail?{query}",
+                                    args.api_key)
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Version content fetched. Compare it with the current article before rolling back.",
+                    "next_steps": [
+                        "Roll back: python poetize_cli.py manage restore-version --article-id <id> "
+                        f"--version-id {args.version_id}"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "list-resources":
+            params = {"current": args.current, "size": args.size}
+            if args.search_key:
+                params["searchKey"] = args.search_key
+            query = urllib.parse.urlencode(params)
+            response = call_recycle_bin_api("GET", f"{args.base_url.rstrip('/')}/api/api/resource/list?{query}",
+                                    args.api_key)
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Resources listed. Use the id (or path) with delete-resource; trashed resources are excluded.",
+                    "next_steps": []
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "delete-resource":
+            body: dict[str, Any] = {}
+            if getattr(args, "resource_id", None):
+                body["id"] = args.resource_id
+            if getattr(args, "path", None):
+                body["path"] = args.path
+            if not body:
+                raise SystemExit("delete-resource requires --resource-id or --path")
+            response = call_recycle_bin_api("POST", f"{args.base_url.rstrip('/')}/api/api/resource/delete", args.api_key, body)
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Resource moved to the recycle bin. It is recoverable during the retention window.",
+                    "next_steps": [
+                        "Verify: python poetize_cli.py manage list-resource-trash",
+                        "Restore: python poetize_cli.py manage restore-resource --resource-id <id>"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "restore-resource":
+            response = call_recycle_bin_api("POST", f"{args.base_url.rstrip('/')}/api/api/resource/restore", args.api_key,
+                                    {"id": args.resource_id})
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Resource restored from the recycle bin.",
+                    "next_steps": []
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "list-resource-trash":
+            params = {"current": args.current, "size": args.size}
+            if args.search_key:
+                params["searchKey"] = args.search_key
+            query = urllib.parse.urlencode(params)
+            response = call_recycle_bin_api("GET", f"{args.base_url.rstrip('/')}/api/api/resource/trashList?{query}",
+                                    args.api_key)
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Resource recycle bin listed. Items are auto-purged after retentionDays.",
+                    "next_steps": [
+                        "Restore: python poetize_cli.py manage restore-resource --resource-id <id>"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "list-resource-backups":
+            params: dict[str, Any] = {"current": args.current, "size": args.size}
+            if getattr(args, "resource_id", None):
+                params["resourceId"] = args.resource_id
+            query = urllib.parse.urlencode(params)
+            response = call_recycle_bin_api("GET", f"{args.base_url.rstrip('/')}/api/api/resource/backupList?{query}",
+                                    args.api_key)
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Replacement backups listed. These are pre-replacement old versions kept for rollback.",
+                    "next_steps": [
+                        "Restore one: python poetize_cli.py manage restore-resource-backup --backup-id <id>"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "restore-resource-backup":
+            response = call_recycle_bin_api("POST", f"{args.base_url.rstrip('/')}/api/api/resource/restoreBackup",
+                                    args.api_key, {"id": args.backup_id})
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Resource restored to the pre-replacement version. The overwritten current file was backed up first, so this restore can be undone.",
+                    "next_steps": []
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "resource-trash-detail":
+            query = urllib.parse.urlencode({"id": args.resource_id})
+            response = call_recycle_bin_api("GET", f"{args.base_url.rstrip('/')}/api/api/resource/trashDetail?{query}",
+                                    args.api_key)
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Trashed resource metadata fetched. Open previewUrl to visually confirm before restoring.",
+                    "next_steps": [
+                        f"Restore: python poetize_cli.py manage restore-resource --resource-id {args.resource_id}"
+                    ]
+                }
+            print(json.dumps(response, ensure_ascii=False, indent=2))
+            return
+
+        if mc == "resource-backup-detail":
+            query = urllib.parse.urlencode({"id": args.backup_id})
+            response = call_recycle_bin_api("GET", f"{args.base_url.rstrip('/')}/api/api/resource/backupDetail?{query}",
+                                    args.api_key)
+            if response.get("code") == 200:
+                response["agent_guide"] = {
+                    "message": "Backup metadata fetched. Open previewUrl to visually confirm before restoring the old version.",
+                    "next_steps": [
+                        f"Restore: python poetize_cli.py manage restore-resource-backup --backup-id {args.backup_id}"
+                    ]
+                }
             print(json.dumps(response, ensure_ascii=False, indent=2))
             return
 

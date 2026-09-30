@@ -12,6 +12,7 @@ ARTICLE_UPDATE_TASK_TYPES = {"refresh_article"}
 OPS_TASK_TYPES = {
     "update_article",
     "hide_article",
+    "delete_article",
     "update_section",
     "update_translation",
     "delete_translation",
@@ -46,7 +47,7 @@ OPS_BRIEF_REQUIRED_FIELDS = [
 # an Agent that omitted a field knows exactly how to repair the brief and retry,
 # instead of having to re-read SKILL.md and guess.
 FIELD_SUGGESTIONS: dict[str, str] = {
-    "taskType": "for article create/refresh (publish command): create_article / refresh_article / repurpose_article; for ops actions (manage update-article / hide-article / update-section / save-translation / delete-translation / regenerate-translation): update_article / hide_article / update_section / update_translation / delete_translation / regenerate_translation — must exactly match the subcommand you are calling",
+    "taskType": "for article create/refresh (publish command): create_article / refresh_article / repurpose_article; for ops actions (manage update-article / hide-article / delete-article / update-section / save-translation / delete-translation / regenerate-translation): update_article / hide_article / delete_article / update_section / update_translation / delete_translation / regenerate_translation — must exactly match the subcommand you are calling",
     "primaryGoal": "specify one of asset_maintenance / seo_growth / brand_expression / conversion",
     "targetAudience": "non-empty string describing the reader, e.g. \"developers learning RAG\"",
     "publishIntent": "specify draft / public",
@@ -262,13 +263,16 @@ def apply_ops_strategy(
             adjusted["tips"] = "Article hidden by strategy brief."
         return {key: value for key, value in adjusted.items() if value is not None}
 
+    if expected_task_type == "delete_article":
+        # 删除进回收站：不改写任何字段，仅借 brief 记录策略与审计字段（taskType/reasoning/expectedOutcome）
+        return {key: value for key, value in adjusted.items() if value is not None}
+
     if expected_task_type == "update_article":
         adjusted["submitToSearchEngine"] = _resolve_boolean(
             adjusted,
             "submitToSearchEngine",
             default=True,
         )
-
     if adjusted.get("viewStatus") is False:
         raise StrategyValidationError(
             "Use hide-article instead of update-article for takedown behavior.",

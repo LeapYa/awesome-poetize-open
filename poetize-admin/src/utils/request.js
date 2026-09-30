@@ -422,7 +422,9 @@ axios.interceptors.response.use(async function (response) {
     }
 
     // 服务器返回错误状态码
-    if (error.response.status === 401 || error.response.status === 403) {
+    // 401=未认证（token 为空/无效/过期）才按登录过期处理；
+    // 403=已认证但权限不足，属于业务权限错误，不能当作登录过期强制登出
+    if (error.response.status === 401) {
       // token相关错误，使用统一的token过期处理逻辑
       const isAdminRequest = error.config && error.config.isAdmin || false;
       handleTokenExpire(isAdminRequest, router.currentRoute.fullPath, {

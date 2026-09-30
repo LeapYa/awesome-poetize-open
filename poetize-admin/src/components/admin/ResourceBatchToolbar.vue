@@ -15,14 +15,20 @@
           @click="$emit('clear')">
           清空选择
         </el-button>
-        <el-button
-          type="danger"
-          plain
-          icon="el-icon-delete"
-          :disabled="selectedCount === 0"
-          @click="openDelete()">
-          批量删除
-        </el-button>
+        <el-tooltip
+          content="批量删除为物理删除、不可恢复；如需可恢复删除，请在资源列表中逐条「移入回收站」"
+          placement="top">
+          <span>
+            <el-button
+              type="danger"
+              plain
+              icon="el-icon-delete"
+              :disabled="selectedCount === 0"
+              @click="openDelete()">
+              批量彻底删除
+            </el-button>
+          </span>
+        </el-tooltip>
         <el-tooltip
           :disabled="canMigrate"
           content="当前搜索结果无法准确映射为后端筛选范围，请先勾选资源或清除全局搜索"
@@ -41,7 +47,7 @@
     </div>
 
     <el-dialog
-      title="批量删除安全预检"
+      title="批量彻底删除安全预检"
       :visible.sync="deleteDialogVisible"
       width="760px"
       custom-class="resource-batch-delete-dialog"
@@ -50,7 +56,7 @@
       :before-close="handleDeleteDialogClose">
       <div v-loading="previewLoading || deleting">
         <el-alert
-          title="默认只删除通过引用检查且存储平台确认可删除的资源。下列例外项必须单独授权。"
+          title="批量删除为物理删除、不可恢复。默认只删除通过引用检查且存储平台确认可删除的资源，下列例外项必须单独授权。"
           type="warning"
           :closable="false"
           show-icon>

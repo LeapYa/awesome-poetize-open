@@ -188,6 +188,11 @@ export default {
           title: "系统日志",
           requiredUserType: 0  // 仅站长可访问
         }, {
+          icon: "el-icon-delete",
+          index: "/recycleBin",
+          title: "回收站",
+          requiredUserType: 1  // 管理员可访问
+        }, {
           icon: "el-icon-notebook-1",
           index: "/configList",
           title: "高级配置",

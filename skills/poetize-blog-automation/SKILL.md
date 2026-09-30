@@ -2,11 +2,11 @@
 slug: awesome-poetize-open-blog-automation
 displayName: POETIZE 博客自动化
 name: poetize-blog-automation
-description: 让 AI 帮你运营 POETIZE 博客：写文章并一键发布、更新或隐藏已有文章、管理分类和标签、管理评论、上传图片、翻译管理、切换博客主题、查看访问数据和趋势、配置 SEO、处理付费文章支付配置；含认证持久化、配置生成、测试等辅助能力。仅支持 awesome-poetize-open（POETIZE 的开源 fork），不适用于闭源版 POETIZE 或其他博客系统，也不用于与 POETIZE 无关的通用写作或 SEO 咨询。开源仓库：https://github.com/LeapYa/awesome-poetize-open
-summary: POETIZE 博客运营助手：写文章、发布、管理分类标签与评论、上传图片、翻译管理、切换主题、查看数据、配置 SEO、处理付费文章支付配置。
+description: 让 AI 帮你运营 POETIZE 博客：写文章并一键发布、更新、隐藏或删除已有文章（删除进回收站，保留期内可恢复）、管理分类和标签、管理评论、上传图片、翻译管理、切换博客主题、查看访问数据和趋势、配置 SEO、处理付费文章支付配置；含认证持久化、配置生成、测试等辅助能力。仅支持 awesome-poetize-open（POETIZE 的开源 fork），不适用于闭源版 POETIZE 或其他博客系统，也不用于与 POETIZE 无关的通用写作或 SEO 咨询。开源仓库：https://github.com/LeapYa/awesome-poetize-open
+summary: POETIZE 博客运营助手：写文章、发布、管理分类标签与评论、上传图片、翻译管理、切换主题、查看数据、配置 SEO、处理付费文章支付配置；误删误改可进回收站恢复（文章版本历史/资源回收站，需后端 v5.2.7+）。
 license: MIT
 homepage: https://github.com/LeapYa/awesome-poetize-open/tree/main/skills/poetize-blog-automation
-version: 2.2.0
+version: 2.5.0
 primaryEnv: POETIZE_API_KEY
 requires:
   anyBins:
@@ -105,7 +105,7 @@ If web search or article-list access is unavailable, record that limitation in `
 
 1. Classify intent and safety posture.
    Determine the target operation, article, taxonomy, visibility, and monetization (defaults to free). Honor explicit visibility intent; when absent, stage a new article as a draft for review. Run Pre-Writing Topic Validation only when applicable.
-   A strategy brief is required for `publish` and these `manage` mutations: `update-article`, `hide-article`, `update-section`, `save-translation`, `delete-translation`, and `regenerate-translation`. Other commands do not consume a brief.
+   A strategy brief is required for `publish` and these `manage` mutations: `update-article`, `hide-article`, `delete-article`, `update-section`, `save-translation`, `delete-translation`, and `regenerate-translation`. Other commands do not consume a brief. `delete-article` accepts an ops brief (`taskType: delete_article`) so deletion carries an explicit strategy/audit record even though it stays reversible within the retention window; `delete-resource` remains brief-free.
 2. Create the matching brief.
    Use `{baseDir}/assets/article-brief.template.json` for `publish` and `{baseDir}/assets/ops-brief.template.json` for strategy-validated `manage` commands. Article briefs require `taskType`, `primaryGoal`, `targetAudience`, `publishIntent`, `reasoning`, `selectedAngle`, and `alternativesConsidered`; `monetizationIntent` defaults to `free_default`. Ops briefs require `taskType`, `primaryGoal`, `reasoning`, and `expectedOutcome`. Infer strategy fields from the user's goal and explain them in `reasoning`. Ask only when missing information would materially change the target, visibility, monetization, or taxonomy.
 3. Diverge, then converge.
@@ -143,7 +143,7 @@ If web search or article-list access is unavailable, record that limitation in `
    `_brief.publishIntent` determines visibility; `--draft` and `--publish` are optional consistency checks and must agree with it. For draft-first creation, start with `taskType: create_article` and `publishIntent: draft`, run with `--draft --wait`, and verify the returned ID. To promote, change the same file to `taskType: refresh_article` and `publishIntent: public`, then rerun with `--article-id <id> --publish --wait`.
    Runtime auth requires `POETIZE_BASE_URL` and `POETIZE_API_KEY`. Referenced local images are uploaded automatically. Paid publishing checks `/api/api/payment/plugin/status` and fails closed if the plugin is not ready; it never silently publishes as free.
 7. Use `manage <subcommand>` for existing content, comments, themes, analytics, SEO, and taxonomy (categories/tags).
-   - Use `update-section` for localized source edits, `save-translation` for a manual translation correction, `regenerate-translation` only when all translations are stale, and `publish --article-id` for full rewrites. Article deletion is unsupported; use `hide-article`.
+   - Use `update-section` for localized source edits, `save-translation` for a manual translation correction, `regenerate-translation` only when all translations are stale, and `publish --article-id` for full rewrites. `delete-article` moves an article to the recycle bin (recoverable for the retention window reported in the response, 30 days by default, via `restore-article`); permanent deletion is unsupported. Use `hide-article` to keep it registered but invisible.
    - Use `list-sorts`/`list-labels` to inspect taxonomy, and `create-sort`/`update-sort`/`delete-sort`/`create-label`/`update-label`/`delete-label` to manage categories and tags independently of article publishing. When creating taxonomy, always provide a meaningful `--description`.
    - Comment writes are opt-in: run them only when the user requests comment work or accepts a specific proposal. Use `--as-ai` for the configured AI persona; omit it for the Blog Owner.
    - Comment, translation, and section commands require backend `v5.1.0`+. On a version-mismatch error, ask the user to upgrade; other commands remain available.
@@ -151,13 +151,17 @@ If web search or article-list access is unavailable, record that limitation in `
 
 ## Guardrails
 
+- Backend compatibility: recycle-bin and version-history commands require **awesome-poetize-open v5.2.7+**
+  (skill v2.5.0). No proactive capability probe is needed: on older backends the CLI itself detects the
+  missing endpoint (HTTP 404 or 500) and returns a clear upgrade hint — show that message to the user
+  instead of retrying.
 - Free content is the default; never introduce a paywall without an explicit monetization request. New articles default to draft when visibility is unspecified.
 - Strategy-validated commands require a matching, non-contradictory brief. Other writes require explicit user intent but no fabricated brief.
 - Never invent taxonomy IDs or silently accept fuzzy matches. Use names when IDs are unknown; create taxonomy only after confirmation via `--allow-create-*`.
 - When auto-creating taxonomy (`--allow-create-sort`/`--allow-create-label`), always provide `sortDescription`/`labelDescription` in front matter with a meaningful one-sentence description of what the category or tag covers. If omitted, the backend falls back to using the name itself as the description — acceptable but less informative.
 - Preserve unspecified fields on updates. The only exception is `submitToSearchEngine` (see front matter table); hide flows force it to `false`.
 - Every article brief **must** include `alternativesConsidered` — a non-empty list of 1–3 rejected angles. Never submit a `publish` brief without it, even when one angle is clearly preferred.
-- Article deletion is unsupported — use `hide-article`. A requested paid publish fails closed when payment is unavailable; a separate free publish requires fresh user intent and a `free_default` brief.
+- `delete-article`/`delete-resource` only move to the recycle bin (retention window from the API response, 30 days by default; `restore-article`/`restore-resource` to undo); permanent purge is never exposed to the API. Recover a bad image replacement with `list-resource-backups` + `restore-resource-backup` (the overwritten current file is backed up first, so restores are reversible). Recover a bad update with `list-versions` + `restore-version` (the pre-restore state is auto-snapshotted, so restores are reversible). A requested paid publish fails closed when payment is unavailable; a separate free publish requires fresh user intent and a `free_default` brief.
 - Prefer `coverBlank: true` over a fabricated cover. Stop on a missing local image rather than dropping or guessing it.
 - Comment writes remain opt-in; publishing alone is not permission to inspect or create comments.
 - With `list-comments --floor-comment-id <id>`, `"root_comment_missing": true` means the root fell outside the newest 50 top-level comments. Fetch additional pages before replying when root context matters.
@@ -276,6 +280,21 @@ poetize-blog.sh manage save-comment --article-id 123 --content "欢迎留言交�
 | `get-article` | Fetch one article | `--article-id` / `--article-slug` / `--article-title-exact` |
 | `update-article` | Update metadata via raw JSON; use `publish` or `update-section` for content | `--payload-file` / `--stdin-payload`, `--brief-file` / `--stdin-brief`, `--wait` |
 | `hide-article` | Set `viewStatus=false` | `--brief-file` / `--stdin-brief`, `--password`, `--tips`, `--wait` |
+| `delete-article` | Move to recycle bin (recoverable for the retention window) (v5.2.7+) | article target only, `--brief-file` / `--stdin-brief` |
+| `restore-article` | Restore from recycle bin (v5.2.7+) | `--article-id <id>` (from `list-trash`) |
+| `list-trash` | List recycle bin articles (v5.2.7+) | `--search-key`, `--current`, `--size` |
+| `list-versions` | List version snapshots (newest first) (v5.2.7+) | `--article-id <id>` |
+| `restore-version` | Restore a version (auto-snapshots current) (v5.2.7+) | `--article-id <id>`, `--version-id <id>` |
+| `trash-detail` | Fetch a trashed article's full content + translations, to decide what to restore (v5.2.7+) | `--article-id <id>` (from `list-trash`) |
+| `version-detail` | Fetch a version snapshot's full content + translations, to decide what to roll back to (v5.2.7+) | `--version-id <id>` (from `list-versions`) |
+| `list-resources` | List resources (excludes trashed) (v5.2.7+) | `--search-key`, `--current`, `--size` |
+| `delete-resource` | Move resource to recycle bin (recoverable for the retention window) (v5.2.7+) | `--resource-id <id>` or `--path <path>` |
+| `restore-resource` | Restore resource from recycle bin (v5.2.7+) | `--resource-id <id>` (from `list-resource-trash`) |
+| `list-resource-trash` | List resource recycle bin (v5.2.7+) | `--search-key`, `--current`, `--size` |
+| `list-resource-backups` | List pre-replacement old versions (v5.2.7+) | `--resource-id <id>` (optional), `--current`, `--size` |
+| `restore-resource-backup` | Restore pre-replacement version (current file backed up first) (v5.2.7+) | `--backup-id <id>` |
+| `resource-trash-detail` | Fetch a trashed resource's metadata + preview URL, to decide what to restore (v5.2.7+) | `--resource-id <id>` (from `list-resource-trash`) |
+| `resource-backup-detail` | Fetch a replacement backup's metadata + preview URL, to decide which old version to restore (v5.2.7+) | `--backup-id <id>` (from `list-resource-backups`) |
 | `article-analytics` | Get article stats | article target only |
 | `site-visits` | Site visit trends with bot/human split and region breakdown | `--days 7` or `--days 30` |
 | `theme-status` / `activate-theme` | Theme info / switch | `--plugin-key <key>` (required for activate) |

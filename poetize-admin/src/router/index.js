@@ -124,6 +124,10 @@ const routes = [
       name: 'systemLog',
       component: () => import('../components/admin/systemLog')
     }, {
+      path: 'recycleBin',
+      name: 'recycleBin',
+      component: () => import('../components/admin/recycleBin')
+    }, {
       path: 'translationModel',
       name: 'translationModel',
       component: () => import('../components/admin/translationModelManage.vue'),

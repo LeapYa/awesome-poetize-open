@@ -95,7 +95,7 @@
           </div>
           <div style="margin-top: 4px">
             <el-button type="text" icon="el-icon-s-tools" style="color: var(--blue)" @click="handleDeleteTranslation(scope.row)">删除翻译</el-button>
-            <el-button type="text" icon="el-icon-delete" style="color: var(--orangeRed)" @click="handleDelete(scope.row)">删除</el-button>
+            <el-button type="text" icon="el-icon-delete" style="color: var(--orangeRed)" @click="handleDelete(scope.row)">移入回收站</el-button>
           </div>
         </template>
       </el-table-column>
@@ -493,6 +493,7 @@
     import { useMainStore } from '@/stores/main';
     import { setAdminContentLoading } from '@/utils/sessionValidation';
     import { getAdminLanguageMapping, getAdminLanguageName } from '@/utils/languageUtils';
+    import { fetchRetentionConfig } from '@/utils/retentionConfig';
     import { parseMarkdownFile, parseJsonFile, readFileAsText, getFileExtension, validateImportFile, smartDowngradeHeadings } from '@/utils/markdownImport';
     import { downgradeMarkdownHeadings } from '@/utils/markdownHeadingUtils';
 
@@ -511,6 +512,8 @@
           desc: true
         },
         tableSortOrders: ['descending', 'ascending'],
+        // 回收站保留天数由后端下发，未取到前使用默认值
+        articleRetentionDays: 30,
         articles: [],
         // 页面内容加载状态（驱动全局"页面加载中"遮罩）
         loading: false,
@@ -670,6 +673,10 @@
 
     async created() {
       this.setContentLoading(true);
+      // 回收站保留策略（提示文案用），失败时保持默认值
+      fetchRetentionConfig().then((config) => {
+        this.articleRetentionDays = config.articleRetentionDays;
+      });
       // 加载后台管理用语言映射（中文）
       this.languageMap = await getAdminLanguageMapping();
       this.pagination.searchKey = ((this.$route.query.search || '') + '').trim();
@@ -857,10 +864,10 @@
           });
       },
       handleDelete(item) {
-        this.$confirm('确认删除？', '提示', {
-          confirmButtonText: '确定',
+        this.$confirm(`文章将移入回收站，保留 ${this.articleRetentionDays} 天内可恢复，超期由系统自动清理。确认移入回收站？`, '移入回收站', {
+          confirmButtonText: '移入回收站',
           cancelButtonText: '取消',
-          type: 'success',
+          type: 'warning',
           center: true,
           customClass: 'mobile-responsive-confirm'
         }).then(() => {
@@ -869,8 +876,8 @@
               // 刷新文章列表
               this.pagination.current = 1;
               this.getArticles();
-              
-              this.$message({ message: "删除成功！", type: "success" });
+
+              this.$message({ message: `已移入回收站，${this.articleRetentionDays} 天内可在回收站恢复`, type: "success" });
             })
             .catch((error) => {
               this.$message({
@@ -881,7 +888,7 @@
         }).catch(() => {
           this.$message({
             type: 'success',
-            message: '已取消删除!'
+            message: '已取消!'
           });
         });
       },

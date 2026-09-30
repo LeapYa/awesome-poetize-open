@@ -342,6 +342,7 @@ def request_json(
     api_key: str,
     payload: dict[str, Any] | None = None,
     extra_headers: dict[str, str] | None = None,
+    return_error_dict: bool = False,
 ) -> dict[str, Any]:
     headers = {
         "X-API-KEY": api_key,
@@ -364,6 +365,9 @@ def request_json(
             return json.loads(content)
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
+        if return_error_dict:
+            # 供调用方自行翻译 HTTP 层错误（如旧后端的 404/500），不再直接终止
+            return {"code": exc.code, "message": f"HTTP {exc.code} calling {url}", "detail": body[:500]}
         die(f"HTTP {exc.code} calling {url}\n{body}")
     except urllib.error.URLError as exc:
         die(f"Network error calling {url}: {exc}")

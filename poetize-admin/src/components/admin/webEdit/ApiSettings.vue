@@ -1035,6 +1035,101 @@ X-API-KEY: {{apiConfig.apiKey}}
 { "id": 1 }
                   </pre>
                 </div>
+              <el-collapse-item title="回收站与历史版本 API" name="26">
+                <div style="padding: 10px;">
+                  <p><strong>说明:</strong> 删除仅移入回收站（默认保留 30 天，超期由系统清理），期间可恢复；彻底删除不对外开放 API。历史版本每次更新前自动保存（保留最近 20 版 / 90 天），恢复前会先快照当前版，因此可反复撤销。</p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+# 删除文章（移入回收站）
+POST {{$constant.baseURL}}/api/article/delete
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{ "id": 123 }
+
+# 回收站文章列表
+GET {{$constant.baseURL}}/api/article/trashList?current=1&amp;size=10&amp;searchKey=
+X-API-KEY: {{apiConfig.apiKey}}
+
+# 回收站文章详情（含正文与全部翻译，用于判断恢复对象）
+GET {{$constant.baseURL}}/api/article/trashDetail?id=123
+X-API-KEY: {{apiConfig.apiKey}}
+
+# 从回收站恢复文章
+POST {{$constant.baseURL}}/api/article/restore
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{ "id": 123 }
+
+# 历史版本列表（新版本在前，不含正文大字段）
+GET {{$constant.baseURL}}/api/article/versions?articleId=123
+X-API-KEY: {{apiConfig.apiKey}}
+
+# 历史版本详情（含正文与翻译快照，用于判断回滚目标）
+GET {{$constant.baseURL}}/api/article/versionDetail?versionId=456
+X-API-KEY: {{apiConfig.apiKey}}
+
+# 恢复文章到指定历史版本
+POST {{$constant.baseURL}}/api/article/restoreVersion
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{ "articleId": 123, "versionId": 456 }
+                  </pre>
+                </div>
+              </el-collapse-item>
+              <el-collapse-item title="资源回收站与替换备份 API" name="27">
+                <div style="padding: 10px;">
+                  <p><strong>说明:</strong> 资源删除仅移入回收站（不移动物理文件，保留期内可恢复）；替换资源成功后旧文件会登记为备份，误替换可回滚。彻底删除仅站长后台可操作，不对外开放 API。</p>
+                  <pre style="background-color: #f5f7fa; padding: 10px; border-radius: 4px; overflow: auto;">
+# 资源列表（已排除回收站中的资源）
+GET {{$constant.baseURL}}/api/resource/list?current=1&amp;size=10&amp;searchKey=
+X-API-KEY: {{apiConfig.apiKey}}
+
+# 删除资源（移入回收站），可用 id 或 path 定位
+POST {{$constant.baseURL}}/api/resource/delete
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{ "id": 5 }
+# 或 { "path": "/static/assets/a.png" }
+
+# 回收站资源列表
+GET {{$constant.baseURL}}/api/resource/trashList?current=1&amp;size=10&amp;searchKey=
+X-API-KEY: {{apiConfig.apiKey}}
+
+# 回收站资源详情（返回元数据与 previewUrl，便于判断恢复对象）
+GET {{$constant.baseURL}}/api/resource/trashDetail?id=5
+X-API-KEY: {{apiConfig.apiKey}}
+
+# 预览回收站资源原文件（直接返回图片/文件字节，需 API Key）
+GET {{$constant.baseURL}}/api/resource/trashPreview?id=5
+X-API-KEY: {{apiConfig.apiKey}}
+
+# 从回收站恢复资源
+POST {{$constant.baseURL}}/api/resource/restore
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{ "id": 5 }
+
+# 替换旧版备份列表（可按 resourceId 过滤）
+GET {{$constant.baseURL}}/api/resource/backupList?resourceId=5&amp;current=1&amp;size=10
+X-API-KEY: {{apiConfig.apiKey}}
+
+# 替换旧版备份详情 / 预览
+GET {{$constant.baseURL}}/api/resource/backupDetail?id=9
+GET {{$constant.baseURL}}/api/resource/backupPreview?id=9
+X-API-KEY: {{apiConfig.apiKey}}
+
+# 恢复替换前的旧版本文件
+POST {{$constant.baseURL}}/api/resource/restoreBackup
+Content-Type: application/json
+X-API-KEY: {{apiConfig.apiKey}}
+
+{ "id": 9 }
+                  </pre>
+                </div>
               </el-collapse-item>
             </el-collapse>
             </div>

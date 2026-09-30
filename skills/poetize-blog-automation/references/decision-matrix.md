@@ -17,7 +17,7 @@ Use `primaryGoal` to decide the default posture of the article.
 - If `publishIntent = draft`, then both `viewStatus` and `submitToSearchEngine` must resolve to `false`.
 - If `taskType = hide_article`, then both `viewStatus` and `submitToSearchEngine` must resolve to `false`.
 - Section and translation mutations preserve the article's current `submitToSearchEngine` value.
-- If the user asks to delete a post, convert that request into `hide_article`.
+- 删除请求用 `delete-article`（移入回收站，保留期内可用 `restore-article` 恢复）；仅当用户只想下架时才用 `hide-article`。
 
 ## Taxonomy rules
 

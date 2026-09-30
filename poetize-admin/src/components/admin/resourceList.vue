@@ -250,9 +250,9 @@
                        @click="downloadResource(scope.row)">
               下载
             </el-button>
-            <el-button type="text" icon="el-icon-delete" style="color: var(--orangeRed)"
+            <el-button v-if="isRealBoss" type="text" icon="el-icon-delete" style="color: var(--orangeRed)"
                        @click="handleDelete(scope.row)">
-              删除
+              移入回收站
             </el-button>
           </template>
         </el-table-column>
@@ -465,6 +465,7 @@
 
 <script>
 import { useMainStore } from '@/stores/main';
+import { fetchRetentionConfig } from '@/utils/retentionConfig';
 
 const uploadPicture = () => import('../common/uploadPicture');
 const ResourceBatchToolbar = () => import('./ResourceBatchToolbar.vue');
@@ -674,6 +675,8 @@ export default {
         desc: true
       },
       resources: [],
+      // 资源回收站保留天数由后端下发，未取到前使用默认值
+      resourceRetentionDays: 30,
       resourceRequestSequence: 0,
       loadedResourceType: '',
       resourceContextLoaded: false,
@@ -743,6 +746,11 @@ export default {
   computed: {
     mainStore() {
       return useMainStore();
+    },
+    // 「移入回收站」对应后端 /resource/batchMoveToTrash（@LoginCheck(0)，仅站长），
+    // 普通管理员点击会拿到 403，故按 userType 精确控制可见性
+    isRealBoss() {
+      return this.mainStore.currentAdmin.userType === 0;
     },
     routeSearchDisplayKeyword() {
       return ((this.$route.query.search || '') + '').trim();
@@ -831,6 +839,10 @@ export default {
     if (this.mainStore && this.mainStore.sysConfig && this.mainStore.sysConfig['store.type']) {
       this.storeType = this.mainStore.sysConfig['store.type'];
     }
+    // 回收站保留策略（提示文案用），失败时保持默认值
+    fetchRetentionConfig().then((config) => {
+      this.resourceRetentionDays = config.resourceRetentionDays;
+    });
   },
 
   beforeDestroy() {
@@ -1528,12 +1540,39 @@ export default {
       this.getResources();
     },
     handleDelete(item) {
-      const toolbar = this.$refs.resourceBatchToolbar;
-      if (!toolbar) {
-        this.$message({ message: '批量删除组件尚未就绪，请稍后重试', type: 'warning' });
-        return;
-      }
-      toolbar.openDelete([item]);
+      this.$confirm(`资源将移入回收站，物理文件 ${this.resourceRetentionDays} 天内保留、可随时恢复，超期由系统自动清理。确认移入回收站？`,
+        '移入回收站', {
+          confirmButtonText: '移入回收站',
+          cancelButtonText: '取消',
+          type: 'warning',
+          center: true,
+          customClass: 'mobile-responsive-confirm'
+        }).then(() => {
+        this.$http.post(
+          this.$constant.baseURL + '/resource/batchMoveToTrash?forceReferenced=false',
+          { targets: [{ resourceId: item.id, expectedPath: item.path }] },
+          true
+        ).then((res) => {
+          const result = res && res.data ? res.data : null;
+          if (result && result.failed > 0) {
+            const firstFail = (result.items || []).find((i) => !i.success);
+            this.$message({
+              message: firstFail && firstFail.message ? firstFail.message : '移入回收站失败',
+              type: 'error'
+            });
+            return;
+          }
+          this.getResources();
+          this.$message({ message: `已移入回收站，${this.resourceRetentionDays} 天内可在回收站恢复`, type: 'success' });
+        }).catch((error) => {
+          this.$message({ message: error.message || '移入回收站失败', type: 'error' });
+        });
+      }).catch(() => {
+        this.$message({
+          type: 'success',
+          message: '已取消!'
+        });
+      });
     },
     downloadResource(item) {
       const url = this.getResourceUrl(item);

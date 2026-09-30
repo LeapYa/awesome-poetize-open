@@ -19,7 +19,9 @@ import com.ld.poetry.entity.*;
 import com.ld.poetry.enums.CommentTypeEnum;
 import com.ld.poetry.enums.PoetryEnum;
 import com.ld.poetry.service.ArticleService;
+import com.ld.poetry.service.ArticleVersionService;
 import com.ld.poetry.service.CacheService;
+import com.ld.poetry.service.SysAuditLogService;
 import com.ld.poetry.service.UserService;
 import com.ld.poetry.service.SysConfigService;
 import com.ld.poetry.service.SysAiConfigService;
@@ -32,8 +34,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -73,6 +77,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     @Autowired
     private ArticleMapper articleMapper;
+
+    @Autowired
+    private ArticleVersionService articleVersionService;
+
+    @Autowired
+    private SysAuditLogService sysAuditLogService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Autowired
     private CommonQuery commonQuery;
@@ -1625,8 +1638,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             return PoetryResult.fail("没有权限删除此文章！");
         }
 
-        // 删除文章（事务保护）
-        removeById(id);
+        // 删除文章（事务保护）：进回收站并记录删除时间，翻译与历史版本保留供恢复
+        baseMapper.softDeleteToTrash(id);
 
         // 使用Redis缓存清理替换PoetryCache
         cacheService.evictArticleRelatedCache(id);
@@ -1736,7 +1749,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         }
 
         // ========== 步骤1：在短事务中更新文章 ==========
-        boolean updateResult = updateArticleInTransaction(updateChainWrapper);
+        boolean updateResult = updateArticleInTransaction(updateChainWrapper,
+                () -> captureSnapshotSafely(articleVO.getId(), userId, updateBy));
         if (!updateResult) {
             log.error("数据库更新失败");
             return PoetryResult.fail("更新文章失败");
@@ -3225,7 +3239,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 updateTranslationStage(taskId, "db_saved", "pending", "正在更新数据库...", 0, false);
 
                 // ========== 步骤1：使用短事务方法更新文章 ==========
-                boolean updateResult = updateArticleInTransaction(updateChainWrapper);
+                boolean updateResult = updateArticleInTransaction(updateChainWrapper,
+                        () -> captureSnapshotSafely(articleVO.getId(), userId, finalUsername));
                 if (!updateResult) {
                     log.error("数据库更新失败，任务ID: {}", taskId);
                     updateSaveStatus(taskId, "failed", "数据库更新失败");
@@ -3386,14 +3401,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             throw new IllegalArgumentException("URL别名仅支持小写英文、数字和短横线，长度1-160，且不能是纯数字");
         }
 
-        Article existing = lambdaQuery()
-                .select(Article::getId)
-                .eq(Article::getArticleSlug, slug)
-                .ne(currentArticleId != null, Article::getId, currentArticleId)
-                .last("limit 1")
-                .one();
-        if (existing != null) {
-            throw new IllegalArgumentException("URL别名已被其他文章使用");
+        // 唯一索引 idx_article_slug 对回收站中的软删行同样生效，查重必须包含它们，
+        // 否则校验能通过却在写入时撞键报 500（回收站恢复路径同样依赖此含软删行的查重）
+        if (articleMapper.countBySlugIncludingTrashed(slug, currentArticleId) > 0) {
+            throw new IllegalArgumentException("URL别名已被其他文章使用（含回收站中的文章）");
         }
         return slug;
     }
@@ -3656,15 +3667,91 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     }
 
     /**
-     * 在独立事务中更新文章（短事务）
-     * 
-     * @param updateChainWrapper 更新链式包装器
+     * 更新前写入旧文版本快照。快照是安全网而非硬依赖：
+     * 服务未就绪或快照异常时降级为告警，不阻塞正常更新。
+     */
+    private void captureSnapshotSafely(Integer articleId, Integer editorUserId, String editorUsername) {
+        if (articleId == null || articleVersionService == null) {
+            return;
+        }
+        try {
+            articleVersionService.captureSnapshot(articleId, ArticleVersion.TYPE_UPDATE,
+                    editorUserId, editorUsername);
+        } catch (Exception e) {
+            log.error("文章版本快照失败，本次更新未生成快照: 文章ID={}, error={}",
+                    articleId, e.getMessage(), e);
+            recordSnapshotFailure("ARTICLE_VERSION_SNAPSHOT_FAILED", articleId, "更新前版本快照生成失败", e);
+        }
+    }
+
+    /**
+     * 快照相关失败写入审计（审计表保留 180 天），避免只有滚动日志导致事后无法归因
+     */
+    private void recordSnapshotFailure(String action, Integer articleId, String summary, Exception error) {
+        if (sysAuditLogService == null) {
+            return;
+        }
+        try {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("message", error == null ? null : error.getMessage());
+            sysAuditLogService.recordOperation("OPERATION", action, false, "ARTICLE",
+                    articleId == null ? null : String.valueOf(articleId), summary, detail);
+        } catch (Exception e) {
+            log.warn("记录快照失败审计时出错: action={}, error={}", action, e.getMessage());
+        }
+    }
+
+    /**
+     * 在独立事务中更新文章（短事务）。
+     *
+     * <p>本方法为同类内部调用，注解式事务不会生效，因此用 TransactionTemplate 显式开启事务，
+     * 保证"更新前快照"与文章更新要么同时提交、要么同时回滚。</p>
+     *
+     * @param updateChainWrapper  更新链式包装器
+     * @param beforeUpdateAction  更新前动作（写入旧文版本快照），与更新同一事务
      * @return 更新成功返回true，失败返回false
      */
-    @Transactional(rollbackFor = Exception.class)
-    private boolean updateArticleInTransaction(LambdaUpdateChainWrapper<Article> updateChainWrapper) {
-        boolean result = updateChainWrapper.update();
-        return result;
+    private boolean updateArticleInTransaction(LambdaUpdateChainWrapper<Article> updateChainWrapper,
+            Runnable beforeUpdateAction) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        return Boolean.TRUE.equals(template.execute(status -> {
+            if (beforeUpdateAction != null) {
+                beforeUpdateAction.run();
+            }
+            boolean updated = updateChainWrapper.update();
+            if (!updated) {
+                // 影响 0 行（非作者提交他人文章、文章已进回收站或被物理删除）时必须回滚，
+                // 否则刚写入的"更新前快照"会被单独提交，在版本历史里留下没有对应变更的孤儿版本，
+                // 并把未授权操作者写进他人文章的版本记录
+                status.setRollbackOnly();
+            }
+            return updated;
+        }));
+    }
+
+    @Override
+    public boolean updateArticleContentWithSnapshot(Integer articleId, String expectedContent,
+            String updatedContent, String updateBy, Integer editorUserId) {
+        if (articleId == null) {
+            return false;
+        }
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        return Boolean.TRUE.equals(template.execute(status -> {
+            // 先写更新前快照（锁内重读保证是真实前像），再按内容 CAS 更新正文，二者同事务
+            captureSnapshotSafely(articleId, editorUserId, updateBy);
+            boolean updated = lambdaUpdate()
+                    .eq(Article::getId, articleId)
+                    .eq(Article::getArticleContent, expectedContent)
+                    .set(Article::getArticleContent, updatedContent)
+                    .set(Article::getUpdateTime, LocalDateTime.now())
+                    .set(updateBy != null, Article::getUpdateBy, updateBy)
+                    .update();
+            if (!updated) {
+                // 正文已被并发修改：回滚本次事务，避免留下没有对应变更的孤儿快照
+                status.setRollbackOnly();
+            }
+            return updated;
+        }));
     }
 
 }

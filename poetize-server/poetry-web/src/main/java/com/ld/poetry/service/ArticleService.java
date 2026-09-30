@@ -38,6 +38,22 @@ public interface ArticleService extends IService<Article> {
                                Map<String, String> pendingTranslation,
                                Integer actorUserId);
 
+    /**
+     * 按内容 CAS 更新文章正文，并与"更新前版本快照"同事务提交。
+     *
+     * <p>供 AI/开放 API 的章节编辑等直接改正文的路径使用：这些入口不走
+     * {@link #updateArticle} 链路，若不在此收口，正文变更将完全没有版本可回滚。</p>
+     *
+     * @param articleId       文章ID
+     * @param expectedContent 读取时的正文（CAS 依据，内容已被并发修改时不更新）
+     * @param updatedContent  新正文
+     * @param updateBy        操作人用户名（可空）
+     * @param editorUserId    操作人用户ID（可空）
+     * @return 更新成功返回 true；正文已被并发修改返回 false（本次事务整体回滚，不产生快照）
+     */
+    boolean updateArticleContentWithSnapshot(Integer articleId, String expectedContent,
+                                             String updatedContent, String updateBy, Integer editorUserId);
+
     PoetryResult<Page> listArticle(BaseRequestVO baseRequestVO);
 
     /**

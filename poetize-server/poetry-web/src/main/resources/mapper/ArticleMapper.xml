@@ -24,11 +24,17 @@
         <result column="update_time" property="updateTime"/>
         <result column="update_by" property="updateBy"/>
         <result column="deleted" property="deleted"/>
+        <result column="submit_to_search_engine" property="submitToSearchEngine"/>
+        <result column="pay_type" property="payType"/>
+        <result column="pay_amount" property="payAmount"/>
+        <result column="free_percent" property="freePercent"/>
+        <result column="publish_time" property="publishTime"/>
+        <result column="deleted_time" property="deletedTime"/>
     </resultMap>
 
     <!-- 通用查询结果列 -->
     <sql id="Base_Column_List">
-        id, user_id, sort_id, label_id, article_cover, article_title, article_slug, video_url, article_content, summary, password, tips, view_status, recommend_status, view_count, comment_status, create_time, update_time, update_by, deleted
+        id, user_id, sort_id, label_id, article_cover, article_title, article_slug, video_url, article_content, summary, password, tips, view_status, recommend_status, view_count, comment_status, create_time, update_time, update_by, deleted, submit_to_search_engine, pay_type, pay_amount, free_percent, publish_time, deleted_time
     </sql>
 
 </mapper>

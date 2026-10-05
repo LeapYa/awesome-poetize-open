@@ -103,11 +103,52 @@ class PrerenderEngineTest {
         assertTrue(html.contains("sizes=\"16x16 32x32 48x48\""));
         assertTrue(html.contains("type=\"image/png\""));
         assertTrue(html.contains("<script type=\"application/ld+json\" data-prerender-structured-data=\"true\">{\"@type\":\"WebSite\"}</script>"));
-        assertTrue(html.contains("<meta name=\"google-site-verification\" content=\"verify-token\">"));
+        // 站点验证标签仅首页输出：文章页（子页面）不再携带，避免冗余
+        assertFalse(html.contains("google-site-verification"),
+                "文章页不应输出站点验证标签");
         assertTrue(html.contains("<meta name=\"custom-head\" content=\"1\">"));
         assertTrue(html.contains("<body data-prerender-type=\"article\" data-prerender-lang=\"en\">"));
         assertTrue(html.contains("<div id=\"prerender-container\" class=\"article-detail\"><main><article><section>hello</section></article></main></div>"));
         assertTrue(html.contains("<div id=\"app\"></div>"));
+    }
+
+    @Test
+    void buildHomePageEmitsSiteVerificationTags() throws IOException {
+        Path templatePath = tempDir.resolve("index.html");
+        Files.writeString(templatePath, """
+                <!doctype html>
+                <html>
+                <head>
+                  <title>Old</title>
+                </head>
+                <body>
+                  <div id="app"></div>
+                </body>
+                </html>
+                """, StandardCharsets.UTF_8);
+
+        PrerenderEngine engine = createEngine();
+        ReflectionTestUtils.setField(engine, "templatePath", templatePath.toString());
+        ReflectionTestUtils.setField(engine, "outputRoot", tempDir.resolve("prerender").toString());
+
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("description", "home description");
+        meta.put("google_site_verification", "google-token");
+        meta.put("baidu_site_verification", "baidu-token");
+
+        String html = engine.buildPage(PrerenderPageData.builder()
+                .title("Home")
+                .meta(meta)
+                .content("<section>home</section>")
+                .lang("zh")
+                .pageType("home")
+                .build());
+
+        // 首页必须输出所有已填写的验证标签
+        assertTrue(html.contains("<meta name=\"google-site-verification\" content=\"google-token\">"));
+        assertTrue(html.contains("<meta name=\"baidu-site-verification\" content=\"baidu-token\">"));
+        // 其余公共 SEO meta 行为不变
+        assertTrue(html.contains("<meta name=\"description\" content=\"home description\">"));
     }
 
     @Test

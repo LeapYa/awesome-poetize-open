@@ -73,6 +73,9 @@ public class PrerenderEngine {
             "yandex_site_verification", "sogou_site_verification", "so_site_verification",
             "shenma_site_verification", "yahoo_site_verification", "duckduckgo_site_verification");
 
+    /** 仅首页输出站点验证标签的页面类型标识 */
+    private static final String HOME_PAGE_TYPE = "home";
+
     private static final Map<String, String> SOCIAL_MEDIA_META_KEYS = Map.ofEntries(
             Map.entry("twitter_site", "twitter:site"),
             Map.entry("twitter_creator", "twitter:creator"),
@@ -286,7 +289,7 @@ public class PrerenderEngine {
             html = DEFAULT_FAVICON_ID_PATTERN.matcher(html).replaceAll("");
         }
 
-        List<String> headTags = buildHeadTags(meta);
+        List<String> headTags = buildHeadTags(meta, pageType);
         headTags.add(buildCriticalCss());
         html = insertBeforeTag(html, "</head>", String.join("\n", headTags));
         html = reorderWebpackCss(html);
@@ -427,7 +430,7 @@ public class PrerenderEngine {
         return result;
     }
 
-    private List<String> buildHeadTags(Map<String, Object> meta) {
+    private List<String> buildHeadTags(Map<String, Object> meta, String pageType) {
         List<String> headTags = new ArrayList<>();
         headTags.add("  <link rel=\"manifest\" href=\"/manifest.json\" data-prerender-manifest=\"true\">");
         headTags.add("  <link rel=\"dns-prefetch\" href=\"https://cdn.jsdelivr.net\">");
@@ -439,7 +442,10 @@ public class PrerenderEngine {
         addIconTags(headTags, meta);
         addGenericMetaTags(headTags, meta);
         addStructuredDataTag(headTags, meta.get("structured_data"));
-        addVerificationTags(headTags, meta);
+        // 站点验证标签仅首页输出（SEO 规范）：子页面携带纯属冗余，首页缺失则验证必然失败
+        if (HOME_PAGE_TYPE.equals(pageType)) {
+            addVerificationTags(headTags, meta);
+        }
         addRobotsTag(headTags, meta.get("robots"));
         addSocialMediaTags(headTags, meta);
         addHreflangTags(headTags, meta);
@@ -523,6 +529,10 @@ public class PrerenderEngine {
                 + jsonLdContent + "</script>");
     }
 
+    /**
+     * 输出各搜索引擎的站点验证标签。
+     * <p>仅在首页（pageType=home）调用：验证标签只需在被验证的首页出现，子页面不再携带。
+     */
     private void addVerificationTags(List<String> headTags, Map<String, Object> meta) {
         for (String tagKey : VERIFICATION_META_KEYS) {
             String value = stringValue(meta.get(tagKey));

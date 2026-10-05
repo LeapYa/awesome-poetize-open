@@ -49,6 +49,12 @@ public class PrerenderService {
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    /** 站点验证字段：仅首页输出（SEO 规范），不再作为所有页面的通用注入项 */
+    private static final List<String> SITE_VERIFICATION_FIELDS = List.of(
+            "google_site_verification", "baidu_site_verification", "bing_site_verification",
+            "yandex_site_verification", "sogou_site_verification", "so_site_verification",
+            "shenma_site_verification", "yahoo_site_verification", "duckduckgo_site_verification");
+
     @Autowired
     private PrerenderEngine engine;
 
@@ -191,6 +197,10 @@ public class PrerenderService {
         }
         // 首页 og:site_name 使用 webTitle（网站标题），而不是 homeTitle（备案名）
         meta.put("og:site_name", getSiteName(webInfo));
+
+        // 站点验证标签仅首页输出（SEO 规范）：两条 meta 生成路径都要在此补注入，
+        // 数据来源仍为 SEO 配置，保证唯一需要验证的首页能读到验证标签
+        addSiteVerificationFields(meta, seoConfig);
 
         // 配置了站点Logo时在 h1 上方输出带 alt 的Logo图；h1 文字保留以免损失 SEO 权重
         String logoImageUrl = ensureAbsoluteImageUrl(webInfo.getLogoImage(), baseUrl);
@@ -792,16 +802,13 @@ public class PrerenderService {
     }
 
     private void addSeoCommonFields(Map<String, Object> meta, Map<String, Object> seoConfig) {
-        List<String> verificationFields = List.of(
-                "google_site_verification", "baidu_site_verification", "bing_site_verification",
-                "yandex_site_verification", "sogou_site_verification", "so_site_verification",
-                "shenma_site_verification", "yahoo_site_verification", "duckduckgo_site_verification",
+        List<String> commonFields = List.of(
                 "twitter_site", "twitter_creator", "fb_app_id", "fb_page_url",
                 "linkedin_company_id", "pinterest_verification", "pinterest_description",
                 "wechat_miniprogram_id", "wechat_miniprogram_path", "qq_miniprogram_path",
                 "custom_head_code");
 
-        for (String field : verificationFields) {
+        for (String field : commonFields) {
             if (!StringUtils.hasText(stringValue(meta.get(field))) && StringUtils.hasText(stringValue(seoConfig.get(field)))) {
                 meta.put(field, stringValue(seoConfig.get(field)));
             }
@@ -809,6 +816,19 @@ public class PrerenderService {
 
         if (!StringUtils.hasText(stringValue(meta.get("robots"))) && StringUtils.hasText(stringValue(seoConfig.get("robots_default")))) {
             meta.put("robots", stringValue(seoConfig.get("robots_default")));
+        }
+    }
+
+    /**
+     * 首页专用：从 SEO 配置注入各搜索引擎的站点验证字段。
+     * <p>按 SEO 规范，验证标签只需在被验证的首页出现，子页面不再携带。
+     * <p>数据来源不变，仍读取 SEO 配置；仅输出位置从"所有页面通用"收敛为"仅首页"。
+     */
+    private void addSiteVerificationFields(Map<String, Object> meta, Map<String, Object> seoConfig) {
+        for (String field : SITE_VERIFICATION_FIELDS) {
+            if (!StringUtils.hasText(stringValue(meta.get(field))) && StringUtils.hasText(stringValue(seoConfig.get(field)))) {
+                meta.put(field, stringValue(seoConfig.get(field)));
+            }
         }
     }
 

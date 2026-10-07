@@ -1,5 +1,5 @@
 <template>
-  <div ref="messagesContainer" class="chat-messages">
+  <div ref="messagesContainer" class="chat-messages" @scroll="handleScroll">
     <AIChatMessage
       v-for="message in messages"
       :key="message.id"
@@ -51,6 +51,22 @@ export default {
     const scrollTimer = ref(null) // 滚动节流定时器
     const lastScrollTime = ref(0) // 上次滚动时间
 
+    // 「粘底跟随」开关：只有用户处在底部附近时才自动滚动。
+    // 否则流式回复期间用户想往上翻看没读完的内容，会被每次自动滚动立刻拽回底部。
+    const BOTTOM_THRESHOLD = 40 // px：距底部在此范围内仍视为“在底部”
+    const stickToBottom = ref(true)
+
+    /**
+     * 根据当前滚动位置更新「粘底」状态。
+     * 程序自身触发的滚动也会走进这里（此时距离≈0）→ 保持 true，无副作用。
+     */
+    const handleScroll = () => {
+      const el = messagesContainer.value
+      if (!el) return
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+      stickToBottom.value = distance <= BOTTOM_THRESHOLD
+    }
+
     // 打字提示消息
     const typingMessages = [
       '正在思考中...',
@@ -76,8 +92,15 @@ export default {
 
     /**
      * 滚动到底部（带节流）
+     * <p>
+     * 受「粘底跟随」约束：用户已向上翻阅历史时不再自动滚动，
+     * 直到他滚回底部、或又有新消息加入（见下方 messages.length 监听）。
+     * 需要无条件滚到底的场景（发送新消息、初次挂载）请传 immediate=true。
      */
     const scrollToBottom = (immediate = false) => {
+      if (!immediate && !stickToBottom.value) {
+        return
+      }
       const now = Date.now()
       const throttleTime = props.streaming ? 150 : 0 // 流式时节流150ms，否则立即执行
 
@@ -113,11 +136,14 @@ export default {
       }
     }
 
-    // 监听消息变化，自动滚动
+    // 有新消息加入（用户发出提问 / 收到完整回复）：恢复粘底跟随并强制滚到底部。
+    // 与下面监听「内容变化」的 deep watch 区分开：长度变化是低频的节点事件，
+    // 内容变化是流式期间的高频事件（后者必须服从粘底开关，否则用户翻不上去）。
     watch(
       () => props.messages.length,
       () => {
-        scrollToBottom()
+        stickToBottom.value = true
+        scrollToBottom(true)
       }
     )
 
@@ -163,6 +189,7 @@ export default {
       typingMessage,
       effectiveTypingMessage,
       scrollToBottom,
+      handleScroll,
     }
   },
 }

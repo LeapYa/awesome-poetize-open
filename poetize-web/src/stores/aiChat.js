@@ -1396,6 +1396,34 @@ export const useAIChatStore = defineStore('aiChat', {
       }
     },
 
+    /**
+     * 移除「空气泡」—— 既无正文、也无任何 segment 的 assistant 消息。
+     * <p>
+     * 场景：工具参数撰写期间会提前创建气泡来承载工具胶囊（见 tool_args_delta 分支），
+     * 若参数生成中途失败或被用户中止，toolDraftChars 归零后胶囊消失，就只剩一个
+     * 空壳气泡挂在对话里。
+     * <p>
+     * 只在流结束 / 中断时调用。流式进行中气泡同样是空的（正文还没到），那时调用
+     * 会误删，因此不要放进事件循环里。
+     */
+    pruneEmptyAssistantMessage() {
+      const lastAssistant = [...this.messages]
+        .reverse()
+        .find((m) => m.role === 'assistant')
+      if (!lastAssistant) return
+      if (String(lastAssistant.content || '').trim()) return
+      if (
+        Array.isArray(lastAssistant.segments) &&
+        lastAssistant.segments.length > 0
+      ) {
+        return
+      }
+      const idx = this.messages.findIndex((m) => m.id === lastAssistant.id)
+      if (idx >= 0) {
+        this.messages.splice(idx, 1)
+      }
+    },
+
     async sendStreamingMessage(content, images = [], documents = [], isRetry = false) {
       this.typing = true
       this.streaming = true
@@ -1531,11 +1559,22 @@ export const useAIChatStore = defineStore('aiChat', {
                   break
                 }
 
-                // 工具参数撰写增量：模型逐字生成工具调用参数期间到达，
-                // 仅累计进度供 typing 指示器展示，不创建消息（参数是 JSON 碎片，
-                // 完整参数以随后的 tool_call 事件为准）
+                // 工具参数撰写增量：模型逐 token 生成工具调用参数期间到达。
+                // 这里要**提前创建气泡** —— 参数撰写可能持续数十秒（如 create_skill 的
+                // 整篇正文），需要一个容器来承载工具胶囊。胶囊用与 tool_call 同款的
+                // .tool-pill，因此同一个胶囊会在原位置自然延续：
+                //   撰写「正在撰写新技能（1234 字）...」→ 执行「正在创建技能」→「创建技能完成」。
+                // （原实现「只累计进度、不创建消息」，进度只能退化成 typing 指示器里
+                // 的一行文字，且与真正的工具胶囊形态割裂。）
                 if (currentEventName === 'tool_args_delta') {
                   const toolData = eventData.data || eventData
+                  if (!aiMessage) {
+                    this.typing = false
+                    aiMessage = this.addMessage('', 'assistant', {
+                      streaming: true,
+                    })
+                    firstChunkReceived = true
+                  }
                   this.toolDraftChars += (toolData.delta || '').length
                   if (toolData.tool) this.toolDraftName = toolData.tool
                   continue
@@ -1710,6 +1749,9 @@ export const useAIChatStore = defineStore('aiChat', {
         this.stopJinaQueuePolling()
         this.toolDraftName = ''
         this.toolDraftChars = 0
+        // 工具参数撰写期间提前建的气泡，若最终什么都没产出（参数生成失败、
+        // tool_call 一直没来），清掉这个空壳。
+        this.pruneEmptyAssistantMessage()
 
         // cacheMiss 重试：服务端告知 baseHistoryHash 已失效，清空 hash 并用完整历史重试一次
         // 仅允许重试一次（isRetry），避免服务端持续 cacheMiss 导致递归栈溢出
@@ -1782,6 +1824,10 @@ export const useAIChatStore = defineStore('aiChat', {
           interrupted.streaming = false
           this.finishMessageReasoning(interrupted.id)
         }
+
+        // 中断时同样清掉空壳气泡：工具参数撰写期间建的气泡若还没等到 tool_call
+        // 就被中止，toolDraftChars 归零后胶囊消失，会只剩一个空消息。
+        this.pruneEmptyAssistantMessage()
 
         if (error.name === 'AbortError' || this.shouldStop) {
           return {

@@ -12,11 +12,10 @@
         @rendered="scrollToBottom"
       />
 
-      <!-- 打字指示器：等待首 token 时只留三点动画，不配文案 -->
+      <!-- 打字指示器：等待首 token 时只显示三点动画。
+           工具参数撰写进度已改由 AI 气泡内的工具胶囊展示（见 AIChatMessage.vue），
+           这里不再承载任何文案。 -->
       <div v-if="typing" class="typing-indicator">
-        <span v-if="effectiveTypingMessage" class="typing-text">{{
-          effectiveTypingMessage
-        }}</span>
         <div class="typing-dots">
           <div class="typing-dot"></div>
           <div class="typing-dot"></div>
@@ -102,7 +101,10 @@ export default {
       scrollToBottom(true)
     }
 
-    // 模型撰写工具参数（如创建技能的正文）时，实时展示撰写进度
+    // 模型撰写工具参数（如创建技能的正文）的进度已迁移到 AI 气泡内的
+    // 工具胶囊（见 AIChatMessage.vue 的 toolDraftLabel + .tool-pill），
+    // 本组件的 typing 指示器只负责「等待首 token」这一件事，因此不再需要
+    // 文案计算 —— 原先那行「正在思考中...」既无信息量，也已被胶囊取代。
     const aiChatStore = useAIChatStore()
     // 主题色：与 AIChatMessage 保持同一取法。
     // 注：不能依赖 --ai-chat-theme-color 变量 —— 它只定义在 AIChatInput 的
@@ -110,19 +112,6 @@ export default {
     const themeColor = computed(
       () => aiChatStore.config?.theme_color || '#4facfe'
     )
-
-    // 等待首 token 时只显示三点动画，不再配「正在思考中...」一类的随机文案——
-    // 那句话不含信息量，每次随机换一句反而显得吵（主流客户端也只有动画）。
-    // 唯一保留文字的场景是「模型正在撰写工具参数」（如 create_skill 的整篇正文，
-    // 可能持续数十秒），那里的字数是真实进度，必须留着。
-    const effectiveTypingMessage = computed(() => {
-      if (aiChatStore.toolDraftChars > 0) {
-        const noun =
-          aiChatStore.toolDraftName === 'create_skill' ? '新技能' : '工具参数'
-        return `正在撰写${noun}（${aiChatStore.toolDraftChars} 字）...`
-      }
-      return ''
-    })
 
     /**
      * 滚动到底部（带节流）
@@ -224,7 +213,6 @@ export default {
 
     return {
       messagesContainer,
-      effectiveTypingMessage,
       themeColor,
       scrollToBottom,
       handleScroll,
@@ -303,12 +291,6 @@ export default {
   animation: fadeInUp 0.3s ease-out;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
-.typing-text {
-  font-size: 13px;
-  color: #666;
-  opacity: 0.9;
-  margin: 0;
-}
 .typing-dots {
   display: flex;
   gap: 5px;
@@ -351,9 +333,6 @@ export default {
 }
 .dark-mode .typing-indicator {
   background: rgba(44, 62, 80, 0.9);
-}
-.dark-mode .typing-text {
-  color: #ecf0f1;
 }
 .dark-mode .typing-dot {
   background: #666;

@@ -50,6 +50,9 @@ public class AiChatController {
 
     /**
      * 检查 AI 聊天状态
+     * <p>
+     * 响应不含 provider / model 等底层模型配置，避免匿名访客绕过对话
+     * 直接读到底层模型名；站长查看模型配置走管理后台。
      */
     @GetMapping("/checkStatus")
     public PoetryResult<Map<String, Object>> checkStatus() {

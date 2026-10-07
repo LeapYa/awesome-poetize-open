@@ -222,7 +222,11 @@ public class AiChatService {
     }
 
     /**
-     * 检查聊天状态（是否配置就绪）
+     * 检查聊天状态（是否配置就绪）。
+     * <p>
+     * 响应不含 provider / model 等底层模型配置——该端点可被匿名访客读取，
+     * 暴露模型名等于绕过对话泄露底层模型。站长要看模型配置走管理后台
+     * （{@code /webInfo/ai/config}，受 {@code @LoginCheck} 保护）。
      */
     public Map<String, Object> checkStatus() {
         Map<String, Object> result = new LinkedHashMap<>();
@@ -233,8 +237,6 @@ public class AiChatService {
 
             result.put("configured", configured);
             result.put("enabled", enabled);
-            result.put("provider", config != null ? config.getProvider() : null);
-            result.put("model", config != null ? config.getModel() : null);
             result.put("enableStreaming", config != null && Boolean.TRUE.equals(config.getEnableStreaming()));
             result.put("enableTools", config != null && Boolean.TRUE.equals(config.getEnableTools()));
             result.put("enableMemory", config != null && Boolean.TRUE.equals(config.getEnableMemory()));

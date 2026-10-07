@@ -1768,6 +1768,21 @@ export const useAIChatStore = defineStore('aiChat', {
         this.toolDraftName = ''
         this.toolDraftChars = 0
 
+        // 异常中断（用户点停止 / 网络断流）：本次的 assistant 消息可能已创建但没走完
+        // 正常收尾，这里必须清掉**消息级**的 streaming 标志。
+        // 只清 store 级的 this.streaming 不够 —— MarkdownRenderer 看的是 message.streaming，
+        // 它不变成 false 就不会做最终渲染增强（代码块行号等），而且该标志会被持久化到
+        // localStorage / IndexedDB，刷新后依然卡在流式渲染态。
+        // 注：本次的 aiMessage 声明在 try 块内部、catch 里够不着，所以按状态反查；
+        // 顺带也能清掉修复前遗留在历史里的流式态消息（自愈）。
+        const interrupted = [...this.messages]
+          .reverse()
+          .find((m) => m.role === 'assistant' && m.streaming)
+        if (interrupted) {
+          interrupted.streaming = false
+          this.finishMessageReasoning(interrupted.id)
+        }
+
         if (error.name === 'AbortError' || this.shouldStop) {
           return {
             success: false,

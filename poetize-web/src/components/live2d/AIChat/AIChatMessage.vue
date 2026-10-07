@@ -130,58 +130,17 @@
             >
               <span
                 v-if="segment.status === 'executing'"
-                class="tool-pill-icon tool-pill-funnel"
+                class="tool-pill-icon tool-pill-hourglass"
                 aria-hidden="true"
               >
-                <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="24" cy="24" r="18.1" fill="#d7efff"></circle>
+                <svg viewBox="8 8 32 32" xmlns="http://www.w3.org/2000/svg">
                   <path
                     fill="none"
-                    stroke="#18193f"
+                    stroke="currentColor"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     stroke-width="3"
-                    d="M18,9.5h12"
-                  ></path>
-                  <path
-                    fill="none"
-                    stroke="#18193f"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M18,38.5h12"
-                  ></path>
-                  <path
-                    fill="none"
-                    stroke="#18193f"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M19.5,10.5c0,6,4,7.6,6.3,9.5c-2.3,1.9-6.3,3.5-6.3,9.5"
-                  ></path>
-                  <path
-                    fill="none"
-                    stroke="#18193f"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M28.5,10.5c0,6-4,7.6-6.3,9.5c2.3,1.9,6.3,3.5,6.3,9.5"
-                  ></path>
-                  <path
-                    fill="none"
-                    stroke="#18193f"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M20.5,14.5h7"
-                  ></path>
-                  <path
-                    fill="none"
-                    stroke="#18193f"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M20.5,33.5h7"
+                    d="M16.5,10.95h15M16.5,37.05h15M18.38,11.85c0,5.4,5,6.84,7.88,8.55c-2.88,1.71,-7.88,3.15,-7.88,8.55M29.62,11.85c0,5.4,-5,6.84,-7.88,8.55c2.88,1.71,7.88,3.15,7.88,8.55M19.62,15.45h8.75M19.62,32.55h8.75"
                   ></path>
                 </svg>
               </span>
@@ -246,56 +205,15 @@
           class="tool-pill-row"
         >
           <div class="tool-pill tool-pill-executing">
-            <span class="tool-pill-icon tool-pill-funnel" aria-hidden="true">
-              <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="24" cy="24" r="18.1" fill="#d7efff"></circle>
+            <span class="tool-pill-icon tool-pill-hourglass" aria-hidden="true">
+              <svg viewBox="8 8 32 32" xmlns="http://www.w3.org/2000/svg">
                 <path
                   fill="none"
-                  stroke="#18193f"
+                  stroke="currentColor"
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   stroke-width="3"
-                  d="M18,9.5h12"
-                ></path>
-                <path
-                  fill="none"
-                  stroke="#18193f"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="3"
-                  d="M18,38.5h12"
-                ></path>
-                <path
-                  fill="none"
-                  stroke="#18193f"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="3"
-                  d="M19.5,10.5c0,6,4,7.6,6.3,9.5c-2.3,1.9-6.3,3.5-6.3,9.5"
-                ></path>
-                <path
-                  fill="none"
-                  stroke="#18193f"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="3"
-                  d="M28.5,10.5c0,6-4,7.6-6.3,9.5c2.3,1.9,6.3,3.5,6.3,9.5"
-                ></path>
-                <path
-                  fill="none"
-                  stroke="#18193f"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="3"
-                  d="M20.5,14.5h7"
-                ></path>
-                <path
-                  fill="none"
-                  stroke="#18193f"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="3"
-                  d="M20.5,33.5h7"
+                  d="M16.5,10.95h15M16.5,37.05h15M18.38,11.85c0,5.4,5,6.84,7.88,8.55c-2.88,1.71,-7.88,3.15,-7.88,8.55M29.62,11.85c0,5.4,-5,6.84,-7.88,8.55c2.88,1.71,7.88,3.15,7.88,8.55M19.62,15.45h8.75M19.62,32.55h8.75"
                 ></path>
               </svg>
             </span>
@@ -828,7 +746,7 @@ export default {
 .tool-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-height: 30px;
   padding: 0 12px;
   border-radius: 999px;
@@ -857,16 +775,20 @@ export default {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
   flex-shrink: 0;
 }
-.tool-pill-funnel {
+/* 进行中：沙漏自旋。只有沙漏本体，无外圈、无底盘。
+   颜色全走 currentColor —— 原先是 fill="#d7efff" 的实心浅蓝底盘 + 写死的
+   stroke="#18193f"（暗色下那块浅蓝是气泡里最亮的斑）；此后又试过描边外圈，
+   同样显得多余，最终一并去掉。
+   注：沙漏有朝向，旋转到 45°/90° 会呈"斜躺"。原版靠外圈的圆遮掉了这点，
+   现在没有外圈，属于已知取舍。 */
+.tool-pill-hourglass {
   animation: toolSpin 1s linear infinite;
 }
-.tool-pill-funnel svg {
-  width: 20px;
-  height: 20px;
+.tool-pill-hourglass svg {
+  width: 14px;
+  height: 14px;
   display: block;
 }
 .tool-pill-check,

@@ -102,7 +102,11 @@ export default {
         return
       }
       const now = Date.now()
-      const throttleTime = props.streaming ? 150 : 0 // 流式时节流150ms，否则立即执行
+      // 流式时的滚动节流粒度：50ms ≈ 20 次/秒。
+      // 高速模型（如 1000 token/s）下，150ms 意味着每次滚动要一次吞掉约 150 token，
+      // 视觉上是"一截一截往下跳"；50ms 时单次增量降到约 50 token，接近连续跟随。
+      // 非流式场景无需节流。
+      const throttleTime = props.streaming ? 50 : 0
 
       // 如果是立即滚动，或者距离上次滚动超过节流时间，则执行滚动
       if (immediate || now - lastScrollTime.value > throttleTime) {

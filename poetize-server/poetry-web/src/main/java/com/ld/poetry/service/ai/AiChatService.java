@@ -961,6 +961,20 @@ public class AiChatService {
         }
         String name = nameBuilder.toString();
         String msg = msgBuilder.toString();
+        // 上下文超限优先判定：各厂商一律返回 HTTP 400，无法靠状态码区分
+        // （参数错误同样是 400），只能靠错误消息里的关键词识别。放最前是因为
+        // "quota"（限流）等宽泛规则可能抢走误判。
+        // 覆盖：OpenAI/DeepSeek/SiliconFlow 等 "maximum context length"、
+        // Anthropic "prompt is too long"、Gemini "token count exceeds"、
+        // 以及国产厂商的中文长度超限提示。
+        if (msg.contains("context length") || msg.contains("context_length_exceeded")
+                || msg.contains("context window") || msg.contains("maximum context")
+                || msg.contains("prompt is too long") || msg.contains("token count exceeds")
+                || msg.contains("reduce the length of the messages") || msg.contains("too many tokens")
+                || msg.contains("上下文长度") || msg.contains("超出最大长度")
+                || msg.contains("输入长度超过")) {
+            return "context_length";
+        }
         if (name.contains("timeout") || msg.contains("timeout") || msg.contains("timed out")) {
             return "timeout";
         }
@@ -1005,6 +1019,7 @@ public class AiChatService {
             case "rate_limit" -> "AI 请求被限流：触发频率或额度限制，请稍后重试";
             case "auth" -> "AI 调用鉴权失败：API Key 无效或已过期，请检查 AI 配置";
             case "content_filter" -> "AI 内容审核未通过：输入内容被模型服务商安全策略拦截";
+            case "context_length" -> "对话上下文已超出模型上限，请开启新会话或精简输入";
             case "network" -> "AI 服务连接失败：无法连接模型服务，请检查 API 地址与网络";
             default -> "AI 回复失败，请稍后重试";
         };

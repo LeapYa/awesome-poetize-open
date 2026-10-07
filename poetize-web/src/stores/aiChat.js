@@ -213,13 +213,26 @@ export const useAIChatStore = defineStore('aiChat', {
     /**
      * 增量协议：根据 lastHistoryHash 决定返回完整 history 或增量切片。
      * 调用方据此决定 baseHistoryHash 上送值。
-     * - lastHistoryHash 存在且消息仅追加（messages 数组长度 > lastSyncedHistoryLength
-     *   且前 lastSyncedHistoryLength 条未被改动）→ 返回增量切片
-     * - 否则 → 返回完整 history
+     * 历史包已剔除「当前正在发送的消息」（由请求体的 message 字段单独传递）：
+     * - 历史包比同步点更长（上次失败后遗留的消息待补发）→ 返回缺口切片
+     * - 历史包与同步点等长（正常发送的常态）→ 返回空 history + hash，服务端取缓存
+     * - 历史包更短（撤回/编辑）或没有 hash → 返回完整 history
      */
     requestHistoryPack: (state) => {
-      const full = state.messages
-        .filter(isHistoryMessage)
+      // ⚠️ 必须先剔除「当前正在发送的这条消息」，再计算历史包。
+      // 发送前 sendMessage 已经 addMessage(content, 'user')，所以 messages 末尾就是它；
+      // 而这条消息是通过请求体单独的 `message` 字段发给后端的，后端会把它当作
+      // 「本次新增」分别注入 buildMessages 和 putHistory。
+      // 若历史包里也带上它，后端 putHistory 会再追加一次 →
+      // Redis 历史每条 user 消息存两份并逐轮累积（实测 3 轮后 Redis 9 条 vs 前端 6 条，
+      // 模型会重复读到之前的提问）。
+      const historyMessages = state.messages.filter(isHistoryMessage)
+      const lastMsg = historyMessages[historyMessages.length - 1]
+      const packSource =
+        lastMsg && lastMsg.role === 'user'
+          ? historyMessages.slice(0, -1)
+          : historyMessages
+      const full = packSource
         .slice(0) // 不在此处截断，保留完整长度用于增量判断；服务端会做截断
         .map((msg) => {
           // 错误提示条（system）：界面上仍渲染为居中提示，但发给模型时转写成
@@ -272,7 +285,8 @@ export const useAIChatStore = defineStore('aiChat', {
         return { history: full, baseHistoryHash: null }
       }
       if (full.length === synced) {
-        // 没有新消息：发空 history + hash，服务端可正常取缓存（极少触发）
+        // 历史包与同步点完全一致：正常发送时的常态（当前消息已从历史包剔除，
+        // 待补发缺口为空）→ 发空 history + hash，服务端直接取缓存
         // eslint-disable-next-line no-console
         console.info('[hist-sync] EMPTY no-new-msg', {
           fullLen: full.length,

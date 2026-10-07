@@ -1,21 +1,45 @@
 <template>
-  <div ref="messagesContainer" class="chat-messages" @scroll="handleScroll">
-    <AIChatMessage
-      v-for="message in messages"
-      :key="message.id"
-      :message="message"
-      @rendered="scrollToBottom"
-    />
+  <!-- 外层容器：作为浮动按钮的定位基准。
+       按钮不能放进 .chat-messages 内部 —— 那是滚动容器，absolute 的定位基准是
+       内容盒而非视口，按钮会被定位到内容最底部（滚到底才看得见），
+       起不到「回到底部」的作用。 -->
+  <div class="chat-messages-wrap">
+    <div ref="messagesContainer" class="chat-messages" @scroll="handleScroll">
+      <AIChatMessage
+        v-for="message in messages"
+        :key="message.id"
+        :message="message"
+        @rendered="scrollToBottom"
+      />
 
-    <!-- 打字指示器 -->
-    <div v-if="typing" class="typing-indicator">
-      <span class="typing-text">{{ effectiveTypingMessage }}</span>
-      <div class="typing-dots">
-        <div class="typing-dot"></div>
-        <div class="typing-dot"></div>
-        <div class="typing-dot"></div>
+      <!-- 打字指示器 -->
+      <div v-if="typing" class="typing-indicator">
+        <span class="typing-text">{{ effectiveTypingMessage }}</span>
+        <div class="typing-dots">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+        </div>
       </div>
     </div>
+
+    <!-- 回到底部：用户向上翻阅历史时浮出，点击恢复自动跟随。
+         高速流式下内容持续增长，用户很难靠手动滚动落进底部阈值，
+         这里提供一个确定性的恢复入口。 -->
+    <button
+      v-show="!stickToBottom"
+      class="scroll-bottom-btn"
+      :class="{ 'btn-meteor': streaming }"
+      type="button"
+      title="回到底部"
+      aria-label="回到底部"
+      :style="{ color: themeColor }"
+      @click="handleScrollToBottomClick"
+    >
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M12 5v13M6 12l6 6 6-6" />
+      </svg>
+    </button>
   </div>
 </template>
 
@@ -67,6 +91,15 @@ export default {
       stickToBottom.value = distance <= BOTTOM_THRESHOLD
     }
 
+    /**
+     * 点击「回到底部」：恢复粘底跟随并立即滚到底。
+     * 高速流式下内容持续增长，手动滚动很难落进 40px 阈值，故提供这个确定性入口。
+     */
+    const handleScrollToBottomClick = () => {
+      stickToBottom.value = true
+      scrollToBottom(true)
+    }
+
     // 打字提示消息
     const typingMessages = [
       '正在思考中...',
@@ -81,6 +114,12 @@ export default {
 
     // 模型撰写工具参数（如创建技能的正文）时，实时展示撰写进度
     const aiChatStore = useAIChatStore()
+    // 主题色：与 AIChatMessage 保持同一取法。
+    // 注：不能依赖 --ai-chat-theme-color 变量 —— 它只定义在 AIChatInput 的
+    // .chat-input-wrapper 上（兄弟组件子树），本组件取不到。
+    const themeColor = computed(
+      () => aiChatStore.config?.theme_color || '#4facfe'
+    )
     const effectiveTypingMessage = computed(() => {
       if (aiChatStore.toolDraftChars > 0) {
         const noun =
@@ -192,14 +231,25 @@ export default {
       messagesContainer,
       typingMessage,
       effectiveTypingMessage,
+      themeColor,
       scrollToBottom,
       handleScroll,
+      handleScrollToBottomClick,
     }
   },
 }
 </script>
 
 <style scoped>
+/* 外层容器承担原本 .chat-messages 的 flex 角色，并作为浮动按钮的定位基准。
+   按钮相对它定位 → 固定在可视区右下角，不随消息内容滚动。 */
+.chat-messages-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0; /* flex 子项允许收缩，否则内容溢出时高度计算异常 */
+  display: flex;
+  flex-direction: column;
+}
 .chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -322,5 +372,94 @@ export default {
 }
 .dark-mode .chat-messages::-webkit-scrollbar-thumb:hover {
   background: #666;
+}
+
+/* 「回到底部」浮动按钮：仅在用户向上翻阅历史时出现，水平居中于底部。
+   白底 + 主题色箭头，与 AIChatInput 的内联 SVG 图标风格保持一致。 */
+.scroll-bottom-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 50%;
+  background: #fff;
+  /* 兜底色；实际由模板上的内联 :style="{ color: themeColor }" 提供 */
+  color: #4facfe;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  animation: scroll-bottom-btn-in 0.18s ease;
+  z-index: 3;
+}
+.scroll-bottom-btn:hover {
+  transform: translate(-50%, -1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+}
+.scroll-bottom-btn:active {
+  transform: translateX(-50%) scale(0.94);
+}
+.scroll-bottom-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* 绕按钮流转的「流星」光弧 —— 仅在 AI 生成中出现（streaming 时挂 .btn-meteor）。
+   动画本身携带信息：「下面还有内容在生成」；不在生成时按钮就是个干净的圆钮。
+   贴合方式：inset: -1px + 细环遮罩，让光弧正好压在按钮边缘上（半径约 16px 处），
+   视觉上就是「按钮的边框在流转」，而不是外面另套一个圈。
+   实现：conic-gradient 造彗星拖尾（220° 前透明 → 300° 达到主题色 → 320° 消失），
+   radial-gradient 遮罩只保留最外圈约 1.7px 的细环，再整体旋转 360°。
+   颜色用 currentColor，自动跟随主题色。 */
+.btn-meteor::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 220deg,
+    currentColor 300deg,
+    transparent 320deg,
+    transparent 360deg
+  );
+  -webkit-mask: radial-gradient(closest-side, transparent 0 88%, #000 90% 100%);
+  mask: radial-gradient(closest-side, transparent 0 88%, #000 90% 100%);
+  animation: scroll-bottom-btn-meteor 1.8s linear infinite;
+  pointer-events: none;
+}
+@keyframes scroll-bottom-btn-meteor {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* v-show 从 display:none 切回时重放一次入场动画（需带上居中偏移） */
+@keyframes scroll-bottom-btn-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+.dark-mode .scroll-bottom-btn {
+  background: rgba(44, 62, 80, 0.95);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.dark-mode .scroll-bottom-btn:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 </style>

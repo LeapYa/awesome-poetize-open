@@ -31,6 +31,15 @@ const HOT_MESSAGE_COUNT = 50
 const SAVE_HISTORY_DEBOUNCE_MS = 300
 let saveHistoryTimer = null
 
+// 参与「对话历史」的角色判定。
+// user/assistant 是正常对话；system 仅用于错误提示条，但错误也必须计入历史——
+// 否则用户追问「你刚才怎么没回答」时，模型历史里只有孤立的两次 user 提问，
+// 它会否认或凭空编造，所以这里把它一起纳入（持久化恢复同样保留）。
+// ⚠️ requestHistoryPack 的取值与两处 lastSyncedHistoryLength 计数必须共用这一判定：
+// 三者不一致会导致增量历史协议错位（重发或残缺）。
+const HISTORY_ROLES = ['user', 'assistant', 'system']
+const isHistoryMessage = (msg) => !!msg && HISTORY_ROLES.includes(msg.role)
+
 const DEFAULT_AI_CHAT_CONFIG = {
   enabled: false,
   configured: false,
@@ -166,7 +175,7 @@ export const useAIChatStore = defineStore('aiChat', {
     // 已写入 IndexedDB 的消息数（用于增量写入判断）
     lastSavedCount: 0,
     // 上次响应收到的历史哈希（服务端 Redis 缓存末尾哈希）。
-    // 存在且与 messageHistory 末尾一致时，下次请求只发增量（仅末尾 1-2 条新消息）；
+    // 存在且与当前历史末尾一致时，下次请求只发增量（仅末尾 1-2 条新消息）；
     // 撤回/编辑/清空场景置 null，强制走完整历史同步。
     lastHistoryHash: null,
     // 上次 lastHistoryHash 对应的历史条数，用于判断本次是否仅追加（确定增量切片起点）
@@ -201,44 +210,6 @@ export const useAIChatStore = defineStore('aiChat', {
         state.config?.showTimestamp !== false
       )
     },
-    messageHistory: (state) => {
-      const maxLength = state.config?.max_conversation_length || 20
-      const allowedRoles = ['user', 'assistant']
-      return state.messages
-        .filter((msg) => allowedRoles.includes(msg.role))
-        .slice(-maxLength)
-        .map((msg) => {
-          const entry = {
-            role: msg.role,
-            content: msg.content,
-          }
-          // 仅对 assistant 携带 toolCalls，让后端重建为
-          // AssistantMessage(toolCalls) + ToolResponseMessage 序列，
-          // 模型在多轮对话中能"看到"之前工具调用与结果，避免重复调用 / 凭空猜测 / 缓存失效。
-          if (msg.role === 'assistant' && Array.isArray(msg.segments)) {
-            const toolCalls = msg.segments
-              .filter(
-                (seg) =>
-                  seg &&
-                  seg.type === 'tool' &&
-                  seg.tool &&
-                  (seg.status === 'completed' || seg.status === 'failed')
-              )
-              .map((seg) => ({
-                id: seg.id != null ? String(seg.id) : '',
-                tool: seg.tool,
-                arguments: normalizeToolArguments(seg.arguments),
-                result: seg.result ?? '',
-                error: seg.error ?? '',
-                status: seg.status || 'completed',
-              }))
-            if (toolCalls.length > 0) {
-              entry.toolCalls = toolCalls
-            }
-          }
-          return entry
-        })
-    },
     /**
      * 增量协议：根据 lastHistoryHash 决定返回完整 history 或增量切片。
      * 调用方据此决定 baseHistoryHash 上送值。
@@ -248,9 +219,17 @@ export const useAIChatStore = defineStore('aiChat', {
      */
     requestHistoryPack: (state) => {
       const full = state.messages
-        .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+        .filter(isHistoryMessage)
         .slice(0) // 不在此处截断，保留完整长度用于增量判断；服务端会做截断
         .map((msg) => {
+          // 错误提示条（system）：界面上仍渲染为居中提示，但发给模型时转写成
+          // assistant 条目，让模型知道"上一条回复失败了"，避免其否认或编造。
+          if (msg.role === 'system') {
+            return {
+              role: 'assistant',
+              content: `（上一条回复未能生成：${String(msg.content || '').replace(/^⚠️\s*/, '')}）`,
+            }
+          }
           const entry = { role: msg.role, content: msg.content }
           if (msg.role === 'assistant' && Array.isArray(msg.segments)) {
             const toolCalls = msg.segments
@@ -843,10 +822,13 @@ export const useAIChatStore = defineStore('aiChat', {
         )
       } catch (error) {
         console.error('发送消息失败:', error)
+        // 保留后端返回的真实原因（如"对话上下文已超出模型上限，请开启新会话或精简输入"），
+        // 仅当异常是 fetch 网络失败（TypeError）或没有可读信息时才回退到通用文案。
+        const networkFailure = error instanceof TypeError || !error?.message
         return {
           success: false,
-          error: 'network',
-          message: '网络错误，请稍后重试',
+          error: networkFailure ? 'network' : 'error',
+          message: networkFailure ? '网络错误，请稍后重试' : error.message,
         }
       }
     },
@@ -1378,9 +1360,7 @@ export const useAIChatStore = defineStore('aiChat', {
           // 下次请求时若仅追加消息即可走增量发送。
           if (result.data.historyHash) {
             this.lastHistoryHash = result.data.historyHash
-            this.lastSyncedHistoryLength = this.messages.filter(
-              (m) => m.role === 'user' || m.role === 'assistant'
-            ).length
+            this.lastSyncedHistoryLength = this.messages.filter(isHistoryMessage).length
           }
           return {
             success: true,
@@ -1449,6 +1429,9 @@ export const useAIChatStore = defineStore('aiChat', {
         let aiMessage = null
         let firstChunkReceived = false
         let currentEventName = null
+        // 流式错误：不在 AI 气泡内展示，统一由 useAIChat 以 system 提示呈现，
+        // 这里只记录原因与类型，循环结束后经返回值带出
+        let streamError = null
 
         while (true) {
           if (this.shouldStop) {
@@ -1514,9 +1497,7 @@ export const useAIChatStore = defineStore('aiChat', {
                     // 下次请求时若仅追加消息即可走增量发送。
                     if (eventData && eventData.historyHash) {
                       this.lastHistoryHash = eventData.historyHash
-                      this.lastSyncedHistoryLength = this.messages.filter(
-                        (m) => m.role === 'user' || m.role === 'assistant'
-                      ).length
+                      this.lastSyncedHistoryLength = this.messages.filter(isHistoryMessage).length
                     }
                   }
                   continue
@@ -1526,15 +1507,13 @@ export const useAIChatStore = defineStore('aiChat', {
                   const errMsg = eventData.message || '未知错误'
                   console.error('流式响应错误:', errMsg)
 
-                  if (!aiMessage) {
-                    this.typing = false
-                    aiMessage = this.addMessage('', 'assistant', {
-                      streaming: true,
-                    })
-                    firstChunkReceived = true
+                  // 不再创建气泡、不再往 AI 正文里追加 ❌：
+                  // 错误统一由 useAIChat 以 system 提示条呈现，避免"错误混在回答里"。
+                  // 若此前已收到正文，保留这半截回答（aiMessage 仍存在），错误另起提示。
+                  streamError = {
+                    error: eventData.errorType || 'error',
+                    message: errMsg,
                   }
-
-                  this.appendMessageText(aiMessage.id, '\n\n❌ 错误: ' + errMsg)
                   break
                 }
 
@@ -1741,6 +1720,15 @@ export const useAIChatStore = defineStore('aiChat', {
             message.streaming = false
           }
           this.finishMessageReasoning(aiMessage.id)
+        }
+
+        // 出错：不清理已附加的页面/图片/文档，用户可直接重试；统一返回失败结果
+        if (streamError) {
+          return {
+            success: false,
+            error: streamError.error,
+            message: streamError.message,
+          }
         }
 
         if (this.attachedPageContext) {
@@ -2102,7 +2090,9 @@ export const useAIChatStore = defineStore('aiChat', {
 
     async restoreHistory() {
       // 阶段 1：同步从 localStorage 恢复最近热数据，让界面快速显示
-      const allowedRoles = ['user', 'assistant']
+      // 含 system：错误提示条也是对话的一部分，若在恢复时被丢弃，
+      // 刷新后用户与模型都会"忘记"刚才失败过，与本次会话内行为不一致
+      const allowedRoles = HISTORY_ROLES
       let hotMessages = []
       try {
         const saved = localStorage.getItem('ai_chat_history')

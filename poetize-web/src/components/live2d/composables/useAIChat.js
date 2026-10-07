@@ -92,18 +92,14 @@ export function useAIChat() {
         // 显示错误
         error.value = result.message
 
-        // 添加系统提示消息
+        // 统一错误提示：登录引导是唯一特例（带登录链接，用 assistant 气泡便于渲染 Markdown），
+        // 其余错误——本地校验（消息过长/内容过滤/本地限频）与后端返回的精细原因
+        // （超时/限流/内容审核/上下文超限/网络等）——一律以 system 提示条呈现
         if (result.error === 'require_login') {
           store.addMessage(
             `💡 提示：这个功能需要登录后才能使用哦～ [点击这里登录](/user) 就能体验所有功能啦！✨`,
             'assistant'
           )
-        } else if (
-          result.error === 'rate_limit' ||
-          result.error === 'content_filter'
-        ) {
-          // 速率限制和内容过滤的错误，用系统消息显示
-          store.addMessage(`⚠️ ${result.message}`, 'system')
         } else {
           store.addMessage(`⚠️ ${result.message}`, 'system')
         }

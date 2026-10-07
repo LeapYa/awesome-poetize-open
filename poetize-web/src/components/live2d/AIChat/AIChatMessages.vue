@@ -12,9 +12,11 @@
         @rendered="scrollToBottom"
       />
 
-      <!-- 打字指示器 -->
+      <!-- 打字指示器：等待首 token 时只留三点动画，不配文案 -->
       <div v-if="typing" class="typing-indicator">
-        <span class="typing-text">{{ effectiveTypingMessage }}</span>
+        <span v-if="effectiveTypingMessage" class="typing-text">{{
+          effectiveTypingMessage
+        }}</span>
         <div class="typing-dots">
           <div class="typing-dot"></div>
           <div class="typing-dot"></div>
@@ -100,18 +102,6 @@ export default {
       scrollToBottom(true)
     }
 
-    // 打字提示消息
-    const typingMessages = [
-      '正在思考中...',
-      '让我想想...',
-      '正在组织语言...',
-      '稍等一下...',
-      '正在为你查询...',
-    ]
-    const typingMessage = ref(
-      typingMessages[Math.floor(Math.random() * typingMessages.length)]
-    )
-
     // 模型撰写工具参数（如创建技能的正文）时，实时展示撰写进度
     const aiChatStore = useAIChatStore()
     // 主题色：与 AIChatMessage 保持同一取法。
@@ -120,13 +110,18 @@ export default {
     const themeColor = computed(
       () => aiChatStore.config?.theme_color || '#4facfe'
     )
+
+    // 等待首 token 时只显示三点动画，不再配「正在思考中...」一类的随机文案——
+    // 那句话不含信息量，每次随机换一句反而显得吵（主流客户端也只有动画）。
+    // 唯一保留文字的场景是「模型正在撰写工具参数」（如 create_skill 的整篇正文，
+    // 可能持续数十秒），那里的字数是真实进度，必须留着。
     const effectiveTypingMessage = computed(() => {
       if (aiChatStore.toolDraftChars > 0) {
         const noun =
           aiChatStore.toolDraftName === 'create_skill' ? '新技能' : '工具参数'
         return `正在撰写${noun}（${aiChatStore.toolDraftChars} 字）...`
       }
-      return typingMessage.value
+      return ''
     })
 
     /**
@@ -229,7 +224,6 @@ export default {
 
     return {
       messagesContainer,
-      typingMessage,
       effectiveTypingMessage,
       themeColor,
       scrollToBottom,

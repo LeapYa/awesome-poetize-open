@@ -6,7 +6,7 @@ description: 让 AI 帮你运营 POETIZE 博客：写文章并一键发布、更
 summary: POETIZE 博客运营助手：写文章、发布、管理分类标签与评论、上传图片、翻译管理、切换主题、查看数据、配置 SEO、处理付费文章支付配置；误删误改可进回收站恢复（文章版本历史/资源回收站，需后端 v5.2.7+）。
 license: MIT
 homepage: https://github.com/LeapYa/awesome-poetize-open/tree/main/skills/poetize-blog-automation
-version: 2.5.0
+version: 2.5.1
 primaryEnv: POETIZE_API_KEY
 requires:
   anyBins:
@@ -131,6 +131,7 @@ If web search or article-list access is unavailable, record that limitation in `
    | `viewStatus` | No | from `_brief.publishIntent` | Omit when using inline `_brief` |
    | `cover` / `coverFile` / `coverBlank` | No | platform default | Cover image URL, local path, or `coverBlank: true` to skip |
    | `coverStoreType` / `storeType` | No | — | Override cover storage type |
+   | `uploadLocalImages` / `uploadMarkdownImages` | No | `true` | Set `false` to skip publish-time auto-upload of local image references (assets already deployed). Site-absolute paths like `/media/x.png` are never treated as local files either way — see [Image Upload Boundaries](#image-upload-boundaries) |
    | `video` | No | — | Video URL |
    | `password` / `tips` | No | auto for drafts | Password and preview tip for private articles |
    | `payType` | No | free: `0`; paid: `> 0` | Omit for `free_default`; required for `paid_explicit` |
@@ -171,6 +172,9 @@ If web search or article-list access is unavailable, record that limitation in `
 1. **Size Limit**: Nginx/OpenResty allows up to **2048MB** per request (aligned with Spring Boot `max-file-size`). Normal user-facing image uploads (comments, love wall) are limited to **5MB** by the frontend; admin uploads (fonts, resources) can use the full 2048MB.
 2. **Formats**: SVG is strictly forbidden (XSS risk). Use JPEG, PNG, GIF, BMP, WEBP, TIFF, ICO.
 3. **Filenames**: No encoding restrictions (Chinese names fully supported). Server auto-renames to UUIDs.
+4. **Which references count as local files**: at publish time the CLI uploads the body's **local file** references automatically. A reference is local only when it looks like a filesystem path — relative (`img/a.png`, `./a.png`), `file://…`, or a Windows drive/UNC path. Everything else is left untouched: `http(s)://` URLs, protocol-relative `//cdn…`, `data:` URIs, and **site-absolute URL paths such as `/media/x.png` or `/static/…`** (a leading `/` is a route on the site, not a file on your disk). Never rewrite a body's `/media/…` links into absolute `https://…` URLs just to get a publish through.
+5. **Skipping upload entirely**: set `uploadLocalImages: false` (alias `uploadMarkdownImages: false`) in front matter when the assets are already deployed — the CLI then neither uploads nor validates, and publish time drops. Note this is a blanket switch: a genuinely missing local file is not reported either.
+6. **Missing local file**: with uploading enabled, a reference classified as local that cannot be found on disk aborts the publish with `Local article asset was referenced but not found`. Fix the path (or move the file next to the Markdown); if the reference is actually a site URL, item 4 explains why it should not have been classified as local.
 
 ## Monetization & Payment Settings
 
@@ -423,6 +427,15 @@ poetize-blog.sh manage save-translation --article-id 123 \
 | Metadata-only update (viewStatus, password, tips, etc.) | `manage update-article` |
 
 > Mutating translation and section commands require `--stdin-brief` (or `--brief-file`) with the matching `taskType`. Read-only commands (`get-translation`, `list-translation-languages`) do not need a brief. All commands in this section require backend `v5.1.0`+; on older backends the CLI returns an explicit version-mismatch error instead of a raw HTTP 404/500.
+
+### When a publish ends as `partial_success`
+
+Long bodies are translated in chunks, so the AI step can stop half-way (provider error, truncated response, timeout on one language), and summary generation can time out too. The publish task then finishes with status **`partial_success`**. Read it precisely: **the article itself published successfully** — only the translation and/or summary side-tasks did not finish everywhere. The response `message` says which side failed; the CLI also adds a `translation_recovery` block with the exact next steps.
+
+1. **Verify what is missing** — `manage list-translation-languages --article-id <id>` lists the languages that exist. Treat a language's `get-translation` `status: success` as "a record exists", not as "the text is complete": long bodies can be stored truncated, so compare the translated body against the source before trusting it. If a stored translation looks cut off mid-sentence (e.g. stopping inside a table), regenerate or overwrite it.
+2. **Re-run the publish with `skipAiTranslation: true`** in front matter (`publish --markdown-file <file> --article-id <id> --wait`). This bypasses the AI step entirely — no partial-success risk — and refreshes the static pages.
+3. **Write each translation yourself** with `manage save-translation` (title plus `--content-file`). Saving a translation refreshes the article and its language pages by itself, so no extra publish is needed just to make it visible.
+4. **Never retry a `partial_success` publish as a new create** — the article already exists. Always recover with `--article-id`, the same rule as an async timeout in [Failure Recovery & Safe Retry](#failure-recovery--safe-retry).
 
 ## Failure Recovery & Safe Retry
 

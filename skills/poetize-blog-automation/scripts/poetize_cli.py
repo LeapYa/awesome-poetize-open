@@ -356,11 +356,12 @@ def cmd_publish(args: argparse.Namespace) -> None:
             return
 
         def attach_agent_guide(res: dict[str, Any], pay: dict[str, Any], resp_data: Any) -> None:
+            article_id = args.article_id
+            if not article_id and isinstance(resp_data, dict):
+                article_id = resp_data.get("articleId") or resp_data.get("id")
+            id_str = str(article_id) if article_id else "<article_id>"
+
             if pay.get("viewStatus") is False:
-                article_id = args.article_id
-                if not article_id and isinstance(resp_data, dict):
-                    article_id = resp_data.get("articleId") or resp_data.get("id")
-                id_str = str(article_id) if article_id else "<article_id>"
                 res["agent_guide"] = {
                     "message": "Draft created/updated successfully with a temporary password.",
                     "password": pay.get("password"),
@@ -369,6 +370,30 @@ def cmd_publish(args: argparse.Namespace) -> None:
                         f"Verify the draft format/metadata: python poetize_cli.py manage get-article --article-id {id_str}",
                         f"Promote this draft to public: python poetize_cli.py publish --markdown-file {args.markdown_file} --article-id {id_str} --publish --wait"
                     ]
+                }
+
+            # 长文 AI 翻译被截断或部分语言失败：正文已经发布成功，只是并非所有目标语言都就绪。
+            # 这个状态最容易被误当成失败而重发，故直接给出善后步骤。
+            status = resp_data.get("status") if isinstance(resp_data, dict) else None
+            if status == "partial_success":
+                res["translation_recovery"] = {
+                    "status": "partial_success",
+                    "message": (
+                        "Article published, but AI translation did not complete for every language. "
+                        "This is NOT a failed publish — do not retry it as a new create."
+                    ),
+                    "next_steps": [
+                        "Check which languages are missing / truncated: "
+                        f"python poetize_cli.py manage list-translation-languages --article-id {id_str}",
+                        "Re-run the publish with 'skipAiTranslation: true' in front matter to bypass the AI "
+                        f"step entirely and refresh the static pages: python poetize_cli.py publish "
+                        f"--markdown-file {args.markdown_file} --article-id {id_str} --wait",
+                        "Then store each translation yourself: python poetize_cli.py manage save-translation "
+                        f"--article-id {id_str} --language <lang> --title \"<translated title>\" "
+                        "--content-file <translated.md> --brief-file <ops-brief.json>",
+                        "save-translation refreshes the article and its language pages on its own — "
+                        "no extra publish is needed just to make a saved translation visible.",
+                    ],
                 }
 
         if not args.wait:

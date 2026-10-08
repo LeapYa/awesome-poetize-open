@@ -806,6 +806,15 @@ def is_probably_local_file_reference(reference: str) -> bool:
 
     decoded = urllib.parse.unquote(candidate)
     if os.path.isabs(decoded):
+        # 以 "/" 开头的是「站点根相对 URL」（如 /media/xxx、/static/xxx），不是本地磁盘路径。
+        # ⚠️ os.path.isabs("/media/xxx") 在 POSIX 与 Windows 上**都**返回 True，
+        # 之前因此把这类站内引用当成本地待传文件，磁盘上找不到就 die，
+        # 结果存量文章里写过 /media/ 的一更新就失败，只能先把正文改成绝对 URL 才发得出去。
+        # 真存在于磁盘的文件在 resolve_local_file_path() 那一步就已经被识别并返回了；
+        # 走到这里说明它不是本地文件 → 按站内已有资源处理，跳过即可。
+        if decoded.startswith("/"):
+            return False
+        # 其余绝对路径（Windows 盘符 C:\…、UNC \\server\share）仍按本地文件处理
         return True
 
     return not decoded.startswith("/")

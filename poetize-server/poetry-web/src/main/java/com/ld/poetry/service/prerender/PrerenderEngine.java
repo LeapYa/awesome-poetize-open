@@ -123,11 +123,14 @@ public class PrerenderEngine {
                 .set(TablesExtension.MIN_SEPARATOR_DASHES, 1)
                 .set(TablesExtension.HEADER_SEPARATOR_COLUMN_MATCH, false);
         this.markdownParser = Parser.builder(options).build();
-        this.htmlRenderer = HtmlRenderer.builder(options).build();
+        this.htmlRenderer = HtmlRenderer.builder(options)
+                // GitHub Alerts 提示框：把符合条件的引用块渲染成 div.md-alert，见 GitHubAlerts
+                .nodeRendererFactory(GitHubAlerts.rendererFactory())
+                .build();
     }
 
     public String renderMarkdown(String markdown) {
-        return renderMarkdown(markdown, null);
+        return renderMarkdown(markdown, null, null);
     }
 
     /**
@@ -138,8 +141,20 @@ public class PrerenderEngine {
      * @param baseUrl  站点根地址（用于判定内链/外链），可为 null
      */
     public String renderMarkdown(String markdown, String baseUrl) {
+        return renderMarkdown(markdown, baseUrl, null);
+    }
+
+    /**
+     * 渲染 Markdown 为 HTML，并规范化正文链接。
+     *
+     * @param markdown 原始 Markdown
+     * @param baseUrl  站点根地址（用于判定内链/外链），可为 null
+     * @param lang     内容语言码，决定 {@code > [!NOTE]} 系列提示框的标题文案；可为 null（回退 en）
+     */
+    public String renderMarkdown(String markdown, String baseUrl, String lang) {
         String safeMarkdown = StringEscapeUtils.unescapeHtml4(markdown == null ? "" : markdown);
         Node document = markdownParser.parse(safeMarkdown);
+        GitHubAlerts.apply(document, lang);
         return decorateLinks(htmlRenderer.render(document), baseUrl);
     }
 

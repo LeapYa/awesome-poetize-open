@@ -204,6 +204,119 @@ class PrerenderEngineTest {
         assertTrue(html.contains("<title>Home</title>"));
     }
 
+    @Test
+    void renderMarkdownConvertsGitHubAlertsIntoMdAlertDiv() {
+        PrerenderEngine engine = createEngine();
+
+        String html = engine.renderMarkdown("> [!NOTE]\n> 记得先备份数据库", null, "zh");
+
+        // 渲染成 div 而非 blockquote —— 绕开 article-style-protection.css 的引用块 !important 保护规则
+        assertTrue(html.contains("<div class=\"md-alert md-alert-note\">"), html);
+        assertFalse(html.contains("<blockquote>"), html);
+        // 标题在开标签后紧接，与前端 githubAlerts.js 的产物同构
+        assertTrue(html.contains("<p class=\"md-alert-title\">"), html);
+        assertTrue(html.contains("md-alert-icon"), html);
+        assertTrue(html.contains("注意</p>"), html);
+        // 标记被摘掉，正文成为普通段落
+        assertTrue(html.contains("<p>记得先备份数据库</p>"), html);
+        assertFalse(html.contains("[!NOTE]"), html);
+    }
+
+    @Test
+    void renderMarkdownSupportsAllFiveAlertTypesAndSameLineBody() {
+        PrerenderEngine engine = createEngine();
+
+        String html = engine.renderMarkdown(
+                "> [!NOTE] 同行正文\n\n> [!TIP] 小技巧\n\n> [!IMPORTANT] 重要的事\n\n"
+                        + "> [!WARNING] 注意风险\n\n> [!CAUTION] 危险操作",
+                null, "zh");
+
+        for (String type : new String[] { "note", "tip", "important", "warning", "caution" }) {
+            assertTrue(html.contains("class=\"md-alert md-alert-" + type + "\""), type + " 未转换: " + html);
+        }
+        for (String label : new String[] { "注意", "提示", "重要", "警告", "小心" }) {
+            assertTrue(html.contains(label + "</p>"), label + " 标题缺失: " + html);
+        }
+        assertTrue(html.contains("<p>同行正文</p>"), html);
+        assertFalse(html.contains("[!"), html);
+    }
+
+    @Test
+    void renderMarkdownAlertTitleFollowsContentLanguage() {
+        PrerenderEngine engine = createEngine();
+        String markdown = "> [!NOTE]\n> body";
+
+        // 内容语言决定标题，而不是站点 UI 语言
+        assertTrue(engine.renderMarkdown(markdown, null, "zh").contains("注意</p>"));
+        assertTrue(engine.renderMarkdown(markdown, null, "en").contains("Note</p>"));
+        assertTrue(engine.renderMarkdown(markdown, null, "ja").contains("補足</p>"));
+        // 带地区码 / 大小写 / 空值都要能落对：主语言子标签 → 忽略大小写 → en 兜底
+        assertTrue(engine.renderMarkdown(markdown, null, "zh-CN").contains("注意</p>"));
+        assertTrue(engine.renderMarkdown(markdown, null, "EN").contains("Note</p>"));
+        assertTrue(engine.renderMarkdown(markdown, null, "ja-JP").contains("補足</p>"));
+        assertTrue(engine.renderMarkdown(markdown, null, "").contains("Note</p>"));
+        assertTrue(engine.renderMarkdown(markdown, null, null).contains("Note</p>"));
+        assertTrue(engine.renderMarkdown(markdown, null, "xx-YY").contains("Note</p>"));
+    }
+
+    @Test
+    void renderMarkdownIgnoresUnknownAlertTypeAndKeepsPlainBlockquote() {
+        PrerenderEngine engine = createEngine();
+
+        String html = engine.renderMarkdown("> [!DANGER]\n> 白名单外，保持原样\n\n> 普通引用块", null, "zh");
+
+        // 白名单外不认，字面量原样保留（行为可预测比多认几个类型重要）
+        assertTrue(html.contains("[!DANGER]"), html);
+        assertFalse(html.contains("md-alert"), html);
+        // 普通引用块照旧渲染成 blockquote
+        assertTrue(html.contains("<blockquote>"), html);
+        assertTrue(html.contains("<p>普通引用块</p>"), html);
+    }
+
+    @Test
+    void renderMarkdownDropsEmptyParagraphForMarkerOnlyAlert() {
+        PrerenderEngine engine = createEngine();
+
+        String html = engine.renderMarkdown("> [!TIP]\n>\n> 正文在第二段", null, "zh");
+
+        assertTrue(html.contains("md-alert-tip"), html);
+        // 只有标记的那一段被整个删掉，不留下占一行的空 <p>
+        assertFalse(html.contains("<p></p>"), html);
+        assertTrue(html.contains("<p>正文在第二段</p>"), html);
+    }
+
+    @Test
+    void renderMarkdownKeepsInlineFormattingAndHandlesNestedBlocks() {
+        PrerenderEngine engine = createEngine();
+
+        String html = engine.renderMarkdown(
+                "> [!WARNING]\n> 正文里有 **加粗** 和 `代码` 以及 [链接](/article/1)\n\n"
+                        + "> > [!NOTE]\n> > 嵌套在引用块里的提示",
+                "https://mysite.com", "zh");
+
+        // 只摘掉标记本身，段落里其余内联节点照常渲染
+        assertTrue(html.contains("<strong>加粗</strong>"), html);
+        assertTrue(html.contains("<code>代码</code>"), html);
+        assertTrue(html.contains("<a href=\"/article/1\" target=\"_blank\" rel=\"noopener noreferrer\">链接</a>"), html);
+        // 嵌套引用里的 alert 同样被转换；外层普通引用块保留
+        assertTrue(html.contains("md-alert-note"), html);
+        assertTrue(html.contains("<blockquote>"), html);
+        assertFalse(html.contains("[!NOTE]"), html);
+        assertFalse(html.contains("[!WARNING]"), html);
+    }
+
+    @Test
+    void renderMarkdownKeepsEscapedAlertMarkerLiteral() {
+        PrerenderEngine engine = createEngine();
+
+        // `\[!NOTE]` 是前端约定的「字面显示标签」逃生口，两端行为必须一致
+        String html = engine.renderMarkdown("> \\[!NOTE]\n> 这行只想显示方括号标签", null, "zh");
+
+        assertFalse(html.contains("md-alert"), html);
+        assertTrue(html.contains("[!NOTE]"), html);
+        assertTrue(html.contains("<blockquote>"), html);
+    }
+
     private PrerenderEngine createEngine() {
         return new PrerenderEngine(JsonMapper.builder().build());
     }

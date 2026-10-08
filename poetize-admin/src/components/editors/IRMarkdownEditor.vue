@@ -349,6 +349,11 @@ export default {
     readonly: {
       type: Boolean,
       default: false
+    },
+    // 内容语言码，决定预览里 GitHub Alert 提示框的标题文案
+    lang: {
+      type: String,
+      default: ''
     }
   },
 
@@ -813,6 +818,7 @@ export default {
       this.history = new HistoryManager(this.document, this.cursor);
       
       // 创建渲染器
+      // 注意：本类只用于 analyzeBlocks()/blocks，预览 HTML 走 markdownLazyRenderer.renderMarkdown(…, this.lang)
       this.renderer = new IRRenderer();
       
       // 初始渲染
@@ -1021,7 +1027,7 @@ export default {
           // 这样代码块在编辑时不会每行都产生 highlight-wrap
           if (seg.inEditingBlock) continue;
           const text = this.document.getLineText(seg.lineIndex);
-          const html = await renderMarkdown(text || '');
+          const html = await renderMarkdown(text || '', this.lang);
           rendered[`l:${seg.lineIndex}`] = this.normalizeSingleLineHTML(html);
           continue;
         }
@@ -1031,7 +1037,7 @@ export default {
         for (let i = seg.startLine; i <= seg.endLine; i++) {
           parts.push(this.document.getLineText(i));
         }
-        rendered[seg.key] = await renderMarkdown(parts.join('\n'));
+        rendered[seg.key] = await renderMarkdown(parts.join('\n'), this.lang);
       }
 
       // 只应用最新一次渲染，避免旧任务覆盖导致“点进去又退出来/闪烁”
@@ -2442,7 +2448,7 @@ export default {
       
       try {
         // 渲染为 HTML
-        const html = await renderMarkdown(content);
+        const html = await renderMarkdown(content, this.lang);
         
         const wrapper = document.createElement('div');
         wrapper.innerHTML = html;

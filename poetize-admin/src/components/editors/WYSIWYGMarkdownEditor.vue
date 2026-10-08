@@ -396,6 +396,11 @@ export default {
     readonly: {
       type: Boolean,
       default: false
+    },
+    // 内容语言码，决定预览里 GitHub Alert 提示框的标题文案
+    lang: {
+      type: String,
+      default: ''
     }
   },
 
@@ -769,7 +774,7 @@ export default {
       const jobId = ++this.renderJobId;
       
       try {
-        const html = await renderMarkdown(this.renderImageUploadPlaceholders(this.markdownContent || ''));
+        const html = await renderMarkdown(this.renderImageUploadPlaceholders(this.markdownContent || ''), this.lang);
         
         // 确保是最新的渲染任务
         if (jobId !== this.renderJobId) return;
@@ -2728,7 +2733,7 @@ export default {
           this.focus();
           this.restoreSelection(selectionSnapshot);
         }
-        const html = await renderMarkdown(markdown);
+        const html = await renderMarkdown(markdown, this.lang);
         document.execCommand('insertHTML', false, html);
         this.handleInput();
       } catch (err) {
@@ -3011,7 +3016,7 @@ export default {
       }
       
       try {
-        const html = await renderMarkdown(content);
+        const html = await renderMarkdown(content, this.lang);
         
         const wrapper = document.createElement('div');
         wrapper.innerHTML = html;
@@ -3224,7 +3229,7 @@ export default {
       if (!placeholder) return false;
 
       const selection = this.saveSelection() || this.savedSelection;
-      const html = markdown ? await renderMarkdown(markdown) : '';
+      const html = markdown ? await renderMarkdown(markdown, this.lang) : '';
       const wrapper = document.createElement('div');
       wrapper.innerHTML = html;
       const fragment = document.createDocumentFragment();

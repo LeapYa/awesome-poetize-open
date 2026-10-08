@@ -9,6 +9,7 @@
       :placeholder="placeholder"
       :height="height"
       :mode="mode"
+      :lang="lang"
       :toolbar-config="toolbarConfig"
       :upload="upload"
       @input="forwardInput"
@@ -51,6 +52,16 @@ export default {
     height: {
       type: [String, Number],
       default: 600,
+    },
+    /**
+     * 内容语言码（如 'zh' / 'en' / 'zh-TW'）。
+     * 决定预览里 GitHub Alert 提示框（> [!NOTE] 等）的标题文案；
+     * 由调用方按「站点源语言 / 当前编辑的翻译语言」传入。
+     * ⚠️ vditor 编辑器走的是自带的 Lute 引擎，不经过我们的 markdown-it 管线，该属性对它无效。
+     */
+    lang: {
+      type: String,
+      default: '',
     },
     mode: {
       type: String,

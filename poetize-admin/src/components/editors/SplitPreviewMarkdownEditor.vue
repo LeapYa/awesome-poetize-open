@@ -257,6 +257,11 @@ export default {
     height: {
       type: [String, Number],
       default: 500
+    },
+    // 内容语言码，决定预览里 GitHub Alert 提示框的标题文案
+    lang: {
+      type: String,
+      default: ''
     }
   },
   data() {
@@ -617,7 +622,7 @@ export default {
         this.lastRenderTime = Date.now();
         // 分屏预览：渲染编辑器显示内容（已升级标题），保持编辑时标题样式一致
         const previewContent = content;
-        this.htmlContent = await renderMarkdown(content);
+        this.htmlContent = await renderMarkdown(content, this.lang);
         
         // 渲染图表（Mermaid 和 ECharts）
         this.$nextTick(async () => {

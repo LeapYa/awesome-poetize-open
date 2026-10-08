@@ -581,3 +581,108 @@ body.dark-mode .entry-content table tbody>tr:hover,
 html body.dark-mode .entry-content table tbody>tr:hover {
   background-color: rgba(255, 255, 255, 0.1) !important;
 }
+
+/* ========== GitHub Alert 提示块（`> [!NOTE]` 系列语法兼容） ========== */
+/* 由 utils/githubAlerts.js 渲染成 div 而非 blockquote，
+   因此不会撞上上面那套针对 blockquote 的 !important 保护规则。
+   编辑器预览（分栏预览、IR 预览）也走 .entry-content，故此处一并生效。
+   五种类型：注意 / 提示 / 重要 / 警告 / 小心 */
+
+.md-alert {
+  --md-alert-accent: #5f5e5a;
+  margin: 20px 0;
+  padding: 12px 18px;
+  border-left: 3px solid var(--md-alert-accent);
+  border-radius: 0 6px 6px 0;
+  background: rgba(0, 0, 0, 0.035);
+  /* 提示框若出现在引用块内，外层 blockquote 的 text-align:center !important 会传染给正文 */
+  text-align: left;
+}
+
+.md-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--md-alert-accent);
+}
+
+.md-alert-icon {
+  display: block;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+}
+
+/* 标题行需要压过 `body .entry-content p` 的 line-height !important */
+body .entry-content .md-alert-title,
+html body .entry-content .md-alert-title,
+.md-alert-title {
+  line-height: 1.4 !important;
+}
+
+/* 首尾子元素去掉外边距，避免提示框上下多出一截空白 */
+body .entry-content .md-alert > :first-child,
+html body .entry-content .md-alert > :first-child,
+.md-alert > :first-child {
+  margin-top: 0 !important;
+}
+
+body .entry-content .md-alert > :last-child,
+html body .entry-content .md-alert > :last-child,
+.md-alert > :last-child {
+  margin-bottom: 0 !important;
+}
+
+/* 浅色主题取 600 级色，保证在正文底色上够沉但不刺眼 */
+.md-alert-note {
+  --md-alert-accent: #185fa5;
+}
+
+.md-alert-tip {
+  --md-alert-accent: #0f6e56;
+}
+
+.md-alert-important {
+  --md-alert-accent: #534ab7;
+}
+
+.md-alert-warning {
+  --md-alert-accent: #854f0b;
+}
+
+.md-alert-caution {
+  --md-alert-accent: #a32d2d;
+}
+
+/* 编辑器暗色模式（.split-preview-editor.dark-mode / .wysiwyg-editor.dark-mode / body.dark-mode） */
+body.dark-mode .md-alert,
+.dark-mode .md-alert {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* 暗色主题改用 400 级色，否则 600 级会糊在深底上 */
+body.dark-mode .md-alert-note,
+.dark-mode .md-alert-note {
+  --md-alert-accent: #85b7eb;
+}
+
+body.dark-mode .md-alert-tip,
+.dark-mode .md-alert-tip {
+  --md-alert-accent: #5dcaa5;
+}
+
+body.dark-mode .md-alert-important,
+.dark-mode .md-alert-important {
+  --md-alert-accent: #afa9ec;
+}
+
+body.dark-mode .md-alert-warning,
+.dark-mode .md-alert-warning {
+  --md-alert-accent: #ef9f27;
+}
+
+body.dark-mode .md-alert-caution,
+.dark-mode .md-alert-caution {
+  --md-alert-accent: #f09595;
+}

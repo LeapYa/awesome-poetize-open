@@ -121,18 +121,27 @@ export async function switchLanguage(lang) {
   }
 }
 
-export async function fetchTranslation() {
-  if (!this.article || !this.article.id) {
-    return
+/**
+ * 只取译文内容 —— 不渲染、不改语言状态、不弹提示
+ *
+ * 给「页面初始化时才发现需要译文」的场景用：那种场景拿到内容后必须继续走完后续初始化
+ * （主题 / 语言按钮 / SEO 等），不能像 fetchTranslation() 那样自己渲染完就结束。
+ *
+ * @param {string} [language] - 目标语言，缺省取当前语言
+ * @returns {Promise<{status: 'ok'|'not_found'|'error', title: string, content: string}>}
+ */
+export async function fetchTranslationContent(language) {
+  const targetLang = language || this.currentLang
+  if (!this.article || !this.article.id || !targetLang) {
+    return { status: 'error', title: '', content: '' }
   }
 
-  this.isLoading = true
   try {
     const response = await this.$http.get(
       this.$constant.baseURL + '/article/getTranslation',
       {
         id: this.article.id,
-        language: this.currentLang,
+        language: targetLang,
       }
     )
 
@@ -141,33 +150,59 @@ export async function fetchTranslation() {
       response.data &&
       response.data.status === 'not_found'
     ) {
-      this.currentLang = this.sourceLanguage
-      const articleLangKey = `article_${this.id}_preferredLanguage`
-      localStorage.removeItem(articleLangKey)
-      this.updateUrlWithLanguage(this.sourceLanguage)
-      await this.renderArticleBody(this.article.articleContent)
-      this.$message.info('该语言版本不存在，已切换到原文显示')
-    } else if (response.code === 200 && response.data) {
-      this.translatedTitle = response.data.title
-      this.translatedContent = response.data.content
-      await this.renderArticleBody(this.translatedContent)
-    } else {
-      console.error('获取翻译失败，服务器返回:', response)
-      this.currentLang = this.sourceLanguage
-      const articleLangKey = `article_${this.id}_preferredLanguage`
-      localStorage.removeItem(articleLangKey)
-      this.updateUrlWithLanguage(this.sourceLanguage)
-      await this.renderArticleBody(this.article.articleContent)
-      this.$message.error('翻译加载失败，已切换到原文显示')
+      return { status: 'not_found', title: '', content: '' }
     }
+
+    if (response.code === 200 && response.data) {
+      return {
+        status: 'ok',
+        title: response.data.title,
+        content: response.data.content,
+      }
+    }
+
+    console.error('获取翻译失败，服务器返回:', response)
+    return { status: 'error', title: '', content: '' }
   } catch (error) {
     console.error('Translation error:', error)
+    return { status: 'error', title: '', content: '' }
+  }
+}
+
+export async function fetchTranslation() {
+  if (!this.article || !this.article.id) {
+    return
+  }
+
+  // 译文取不到时统一退回原文视图（原来三处重复，收敛到这里）
+  const fallbackToSource = async (level) => {
     this.currentLang = this.sourceLanguage
     const articleLangKey = `article_${this.id}_preferredLanguage`
     localStorage.removeItem(articleLangKey)
     this.updateUrlWithLanguage(this.sourceLanguage)
     await this.renderArticleBody(this.article.articleContent)
-    this.$message.error('翻译加载失败，已切换到原文显示')
+    if (level === 'info') {
+      this.$message.info('该语言版本不存在，已切换到原文显示')
+    } else {
+      this.$message.error('翻译加载失败，已切换到原文显示')
+    }
+  }
+
+  this.isLoading = true
+  try {
+    const result = await this.fetchTranslationContent(this.currentLang)
+
+    if (result.status === 'ok') {
+      this.translatedTitle = result.title
+      this.translatedContent = result.content
+      await this.renderArticleBody(this.translatedContent)
+    } else {
+      await fallbackToSource(result.status === 'not_found' ? 'info' : 'error')
+    }
+  } catch (error) {
+    // renderArticleBody 自身抛错也走降级，保持与原实现一致的兜底
+    console.error('Translation error:', error)
+    await fallbackToSource('error')
   } finally {
     this.isLoading = false
     this.$nextTick(() => {
@@ -233,8 +268,19 @@ export async function initializeLanguageSettings() {
   }
 }
 
+/**
+ * 语言方向的初始默认值
+ *
+ * ⚠️ 这里只是**文章响应到达之前**的占位值。源语言的权威来源是文章接口带回的
+ * `defaultSourceLang`（后端 `ArticleController.enrichArticleResponse()` 注入，随文章响应一起到达），
+ * 由 `article.vue` 的 `syncSourceLanguageFromArticle()` 校正。
+ *
+ * 别在这里另接一套配置读取（比如读 bootstrap 的 articleDefaultLanguages）——
+ * 那是给同一个事实造第二个来源，会带来「哪个为准」的歧义，而它换来的只是
+ * 极少数情况下少发一次请求。源语言是站点级配置（DB sys_ai_config.default_source_lang），
+ * 不是逐篇文章的字段。
+ */
 export async function getDefaultTargetLanguage() {
-  // 设置默认翻译方向：源语言中文，目标语言英文
   this.targetLanguage = 'en'
   this.targetLanguageName = 'English'
   this.sourceLanguage = 'zh'

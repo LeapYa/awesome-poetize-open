@@ -30,8 +30,55 @@ const DEFAULT_ADMIN_LANGUAGE_MAP = {
 
 // 缓存语言映射，避免频繁请求
 let cachedAdminLanguageMap = null;
+// 站点默认源/目标语言（bootstrap 的 articleDefaultLanguages 字段）
+let cachedArticleDefaultLanguages = null;
+let isLoadingDefaultLanguages = false;
+let loadDefaultLanguagesPromise = null;
 let isAdminLoading = false;
 let loadAdminPromise = null;
+
+/**
+ * 获取站点默认源/目标语言配置
+ *
+ * 走 `/webInfo/bootstrap` 聚合接口（后端已把该字段并入聚合，原
+ * `/webInfo/ai/config/articleAi/defaultLang` 与 `/webInfo/ai/config/system/languageMapping`
+ * 两个独立 endpoint 均已下线 —— 见 SysAiConfigController 里的注释，
+ * 旧调用会 404 并被 catch 吞掉、退化成硬编码默认值）。
+ *
+ * ⚠️ 源语言是**站点级全局配置**（DB `sys_ai_config.default_source_lang`），
+ * 不是逐篇文章的字段；管理端「默认源语言」在已有文章后即锁定。
+ *
+ * @returns {Promise<Object>} 形如 { default_source_lang, default_target_lang }
+ */
+export async function getArticleDefaultLanguages() {
+  if (cachedArticleDefaultLanguages !== null) {
+    return cachedArticleDefaultLanguages;
+  }
+
+  if (isLoadingDefaultLanguages && loadDefaultLanguagesPromise) {
+    return loadDefaultLanguagesPromise;
+  }
+
+  isLoadingDefaultLanguages = true;
+  loadDefaultLanguagesPromise = (async () => {
+    try {
+      const response = await axios.get(constant.baseURL + '/webInfo/bootstrap');
+      const payload = response.data && response.data.data;
+      const languages = payload && payload.articleDefaultLanguages;
+      // 请求成功 = 拿到确定答案：有就用，没有就记空对象（避免每次调用都白跑一趟）
+      cachedArticleDefaultLanguages = languages && typeof languages === 'object' ? languages : {};
+    } catch (error) {
+      // ⚠️ 请求失败不写缓存：只让本次返回空对象，下次调用（如打开翻译弹窗）还会重试。
+      // 原先无条件写 {} 会把一次瞬时失败固化到刷新页面为止。
+    } finally {
+      isLoadingDefaultLanguages = false;
+      loadDefaultLanguagesPromise = null;
+    }
+    return cachedArticleDefaultLanguages || {};
+  })();
+
+  return loadDefaultLanguagesPromise;
+}
 
 /**
  * 获取后台管理用语言映射配置（中文）

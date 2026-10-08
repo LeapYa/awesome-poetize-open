@@ -5,7 +5,14 @@
 
 import { transformAttachmentLinks } from './attachmentCard';
 
-let mdInstance = null;
+// 渲染器按语言缓存实例：GitHub Alert 提示框的标题文案跟随内容语言，
+// 不同语言必须用不同实例，否则后建的会覆盖先建的。
+// （主编辑器与翻译弹窗是两个语言不同、但可能同时挂载的编辑器，不能只用一个全局语言。）
+// ⚠️ 实例本身是 getInstance 内的局部 const，下面的 renderer 规则靠闭包引用它 ——
+// 不要把它提回模块级，否则多语言并存时规则会指到「最后创建的那个」实例上。
+// key 为语言码，取值受站点语言配置约束（后端白名单 14 种 + '' 表示未指定），不会无限增长。
+const mdInstances = new Map();
+const mdPending = new Map();
 
 /**
  * 异步预热 Markdown 渲染引擎核心
@@ -13,7 +20,7 @@ let mdInstance = null;
  * @returns {Promise<void>}
  */
 export async function warmupMarkdown() {
-    if (mdInstance) return;
+    if (mdInstances.size) return;
     try {
         await import('markdown-it');
     } catch (e) {
@@ -22,13 +29,16 @@ export async function warmupMarkdown() {
 }
 
 /**
- * 解析并渲染 Markdown 内容为 HTML 字符串
- * @description 若库尚未加载，将通过动态导入并发获取核心引擎及其常用插件（表格、数学公式、高亮）。
- * @param {string} content - 待渲染的原始 Markdown 文本字符串
- * @returns {Promise<string>} 渲染后的 HTML 字符串
+ * 创建（并按语言缓存）渲染器实例
+ * @param {string} [lang] - 内容语言码，决定 GitHub Alert 标题文案；不传表示不指定
+ * @returns {Promise<Object|null>} MarkdownIt 实例，创建失败返回 null
  */
-export async function renderMarkdown(content) {
-    if (!mdInstance) {
+async function getInstance(lang) {
+    const key = lang || '';
+    if (mdInstances.has(key)) return mdInstances.get(key);
+    if (mdPending.has(key)) return mdPending.get(key);
+
+    const task = (async () => {
         try {
             const [
                 { default: MarkdownIt },
@@ -36,23 +46,27 @@ export async function renderMarkdown(content) {
                 { default: markdownItKatex },
                 { default: markdownItTaskLists },
                 { default: hljs },
-                { default: multimdTableEscape }
+                { default: multimdTableEscape },
+                { default: githubAlerts }
             ] = await Promise.all([
                 import('markdown-it'),
                 import('markdown-it-multimd-table'),
                 import('@iktakahiro/markdown-it-katex'),
                 import('markdown-it-task-lists'),
                 import('highlight.js'),
-                import('./multimdTableEscape')
+                import('./multimdTableEscape'),
+                import('./githubAlerts')
             ]);
 
-            mdInstance = new MarkdownIt({ 
+            const mdInstance = new MarkdownIt({ 
                 breaks: true,
                 html: true, // 允许 HTML 标签，以便渲染复杂的自定义结构
                 linkify: true
             })
                 .use(markdownItMultimdTable)
                 .use(multimdTableEscape) // 还原单元格内 `\|`，见该文件头注释
+                // 兼容 `> [!NOTE]` 系列 GitHub 私有扩展；标题文案跟随内容语言
+                .use(githubAlerts, { lang })
                 .use(markdownItKatex)
                 .use(markdownItTaskLists, {
                     label: true,
@@ -137,13 +151,34 @@ export async function renderMarkdown(content) {
                     <pre><code class="hljs ${lang} css-line-numbers">${codeHTML}</code></pre>
                 </div>`;
             };
+
+            return mdInstance;
         } catch (error) {
             console.error('Markdown 渲染器加载失败:', error);
-            return content || '';
+            return null;
         }
-    }
+    })();
 
-    return transformAttachmentLinks(mdInstance.render(content || ''));
+    mdPending.set(key, task);
+    try {
+        const md = await task;
+        if (md) mdInstances.set(key, md);
+        return md;
+    } finally {
+        mdPending.delete(key);
+    }
+}
+
+/**
+ * 解析并渲染 Markdown 内容为 HTML 字符串
+ * @param {string} content - 待渲染的原始 Markdown 文本字符串
+ * @param {string} [lang] - 内容语言码，决定 GitHub Alert 提示框标题文案
+ * @returns {Promise<string>} 渲染后的 HTML 字符串
+ */
+export async function renderMarkdown(content, lang) {
+    const md = await getInstance(lang);
+    if (!md) return content || '';
+    return transformAttachmentLinks(md.render(content || ''));
 }
 
 /**

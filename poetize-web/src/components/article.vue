@@ -213,10 +213,12 @@ import markdownItMultimdTable from 'markdown-it-multimd-table'
 import markdownItTaskLists from 'markdown-it-task-lists'
 // 补齐 multimd-table 在单元格内不还原 `\|` 的行为，见文件头注释
 import multimdTableEscape from '@/utils/multimdTableEscape'
+// 兼容 AI 常写的 `> [!NOTE]` 系列（GFM 正式规范里没有，属 GitHub 私有扩展），见文件头注释
+import githubAlerts from '@/utils/githubAlerts'
 // KaTeX 改为按需动态加载，只有文章包含数学公式时才加载
 import { hasMathFormula, loadMarkdownItKatex } from '@/utils/katexLoader'
 import { transformAttachmentLinks } from '@/utils/attachmentCard'
-import { getLanguageMapping } from '@/utils/languageUtils'
+import { getLanguageMapping, getLanguageName } from '@/utils/languageUtils'
 import {
   applyThemeFromArticle,
   resetTheme,
@@ -234,6 +236,7 @@ import {
   handleLanguageSwitch,
   switchLanguage,
   fetchTranslation,
+  fetchTranslationContent,
   updateUrlWithLanguage,
   initializeLanguageSettings,
   getDefaultTargetLanguage,
@@ -732,6 +735,8 @@ export default {
       const md = new MarkdownIt({ breaks: true, html: true })
         .use(markdownItMultimdTable)
         .use(multimdTableEscape)
+        // 标题文案跟随当前内容语言（原文或某个翻译版本），不跟随站点 UI 语言
+        .use(githubAlerts, { lang: this.currentLang })
         .use(markdownItTaskLists, {
           enabled: true,
           label: true,
@@ -793,6 +798,38 @@ export default {
       }
 
       return this.article?.articleContent || ''
+    },
+
+    /**
+     * 用文章接口带回的站点源语言校正本地状态
+     *
+     * 后端 `ArticleController.enrichArticleResponse()` 会给 ArticleVO 注入
+     * `defaultSourceLang` / `defaultTargetLang` / `languageMap` —— 这是权威值，
+     * 且**随文章响应一起到达**，不依赖任何其他请求。
+     *
+     * 为什么需要它：`initializeLanguageSettings()` 读的是 bootstrap 聚合接口的缓存，
+     * 深链直接进文章页时那个请求可能还没返回，`sourceLanguage` 会先退化成 'zh'，
+     * 这个误判会一路带进「决定渲染哪份内容」和「提示框标题用哪种语言」。
+     * 有此校正后，源语言的正确性不再取决于 bootstrap 的到达时机。
+     */
+    syncSourceLanguageFromArticle() {
+      const actualSource = this.article && this.article.defaultSourceLang
+      if (!actualSource || actualSource === this.sourceLanguage) return
+
+      this.sourceLanguage = actualSource
+      this.sourceLanguageName = getLanguageName(actualSource)
+
+      // 只在「当前语言不是用户显式选择」时才跟着切到源语言，别覆盖用户选的译文版本
+      const routeLang = this.$route && this.$route.params && this.$route.params.lang
+      const savedLang = localStorage.getItem(`article_${this.id}_preferredLanguage`)
+      const explicitLang =
+        (routeLang && this.languageMap[routeLang] ? routeLang : '') ||
+        (savedLang && this.languageMap[savedLang] ? savedLang : '')
+
+      if (!explicitLang) {
+        this.currentLang = actualSource
+        document.documentElement.setAttribute('lang', actualSource)
+      }
     },
 
     async renderArticleBody(content, { setupCommentObserver = false } = {}) {
@@ -1439,6 +1476,10 @@ export default {
         articleParams.language = this.currentLang
       }
 
+      // 记录本次请求是否带了 language 参数。后面若发现源语言判断出错，靠它区分
+      // 「用户本来就要某个译文」和「误判源语言导致压根没请求译文」这两种情况。
+      const translationRequested = !!articleParams.language
+
       this.$http
         .get(this.$constant.baseURL + '/article/getArticleByPath', articleParams)
         .then(async (articleRes) => {
@@ -1447,6 +1488,27 @@ export default {
             this.article = articleRes.data
             this.id = this.article.id
             this.articlePathToken = this.article.articleSlug || String(this.article.id)
+
+            // 用接口带回的权威源语言校正一次（必须在决定渲染内容之前完成）
+            this.syncSourceLanguageFromArticle()
+
+            // 校正后才暴露出「要译文但当初没请求」：补拉译文**内容**。
+            // ⚠️ 这里不能 return —— 后面还有视频解密、主题应用、语言按钮生成、SEO 等一整套初始化，
+            // 提前 return 会让它们全被跳过（语言切换按钮会直接不出现）。
+            // 也不能用 fetchTranslation()：它会自己渲染完就结束。这里只取内容，渲染交给下面的正常流程。
+            let fetchedTranslation = null
+            if (!translationRequested && this.currentLang !== this.sourceLanguage) {
+              const result = await this.fetchTranslationContent(this.currentLang)
+              if (result.status === 'ok') {
+                fetchedTranslation = result
+              } else {
+                // 译文取不到 → 退回源语言视图，与 fetchTranslation 的降级行为保持一致
+                this.currentLang = this.sourceLanguage
+                localStorage.removeItem(`article_${this.id}_preferredLanguage`)
+                this.updateUrlWithLanguage(this.sourceLanguage)
+                document.documentElement.setAttribute('lang', this.sourceLanguage)
+              }
+            }
 
             // 解密视频URL
             if (this.article.videoUrl) {
@@ -1462,21 +1524,24 @@ export default {
             }
 
             // 检查当前语言状态，决定显示内容
-            // 确定要渲染的内容
-            const contentToRender =
-              this.currentLang !== this.sourceLanguage &&
-              this.article.translatedContent
+            // 译文优先用接口一次性带回的；没有则用上面补拉的
+            const remoteTranslation =
+              this.currentLang !== this.sourceLanguage
                 ? this.article.translatedContent
-                : this.article.articleContent
+                : ''
+            const effectiveTranslation =
+              remoteTranslation ||
+              (fetchedTranslation && fetchedTranslation.content) ||
+              ''
+            const contentToRender = effectiveTranslation || this.article.articleContent
 
             // 判断显示原文还是翻译
-            if (
-              this.currentLang !== this.sourceLanguage &&
-              this.article.translatedContent
-            ) {
-              // 显示翻译内容（后端已一次性返回）
-              this.translatedTitle = this.article.translatedTitle
-              this.translatedContent = this.article.translatedContent
+            if (effectiveTranslation) {
+              this.translatedTitle =
+                this.article.translatedTitle ||
+                (fetchedTranslation && fetchedTranslation.title) ||
+                ''
+              this.translatedContent = effectiveTranslation
             } else {
               // 显示原文
               this.translatedTitle = ''
@@ -1711,6 +1776,7 @@ export default {
     handleLanguageSwitch,
     switchLanguage,
     fetchTranslation,
+    fetchTranslationContent,
     updateUrlWithLanguage,
     /**
      * 检查是否有临时保存的评论

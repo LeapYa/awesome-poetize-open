@@ -140,6 +140,7 @@
           v-model="article.articleContent"
           :height="600"
           mode="ir"
+          :lang="editorLanguage"
           placeholder="请输入文章内容..."
           @image-add="imgAdd"
           @change="handleEditorChange"
@@ -529,6 +530,7 @@
             v-model="translationForm.translatedContent"
             :height="500"
             mode="ir"
+            :lang="translationForm.targetLanguage"
             placeholder="请输入翻译后的文章内容"
             @change="handleTranslationEditorChange"
             @focus="updateDraftEditingField('translationContent', true)"
@@ -628,7 +630,7 @@
 
 const uploadPicture = () => import("../common/uploadPicture");
   const ArticleEditor = () => import('@/components/ArticleEditor.vue');
-  import { getAdminLanguageName } from '@/utils/languageUtils';
+  import { getAdminLanguageName, getArticleDefaultLanguages } from '@/utils/languageUtils';
 
   const ARTICLE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,158}[a-z0-9])?$/;
 
@@ -738,6 +740,9 @@ const uploadPicture = () => import("../common/uploadPicture");
         currentStoreType: null, // 添加currentStoreType属性
         // 编辑器加载优化相关
         editorReady: false, // 编辑器是否准备好
+        // 站点源语言：决定预览里 GitHub Alert 提示框（> [!NOTE] 等）的标题文案。
+        // 源语言是站点级配置（后端 sys_ai_config.default_source_lang），不是逐篇文章的字段。
+        editorLanguage: 'zh',
         shouldRenderEditor: false, // 是否应该渲染编辑器
         shouldRenderTranslationEditor: false,
         mainEditor: null,
@@ -1268,6 +1273,8 @@ const uploadPicture = () => import("../common/uploadPicture");
           }
           tasks.push(this.loadSearchPushAvailability());
           tasks.push(this.loadSummaryGenerationMode());
+          // 站点源语言要在编辑器挂载前拿到，否则预览里的提示框标题会是错的
+          tasks.push(this.loadEditorLanguageDefaults());
 
           await Promise.all(tasks);
           // 加载期间用户可能已切换到其他草稿/文章，此时结果已过期，直接放弃
@@ -2593,13 +2600,26 @@ const uploadPicture = () => import("../common/uploadPicture");
 
       async loadDefaultTargetLanguage() {
         try {
-          // 从Java API获取默认语言
-          const response = await this.$http.get(this.$constant.baseURL + "/webInfo/ai/config/articleAi/defaultLang");
-          if (response.code === 200 && response.data) {
-            this.translationForm.targetLanguage = response.data.default_target_lang || 'en';
-          }
+          // 走 bootstrap 聚合接口的 articleDefaultLanguages 字段。
+          // ⚠️ 原来这里请求的 /webInfo/ai/config/articleAi/defaultLang 已下线，
+          // 会 404 并被 catch 吞掉、把目标语言恒定为 'en'（见 SysAiConfigController 注释）。
+          const defaults = await getArticleDefaultLanguages();
+          this.translationForm.targetLanguage = defaults.default_target_lang || 'en';
         } catch (error) {
           this.translationForm.targetLanguage = 'en';
+        }
+      },
+
+      /**
+       * 读取站点默认源语言，供编辑器预览使用
+       * （源语言是站点级配置，不是逐篇文章的字段，前端只能从这里拿）
+       */
+      async loadEditorLanguageDefaults() {
+        try {
+          const defaults = await getArticleDefaultLanguages();
+          this.editorLanguage = defaults.default_source_lang || 'zh';
+        } catch (error) {
+          this.editorLanguage = 'zh';
         }
       },
 

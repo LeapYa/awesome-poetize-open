@@ -69,6 +69,13 @@ export class IRRenderer {
 
   /**
    * 初始化 markdown-it（懒加载）
+   *
+   * ⚠️ 当前**无调用方**：仅 `renderBlock()` 会调它，而 `renderBlock()` 同样无调用方。
+   * `IRMarkdownEditor` 实际渲染走的是 `utils/markdownLazyRenderer.renderMarkdown(content, lang)`，
+   * 预览 HTML 不经过本类的 md 实例（外部只用 `analyzeBlocks()` 和 `blocks`）。
+   *
+   * 将来若启用这条管线：记得把当前内容语言传进来（githubAlerts 的 `lang` 选项），
+   * 否则 `> [!NOTE]` 等提示框标题会落到英文兜底；`this.hljs` 也依赖本方法初始化。
    */
   async initMarkdownIt() {
     if (this.md) return this.md;
@@ -81,13 +88,15 @@ export class IRRenderer {
           { default: markdownItMultimdTable },
           { default: markdownItKatex },
           { default: hljs },
-          { default: multimdTableEscape }
+          { default: multimdTableEscape },
+          { default: githubAlerts }
         ] = await Promise.all([
           import('markdown-it'),
           import('markdown-it-multimd-table'),
           import('@iktakahiro/markdown-it-katex'),
           import('highlight.js'),
-          import('@/utils/multimdTableEscape')
+          import('@/utils/multimdTableEscape'),
+          import('@/utils/githubAlerts')
         ]);
 
         this.hljs = hljs;
@@ -109,6 +118,7 @@ export class IRRenderer {
         })
           .use(markdownItMultimdTable)
           .use(multimdTableEscape) // 还原单元格内 `\|`，见该文件头注释
+          .use(githubAlerts) // 兼容 `> [!NOTE]` 系列 GitHub 私有扩展，见该文件头注释
           .use(markdownItKatex);
 
         return this.md;

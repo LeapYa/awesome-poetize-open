@@ -132,6 +132,13 @@
                   <span class="reasoning-tool-label">{{ formatToolEventLabel(item) }}</span>
                 </div>
               </template>
+              <div
+                v-if="message.streaming && toolDraftLabel"
+                class="reasoning-tool is-executing"
+              >
+                <span class="reasoning-tool-status" aria-hidden="true"></span>
+                <span class="reasoning-tool-label">{{ toolDraftLabel }}</span>
+              </div>
             </div>
           </details>
           <div v-else-if="segment.type === 'tool'" :key="`${segment.id}-tool`" class="tool-pill-row">
@@ -141,58 +148,17 @@
             >
               <span
                 v-if="segment.status === 'executing'"
-                class="tool-pill-icon tool-pill-funnel"
+                class="tool-pill-icon tool-pill-hourglass"
                 aria-hidden="true"
               >
-                <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="24" cy="24" r="18.1" fill="#d7efff"></circle>
+                <svg viewBox="8 8 32 32" xmlns="http://www.w3.org/2000/svg">
                   <path
                     fill="none"
-                    stroke="#18193f"
+                    stroke="currentColor"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     stroke-width="3"
-                    d="M18,9.5h12"
-                  ></path>
-                  <path
-                    fill="none"
-                    stroke="#18193f"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M18,38.5h12"
-                  ></path>
-                  <path
-                    fill="none"
-                    stroke="#18193f"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M19.5,10.5c0,6,4,7.6,6.3,9.5c-2.3,1.9-6.3,3.5-6.3,9.5"
-                  ></path>
-                  <path
-                    fill="none"
-                    stroke="#18193f"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M28.5,10.5c0,6-4,7.6-6.3,9.5c2.3,1.9,6.3,3.5,6.3,9.5"
-                  ></path>
-                  <path
-                    fill="none"
-                    stroke="#18193f"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M20.5,14.5h7"
-                  ></path>
-                  <path
-                    fill="none"
-                    stroke="#18193f"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M20.5,33.5h7"
+                    d="M16.5,10.95h15M16.5,37.05h15M18.38,11.85c0,5.4,5,6.84,7.88,8.55c-2.88,1.71,-7.88,3.15,-7.88,8.55M29.62,11.85c0,5.4,-5,6.84,-7.88,8.55c2.88,1.71,7.88,3.15,7.88,8.55M19.62,15.45h8.75M19.62,32.55h8.75"
                   ></path>
                 </svg>
               </span>
@@ -246,6 +212,33 @@
             @rendered="handleRendered"
           />
         </template>
+
+        <!-- 工具参数撰写进度：模型逐 token 生成工具调用参数（如 create_skill 的整篇正文，
+             可能持续数十秒）期间显示。用与 tool_call 完全同款的 .tool-pill，
+             所以以下三段是同一个胶囊在原位置的自然延续：
+               撰写中「正在撰写新技能（1234 字）...」→ 执行中「正在创建技能」→「创建技能完成」。
+             思考路径不在此显示 —— 那时进度已经在思考面板内（.reasoning-tool），
+             由 !hasReasoningSegment 排除，避免同一进度出现两次。 -->
+        <div
+          v-if="message.streaming && toolDraftLabel && !hasReasoningSegment"
+          class="tool-pill-row"
+        >
+          <div class="tool-pill tool-pill-executing">
+            <span class="tool-pill-icon tool-pill-hourglass" aria-hidden="true">
+              <svg viewBox="8 8 32 32" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="3"
+                  d="M16.5,10.95h15M16.5,37.05h15M18.38,11.85c0,5.4,5,6.84,7.88,8.55c-2.88,1.71,-7.88,3.15,-7.88,8.55M29.62,11.85c0,5.4,-5,6.84,-7.88,8.55c2.88,1.71,7.88,3.15,7.88,8.55M19.62,15.45h8.75M19.62,32.55h8.75"
+                ></path>
+              </svg>
+            </span>
+            <span class="tool-pill-text">{{ toolDraftLabel }}</span>
+          </div>
+        </div>
       </template>
 
       <div v-else class="message-text" v-text="message.content" />
@@ -409,6 +402,24 @@ export default {
     const enableTypewriter = computed(() => aiChatStore.typingAnimationEnabled)
     const showTimestamp = computed(() => aiChatStore.showTimestampEnabled)
 
+    // 模型撰写工具参数的实时进度：思考面板展开期间 typing 指示器已不可见，
+    // 在思考面板内展示撰写进度（字数持续增长）
+    const toolDraftLabel = computed(() => {
+      if (!aiChatStore.toolDraftChars) {
+        return ''
+      }
+      const noun =
+        aiChatStore.toolDraftName === 'create_skill' ? '新技能' : '工具参数'
+      return `正在撰写${noun}（${aiChatStore.toolDraftChars} 字）`
+    })
+
+    // 本次回复是否走了「思考」路径。思考路径的撰写进度由思考面板内的
+    // .reasoning-tool 承担，正文路径才在气泡末尾追加工具胶囊 —— 两者互斥，
+    // 否则同一份进度会同时出现在面板和气泡里。
+    const hasReasoningSegment = computed(() =>
+      assistantSegments.value.some((segment) => segment.type === 'thinking-group')
+    )
+
     // 思考完成后的标题：有用时数据时显示"已思考（用时 N 秒）"，旧数据回退"思考过程"
     const thinkingDoneLabel = computed(() => {
       const { thinkingStartedAt, thinkingEndedAt } = props.message
@@ -533,6 +544,8 @@ export default {
       themeColor,
       enableTypewriter,
       showTimestamp,
+      toolDraftLabel,
+      hasReasoningSegment,
       thinkingDoneLabel,
       formatToolEventLabel,
       handleCopy,
@@ -762,10 +775,16 @@ export default {
 .tool-pill-row + .tool-pill-row {
   margin-top: 2px;
 }
+/* 气泡内已有工具胶囊时，收起正文末尾的打字光标 —— 同一时刻只保留一个「进行中」的信号。
+   .markdown-renderer-wrapper 是 MarkdownRenderer 的根元素（会带上本组件的 scope 属性，
+   故可被命中选择），其内部的 .markdown-renderer 需要 :deep() 穿透。 */
+.markdown-renderer-wrapper:has(+ .tool-pill-row) :deep(.markdown-renderer)::after {
+  display: none;
+}
 .tool-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-height: 30px;
   padding: 0 12px;
   border-radius: 999px;
@@ -794,16 +813,20 @@ export default {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
   flex-shrink: 0;
 }
-.tool-pill-funnel {
+/* 进行中：沙漏自旋。只有沙漏本体，无外圈、无底盘。
+   颜色全走 currentColor —— 原先是 fill="#d7efff" 的实心浅蓝底盘 + 写死的
+   stroke="#18193f"（暗色下那块浅蓝是气泡里最亮的斑）；此后又试过描边外圈，
+   同样显得多余，最终一并去掉。
+   注：沙漏有朝向，旋转到 45°/90° 会呈"斜躺"。原版靠外圈的圆遮掉了这点，
+   现在没有外圈，属于已知取舍。 */
+.tool-pill-hourglass {
   animation: toolSpin 1s linear infinite;
 }
-.tool-pill-funnel svg {
-  width: 20px;
-  height: 20px;
+.tool-pill-hourglass svg {
+  width: 14px;
+  height: 14px;
   display: block;
 }
 .tool-pill-check,
@@ -812,8 +835,8 @@ export default {
   font-size: 12px;
 }
 .tool-pill-check svg {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   display: block;
 }
 .tool-pill-text {

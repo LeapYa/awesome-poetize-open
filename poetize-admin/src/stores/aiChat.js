@@ -30,6 +30,15 @@ const HOT_MESSAGE_COUNT = 50
 const SAVE_HISTORY_DEBOUNCE_MS = 300
 let saveHistoryTimer = null
 
+// 参与「对话历史」的角色判定。
+// user/assistant 是正常对话；system 仅用于错误提示条，但错误也必须计入历史——
+// 否则用户追问「你刚才怎么没回答」时，模型历史里只有孤立的两次 user 提问，
+// 它会否认或凭空编造，所以这里把它一起纳入（持久化恢复同样保留）。
+// ⚠️ requestHistoryPack 的取值与两处 lastSyncedHistoryLength 计数必须共用这一判定：
+// 三者不一致会导致增量历史协议错位（重发或残缺）。
+const HISTORY_ROLES = ['user', 'assistant', 'system']
+const isHistoryMessage = (msg) => !!msg && HISTORY_ROLES.includes(msg.role)
+
 const DEFAULT_AI_CHAT_CONFIG = {
   enabled: false,
   configured: false,
@@ -135,8 +144,11 @@ export const useAIChatStore = defineStore('aiChat', {
     editingOriginalAttachedDocuments: null,
     // 已写入 IndexedDB 的消息数（用于增量写入判断）
     lastSavedCount: 0,
+    // 工具参数撰写进度（模型生成工具调用参数期间实时累计，供工具胶囊展示）
+    toolDraftName: '',
+    toolDraftChars: 0,
     // 上次响应收到的历史哈希（服务端 Redis 缓存末尾哈希）。
-    // 存在且与 messageHistory 末尾一致时，下次请求只发增量（仅末尾 1-2 条新消息）；
+    // 存在且与当前历史末尾一致时，下次请求只发增量（仅末尾 1-2 条新消息）；
     // 撤回/编辑/清空场景置 null，强制走完整历史同步。
     lastHistoryHash: null,
     // 上次 lastHistoryHash 对应的历史条数，用于判断本次是否仅追加（确定增量切片起点）
@@ -171,56 +183,39 @@ export const useAIChatStore = defineStore('aiChat', {
         state.config?.showTimestamp !== false
       )
     },
-    messageHistory: (state) => {
-      const maxLength = state.config?.max_conversation_length || 20
-      const allowedRoles = ['user', 'assistant']
-      return state.messages
-        .filter((msg) => allowedRoles.includes(msg.role))
-        .slice(-maxLength)
-        .map((msg) => {
-          const entry = {
-            role: msg.role,
-            content: msg.content,
-          }
-          // 仅对 assistant 携带 toolCalls，让后端重建为
-          // AssistantMessage(toolCalls) + ToolResponseMessage 序列，
-          // 模型在多轮对话中能"看到"之前工具调用与结果，避免重复调用 / 凭空猜测 / 缓存失效。
-          if (msg.role === 'assistant' && Array.isArray(msg.segments)) {
-            const toolCalls = msg.segments
-              .filter(
-                (seg) =>
-                  seg &&
-                  seg.type === 'tool' &&
-                  seg.tool &&
-                  (seg.status === 'completed' || seg.status === 'failed')
-              )
-              .map((seg) => ({
-                id: seg.id != null ? String(seg.id) : '',
-                tool: seg.tool,
-                arguments: normalizeToolArguments(seg.arguments),
-                result: seg.result ?? '',
-                error: seg.error ?? '',
-                status: seg.status || 'completed',
-              }))
-            if (toolCalls.length > 0) {
-              entry.toolCalls = toolCalls
-            }
-          }
-          return entry
-        })
-    },
     /**
      * 增量协议：根据 lastHistoryHash 决定返回完整 history 或增量切片。
      * 调用方据此决定 baseHistoryHash 上送值。
-     * - lastHistoryHash 存在且消息仅追加（messages 数组长度 > lastSyncedHistoryLength
-     *   且前 lastSyncedHistoryLength 条未被改动）→ 返回增量切片
-     * - 否则 → 返回完整 history
+     * 历史包已剔除「当前正在发送的消息」（由请求体的 message 字段单独传递）：
+     * - 历史包比同步点更长（上次失败后遗留的消息待补发）→ 返回缺口切片
+     * - 历史包与同步点等长（正常发送的常态）→ 返回空 history + hash，服务端取缓存
+     * - 历史包更短（撤回/编辑）或没有 hash → 返回完整 history
      */
     requestHistoryPack: (state) => {
-      const full = state.messages
-        .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+      // ⚠️ 必须先剔除「当前正在发送的这条消息」，再计算历史包。
+      // 发送前 sendMessage 已经 addMessage(content, 'user')，所以 messages 末尾就是它；
+      // 而这条消息是通过请求体单独的 `message` 字段发给后端的，后端会把它当作
+      // 「本次新增」分别注入 buildMessages 和 putHistory。
+      // 若历史包里也带上它，后端 putHistory 会再追加一次 →
+      // Redis 历史每条 user 消息存两份并逐轮累积（实测 3 轮后 Redis 9 条 vs 前端 6 条，
+      // 模型会重复读到之前的提问）。
+      const historyMessages = state.messages.filter(isHistoryMessage)
+      const lastMsg = historyMessages[historyMessages.length - 1]
+      const packSource =
+        lastMsg && lastMsg.role === 'user'
+          ? historyMessages.slice(0, -1)
+          : historyMessages
+      const full = packSource
         .slice(0) // 不在此处截断，保留完整长度用于增量判断；服务端会做截断
         .map((msg) => {
+          // 错误提示条（system）：界面上仍渲染为居中提示，但发给模型时转写成
+          // assistant 条目，让模型知道"上一条回复失败了"，避免其否认或编造。
+          if (msg.role === 'system') {
+            return {
+              role: 'assistant',
+              content: `（上一条回复未能生成：${String(msg.content || '').replace(/^⚠️\s*/, '')}）`,
+            }
+          }
           const entry = { role: msg.role, content: msg.content }
           if (msg.role === 'assistant' && Array.isArray(msg.segments)) {
             const toolCalls = msg.segments
@@ -263,7 +258,8 @@ export const useAIChatStore = defineStore('aiChat', {
         return { history: full, baseHistoryHash: null }
       }
       if (full.length === synced) {
-        // 没有新消息：发空 history + hash，服务端可正常取缓存（极少触发）
+        // 历史包与同步点完全一致：正常发送时的常态（当前消息已从历史包剔除，
+        // 待补发缺口为空）→ 发空 history + hash，服务端直接取缓存
         // eslint-disable-next-line no-console
         console.info('[hist-sync] EMPTY no-new-msg', {
           fullLen: full.length,
@@ -806,10 +802,13 @@ export const useAIChatStore = defineStore('aiChat', {
         )
       } catch (error) {
         console.error('发送消息失败:', error)
+        // 保留后端返回的真实原因（如"对话上下文已超出模型上限，请开启新会话或精简输入"），
+        // 仅当异常是 fetch 网络失败（TypeError）或没有可读信息时才回退到通用文案。
+        const networkFailure = error instanceof TypeError || !error?.message
         return {
           success: false,
-          error: 'network',
-          message: '网络错误，请稍后重试',
+          error: networkFailure ? 'network' : 'error',
+          message: networkFailure ? '网络错误，请稍后重试' : error.message,
         }
       }
     },
@@ -1342,7 +1341,7 @@ export const useAIChatStore = defineStore('aiChat', {
           if (result.data.historyHash) {
             this.lastHistoryHash = result.data.historyHash
             this.lastSyncedHistoryLength = this.messages.filter(
-              (m) => m.role === 'user' || m.role === 'assistant'
+              isHistoryMessage
             ).length
           }
           return {
@@ -1362,6 +1361,34 @@ export const useAIChatStore = defineStore('aiChat', {
         }
         console.error('发送消息失败:', error)
         throw error
+      }
+    },
+
+    /**
+     * 移除「空气泡」—— 既无正文、也无任何 segment 的 assistant 消息。
+     * <p>
+     * 场景：工具参数撰写期间会提前创建气泡来承载工具胶囊（见 tool_args_delta 分支），
+     * 若参数生成中途失败或被用户中止，toolDraftChars 归零后胶囊消失，就只剩一个
+     * 空壳气泡挂在对话里。
+     * <p>
+     * 只在流结束 / 中断时调用。流式进行中气泡同样是空的（正文还没到），那时调用
+     * 会误删，因此不要放进事件循环里。
+     */
+    pruneEmptyAssistantMessage() {
+      const lastAssistant = [...this.messages]
+        .reverse()
+        .find((m) => m.role === 'assistant')
+      if (!lastAssistant) return
+      if (String(lastAssistant.content || '').trim()) return
+      if (
+        Array.isArray(lastAssistant.segments) &&
+        lastAssistant.segments.length > 0
+      ) {
+        return
+      }
+      const idx = this.messages.findIndex((m) => m.id === lastAssistant.id)
+      if (idx >= 0) {
+        this.messages.splice(idx, 1)
       }
     },
 
@@ -1410,6 +1437,9 @@ export const useAIChatStore = defineStore('aiChat', {
         let aiMessage = null
         let firstChunkReceived = false
         let currentEventName = null
+        // 流式错误：不在 AI 气泡内展示，统一由 useAIChat 以 system 提示呈现，
+        // 这里只记录原因与类型，循环结束后经返回值带出
+        let streamError = null
 
         while (true) {
           if (this.shouldStop) {
@@ -1476,7 +1506,7 @@ export const useAIChatStore = defineStore('aiChat', {
                     if (eventData && eventData.historyHash) {
                       this.lastHistoryHash = eventData.historyHash
                       this.lastSyncedHistoryLength = this.messages.filter(
-                        (m) => m.role === 'user' || m.role === 'assistant'
+                        isHistoryMessage
                       ).length
                     }
                   }
@@ -1487,6 +1517,25 @@ export const useAIChatStore = defineStore('aiChat', {
                   const errMsg = eventData.message || '未知错误'
                   console.error('流式响应错误:', errMsg)
 
+                  // 不再创建气泡、不再往 AI 正文里追加 ❌：
+                  // 错误统一由 useAIChat 以 system 提示条呈现，避免"错误混在回答里"。
+                  // 若此前已收到正文，保留这半截回答（aiMessage 仍存在），错误另起提示。
+                  streamError = {
+                    error: eventData.errorType || 'error',
+                    message: errMsg,
+                  }
+                  break
+                }
+
+                // 工具参数撰写增量：模型逐 token 生成工具调用参数期间到达。
+                // 这里要**提前创建气泡** —— 参数撰写可能持续数十秒（如 create_skill 的
+                // 整篇正文），需要一个容器来承载工具胶囊。胶囊用与 tool_call 同款的
+                // .tool-pill，因此同一个胶囊会在原位置自然延续：
+                //   撰写「正在撰写新技能（1234 字）...」→ 执行「正在创建技能」→「创建技能完成」。
+                // （原实现「只累计进度、不创建消息」，进度只能退化成 typing 指示器里
+                // 的一行文字，且与真正的工具胶囊形态割裂。）
+                if (currentEventName === 'tool_args_delta') {
+                  const toolData = eventData.data || eventData
                   if (!aiMessage) {
                     this.typing = false
                     aiMessage = this.addMessage('', 'assistant', {
@@ -1494,15 +1543,8 @@ export const useAIChatStore = defineStore('aiChat', {
                     })
                     firstChunkReceived = true
                   }
-
-                  this.appendMessageText(aiMessage.id, '\n\n❌ 错误: ' + errMsg)
-                  break
-                }
-
-                // 工具参数撰写增量：模型逐字生成工具调用参数期间到达。
-                // 参数是不完整的 JSON 碎片，完整参数以随后的 tool_call 事件为准，
-                // 此处仅安全落空（payload 无 content 字段），保持 SSE 流消费。
-                if (currentEventName === 'tool_args_delta') {
+                  this.toolDraftChars += (toolData.delta || '').length
+                  if (toolData.tool) this.toolDraftName = toolData.tool
                   continue
                 }
 
@@ -1670,6 +1712,11 @@ export const useAIChatStore = defineStore('aiChat', {
         this.streaming = false
         this.typing = false
         this.stopJinaQueuePolling()
+        this.toolDraftName = ''
+        this.toolDraftChars = 0
+        // 工具参数撰写期间提前建的气泡，若最终什么都没产出（参数生成失败、
+        // tool_call 一直没来），清掉这个空壳。
+        this.pruneEmptyAssistantMessage()
 
         // cacheMiss 重试：服务端告知 baseHistoryHash 已失效，清空 hash 并用完整历史重试一次
         // 仅允许重试一次（isRetry），避免服务端持续 cacheMiss 导致递归栈溢出
@@ -1696,6 +1743,15 @@ export const useAIChatStore = defineStore('aiChat', {
           this.finishMessageReasoning(aiMessage.id)
         }
 
+        // 出错：不清理已附加的页面/图片/文档，用户可直接重试；统一返回失败结果
+        if (streamError) {
+          return {
+            success: false,
+            error: streamError.error,
+            message: streamError.message,
+          }
+        }
+
         if (this.attachedPageContext) {
           this.attachedPageContext = null
         }
@@ -1716,6 +1772,27 @@ export const useAIChatStore = defineStore('aiChat', {
         this.typing = false
         this.streaming = false
         this.stopJinaQueuePolling()
+        this.toolDraftName = ''
+        this.toolDraftChars = 0
+
+        // 异常中断（用户点停止 / 网络断流）：本次的 assistant 消息可能已创建但没走完
+        // 正常收尾，这里必须清掉**消息级**的 streaming 标志。
+        // 只清 store 级的 this.streaming 不够 —— MarkdownRenderer 看的是 message.streaming，
+        // 它不变成 false 就不会做最终渲染增强（代码块行号等），而且该标志会被持久化到
+        // localStorage / IndexedDB，刷新后依然卡在流式渲染态。
+        // 注：本次的 aiMessage 声明在 try 块内部、catch 里够不着，所以按状态反查；
+        // 顺带也能清掉修复前遗留在历史里的流式态消息（自愈）。
+        const interrupted = [...this.messages]
+          .reverse()
+          .find((m) => m.role === 'assistant' && m.streaming)
+        if (interrupted) {
+          interrupted.streaming = false
+          this.finishMessageReasoning(interrupted.id)
+        }
+
+        // 中断时同样清掉空壳气泡：工具参数撰写期间建的气泡若还没等到 tool_call
+        // 就被中止，toolDraftChars 归零后胶囊消失，会只剩一个空消息。
+        this.pruneEmptyAssistantMessage()
 
         if (error.name === 'AbortError' || this.shouldStop) {
           return {
@@ -2053,7 +2130,9 @@ export const useAIChatStore = defineStore('aiChat', {
 
     async restoreHistory() {
       // 阶段 1：同步从 localStorage 恢复最近热数据，让界面快速显示
-      const allowedRoles = ['user', 'assistant']
+      // 含 system：错误提示条也是对话的一部分，若在恢复时被丢弃，
+      // 刷新后用户与模型都会"忘记"刚才失败过，与本次会话内行为不一致
+      const allowedRoles = HISTORY_ROLES
       let hotMessages = []
       try {
         const saved = localStorage.getItem('ai_chat_history')

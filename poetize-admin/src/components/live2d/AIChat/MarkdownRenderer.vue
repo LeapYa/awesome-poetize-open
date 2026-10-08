@@ -6,6 +6,7 @@
       v-show="streaming || renderComplete"
       ref="rendererEl"
       class="markdown-renderer"
+      :class="{ streaming }"
       v-html="html"
     />
 
@@ -942,6 +943,40 @@ export default {
 }
 .markdown-renderer p:last-child {
   margin-bottom: 0;
+}
+/* ===== 流式输出中的打字光标 =====
+   光标必须挂在 .markdown-renderer **自身**的 ::after 上，不能挂在内容子元素上。
+   原因：流式时每 150ms 执行一次 html.value = md.render(...)，v-html 会整体重写
+   innerHTML，所有子元素被销毁重建。若写成 `.markdown-renderer > p:last-child::after`，
+   1s 周期的闪烁动画每 150ms 就被重建重置一次（只播到 15%），视觉上恒亮不闪。
+   容器自身不参与重建，动画才能连续。
+
+   末段转 display:inline 是为了让光标能紧跟最后一个字符——块级段落会把 ::after
+   挤到下一行的行首。该段原本就是 margin-bottom: 0（见上一条规则），故无布局损失。
+   :has() 把光标限定在「末子元素是段落」时出现：末子元素是 pre/ul/table 时不显示，
+   否则光标会另起一行贴到块元素左侧，反而像渲染错位。 */
+.markdown-renderer.streaming > p:last-child {
+  display: inline;
+}
+.markdown-renderer.streaming:has(> p:last-child)::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: currentColor; /* 跟随气泡正文色，暗色模式无需另配 */
+  animation: ai-caret-blink 1s step-end infinite;
+}
+@keyframes ai-caret-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
 }
 .markdown-renderer h1,
 .markdown-renderer h2,

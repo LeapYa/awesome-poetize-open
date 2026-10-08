@@ -41,6 +41,8 @@ build/
 .codebuddy/
 .github/prompts/
 .trae/
+.workbuddy/
+.zcode/
 poetize-admin/diff.txt
 poetize-server/poetry-web/.m2/
 

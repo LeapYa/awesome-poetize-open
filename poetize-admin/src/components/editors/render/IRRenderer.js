@@ -80,12 +80,14 @@ export class IRRenderer {
           { default: MarkdownIt },
           { default: markdownItMultimdTable },
           { default: markdownItKatex },
-          { default: hljs }
+          { default: hljs },
+          { default: multimdTableEscape }
         ] = await Promise.all([
           import('markdown-it'),
           import('markdown-it-multimd-table'),
           import('@iktakahiro/markdown-it-katex'),
-          import('highlight.js')
+          import('highlight.js'),
+          import('@/utils/multimdTableEscape')
         ]);
 
         this.hljs = hljs;
@@ -106,6 +108,7 @@ export class IRRenderer {
           }
         })
           .use(markdownItMultimdTable)
+          .use(multimdTableEscape) // 还原单元格内 `\|`，见该文件头注释
           .use(markdownItKatex);
 
         return this.md;

@@ -211,6 +211,8 @@ import { useMainStore } from '@/stores/main'
 import MarkdownIt from 'markdown-it'
 import markdownItMultimdTable from 'markdown-it-multimd-table'
 import markdownItTaskLists from 'markdown-it-task-lists'
+// 补齐 multimd-table 在单元格内不还原 `\|` 的行为，见文件头注释
+import multimdTableEscape from '@/utils/multimdTableEscape'
 // KaTeX 改为按需动态加载，只有文章包含数学公式时才加载
 import { hasMathFormula, loadMarkdownItKatex } from '@/utils/katexLoader'
 import { transformAttachmentLinks } from '@/utils/attachmentCard'
@@ -729,6 +731,7 @@ export default {
     async createMarkdownRenderer(content) {
       const md = new MarkdownIt({ breaks: true, html: true })
         .use(markdownItMultimdTable)
+        .use(multimdTableEscape)
         .use(markdownItTaskLists, {
           enabled: true,
           label: true,

@@ -35,13 +35,15 @@ export async function renderMarkdown(content) {
                 { default: markdownItMultimdTable },
                 { default: markdownItKatex },
                 { default: markdownItTaskLists },
-                { default: hljs }
+                { default: hljs },
+                { default: multimdTableEscape }
             ] = await Promise.all([
                 import('markdown-it'),
                 import('markdown-it-multimd-table'),
                 import('@iktakahiro/markdown-it-katex'),
                 import('markdown-it-task-lists'),
-                import('highlight.js')
+                import('highlight.js'),
+                import('./multimdTableEscape')
             ]);
 
             mdInstance = new MarkdownIt({ 
@@ -50,6 +52,7 @@ export async function renderMarkdown(content) {
                 linkify: true
             })
                 .use(markdownItMultimdTable)
+                .use(multimdTableEscape) // 还原单元格内 `\|`，见该文件头注释
                 .use(markdownItKatex)
                 .use(markdownItTaskLists, {
                     label: true,

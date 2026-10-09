@@ -430,6 +430,9 @@ export default {
         clearTimeout(deferredStartTimer)
         deferredStartTimer = null
       }
+      // requestIdleCallback 无法取消，通过置位幂等标记阻止
+      // 卸载后的迟到回调再发起配置请求与头像预加载
+      aiResourcesStarted = true
       
       // 清理全局事件监听
       if (themeChangeHandler) {

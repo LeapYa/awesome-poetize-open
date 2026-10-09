@@ -249,7 +249,7 @@
 </template>
 
 <script>
-import { computed, onMounted, nextTick, ref } from 'vue'
+import { computed, getCurrentInstance, onMounted, onUpdated, nextTick, ref } from 'vue'
 import { useAIChatStore, toolActionPhrase } from '@/stores/aiChat'
 import { useLive2DStore } from '@/stores/live2d'
 import MarkdownRenderer from './MarkdownRenderer.vue'
@@ -271,6 +271,8 @@ export default {
   emits: ['rendered'],
 
   setup(props, { emit }) {
+    const instance = getCurrentInstance()
+
     const aiChatStore = useAIChatStore()
     const live2dStore = useLive2DStore()
 
@@ -447,6 +449,19 @@ export default {
     const handleRendered = () => {
       emit('rendered')
     }
+
+    /**
+     * 思考中面板也限高（与完成态一致）后，内部会出现滚动：
+     * 每次渲染后把「正在思考」的面板内部滚动钉到底部，
+     * 保证流式思考始终能看到最新内容（否则新内容被截在可视区之下）。
+     * 完成态不跟随——用户展开时应从开头读起。
+     */
+    onUpdated(() => {
+      const root = instance?.proxy?.$el
+      if (!root || typeof root.querySelector !== 'function') return
+      const body = root.querySelector('.reasoning-panel.is-thinking .reasoning-body')
+      if (body) body.scrollTop = body.scrollHeight
+    })
 
     onMounted(() => {
       if (!isAssistant.value) {
@@ -815,7 +830,7 @@ export default {
   gap: 6px;
   /* --reasoning-indent：图标左缩进，同时决定下方竖线位置（见 .reasoning-body）。
      默认 6px；可按需由外部覆盖（预览页做了实时调节）。 */
-  padding: 5px 9px 5px var(--reasoning-indent, 6px);
+  padding: 5px var(--reasoning-indent, 6px);
   border-radius: 8px;
   cursor: pointer;
   color: #9ca3af;
@@ -827,9 +842,6 @@ export default {
 }
 .reasoning-summary::-webkit-details-marker {
   display: none;
-}
-.reasoning-summary:hover {
-  background: rgba(148, 163, 184, 0.14);
 }
 /* 四角星图标用主题色（与用户气泡一致），其余保持灰色低调 */
 .reasoning-icon {
@@ -892,13 +904,11 @@ export default {
      两者永远由 --reasoning-indent 联动，改缩进不会错位。 */
   margin: 2px 0 4px calc(var(--reasoning-indent, 6px) + 6px);
   padding: 2px 0 2px 12px;
-  border-left: 2px solid rgba(148, 163, 184, 0.4);
-  animation: reasoningReveal 0.25s ease;
-}
-/* 思考中不限高（随内容增长，聊天区自动滚动），完成后限高内部滚动 */
-.reasoning-panel:not(.is-thinking) .reasoning-body {
+  /* 思考中与完成态一致限高，内部滚动；思考中由 onUpdated 钉住底部跟随 */
   max-height: 240px;
   overflow-y: auto;
+  border-left: 2px solid rgba(148, 163, 184, 0.4);
+  animation: reasoningReveal 0.25s ease;
 }
 /* 思考内容由 MarkdownRenderer 渲染：颜色/字号级联，间距收紧保持面板紧凑 */
 .reasoning-content {
@@ -1044,9 +1054,6 @@ export default {
 }
 .dark-mode .reasoning-summary {
   color: #8b9bb4;
-}
-.dark-mode .reasoning-summary:hover {
-  background: rgba(139, 155, 180, 0.12);
 }
 .dark-mode .reasoning-body {
   border-left-color: rgba(139, 155, 180, 0.4);

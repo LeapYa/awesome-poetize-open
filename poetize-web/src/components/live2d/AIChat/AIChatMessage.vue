@@ -813,7 +813,9 @@ export default {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 9px;
+  /* --reasoning-indent：图标左缩进，同时决定下方竖线位置（见 .reasoning-body）。
+     默认 6px；可按需由外部覆盖（预览页做了实时调节）。 */
+  padding: 5px 9px 5px var(--reasoning-indent, 6px);
   border-radius: 8px;
   cursor: pointer;
   color: #9ca3af;
@@ -885,7 +887,10 @@ export default {
   transform: rotate(90deg);
 }
 .reasoning-body {
-  margin: 2px 0 4px 15px;
+  /* 竖线必须通过图标中心轴：图标宽 14px（flex 0 0 14px），中心在 indent+7px；
+     竖线宽 2px，中心在 margin+1px ⇒ margin = indent + 6px。
+     两者永远由 --reasoning-indent 联动，改缩进不会错位。 */
+  margin: 2px 0 4px calc(var(--reasoning-indent, 6px) + 6px);
   padding: 2px 0 2px 12px;
   border-left: 2px solid rgba(148, 163, 184, 0.4);
   animation: reasoningReveal 0.25s ease;

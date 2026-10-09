@@ -81,7 +81,8 @@ export default {
     const BOTTOM_THRESHOLD = 40 // px：距底部在此范围内仍视为“在底部”
     const stickToBottom = ref(true)
     // 上一次 scroll 事件的 scrollTop：用于判定滚动方向（见 handleScroll）。
-    // 模块级普通变量即可 —— 每次滚动事件同步更新，无需响应式。
+    // setup() 内的实例级普通变量即可 —— 每次滚动事件同步更新，无需响应式；
+    // 勿提为模块级：多个组件实例（如同页多处挂载）会互相串滚动状态。
     let lastScrollTop = 0
 
     /**

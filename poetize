@@ -2,7 +2,7 @@
 ## 作者: LeapYa
 ## 修改时间: 2026-10-09
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.13.7
+## 版本: 1.13.8
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.13.7"
+POETIZE_VERSION="1.13.8"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -6315,7 +6315,7 @@ record_sql_migration() {
     local safe_description="${description//\'/\'\'}"
 
     sql_exec_query_in_container "$mariadb_container" "$db_root_password" \
-        "INSERT INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '$safe_description', $execution_time_ms, $success_flag) ON DUPLICATE KEY UPDATE description=VALUES(description), execution_time_ms=VALUES(execution_time_ms), success=VALUES(success), executed_at=CURRENT_TIMESTAMP;" >/dev/null 2>&1
+        "INSERT INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '$safe_description', $execution_time_ms, $success_flag) ON DUPLICATE KEY UPDATE description=VALUES(description), execution_time_ms=VALUES(execution_time_ms), success=GREATEST(success, VALUES(success)), executed_at=CURRENT_TIMESTAMP;" >/dev/null 2>&1
 }
 
 ensure_db_migrations_table() {
@@ -6389,23 +6389,26 @@ sync_sql_migration_scripts() {
 
     info "找到 $total_count 个 SQL 脚本"
 
-    # 防漂移守门（入口校验）：正常情况下完全信任迁移记录表——执行过的脚本直接跳过，
-    # 不重复执行。但记录表可能与实际 schema 脱节（外部导入旧 dump、init.sql 烧入残留
-    # 旧快照、基线标记污染），曾导致 v5.2.8 升级后 article.deleted_time 等列缺失、
-    # 前台列表挂/预渲染失败。仅当关键结构校验不通过（检测到脱节）时，才强制全量执行
-    # 迁移脚本补齐缺失结构；幂等语句自动补齐，个别非幂等语句失败仅计入统计不影响其他项。
+    # 防漂移守门（两段式，校验后置）：第一轮完全信任迁移记录表增量执行（定调：执行过
+    # 的跳过，重复执行会有问题）。入口不做结构校验——老版本正常直升时新结构尚未创建，
+    # 入口校验会把所有跨版本升级误判为漂移、强制全量重跑历史脚本（DDL 重跑失败刷屏 +
+    # 迁移记录被翻成失败）。第一轮执行后新结构应已随迁移创建；仅当第一轮后校验仍不通过
+    # （记录表漂移 / 本轮存在执行失败）时，才第二轮强制全量重跑补齐——幂等语句自动补齐，
+    # 个别非幂等语句失败仅计入统计不影响其他项。
     local force_full_execution=false
-    if ! verify_key_schema_structures "$mariadb_container" "$db_root_password"; then
-        warning "关键 schema 结构校验未通过：记录表与实际库结构脱节，本次将强制执行迁移脚本补齐缺失结构"
-        force_full_execution=true
-    fi
+    local migration_pass=1
     ensure_db_migrations_table "$mariadb_container" "$db_root_password" "$sql_dir" || {
         warning "db_migrations 表创建失败，跳过预迁移脚本执行"
         return 1
     }
 
+    while :; do
     printf "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
-    printf "%-44s %s\n" "SQL 脚本" "状态"
+    if [ "$migration_pass" -ge 2 ]; then
+        printf "%-44s %s\n" "SQL 脚本（第二轮 · 漂移补齐）" "状态"
+    else
+        printf "%-44s %s\n" "SQL 脚本" "状态"
+    fi
     printf "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 
     for sql_file in "${sql_files[@]}"; do
@@ -6418,8 +6421,8 @@ sync_sql_migration_scripts() {
         version=$(basename "$sql_file" .sql)
         already_executed=$(sql_migration_success_count "$mariadb_container" "$db_root_password" "$version")
         # 记录表是执行依据：已成功执行的脚本直接跳过，不重复执行（重复执行可能破坏
-        # 非幂等语句的数据）。仅当入口校验发现记录表与实际 schema 脱节（漂移）时，
-        # 才由 force_full_execution 强制全量执行以补齐缺失结构。
+        # 非幂等语句的数据）。仅当第一轮结构校验发现记录表与实际 schema 脱节（漂移）时，
+        # 第二轮才由 force_full_execution 强制全量执行以补齐缺失结构。
         if [ "$already_executed" = "1" ] && [ "$force_full_execution" != "true" ]; then
             done_count=$((done_count + 1))
             print_sql_migration_row "$version" "已执行"
@@ -6452,6 +6455,22 @@ sync_sql_migration_scripts() {
 
     printf "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
     info "总计: $total_count | 已执行: $done_count | 本次新执行: $new_exec_count | 漂移补齐: $already_count | 失败: $fail_count"
+
+    # 结构校验（每轮结束后）：正常升级第一轮执行完新迁移，结构即齐 → 通过 → 不重跑；
+    # 仍缺失 = 记录表漂移（声称已执行但结构没有）或本轮存在执行失败 → 第二轮强制全量重跑补齐
+    if verify_key_schema_structures "$mariadb_container" "$db_root_password"; then
+        [ "$migration_pass" -ge 2 ] && success "漂移补齐完成，关键结构校验通过"
+        break
+    fi
+    if [ "$migration_pass" -ge 2 ]; then
+        warning "全量重跑后关键结构仍缺失，请人工检查迁移脚本与库状态（脚本目录: $sql_dir）"
+        break
+    fi
+    warning "增量执行后关键结构校验未通过：记录表与实际库结构脱节（或本轮存在执行失败），第二轮将强制全量重跑补齐缺失结构"
+    force_full_execution=true
+    migration_pass=2
+    done
+
     success "SQL 脚本同步完成"
 }
 
@@ -6469,7 +6488,12 @@ write_snapshot_meta() {
     if [ -n "$mariadb_container" ] && [ -n "$db_root_password" ]; then
         migration_count=$(sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" \
             sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -B -e "SELECT COUNT(*) FROM db_migrations WHERE success = 1" 2>/dev/null' | tr -d '[:space:]')
-        [ -n "$migration_count" ] || migration_count="0"
+        # 查询失败兜底写 0：get_snapshot_baseline_status 会把 0 视为 UNKNOWN（0 不是有效基线——
+        # 任何库计数都 >= 0，若当有效基线则恒判 FRESH 跳过导入 → 重演"恢复成功假象"）
+        [ -n "$migration_count" ] || {
+            migration_count="0"
+            warning "迁移记录数查询失败，快照基线记为 0（恢复时将按 UNKNOWN 保守处理，不会据此跳过导入）"
+        }
     fi
 
     {
@@ -6494,6 +6518,9 @@ get_snapshot_baseline_status() {
     [ -f "$meta_file" ] || { printf "UNKNOWN\n"; return 0; }
     snapshot_count=$(grep '^SNAPSHOT_MIGRATION_COUNT=' "$meta_file" | head -n 1 | cut -d'=' -f2- | tr -d '[:space:]')
     [ -n "$snapshot_count" ] || { printf "UNKNOWN\n"; return 0; }
+    # 0 / 非数字不是有效基线：查询失败时 write_snapshot_meta 兜底写 0，而任何库计数都 >= 0，
+    # 若当有效基线则恒判 FRESH → 跳过导入 → 重演 v5.2.8"恢复成功假象"。按 UNKNOWN 保守恢复。
+    [ "$snapshot_count" -gt 0 ] 2>/dev/null || { printf "UNKNOWN\n"; return 0; }
 
     db_count=$(sql_exec_query_in_container "$mariadb_container" "$db_root_password" \
         "SELECT COUNT(*) FROM db_migrations WHERE success = 1;" 2>/dev/null | tr -d '[:space:]')
@@ -15155,7 +15182,7 @@ record_sql_migration() {
     local safe_description="${description//\'/\'\'}"
 
     sql_exec_query_in_container "$mariadb_container" "$db_root_password" \
-        "INSERT INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '$safe_description', $execution_time_ms, $success_flag) ON DUPLICATE KEY UPDATE description=VALUES(description), execution_time_ms=VALUES(execution_time_ms), success=VALUES(success), executed_at=CURRENT_TIMESTAMP;" >/dev/null 2>&1
+        "INSERT INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '$safe_description', $execution_time_ms, $success_flag) ON DUPLICATE KEY UPDATE description=VALUES(description), execution_time_ms=VALUES(execution_time_ms), success=GREATEST(success, VALUES(success)), executed_at=CURRENT_TIMESTAMP;" >/dev/null 2>&1
 }
 
 ensure_db_migrations_table() {
@@ -15229,23 +15256,26 @@ sync_sql_migration_scripts() {
 
     info "找到 $total_count 个 SQL 脚本"
 
-    # 防漂移守门（入口校验）：正常情况下完全信任迁移记录表——执行过的脚本直接跳过，
-    # 不重复执行。但记录表可能与实际 schema 脱节（外部导入旧 dump、init.sql 烧入残留
-    # 旧快照、基线标记污染），曾导致 v5.2.8 升级后 article.deleted_time 等列缺失、
-    # 前台列表挂/预渲染失败。仅当关键结构校验不通过（检测到脱节）时，才强制全量执行
-    # 迁移脚本补齐缺失结构；幂等语句自动补齐，个别非幂等语句失败仅计入统计不影响其他项。
+    # 防漂移守门（两段式，校验后置）：第一轮完全信任迁移记录表增量执行（定调：执行过
+    # 的跳过，重复执行会有问题）。入口不做结构校验——老版本正常直升时新结构尚未创建，
+    # 入口校验会把所有跨版本升级误判为漂移、强制全量重跑历史脚本（DDL 重跑失败刷屏 +
+    # 迁移记录被翻成失败）。第一轮执行后新结构应已随迁移创建；仅当第一轮后校验仍不通过
+    # （记录表漂移 / 本轮存在执行失败）时，才第二轮强制全量重跑补齐——幂等语句自动补齐，
+    # 个别非幂等语句失败仅计入统计不影响其他项。
     local force_full_execution=false
-    if ! verify_key_schema_structures "$mariadb_container" "$db_root_password"; then
-        warning "关键 schema 结构校验未通过：记录表与实际库结构脱节，本次将强制执行迁移脚本补齐缺失结构"
-        force_full_execution=true
-    fi
+    local migration_pass=1
     ensure_db_migrations_table "$mariadb_container" "$db_root_password" "$sql_dir" || {
         warning "db_migrations 表创建失败，跳过 SQL 脚本执行"
         return 1
     }
 
+    while :; do
     printf "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
-    printf "%-44s %s\n" "SQL 脚本" "状态"
+    if [ "$migration_pass" -ge 2 ]; then
+        printf "%-44s %s\n" "SQL 脚本（第二轮 · 漂移补齐）" "状态"
+    else
+        printf "%-44s %s\n" "SQL 脚本" "状态"
+    fi
     printf "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 
     for sql_file in "${sql_files[@]}"; do
@@ -15258,8 +15288,8 @@ sync_sql_migration_scripts() {
         version=$(basename "$sql_file" .sql)
         already_executed=$(sql_migration_success_count "$mariadb_container" "$db_root_password" "$version")
         # 记录表是执行依据：已成功执行的脚本直接跳过，不重复执行（重复执行可能破坏
-        # 非幂等语句的数据）。仅当入口校验发现记录表与实际 schema 脱节（漂移）时，
-        # 才由 force_full_execution 强制全量执行以补齐缺失结构。
+        # 非幂等语句的数据）。仅当第一轮结构校验发现记录表与实际 schema 脱节（漂移）时，
+        # 第二轮才由 force_full_execution 强制全量执行以补齐缺失结构。
         if [ "$already_executed" = "1" ] && [ "$force_full_execution" != "true" ]; then
             done_count=$((done_count + 1))
             print_sql_migration_row "$version" "已执行"
@@ -15292,6 +15322,22 @@ sync_sql_migration_scripts() {
 
     printf "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
     info "总计: $total_count | 已执行: $done_count | 本次新执行: $new_exec_count | 漂移补齐: $already_count | 失败: $fail_count"
+
+    # 结构校验（每轮结束后）：正常升级第一轮执行完新迁移，结构即齐 → 通过 → 不重跑；
+    # 仍缺失 = 记录表漂移（声称已执行但结构没有）或本轮存在执行失败 → 第二轮强制全量重跑补齐
+    if verify_key_schema_structures "$mariadb_container" "$db_root_password"; then
+        [ "$migration_pass" -ge 2 ] && success "漂移补齐完成，关键结构校验通过"
+        break
+    fi
+    if [ "$migration_pass" -ge 2 ]; then
+        warning "全量重跑后关键结构仍缺失，请人工检查迁移脚本与库状态（脚本目录: $sql_dir）"
+        break
+    fi
+    warning "增量执行后关键结构校验未通过：记录表与实际库结构脱节（或本轮存在执行失败），第二轮将强制全量重跑补齐缺失结构"
+    force_full_execution=true
+    migration_pass=2
+    done
+
     success "SQL 脚本同步完成"
 }
 

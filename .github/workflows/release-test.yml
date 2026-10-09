@@ -19,7 +19,9 @@ jobs:
           # 调用丢失参数，渲染任意标签即抛 undefined.toLowerCase() 白屏。
           # 发布前完整构建一次 admin 并扫描产物，坏产物直接拦下。
           cd poetize-admin
-          npm ci --legacy-peer-deps --no-fund --no-audit || npm install --force --legacy-peer-deps --no-fund --no-audit
+          # 严格按 lock 安装（lock 已入库）；禁止回退 npm install --force——依赖漂移正是
+          # v5.2.8 白屏事故的触发条件，lock 失同步应让构建失败暴露，而非静默绕过。
+          npm ci --legacy-peer-deps --no-fund --no-audit
           NODE_OPTIONS="--max-old-space-size=4096" npx vite build --outDir dist-verify
           echo "=== 扫描产物：getTagNamespace 无参调用（>0 即白屏雷）==="
           if grep -rF 'getTagNamespace()' dist-verify/static/; then

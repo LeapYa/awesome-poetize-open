@@ -85,7 +85,9 @@ export default {
 
     // 「粘底跟随」开关：只有用户处在底部附近时才自动滚动。
     // 否则流式回复期间用户想往上翻看没读完的内容，会被每次自动滚动立刻拽回底部。
-    const BOTTOM_THRESHOLD = 40 // px：距底部在此范围内仍视为“在底部”
+    // 阈值必须很小（仅容忍亚像素取整误差）：它是「回到底部」的恢复判定，
+    // 取大了会把用户的短距上滑也判回底部，表现为一上滑就被自动跟随弹回。
+    const BOTTOM_THRESHOLD = 8 // px
     const stickToBottom = ref(true)
 
     /**

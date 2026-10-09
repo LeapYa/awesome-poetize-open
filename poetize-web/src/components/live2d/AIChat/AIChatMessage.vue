@@ -829,8 +829,8 @@ export default {
   align-items: center;
   gap: 6px;
   /* --reasoning-indent：图标左缩进，同时决定下方竖线位置（见 .reasoning-body）。
-     默认 6px；可按需由外部覆盖（预览页做了实时调节）。 */
-  padding: 5px var(--reasoning-indent, 6px);
+     默认 0px（图标与气泡内容左缘齐平，实测视觉最舒服）；可按需由外部覆盖（预览页做了实时调节）。 */
+  padding: 5px var(--reasoning-indent, 0px);
   border-radius: 8px;
   cursor: pointer;
   color: #9ca3af;
@@ -902,7 +902,7 @@ export default {
   /* 竖线必须通过图标中心轴：图标宽 14px（flex 0 0 14px），中心在 indent+7px；
      竖线宽 2px，中心在 margin+1px ⇒ margin = indent + 6px。
      两者永远由 --reasoning-indent 联动，改缩进不会错位。 */
-  margin: 2px 0 4px calc(var(--reasoning-indent, 6px) + 6px);
+  margin: 2px 0 4px calc(var(--reasoning-indent, 0px) + 6px);
   padding: 2px 0 2px 12px;
   /* 思考中与完成态一致限高，内部滚动；思考中由 onUpdated 钉住底部跟随 */
   max-height: 240px;

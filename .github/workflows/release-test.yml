@@ -46,15 +46,35 @@ jobs:
         run: |
           # v5.2.8 事故：location /static 的 if 块内使用 proxy_set_header，
           # nginx 解析期直接 [emerg]、容器无限重启，直到部署阶段才暴露。
-          # 发布前用 openresty 镜像对三份配置逐一 nginx -t，语法违规 5 秒内拦截
-          # （配置含 lua 指令，必须用 openresty 镜像；lua 脚本一并挂载供 -t 校验）。
+          # 发布前用 openresty 镜像对三份配置逐一 nginx -t 拦截语法违规。
+          #
+          # ⚠️ 校验环境必须复刻自建镜像 docker/nginx/Dockerfile 的运行时前置条件，
+          # 否则裸镜像会因环境缺失而误报（首轮即踩到：裸 openresty 镜像没有 nginx 用户，
+          # nginx.conf 首行 user nginx; 直接 getpwnam("nginx") failed 被当成配置错误）：
+          #   1) 创建 nginx 用户/组 —— uid/gid 101，与 Dockerfile 第 187-189 行一致
+          #   2) 生成 /etc/nginx/ssl 自签证书 —— Dockerfile 构建期生成同一对文件
+          #   3) 生成 /etc/letsencrypt/live/example.com 下证书占位 ——
+          #      服务器上是真实证书，解析期只要求文件可读
           for conf in default.conf default.http.conf default.https.conf; do
             echo "=== Validating docker/nginx/$conf ==="
             docker run --rm \
               -v "$PWD/current-release/docker/nginx/$conf:/usr/local/openresty/nginx/conf/conf.d/default.conf:ro" \
               -v "$PWD/current-release/docker/nginx/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro" \
               -v "$PWD/current-release/docker/nginx/lua:/usr/local/openresty/nginx/lua:ro" \
-              openresty/openresty:1.29.2.5-alpine nginx -t || exit 1
+              openresty/openresty:1.29.2.5-alpine sh -c '
+                set -e
+                addgroup -g 101 -S nginx 2>/dev/null || true
+                adduser -S -D -H -u 101 -h /var/cache/nginx -s /sbin/nologin -G nginx -g nginx nginx 2>/dev/null || true
+                command -v openssl >/dev/null 2>&1 || apk add --no-cache openssl >/dev/null
+                mkdir -p /etc/nginx/ssl /etc/letsencrypt/live/example.com
+                openssl req -x509 -nodes -days 1 -newkey rsa:2048 \
+                  -keyout /etc/nginx/ssl/default.key -out /etc/nginx/ssl/default.crt \
+                  -subj "/CN=_" >/dev/null 2>&1
+                cp /etc/nginx/ssl/default.crt /etc/letsencrypt/live/example.com/fullchain.pem
+                cp /etc/nginx/ssl/default.crt /etc/letsencrypt/live/example.com/chain.pem
+                cp /etc/nginx/ssl/default.key /etc/letsencrypt/live/example.com/privkey.pem
+                nginx -t
+              ' || exit 1
           done
           echo "✓ All nginx configs passed nginx -t"
 

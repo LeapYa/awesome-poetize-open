@@ -46,56 +46,37 @@ jobs:
         run: |
           # v5.2.8 事故：location /static 的 if 块内使用 proxy_set_header，
           # nginx 解析期直接 [emerg]、容器无限重启，直到部署阶段才暴露。
-          # 发布前用 openresty 镜像对三份配置逐一 nginx -t 拦截语法违规。
+          # 这里在发布前用「自建镜像本体」跑 nginx -t，把解析期错误提前拦截。
           #
-          # ⚠️ 校验环境必须复刻自建镜像 docker/nginx/Dockerfile 的运行时前置条件，
-          # 否则裸镜像会因环境缺失而误报（两次踩到，都是环境差异而非配置错误）：
-          #   1) 裸 openresty 镜像没有 nginx 用户，nginx.conf 首行 user nginx;
-          #      直接 getpwnam("nginx") failed  → 在容器内建同名用户/组（uid/gid 101，与 Dockerfile 一致）
-          #   2) nginx.conf 用 load_module 加载 brotli 模块，而这些 .so 由自建镜像
-          #      编译产出（Dockerfile 第 66-72 行编译、198 行 COPY），裸镜像没有
-          #      → 容器内把 load_module 行注释后再 -t；模块是否被正确构建，
-          #        改由下面的 runner 侧断言保证（不会被这一步掩盖）
-          #   3) 证书：https 配置引用 /etc/nginx/ssl（Dockerfile 构建期自签）与
-          #      /etc/letsencrypt/live/example.com（服务器上的真实证书）
-          #      → 容器内生成一对自签证书占位，解析期只要求文件可读
-          #   4) upstream 用 compose 服务名（poetize-java:8081），nginx 在解析期就
-          #      解析主机名；容器不在 compose 网络里 → --add-host 映射到 127.0.0.1
-          #   5) access_log 落在 /var/log/nginx（自建镜像里创建的目录），-t 会打开日志
-          echo "=== 断言 load_module 引用的模块在 Dockerfile 中确有产出 ==="
-          for mod in $(grep -oE 'modules/[A-Za-z0-9_./-]+\.so' current-release/docker/nginx/nginx.conf); do
-            base=$(basename "$mod")
-            if ! grep -q "$base" current-release/docker/nginx/Dockerfile; then
-              echo "✗ $base 被 nginx.conf 加载，但 Dockerfile 未产出该模块"
-              exit 1
-            fi
-            echo "  ✓ $base"
-          done
+          # 为什么必须用自建镜像、而不是裸 openresty 镜像（连踩三个环境差异误报，
+          # 全是「裸镜像缺东西」而非配置错误）：
+          #   1) 裸镜像没有 nginx 用户，而 nginx.conf 首行是 user nginx;
+          #      → getpwnam("nginx") failed
+          #   2) 裸镜像没有 brotli 模块 .so（由 Dockerfile 编译产出），load_module 失败；
+          #      而注释掉 load_module 又会反过来让 conf 里的 `brotli` 指令变成
+          #      unknown directive —— 两头堵，只能换镜像
+          #   3) 裸镜像没有 /var/log/nginx（access_log 目标）与 /etc/nginx/ssl 自签证书
+          # 自建镜像里这些前置条件天然齐备，只需再补两处「服务器上才有的东西」：
+          #   · /etc/letsencrypt/live/example.com 证书（服务器上由 certbot 签发）
+          #   · upstream 的 compose 服务名解析（校验容器不在 compose 网络里）
+          # 顺带也验证了 Dockerfile 本身能构建成功。
+          echo "=== 构建自建 nginx 镜像 ==="
+          docker build -t poetize-nginx-verify:ci current-release/docker/nginx
 
           for conf in default.conf default.http.conf default.https.conf; do
             echo "=== Validating docker/nginx/$conf ==="
-            docker run --rm \
+            docker run --rm --user root \
               -v "$PWD/current-release/docker/nginx/$conf:/usr/local/openresty/nginx/conf/conf.d/default.conf:ro" \
               -v "$PWD/current-release/docker/nginx/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro" \
               -v "$PWD/current-release/docker/nginx/lua:/usr/local/openresty/nginx/lua:ro" \
               --add-host poetize-java:127.0.0.1 \
-              openresty/openresty:1.29.2.5-alpine sh -c '
+              poetize-nginx-verify:ci sh -c '
                 set -e
-                addgroup -g 101 -S nginx 2>/dev/null || true
-                adduser -S -D -H -u 101 -h /var/cache/nginx -s /sbin/nologin -G nginx -g nginx nginx 2>/dev/null || true
-                command -v openssl >/dev/null 2>&1 || apk add --no-cache openssl >/dev/null
-                mkdir -p /etc/nginx/ssl /etc/letsencrypt/live/example.com /var/log/nginx
-                openssl req -x509 -nodes -days 1 -newkey rsa:2048 \
-                  -keyout /etc/nginx/ssl/default.key -out /etc/nginx/ssl/default.crt \
-                  -subj "/CN=_" >/dev/null 2>&1
+                mkdir -p /etc/letsencrypt/live/example.com
                 cp /etc/nginx/ssl/default.crt /etc/letsencrypt/live/example.com/fullchain.pem
                 cp /etc/nginx/ssl/default.crt /etc/letsencrypt/live/example.com/chain.pem
                 cp /etc/nginx/ssl/default.key /etc/letsencrypt/live/example.com/privkey.pem
-                neutralized=$(grep -cE "^[[:space:]]*load_module" /usr/local/openresty/nginx/conf/nginx.conf || true)
-                sed -E "s|^([[:space:]]*load_module[[:space:]]+.*)$|# \1|" \
-                  /usr/local/openresty/nginx/conf/nginx.conf > /tmp/nginx.check.conf
-                echo "  (已注释 $neutralized 行 load_module：模块 .so 由自建镜像产出，裸镜像无)"
-                nginx -t -c /tmp/nginx.check.conf
+                nginx -t
               ' || exit 1
           done
           echo "✓ All nginx configs passed nginx -t"

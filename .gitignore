@@ -5,8 +5,11 @@ target/
 !**/src/test/**/target/
 
 # 忽略所有的package-lock.json，但保留poetize-im-ui目录下的
+# poetize-admin 的 lock 必须入库：admin 无 lock + npm install --force 曾导致服务器构建
+# 依赖漂移（vite/rollup 组合不同），触发 rollup treeshake 丢参 → 后台白屏（v5.2.8 事故）
 package-lock.json
 !poetize-im-ui/package-lock.json
+!poetize-admin/package-lock.json
 
 ### STS ###
 .apt_generated

@@ -6,6 +6,28 @@ on:
       - 'v*'
 
 jobs:
+  admin-build-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout current release
+        uses: actions/checkout@v4
+
+      - name: Build admin & verify runtime integrity
+        run: |
+          # v5.2.8 白屏事故防护：服务器构建产物中 vue 运行时 getTagNamespace()
+          # 调用丢失参数，渲染任意标签即抛 undefined.toLowerCase() 白屏。
+          # 发布前完整构建一次 admin 并扫描产物，坏产物直接拦下。
+          cd poetize-admin
+          npm ci --legacy-peer-deps --no-fund --no-audit || npm install --force --legacy-peer-deps --no-fund --no-audit
+          NODE_OPTIONS="--max-old-space-size=4096" npx vite build --outDir dist-verify
+          echo "=== 扫描产物：getTagNamespace 无参调用（>0 即白屏雷）==="
+          if grep -rF 'getTagNamespace()' dist-verify/static/; then
+            echo "✗ 检测到 vue 运行时调用丢参数的坏产物，禁止发布"
+            exit 1
+          fi
+          echo "✓ admin 产物校验通过"
+
   deploy-test:
     runs-on: ubuntu-latest
     permissions:

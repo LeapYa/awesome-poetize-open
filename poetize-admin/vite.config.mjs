@@ -84,9 +84,12 @@ export default defineConfig({
         // 确保 element-ui 和 app 使用同一个 Vue 实例
         dedupe: ['vue'],
         alias: {
-            // 使用 runtime.common.js (CJS) 确保与 Element-UI (CJS) 的兼容性
-            // 同时也解决了 Vite 开发/生产环境的双实例问题
-            'vue': 'vue/dist/vue.runtime.common.js',
+            // 使用 ESM 版（vue.runtime.esm.js）。
+            // ⚠️ 禁止改回 CJS 版（vue.runtime.common.js）：rollup 对 CJS 转换产物做
+            // treeshake 时会丢掉 getTagNamespace(tag) 的实参（变成无参调用），
+            // 运行时 undefined.toLowerCase() → 后台全站白屏（v5.2.8 事故，已最小复现；
+            // treeshake:false 或改回 ESM 均可消除，ESM 是正解）。
+            'vue': 'vue/dist/vue.runtime.esm.js',
             '@': path.resolve(__dirname, 'src'),
             'static': path.resolve(__dirname, 'public'),
             'element-ui': 'element-ui-ce',

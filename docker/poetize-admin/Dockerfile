@@ -37,9 +37,12 @@ COPY poetize-admin/scripts ./scripts
 COPY poetize-admin/public ./public
 
 # 安装依赖
+# 优先 npm ci：严格按 package-lock.json 安装，杜绝依赖解析漂移。
+# （v5.2.8 白屏事故：线上构建产物中 vue 运行时 getTagNamespace 调用丢参数，
+#   且产物模块图与 lock 版本构建不一致——npm install 会重新解析依赖，改为 ci 修复。）
 RUN echo "开始安装依赖..." && \
     npm cache clean --force || true && \
-    (npm install --force --legacy-peer-deps --no-fund --no-audit --prefer-offline --maxsockets 1 --network-timeout=600000 || \
+    (npm ci --legacy-peer-deps --no-fund --no-audit --maxsockets 1 --network-timeout=600000 || \
      npm install --force --legacy-peer-deps --no-fund --no-audit --maxsockets 1 --network-timeout=600000) && \
     echo "依赖安装完成"
 

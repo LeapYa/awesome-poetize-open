@@ -49,12 +49,26 @@ jobs:
           # 发布前用 openresty 镜像对三份配置逐一 nginx -t 拦截语法违规。
           #
           # ⚠️ 校验环境必须复刻自建镜像 docker/nginx/Dockerfile 的运行时前置条件，
-          # 否则裸镜像会因环境缺失而误报（首轮即踩到：裸 openresty 镜像没有 nginx 用户，
-          # nginx.conf 首行 user nginx; 直接 getpwnam("nginx") failed 被当成配置错误）：
-          #   1) 创建 nginx 用户/组 —— uid/gid 101，与 Dockerfile 第 187-189 行一致
-          #   2) 生成 /etc/nginx/ssl 自签证书 —— Dockerfile 构建期生成同一对文件
-          #   3) 生成 /etc/letsencrypt/live/example.com 下证书占位 ——
-          #      服务器上是真实证书，解析期只要求文件可读
+          # 否则裸镜像会因环境缺失而误报（两次踩到，都是环境差异而非配置错误）：
+          #   1) 裸 openresty 镜像没有 nginx 用户，nginx.conf 首行 user nginx;
+          #      直接 getpwnam("nginx") failed  → 在容器内建同名用户/组（uid/gid 101，与 Dockerfile 一致）
+          #   2) nginx.conf 用 load_module 加载 brotli 模块，而这些 .so 由自建镜像
+          #      编译产出（Dockerfile 第 66-72 行编译、198 行 COPY），裸镜像没有
+          #      → 容器内把 load_module 行注释后再 -t；模块是否被正确构建，
+          #        改由下面的 runner 侧断言保证（不会被这一步掩盖）
+          #   3) 证书：https 配置引用 /etc/nginx/ssl（Dockerfile 构建期自签）与
+          #      /etc/letsencrypt/live/example.com（服务器上的真实证书）
+          #      → 容器内生成一对自签证书占位，解析期只要求文件可读
+          echo "=== 断言 load_module 引用的模块在 Dockerfile 中确有产出 ==="
+          for mod in $(grep -oE 'modules/[A-Za-z0-9_./-]+\.so' current-release/docker/nginx/nginx.conf); do
+            base=$(basename "$mod")
+            if ! grep -q "$base" current-release/docker/nginx/Dockerfile; then
+              echo "✗ $base 被 nginx.conf 加载，但 Dockerfile 未产出该模块"
+              exit 1
+            fi
+            echo "  ✓ $base"
+          done
+
           for conf in default.conf default.http.conf default.https.conf; do
             echo "=== Validating docker/nginx/$conf ==="
             docker run --rm \
@@ -73,7 +87,11 @@ jobs:
                 cp /etc/nginx/ssl/default.crt /etc/letsencrypt/live/example.com/fullchain.pem
                 cp /etc/nginx/ssl/default.crt /etc/letsencrypt/live/example.com/chain.pem
                 cp /etc/nginx/ssl/default.key /etc/letsencrypt/live/example.com/privkey.pem
-                nginx -t
+                neutralized=$(grep -cE "^[[:space:]]*load_module" /usr/local/openresty/nginx/conf/nginx.conf || true)
+                sed -E "s|^([[:space:]]*load_module[[:space:]]+.*)$|# \1|" \
+                  /usr/local/openresty/nginx/conf/nginx.conf > /tmp/nginx.check.conf
+                echo "  (已注释 $neutralized 行 load_module：模块 .so 由自建镜像产出，裸镜像无)"
+                nginx -t -c /tmp/nginx.check.conf
               ' || exit 1
           done
           echo "✓ All nginx configs passed nginx -t"

@@ -80,16 +80,35 @@ export default {
     // 否则流式回复期间用户想往上翻看没读完的内容，会被每次自动滚动立刻拽回底部。
     const BOTTOM_THRESHOLD = 40 // px：距底部在此范围内仍视为“在底部”
     const stickToBottom = ref(true)
+    // 上一次 scroll 事件的 scrollTop：用于判定滚动方向（见 handleScroll）。
+    // 模块级普通变量即可 —— 每次滚动事件同步更新，无需响应式。
+    let lastScrollTop = 0
 
     /**
-     * 根据当前滚动位置更新「粘底」状态。
-     * 程序自身触发的滚动也会走进这里（此时距离≈0）→ 保持 true，无副作用。
+     * 根据当前滚动位置更新「粘底」状态（方向感知）。
+     *
+     * 为什么不能只看距离：流式期间内容持续长高，与 scroll 事件存在竞态 ——
+     * 用户明明已滚到最底部，事件触发瞬间 scrollHeight 又长了，distance 会被
+     * 推过阈值，单看距离就误判成「用户在上方」→ 按钮到了底部也不消失，
+     * 且 stickToBottom=false 会短路所有自动滚动，内容越涨越追不上。
+     *
+     * 因此分两个信号：
+     * - 触及底部（distance ≤ 阈值）→ 无条件恢复粘底（最强信号）；
+     * - 只有 scrollTop 真的减小（用户向上滚）才解除粘底；
+     *   内容增长 / 程序向下滚动（scrollTop 不变或增大）不改变状态。
      */
     const handleScroll = () => {
       const el = messagesContainer.value
       if (!el) return
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight
-      stickToBottom.value = distance <= BOTTOM_THRESHOLD
+      const st = el.scrollTop
+      const distance = el.scrollHeight - st - el.clientHeight
+      if (distance <= BOTTOM_THRESHOLD) {
+        stickToBottom.value = true
+      } else if (st < lastScrollTop - 1) {
+        // 1px 容差：过滤触控板惯性滚动中的抖动
+        stickToBottom.value = false
+      }
+      lastScrollTop = st
     }
 
     /**
@@ -154,10 +173,11 @@ export default {
         scrollTimer.value = setTimeout(() => {
           lastScrollTime.value = Date.now()
           nextTick(() => {
-            if (messagesContainer.value) {
-              messagesContainer.value.scrollTop =
-                messagesContainer.value.scrollHeight
-            }
+            const el = messagesContainer.value
+            // 执行时刻再校验一次：从调度到执行间隔了 throttleTime，
+            // 期间用户可能已向上翻阅 —— 不校验会把刚翻上去的人拽回底部。
+            if (!el || !stickToBottom.value) return
+            el.scrollTop = el.scrollHeight
           })
         }, throttleTime)
       }
@@ -214,6 +234,9 @@ export default {
     return {
       messagesContainer,
       themeColor,
+      // ⚠️ 必须返回给模板：v-show="!stickToBottom" 依赖它。
+      // 此前漏掉 → 模板解析到 undefined → 按钮永远显示（生产构建下无告警，静默失效）。
+      stickToBottom,
       scrollToBottom,
       handleScroll,
       handleScrollToBottomClick,

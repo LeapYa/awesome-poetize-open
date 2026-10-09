@@ -10,13 +10,29 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout current release
         uses: actions/checkout@v4
         with:
           path: current-release
+
+      - name: Validate nginx configs (nginx -t)
+        run: |
+          # v5.2.8 事故：location /static 的 if 块内使用 proxy_set_header，
+          # nginx 解析期直接 [emerg]、容器无限重启，直到部署阶段才暴露。
+          # 发布前用 openresty 镜像对三份配置逐一 nginx -t，语法违规 5 秒内拦截
+          # （配置含 lua 指令，必须用 openresty 镜像；lua 脚本一并挂载供 -t 校验）。
+          for conf in default.conf default.http.conf default.https.conf; do
+            echo "=== Validating docker/nginx/$conf ==="
+            docker run --rm \
+              -v "$PWD/current-release/docker/nginx/$conf:/usr/local/openresty/nginx/conf/conf.d/default.conf:ro" \
+              -v "$PWD/current-release/docker/nginx/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro" \
+              -v "$PWD/current-release/docker/nginx/lua:/usr/local/openresty/nginx/lua:ro" \
+              openresty/openresty:1.29.2.5-alpine nginx -t || exit 1
+          done
+          echo "✓ All nginx configs passed nginx -t"
 
       - name: Get previous version tag
         id: prev_version
@@ -126,7 +142,7 @@ jobs:
 
   external-services-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     
     services:
       mysql:

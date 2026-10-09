@@ -899,18 +899,21 @@ server {
     location /static {
         # 首先尝试从独立的uploads目录找上传的文件，去掉/static前缀
         alias /usr/share/nginx/html/uploads;
-        # 命中上传目录的物理文件：转发后端按其 resource 状态决定放行或 404
+        # 命中上传目录的物理文件：转发后端按其 resource 状态决定放行或 404。
+        # nginx 不允许在 if 块内使用 proxy_set_header / proxy_buffering 等指令
+        # （解析期直接 [emerg]，见官方 "if is evil" 文档），故 proxy 参数提升到
+        # location 级；if 内的 proxy_pass 会继承 location 级 proxy_* 配置，行为等价。
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $real_client_ip;
+        proxy_set_header X-Forwarded-For $forwarded_for_chain;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
         if (-f $request_filename) {
             proxy_pass http://poetize-java;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $real_client_ip;
-            proxy_set_header X-Forwarded-For $forwarded_for_chain;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_http_version 1.1;
-            proxy_set_header Connection "";
-            proxy_buffering off;
-            proxy_read_timeout 300s;
-            proxy_send_timeout 300s;
         }
         try_files $uri @fallback_static;
         expires 30d;

@@ -59,6 +59,9 @@ jobs:
           #   3) 证书：https 配置引用 /etc/nginx/ssl（Dockerfile 构建期自签）与
           #      /etc/letsencrypt/live/example.com（服务器上的真实证书）
           #      → 容器内生成一对自签证书占位，解析期只要求文件可读
+          #   4) upstream 用 compose 服务名（poetize-java:8081），nginx 在解析期就
+          #      解析主机名；容器不在 compose 网络里 → --add-host 映射到 127.0.0.1
+          #   5) access_log 落在 /var/log/nginx（自建镜像里创建的目录），-t 会打开日志
           echo "=== 断言 load_module 引用的模块在 Dockerfile 中确有产出 ==="
           for mod in $(grep -oE 'modules/[A-Za-z0-9_./-]+\.so' current-release/docker/nginx/nginx.conf); do
             base=$(basename "$mod")
@@ -75,12 +78,13 @@ jobs:
               -v "$PWD/current-release/docker/nginx/$conf:/usr/local/openresty/nginx/conf/conf.d/default.conf:ro" \
               -v "$PWD/current-release/docker/nginx/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro" \
               -v "$PWD/current-release/docker/nginx/lua:/usr/local/openresty/nginx/lua:ro" \
+              --add-host poetize-java:127.0.0.1 \
               openresty/openresty:1.29.2.5-alpine sh -c '
                 set -e
                 addgroup -g 101 -S nginx 2>/dev/null || true
                 adduser -S -D -H -u 101 -h /var/cache/nginx -s /sbin/nologin -G nginx -g nginx nginx 2>/dev/null || true
                 command -v openssl >/dev/null 2>&1 || apk add --no-cache openssl >/dev/null
-                mkdir -p /etc/nginx/ssl /etc/letsencrypt/live/example.com
+                mkdir -p /etc/nginx/ssl /etc/letsencrypt/live/example.com /var/log/nginx
                 openssl req -x509 -nodes -days 1 -newkey rsa:2048 \
                   -keyout /etc/nginx/ssl/default.key -out /etc/nginx/ssl/default.crt \
                   -subj "/CN=_" >/dev/null 2>&1

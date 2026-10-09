@@ -84,12 +84,15 @@ export default defineConfig({
         // 确保 element-ui 和 app 使用同一个 Vue 实例
         dedupe: ['vue'],
         alias: {
-            // 使用 ESM 版（vue.runtime.esm.js）。
-            // ⚠️ 禁止改回 CJS 版（vue.runtime.common.js）：rollup 对 CJS 转换产物做
-            // treeshake 时会丢掉 getTagNamespace(tag) 的实参（变成无参调用），
-            // 运行时 undefined.toLowerCase() → 后台全站白屏（v5.2.8 事故，已最小复现；
-            // treeshake:false 或改回 ESM 均可消除，ESM 是正解）。
-            'vue': 'vue/dist/vue.runtime.esm.js',
+            // 使用 CJS 版（vue.runtime.common.js），并配合下方 rollupOptions.treeshake: false。
+            // 两者必须配合，缺一都会白屏（v5.2.8/5.2.9 事故，两端协同最小复现实证）：
+            // ① ESM 版（vue.runtime.esm.js）会让 element-ui-ce 的 CJS require('vue') 在
+            //    rollup 下拿到 namespace 对象（无 __esModule）而非 Vue 本身，
+            //    Vue.prototype 为 undefined → X.prototype.$isServer 崩溃（生产必现，dev 不现）。
+            // ② CJS 版自带 __esModule，interop 正确；但它单项会触发 rollup treeshake
+            //    丢掉 getTagNamespace(tag) 的实参 → undefined.toLowerCase() 白屏，
+            //    故必须 treeshake: false 保住实参。代价是产物体积增大（后台管理可接受）。
+            'vue': 'vue/dist/vue.runtime.common.js',
             '@': path.resolve(__dirname, 'src'),
             'static': path.resolve(__dirname, 'public'),
             'element-ui': 'element-ui-ce',
@@ -158,6 +161,9 @@ export default defineConfig({
             requireReturnsDefault: 'auto',
         },
         rollupOptions: {
+            // 必须关闭：treeshake 会对 CJS 版 vue 的转换产物丢掉 getTagNamespace(tag)
+            // 的实参（见上方 alias 注释）。与 CJS alias 强绑定，勿单独开启。
+            treeshake: false,
             output: {
                 manualChunks(id) {
                     if (id.includes('node_modules')) {

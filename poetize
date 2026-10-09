@@ -1,8 +1,8 @@
 #!/bin/bash
 ## 作者: LeapYa
-## 修改时间: 2026-09-03
+## 修改时间: 2026-10-09
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.13.6
+## 版本: 1.13.7
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.13.6"
+POETIZE_VERSION="1.13.7"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""
@@ -818,6 +818,61 @@ create_global_poetize_command() {
   fi
 }
 
+# 校验"当前版本关键 schema 结构"是否真实存在（防漂移守门）
+# 背景：db_migrations 记录表可能与实际 schema 脱节（外部导入旧 dump、基线标记污染、
+# init.sql 烧入残留旧快照），仅凭记录判断"已是最新"会固化 schema 漂移
+# （2026-10-08 v5.2.8 升级事故：article.deleted_time 等列缺失导致前台列表挂/预渲染失败）。
+# 维护要求：每次新增迁移脚本引入关键表/列后，同步追加到此清单。
+# 返回 0 = 全部存在；返回 1 = 存在缺失（首个缺失项 warning 后立即返回）
+verify_key_schema_structures() {
+  local mariadb_container="$1"
+  local db_root_password="$2"
+  local item=""
+  local table_name=""
+  local column_name=""
+  local exists=""
+  local probe=""
+
+  # 连通性探测：数据库不可达/密码异常时保守放行（视为通过），
+  # 交由后续流程按原有记录表逻辑处理，避免因环境故障误触发强制补齐
+  probe=$(docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -B -e "SELECT 1;" 2>/dev/null | tr -d '[:space:]')
+  if [ "$probe" != "1" ]; then
+    warning "数据库连通性校验失败，跳过关键结构校验（保持记录表驱动的常规行为）"
+    return 0
+  fi
+
+  # ---- 关键表（当前版本标志性新表；缺失说明库远旧于当前版本或结构不完整）----
+  for item in article_version resource_trash article_payment article_draft ai_knowledge_document; do
+    exists=$(docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -B -e \
+      "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = '$item';" 2>/dev/null | tr -d '[:space:]')
+    if [ "$exists" != "1" ]; then
+      warning "关键结构缺失: 表 $item"
+      return 1
+    fi
+  done
+
+  # ---- 关键列（表|列）----
+  for item in \
+    "article|deleted_time" \
+    "resource|content_state" \
+    "resource|storage_key" \
+    "resource|public_id" \
+    "resource|trash_time" \
+    "resource|deletion_pending_time" \
+    "sys_plugin|version"; do
+    table_name="${item%%|*}"
+    column_name="${item##*|}"
+    exists=$(docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -B -e \
+      "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = '$table_name' AND column_name = '$column_name';" 2>/dev/null | tr -d '[:space:]')
+    if [ "$exists" != "1" ]; then
+      warning "关键结构缺失: $table_name.$column_name"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
 # 标记所有迁移脚本为已执行（仅新安装时使用）
 # 因为 poetry.sql 已包含最新表结构，迁移脚本不需要再执行
 # 判断逻辑：如果 db_migrations 表为空，说明是新安装；否则是升级，跳过标记
@@ -893,7 +948,17 @@ mark_all_migrations_as_executed() {
     return 0
   fi
   
-  info "检测到空的迁移记录表，这是新安装，标记所有脚本为已执行..."
+  info "检测到空的迁移记录表，准备标记所有脚本为已执行..."
+
+  # 防漂移守门："空记录表"不一定是新安装——外部导入的旧 dump 可能带空 db_migrations 表，
+  # 若此时把全部脚本标记为已执行，增量迁移将被永久跳过，schema 漂移被固化。
+  # 因此仅在"当前版本关键结构真实存在"时才做基线标记；否则交由迁移执行流程按实际结构补齐。
+  if ! verify_key_schema_structures "$mariadb_container" "$db_root_password"; then
+    warning "关键 schema 结构校验未通过，跳过迁移版本标记（迁移脚本将实际执行以补齐结构）"
+    return 0
+  fi
+
+  info "关键结构校验通过，标记所有脚本为已执行..."
   
   # 查找所有迁移脚本并标记为已执行
   local sql_dir=""
@@ -6309,6 +6374,7 @@ sync_sql_migration_scripts() {
     local done_count=0
     local new_exec_count=0
     local fail_count=0
+    local already_count=0
 
     while IFS= read -r sql_file; do
         [ -z "$sql_file" ] && continue
@@ -6322,6 +6388,17 @@ sync_sql_migration_scripts() {
     fi
 
     info "找到 $total_count 个 SQL 脚本"
+
+    # 防漂移守门（入口校验）：正常情况下完全信任迁移记录表——执行过的脚本直接跳过，
+    # 不重复执行。但记录表可能与实际 schema 脱节（外部导入旧 dump、init.sql 烧入残留
+    # 旧快照、基线标记污染），曾导致 v5.2.8 升级后 article.deleted_time 等列缺失、
+    # 前台列表挂/预渲染失败。仅当关键结构校验不通过（检测到脱节）时，才强制全量执行
+    # 迁移脚本补齐缺失结构；幂等语句自动补齐，个别非幂等语句失败仅计入统计不影响其他项。
+    local force_full_execution=false
+    if ! verify_key_schema_structures "$mariadb_container" "$db_root_password"; then
+        warning "关键 schema 结构校验未通过：记录表与实际库结构脱节，本次将强制执行迁移脚本补齐缺失结构"
+        force_full_execution=true
+    fi
     ensure_db_migrations_table "$mariadb_container" "$db_root_password" "$sql_dir" || {
         warning "db_migrations 表创建失败，跳过预迁移脚本执行"
         return 1
@@ -6340,10 +6417,16 @@ sync_sql_migration_scripts() {
 
         version=$(basename "$sql_file" .sql)
         already_executed=$(sql_migration_success_count "$mariadb_container" "$db_root_password" "$version")
-        if [ "$already_executed" = "1" ]; then
+        # 记录表是执行依据：已成功执行的脚本直接跳过，不重复执行（重复执行可能破坏
+        # 非幂等语句的数据）。仅当入口校验发现记录表与实际 schema 脱节（漂移）时，
+        # 才由 force_full_execution 强制全量执行以补齐缺失结构。
+        if [ "$already_executed" = "1" ] && [ "$force_full_execution" != "true" ]; then
             done_count=$((done_count + 1))
             print_sql_migration_row "$version" "已执行"
             continue
+        fi
+        if [ "$already_executed" = "1" ]; then
+            already_count=$((already_count + 1))
         fi
 
         start_time=$(date +%s%3N 2>/dev/null || date +%s)
@@ -6351,9 +6434,12 @@ sync_sql_migration_scripts() {
             end_time=$(date +%s%3N 2>/dev/null || date +%s)
             exec_time=$((end_time - start_time))
             record_sql_migration "$mariadb_container" "$db_root_password" "$version" "$description" "$exec_time" 1
-            done_count=$((done_count + 1))
-            new_exec_count=$((new_exec_count + 1))
-            print_sql_migration_row "$version" "待执行 ... 成功 (${exec_time}ms)"
+            if [ "$already_executed" = "1" ]; then
+                print_sql_migration_row "$version" "已执行 ... 漂移补齐 (${exec_time}ms)"
+            else
+                new_exec_count=$((new_exec_count + 1))
+                print_sql_migration_row "$version" "待执行 ... 成功 (${exec_time}ms)"
+            fi
         else
             record_sql_migration "$mariadb_container" "$db_root_password" "$version" "执行失败" 0 0
             fail_count=$((fail_count + 1))
@@ -6365,8 +6451,59 @@ sync_sql_migration_scripts() {
     done
 
     printf "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
-    info "总计: $total_count | 已执行: $done_count | 本次新执行: $new_exec_count | 失败: $fail_count"
+    info "总计: $total_count | 已执行: $done_count | 本次新执行: $new_exec_count | 漂移补齐: $already_count | 失败: $fail_count"
     success "SQL 脚本同步完成"
+}
+
+# 写入快照基线元数据（dump 成功后紧随调用）：
+# 恢复流程据此判断"当前库是否已加载本次快照"——仅凭 db_migrations 有记录就跳过导入，
+# 无法区分"快照已加载"与"库里是更旧的残留快照"（2026-10-08 v5.2.8 升级事故：
+# init.sql 烧入 9/3 残留快照，恢复流程误判跳过 → 数据回退到 9/3）。
+write_snapshot_meta() {
+    local dump_file="$1"
+    local mariadb_container="$2"
+    local db_root_password="$3"
+    local meta_file="${dump_file}.meta"
+    local migration_count="0"
+
+    if [ -n "$mariadb_container" ] && [ -n "$db_root_password" ]; then
+        migration_count=$(sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" \
+            sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -B -e "SELECT COUNT(*) FROM db_migrations WHERE success = 1" 2>/dev/null' | tr -d '[:space:]')
+        [ -n "$migration_count" ] || migration_count="0"
+    fi
+
+    {
+        echo "SNAPSHOT_TIME=$(date '+%Y-%m-%d %H:%M:%S')"
+        echo "SNAPSHOT_EPOCH=$(date +%s)"
+        echo "SNAPSHOT_MIGRATION_COUNT=$migration_count"
+    } > "$meta_file" 2>/dev/null || true
+    info "快照基线已记录: 迁移记录数 $migration_count（$meta_file）"
+}
+
+# 判断当前库相对快照的新旧：STALE(落后，需导入) / FRESH(已加载或更新，禁止重复导入) / UNKNOWN(无基线，无法判断)
+# 判据：迁移成功记录数只增不减——
+#   库记录数 < 快照记录数 → 库尚未加载本次快照（或加载的是更旧的残留快照）→ 需要导入
+#   库记录数 >= 快照记录数 → 库已加载本次快照（或已完成更多迁移）→ 重复导入会用 dump 时刻数据覆盖现状，必须跳过
+get_snapshot_baseline_status() {
+    local meta_file="$1"
+    local mariadb_container="$2"
+    local db_root_password="$3"
+    local snapshot_count=""
+    local db_count=""
+
+    [ -f "$meta_file" ] || { printf "UNKNOWN\n"; return 0; }
+    snapshot_count=$(grep '^SNAPSHOT_MIGRATION_COUNT=' "$meta_file" | head -n 1 | cut -d'=' -f2- | tr -d '[:space:]')
+    [ -n "$snapshot_count" ] || { printf "UNKNOWN\n"; return 0; }
+
+    db_count=$(sql_exec_query_in_container "$mariadb_container" "$db_root_password" \
+        "SELECT COUNT(*) FROM db_migrations WHERE success = 1;" 2>/dev/null | tr -d '[:space:]')
+    db_count="${db_count:-0}"
+
+    if [ "$db_count" -lt "$snapshot_count" ] 2>/dev/null; then
+        printf "STALE\n"
+    else
+        printf "FRESH\n"
+    fi
 }
 
 restore_update_database_dump_if_needed() {
@@ -6374,21 +6511,42 @@ restore_update_database_dump_if_needed() {
     local db_root_password="$2"
     local sql_dir="$3"
     local dump_sql="$sql_dir/poetry.sql"
-    local current_success_count=""
+    local meta_sql="$dump_sql.meta"
+    local baseline_status=""
 
     [ "${POETIZE_UPDATE_MODE:-false}" = "true" ] || return 0
     [ -f "$dump_sql" ] || return 0
     grep -Eq 'INSERT INTO `?db_migrations`?' "$dump_sql" 2>/dev/null || return 0
 
-    current_success_count=$(sql_exec_query_in_container "$mariadb_container" "$db_root_password" \
-        "SELECT COUNT(*) FROM db_migrations WHERE success = 1;" | tr -d '[:space:]')
-    current_success_count="${current_success_count:-0}"
+    # 旧逻辑仅凭"当前库有成功迁移记录"就跳过导入，无法区分"快照已加载"与
+    # "init.sql 烧入了更旧的残留快照"（2026-10-08 v5.2.8 升级事故的数据回退根因之一）。
+    # 改为基线比对：库记录数落后于快照时必须导入补齐。
+    baseline_status=$(get_snapshot_baseline_status "$meta_sql" "$mariadb_container" "$db_root_password")
 
-    if [ "$current_success_count" != "0" ]; then
+    if [ "$baseline_status" = "FRESH" ]; then
         return 0
     fi
 
-    info "检测到数据库未加载备份迁移记录，正在导入备份数据库快照..."
+    if [ "$baseline_status" = "STALE" ]; then
+        warning "当前库迁移记录数落后于本次快照基线（init.sql 可能为残留旧快照），正在导入备份数据库快照..."
+    else
+        info "检测到数据库未加载备份迁移记录（无基线元数据），正在导入备份数据库快照..."
+    fi
+
+    # 覆盖性导入前，先把当前库状态完整备份一份，保证任何情况下都可回退
+    if [ -n "$mariadb_container" ] && [ -n "$db_root_password" ]; then
+        local safety_dump="${dump_sql%.sql}.pre_restore_$(date +%Y%m%d%H%M%S).sql"
+        info "导入前将当前库状态安全备份到 $safety_dump ..."
+        if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" \
+            sh -lc 'mariadb-dump -u root -p"$POETIZE_DB_ROOT_PASSWORD" --single-transaction --routines --triggers --databases poetize' > "$safety_dump" 2>/dev/null \
+            && [ -s "$safety_dump" ]; then
+            success "当前库状态已安全备份（可随时回退）"
+        else
+            warning "当前库状态安全备份失败，继续导入快照"
+            rm -f "$safety_dump" 2>/dev/null
+        fi
+    fi
+
     if execute_sql_file_in_container "$mariadb_container" "$db_root_password" "$dump_sql"; then
         success "备份数据库快照已导入，继续执行增量迁移检查"
         return 0
@@ -9645,8 +9803,10 @@ find_directory() {
 find_directory_num() {
   # 查找目录，找到最大数字，如果没有，默认为1+1=2
   pattern="awesome-poetize-open-blog[0-9]*"
+  # 排除临时目录/挂载盘/备份目录：全盘扫描曾把备份盘与临时路径中的同名残留目录
+  # 计入编号，导致新实例编号跳跃或落到意外位置
   local last_number=$(sudo find / \
-    \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o \
+    \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' -o -path /tmp -o -path '/tmp/*' -o -path /mnt -o -path '/mnt/*' -o -path /media -o -path '/media/*' -o -iname '*backup*' \) -prune -o \
     -type d -iname "$pattern" -print 2>/dev/null \
     | grep -ioE 'awesome-poetize-open-blog[0-9]+' \
     | sed -E 's/.*blog([0-9]+)/\1/' \
@@ -9663,9 +9823,44 @@ find_directory_num() {
 find_existing_project_dir() {
   local project_dir=""
 
-  project_dir=$(find_directory "awesome-poetize-open" 2>/dev/null | head -n 1)
+  # 0. 刚被卸载的规范目录 → 禁止"猜"目录
+  #    update 流程会删除 POETIZE_PROJECT_DIR 指向的项目目录后重装；此时全盘扫描找到的
+  #    任何 awesome-poetize-open* 目录都是其他实例或历史残留——曾因此把重装整个装进
+  #    blog2 历史目录并在其中恢复数据（2026-10-08 v5.2.8 升级事故起点，历史上重复发生）。
+  #    此场景必须 return 1，让安装流程走"下载项目源码"分支回到原位置。
+  if [ "${POETIZE_UPDATE_MODE:-false}" = "true" ] && [ -n "$POETIZE_PROJECT_DIR" ] && [ ! -d "$POETIZE_PROJECT_DIR" ]; then
+    warning "项目原位置 ${POETIZE_PROJECT_DIR} 已被卸载删除，跳过已存在目录猜测（重装将回到原位置）"
+    return 1
+  fi
+
+  # 1. 最高优先：poetize 容器的 compose 标签（com.docker.compose.project.working_dir）
+  #    记录了容器所属项目的真实目录，是区分"活实例"与"历史残留空壳"的唯一可靠依据
+  if command -v docker >/dev/null 2>&1; then
+    local first_container=""
+    local label_dir=""
+    first_container=$(sudo docker ps -a --filter "name=poetize-" --format "{{.Names}}" 2>/dev/null | head -n 1)
+    if [ -n "$first_container" ]; then
+      label_dir=$(sudo docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$first_container" 2>/dev/null || true)
+      if [ -n "$label_dir" ] && [ -d "$label_dir" ]; then
+        printf '%s\n' "$label_dir"
+        return 0
+      fi
+    fi
+  fi
+
+  # 2. 目录名兜底：仅接受"活的"目录（docker-compose.yml 存在且非空），残留空壳一律排除
+  project_dir=$(find_directory "awesome-poetize-open" 2>/dev/null | while IFS= read -r d; do
+    if [ -s "$d/docker-compose.yml" ]; then
+      printf '%s\n' "$d"
+      break
+    fi
+  done)
   if [ -z "$project_dir" ]; then
-    project_dir=$(find_directory "awesome-poetize-open-blog*" 2>/dev/null | tail -n 1)
+    project_dir=$(find_directory "awesome-poetize-open-blog*" 2>/dev/null | while IFS= read -r d; do
+      if [ -s "$d/docker-compose.yml" ]; then
+        printf '%s\n' "$d"
+      fi
+    done | tail -n 1)
   fi
 
   if [ -n "$project_dir" ]; then
@@ -9829,7 +10024,7 @@ handle_environment_status() {
       echo "4) 继续安装 (忽略容器检测,可能是误判)"
       echo ""
 
-      auto_confirm "请输入选择 (1/2/3/4): " "1" "-n 1 -r"
+      auto_confirm "请输入选择 (1/2/3/4): " "3" "-n 1 -r"
       # 如今pwd所在目录在例如/root/awesome-poetize-open，那么我们就要回到/root目录
       local DIR=$(dirname "$(pwd)")
 
@@ -9840,6 +10035,13 @@ handle_environment_status() {
 
       case "$REPLY" in
         1)
+          # 二次安装会创建全新实例目录（数据不迁移）。曾因 30 秒超时默认选中该选项
+          # 导致生产实例被"挪位"到新目录（2026-10-08 事故），因此必须显式确认。
+          warning "二次安装将创建全新实例目录（awesome-poetize-open-blogN），不会迁移现有数据与配置"
+          if ! auto_confirm "确认要创建新实例吗？(y/N): " "n" "-r"; then
+            info "已取消二次安装；如需重装当前实例，请重新运行并选择 2"
+            exit 0
+          fi
           local last_number=$(find_directory_num)
           info "选择二次安装，将创建新的博客实例..."
           handle_multi_instance_deployment "$DIR" "$last_number"
@@ -9881,7 +10083,7 @@ handle_environment_status() {
       echo "4) 继续安装 (忽略容器检测,可能是误判)"
       echo ""
       
-      auto_confirm "请输入选择 (1/2/3/4): " "1" "-n 1 -r"
+      auto_confirm "请输入选择 (1/2/3/4): " "3" "-n 1 -r"
       local PROJECT_DIR=""
       local INSTALL_ROOT_DIR=$(pwd)
 
@@ -9892,6 +10094,13 @@ handle_environment_status() {
 
       case "$REPLY" in
         1)
+          # 二次安装会创建全新实例目录（数据不迁移）。曾因 30 秒超时默认选中该选项
+          # 导致生产实例被"挪位"到新目录（2026-10-08 事故），因此必须显式确认。
+          warning "二次安装将创建全新实例目录（awesome-poetize-open-blogN），不会迁移现有数据与配置"
+          if ! auto_confirm "确认要创建新实例吗？(y/N): " "n" "-r"; then
+            info "已取消二次安装；如需重装当前实例，请重新运行并选择 2"
+            exit 0
+          fi
           local last_number=$(find_directory_num)
           info "选择二次安装，将创建新的博客实例..."
           handle_multi_instance_deployment "$INSTALL_ROOT_DIR" "$last_number"
@@ -12319,6 +12528,8 @@ backup_database() {
         
         save_state "$STEP_BACKUP_DB" "completed"
         save_backup_info
+        # 记录快照基线（迁移记录数），供恢复流程判断"库是否已加载本次快照"
+        write_snapshot_meta "$BACKUP_DIR/poetry.sql" "$actual_container" "$DB_ROOT_PASSWORD"
         success "数据库备份成功: $BACKUP_DIR/poetry.sql"
     else
         save_state "$STEP_BACKUP_DB" "failed"
@@ -13967,7 +14178,7 @@ find_project_dir() {
     while IFS= read -r dir; do
     dirs+=("$dir")
     done < <(sudo find / \
-    \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' \) -prune -o \
+    \( -path /proc -o -path '/proc/*' -o -path /sys -o -path '/sys/*' -o -path /dev -o -path '/dev/*' -o -path /run -o -path '/run/*' -o -path /var/lib/docker -o -path '/var/lib/docker/*' -o -path /tmp -o -path '/tmp/*' -o -path /mnt -o -path '/mnt/*' -o -path /media -o -path '/media/*' -o -iname '*backup*' \) -prune -o \
     -type d \( -iname "awesome-poetize-open" -o -iname "awesome-poetize-open-blog*" \) -print 2>/dev/null)
 
     # 过滤掉嵌套在另一个项目目录里的同名目录，避免更新时误选子目录后再次拉取一层项目
@@ -13998,6 +14209,12 @@ find_project_dir() {
         echo "未发现poetize博客相关目录"
         exit 1
     elif [ ${#dirs[@]} -eq 1 ]; then
+        # 唯一候选也必须通过活性校验：残留空壳目录（卸载残留、历史实例目录）
+        # 曾被当作安装目标，导致重装/恢复进入错误目录（2026-10-08 事故）
+        if [ ! -s "${dirs[0]}/docker-compose.yml" ]; then
+            echo "发现的目录 ${dirs[0]} 不是有效项目目录（缺少 docker-compose.yml），已中止"
+            exit 1
+        fi
         echo "发现一个博客目录: ${dirs[0]}"
         cd "${dirs[0]}" || { echo "切换目录失败: ${dirs[0]}"; exit 1; }
         set_project_context "${dirs[0]}"
@@ -14005,7 +14222,13 @@ find_project_dir() {
     else
         echo "发现多个博客目录："
         for i in "${!dirs[@]}"; do
-            printf "%d. %s\n" "$((i+1))" "${dirs[i]}"
+            local dir_marker=""
+            if [ -s "${dirs[$i]}/docker-compose.yml" ]; then
+                dir_marker=" [有效项目目录]"
+            else
+                dir_marker=" [缺少 docker-compose.yml，疑似残留目录]"
+            fi
+            printf "%d. %s%s\n" "$((i+1))" "${dirs[i]}" "$dir_marker"
         done
 
         # 交互输入
@@ -14648,11 +14871,39 @@ escape_regex() {
 get_compose_project_name() {
     if [ -n "$COMPOSE_PROJECT_NAME" ]; then
         printf "%s\n" "$COMPOSE_PROJECT_NAME"
-    elif [ -n "$POETIZE_PROJECT_NAME" ]; then
-        printf "%s\n" "$(printf "%s" "$POETIZE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]')"
-    else
-        basename "$(pwd)" | tr '[:upper:]' '[:lower:]'
+        return 0
     fi
+    if [ -n "$POETIZE_PROJECT_NAME" ]; then
+        printf "%s\n" "$(printf "%s" "$POETIZE_PROJECT_NAME" | tr '[:upper:]' '[:lower:]')"
+        return 0
+    fi
+
+    # 目录名兜底前，先尝试从 poetize 容器的 compose 标签读取项目名：
+    # 目录错位时（pwd 在残留目录里）basename 会算出错误项目名，导致恢复到"影子卷"
+    # （2026-10-08 事故：uploads 恢复到 awesome-poetize-open_poetize_uploads，实际卷带 -blog2 后缀）。
+    # 按当前目录的多实例后缀过滤容器，避免多实例场景取错项目；并要求项目名
+    # 以 awesome-poetize-open 为前缀，防止误取机器上无关的同名前缀容器。
+    if command -v docker >/dev/null 2>&1; then
+        local pwd_name=""
+        local instance_suffix=""
+        local first_container=""
+        local label_project=""
+        pwd_name="$(basename "$(pwd)" | tr '[:upper:]' '[:lower:]')"
+        if [[ "$pwd_name" =~ ^awesome-poetize-open-blog([0-9]+)$ ]]; then
+            instance_suffix="-blog${BASH_REMATCH[1]}"
+        fi
+        first_container=$(sudo docker ps -a --filter "name=poetize-" --format "{{.Names}}" 2>/dev/null \
+            | grep -E -- "poetize-[a-z-]+${instance_suffix}$" | head -n 1)
+        if [ -n "$first_container" ]; then
+            label_project=$(sudo docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$first_container" 2>/dev/null || true)
+            if [ -n "$label_project" ] && [[ "$label_project" == awesome-poetize-open* ]]; then
+                printf "%s\n" "$label_project"
+                return 0
+            fi
+        fi
+    fi
+
+    basename "$(pwd)" | tr '[:upper:]' '[:lower:]'
 }
 
 resolve_compose_container_name() {
@@ -14701,17 +14952,49 @@ resolve_project_volume_name() {
         head -n 1
 }
 
+# 从 docker-compose.yml 解析"挂载到指定目标路径"的卷名
+# 多实例部署时卷名带 -blogN 后缀，仅按逻辑名拼接会命中残留旧卷
+# （2026-10-08 升级事故：uploads 恢复到旧卷，"恢复成功"是假象）
+resolve_compose_declared_volume() {
+    local compose_file="${1:-docker-compose.yml}"
+    local mount_destination="$2"
+    local declared=""
+
+    [ -f "$compose_file" ] || return 1
+
+    # 匹配形如 `- <volume>:/path/to/target` 的挂载行（行尾锚定，避免 /data 误匹配 /data/xxx）
+    declared=$(grep -E "^[[:space:]]*-[[:space:]]*[^:[:space:]]+:${mount_destination}[[:space:]]*$" "$compose_file" 2>/dev/null | head -n 1 \
+        | sed -E 's/^[[:space:]]*-[[:space:]]*([^:[:space:]]+):.*$/\1/')
+
+    [ -n "$declared" ] && printf "%s\n" "$declared" && return 0
+    return 1
+}
+
 resolve_service_volume_name() {
     local service_name="$1"
     local mount_destination="$2"
     local logical_volume="$3"
     local container_name=""
     local volume_name=""
+    local declared_volume=""
+    local compose_project_name=""
 
     container_name=$(resolve_compose_container_name "$service_name" 2>/dev/null || true)
     if [ -n "$container_name" ]; then
         volume_name=$(sudo docker inspect --format "{{range .Mounts}}{{if eq .Destination \"$mount_destination\"}}{{.Name}}{{end}}{{end}}" "$container_name" 2>/dev/null)
         if [ -n "$volume_name" ]; then
+            printf "%s\n" "$volume_name"
+            return 0
+        fi
+    fi
+
+    # 容器不可达（未启动/名字不匹配）时，按 docker-compose.yml 实际声明的卷名解析，
+    # 与安装时的真实卷名保持一致（多实例部署时卷名带 -blogN 后缀）
+    declared_volume=$(resolve_compose_declared_volume "docker-compose.yml" "$mount_destination" 2>/dev/null || true)
+    if [ -n "$declared_volume" ]; then
+        compose_project_name=$(get_compose_project_name)
+        volume_name="${compose_project_name}_${declared_volume}"
+        if sudo docker volume inspect "$volume_name" >/dev/null 2>&1; then
             printf "%s\n" "$volume_name"
             return 0
         fi
@@ -14931,6 +15214,7 @@ sync_sql_migration_scripts() {
     local done_count=0
     local new_exec_count=0
     local fail_count=0
+    local already_count=0
 
     while IFS= read -r sql_file; do
         [ -z "$sql_file" ] && continue
@@ -14944,6 +15228,17 @@ sync_sql_migration_scripts() {
     fi
 
     info "找到 $total_count 个 SQL 脚本"
+
+    # 防漂移守门（入口校验）：正常情况下完全信任迁移记录表——执行过的脚本直接跳过，
+    # 不重复执行。但记录表可能与实际 schema 脱节（外部导入旧 dump、init.sql 烧入残留
+    # 旧快照、基线标记污染），曾导致 v5.2.8 升级后 article.deleted_time 等列缺失、
+    # 前台列表挂/预渲染失败。仅当关键结构校验不通过（检测到脱节）时，才强制全量执行
+    # 迁移脚本补齐缺失结构；幂等语句自动补齐，个别非幂等语句失败仅计入统计不影响其他项。
+    local force_full_execution=false
+    if ! verify_key_schema_structures "$mariadb_container" "$db_root_password"; then
+        warning "关键 schema 结构校验未通过：记录表与实际库结构脱节，本次将强制执行迁移脚本补齐缺失结构"
+        force_full_execution=true
+    fi
     ensure_db_migrations_table "$mariadb_container" "$db_root_password" "$sql_dir" || {
         warning "db_migrations 表创建失败，跳过 SQL 脚本执行"
         return 1
@@ -14962,10 +15257,16 @@ sync_sql_migration_scripts() {
 
         version=$(basename "$sql_file" .sql)
         already_executed=$(sql_migration_success_count "$mariadb_container" "$db_root_password" "$version")
-        if [ "$already_executed" = "1" ]; then
+        # 记录表是执行依据：已成功执行的脚本直接跳过，不重复执行（重复执行可能破坏
+        # 非幂等语句的数据）。仅当入口校验发现记录表与实际 schema 脱节（漂移）时，
+        # 才由 force_full_execution 强制全量执行以补齐缺失结构。
+        if [ "$already_executed" = "1" ] && [ "$force_full_execution" != "true" ]; then
             done_count=$((done_count + 1))
             print_sql_migration_row "$version" "已执行"
             continue
+        fi
+        if [ "$already_executed" = "1" ]; then
+            already_count=$((already_count + 1))
         fi
 
         start_time=$(date +%s%3N 2>/dev/null || date +%s)
@@ -14973,9 +15274,12 @@ sync_sql_migration_scripts() {
             end_time=$(date +%s%3N 2>/dev/null || date +%s)
             exec_time=$((end_time - start_time))
             record_sql_migration "$mariadb_container" "$db_root_password" "$version" "$description" "$exec_time" 1
-            done_count=$((done_count + 1))
-            new_exec_count=$((new_exec_count + 1))
-            print_sql_migration_row "$version" "待执行 ... 成功 (${exec_time}ms)"
+            if [ "$already_executed" = "1" ]; then
+                print_sql_migration_row "$version" "已执行 ... 漂移补齐 (${exec_time}ms)"
+            else
+                new_exec_count=$((new_exec_count + 1))
+                print_sql_migration_row "$version" "待执行 ... 成功 (${exec_time}ms)"
+            fi
         else
             record_sql_migration "$mariadb_container" "$db_root_password" "$version" "执行失败" 0 0
             fail_count=$((fail_count + 1))
@@ -14987,7 +15291,7 @@ sync_sql_migration_scripts() {
     done
 
     printf "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
-    info "总计: $total_count | 已执行: $done_count | 本次新执行: $new_exec_count | 失败: $fail_count"
+    info "总计: $total_count | 已执行: $done_count | 本次新执行: $new_exec_count | 漂移补齐: $already_count | 失败: $fail_count"
     success "SQL 脚本同步完成"
 }
 
@@ -15541,6 +15845,8 @@ perform_backup_operations() {
             return 1
         fi
         if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc 'mariadb-dump -u root -p"$POETIZE_DB_ROOT_PASSWORD" --single-transaction --routines --triggers --databases poetize' > "$backup_dir/poetry.sql"; then
+            # 记录快照基线（迁移记录数），供恢复流程判断"库是否已加载本次快照"
+            write_snapshot_meta "$backup_dir/poetry.sql" "$mariadb_container" "$db_root_password"
             success "数据库备份完成"
         else
             error "数据库备份失败"
@@ -16082,8 +16388,41 @@ reinstall_latest_system() {
     # 拉取项目
     pull_code_on_target
     
-    # 恢复数据库
-    cp "$BACKUP_DIR/poetry.sql" "poetize-server/sql/poetry.sql"
+    # 恢复数据库快照到镜像 init.sql 位置
+    # 事故教训（2026-10-08 v5.2.8 升级）：目标目录不存在时 cp 失败被静默跳过，
+    # mysql 镜像随后烧入目录里残留的旧快照，导致数据回退且"恢复成功"是假象。
+    # 因此必须：先删旧文件 → 带重试复制 → 校验文件确为本次写入（mtime 新鲜）→ 失败即中止。
+    if ! mkdir -p "poetize-server/sql"; then
+        error "无法创建 poetize-server/sql 目录，中止重装（避免旧快照被烧入数据库镜像）"
+        return 1
+    fi
+    rm -f "poetize-server/sql/poetry.sql" "poetize-server/sql/poetry.sql.meta"
+    local snapshot_cp_ok=false
+    local snapshot_cp_try=0
+    while [ $snapshot_cp_try -lt 3 ]; do
+        snapshot_cp_try=$((snapshot_cp_try + 1))
+        if cp "$BACKUP_DIR/poetry.sql" "poetize-server/sql/poetry.sql" 2>/dev/null; then
+            snapshot_cp_ok=true
+            break
+        fi
+        warning "数据库快照复制失败（第 $snapshot_cp_try/3 次），稍后重试..."
+        sleep 2
+    done
+    if [ "$snapshot_cp_ok" != "true" ] || [ ! -s "poetize-server/sql/poetry.sql" ]; then
+        error "数据库快照复制失败（已重试 3 次），中止重装，防止旧快照冒充本次备份"
+        return 1
+    fi
+    # 快照新鲜度校验：目标文件必须是刚刚写入的；残留旧文件 mtime 陈旧会被在此拦下
+    if ! find "poetize-server/sql/poetry.sql" -mmin -5 2>/dev/null | grep -q .; then
+        error "数据库快照文件不是本次写入（mtime 校验失败），中止重装"
+        return 1
+    fi
+    # 快照基线元数据随行（供恢复流程判断"库是否已加载本次快照"）
+    if [ -f "$BACKUP_DIR/poetry.sql.meta" ]; then
+        cp "$BACKUP_DIR/poetry.sql.meta" "poetize-server/sql/poetry.sql.meta" 2>/dev/null \
+            || warning "快照基线元数据复制失败（恢复流程将退化为保守判定）"
+    fi
+    success "数据库快照已恢复到 poetize-server/sql/poetry.sql"
     # 恢复Python文件配置
     if [ -d "$BACKUP_DIR/.config" ]; then
         cp -r "$BACKUP_DIR/.config" ./
@@ -16155,16 +16494,24 @@ EOF
         fi
     fi
     
+    # 把"原项目位置"传给安装子进程：卸载已删除项目目录，子进程若拿不到原位置，
+    # find_existing_project_dir 会全盘扫描猜目录、命中历史残留目录（2026-10-08 事故根因）。
+    # 注意 set_project_context 只赋值不 export，这里必须显式 export；
+    # 下方 deploy_cmd 里的 sudo 会做 env_reset，因此在命令行上同时显式传递。
+    export POETIZE_PROJECT_DIR="${POETIZE_PROJECT_DIR:-$(get_safe_pwd)}"
+    export POETIZE_PROJECT_PARENT_DIR="$(dirname "$POETIZE_PROJECT_DIR")"
+    export POETIZE_PROJECT_NAME="$(basename "$POETIZE_PROJECT_DIR")"
+
     # 构建安装命令
     local deploy_cmd=""
     if [ -f "deploy.sh" ]; then
         info "检测到 deploy.sh，当前版本为旧版结构，使用 deploy.sh 进行安装"
-        deploy_cmd="sudo chmod +x deploy.sh && sudo POETIZE_UPDATE_MODE=true ./deploy.sh"
+        deploy_cmd="sudo chmod +x deploy.sh && sudo POETIZE_UPDATE_MODE=true POETIZE_PROJECT_DIR=\"$POETIZE_PROJECT_DIR\" POETIZE_PROJECT_PARENT_DIR=\"$POETIZE_PROJECT_PARENT_DIR\" ./deploy.sh"
     elif [ -x "/usr/local/bin/poetize" ]; then
         info "使用全局动态 poetize 命令进行安装，避免退回目标版本内置的旧升级器逻辑"
-        deploy_cmd="sudo POETIZE_UPDATE_MODE=true /usr/local/bin/poetize install"
+        deploy_cmd="sudo POETIZE_UPDATE_MODE=true POETIZE_PROJECT_DIR=\"$POETIZE_PROJECT_DIR\" POETIZE_PROJECT_PARENT_DIR=\"$POETIZE_PROJECT_PARENT_DIR\" /usr/local/bin/poetize install"
     elif [ -f "poetize" ]; then
-        deploy_cmd="sudo chmod +x poetize && sudo POETIZE_UPDATE_MODE=true ./poetize install"
+        deploy_cmd="sudo chmod +x poetize && sudo POETIZE_UPDATE_MODE=true POETIZE_PROJECT_DIR=\"$POETIZE_PROJECT_DIR\" POETIZE_PROJECT_PARENT_DIR=\"$POETIZE_PROJECT_PARENT_DIR\" ./poetize install"
     else
         error "无法找到安装脚本 (poetize 或 deploy.sh)，系统可能已损坏"
         return 1
@@ -16373,9 +16720,56 @@ perform_restore_operations() {
     fi
     
     # 2. 恢复数据库
-    # 更新流程中，用户数据已通过 init.sql 在 reinstall 阶段加载，无需重复导入
+    # 更新模式下通常已由 init.sql 加载本次快照；但 init.sql 可能是目录残留的旧快照
+    # （快照复制失败被静默跳过的历史事故），因此仍按基线比对，落后才补导，防止数据回退假象。
     if [ "${POETIZE_UPDATE_MODE:-false}" = "true" ]; then
-        info "更新模式：数据库已通过 init.sql 加载，跳过重复恢复"
+        local upd_baseline="UNKNOWN"
+        local upd_container=""
+        local upd_pwd=""
+        upd_container=$(resolve_compose_container_name "mysql" 2>/dev/null || true)
+        if [ -n "$upd_container" ]; then
+            upd_pwd=$(resolve_db_root_password "$upd_container" 2>/dev/null || true)
+        fi
+        if [ -n "$upd_container" ] && [ -n "$upd_pwd" ]; then
+            upd_baseline=$(get_snapshot_baseline_status "$backup_dir/poetry.sql.meta" "$upd_container" "$upd_pwd")
+        fi
+        if [ "$upd_baseline" = "FRESH" ]; then
+            info "更新模式：数据库已加载本次快照（迁移记录基线校验通过），跳过重复恢复"
+        else
+            if [ "$upd_baseline" = "STALE" ]; then
+                warning "更新模式：当前库迁移记录落后于本次快照基线（init.sql 可能为残留旧快照），执行补导恢复..."
+            else
+                warning "更新模式：无法确认库已加载本次快照（缺少基线元数据），执行保守恢复..."
+            fi
+            if [ -f "$backup_dir/poetry.sql" ]; then
+                mariadb_container=$(resolve_compose_container_name "mysql" 2>/dev/null || true)
+                if [ -n "$mariadb_container" ]; then
+                    db_root_password=$(resolve_db_root_password "$mariadb_container" 2>/dev/null || true)
+                fi
+                if [ -n "$mariadb_container" ] && [ -n "$db_root_password" ]; then
+                    local restore_safety_dump="$backup_dir/pre_restore_current_state_$(date +%Y%m%d%H%M%S).sql"
+                    info "导入前将当前库状态安全备份到 $restore_safety_dump ..."
+                    if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" \
+                        sh -lc 'mariadb-dump -u root -p"$POETIZE_DB_ROOT_PASSWORD" --single-transaction --routines --triggers --databases poetize' > "$restore_safety_dump" 2>/dev/null \
+                        && [ -s "$restore_safety_dump" ]; then
+                        success "当前库状态已安全备份（可随时回退）"
+                    else
+                        warning "当前库状态安全备份失败，继续恢复"
+                        rm -f "$restore_safety_dump" 2>/dev/null
+                    fi
+                    info "使用MariaDB容器: $mariadb_container"
+                    if sudo docker exec -i -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize' < "$backup_dir/poetry.sql"; then
+                        success "数据库补导恢复完成"
+                    else
+                        error "数据库补导恢复失败"
+                    fi
+                else
+                    warning "未找到MariaDB容器或数据库密码，跳过补导恢复"
+                fi
+            else
+                warning "备份中未找到数据库快照，无法补导恢复"
+            fi
+        fi
     elif [ -f "$backup_dir/poetry.sql" ]; then
         mariadb_container=$(resolve_compose_container_name "mysql" 2>/dev/null || true)
         if [ -n "$mariadb_container" ]; then
@@ -16431,8 +16825,13 @@ perform_restore_operations() {
         fi
         if [ -z "$actual_uploads_volume" ]; then
             local compose_project_name
+            local declared_uploads_volume
             compose_project_name=$(get_compose_project_name)
-            actual_uploads_volume="${compose_project_name}_poetize_uploads"
+            # 卷名以 docker-compose.yml 实际声明为准（多实例部署时带 -blogN 后缀），
+            # 防止按逻辑名拼出的旧卷名与真实数据卷不一致（恢复到错误卷 = 假象成功）
+            declared_uploads_volume=$(resolve_compose_declared_volume "docker-compose.yml" "/usr/share/nginx/html/uploads" 2>/dev/null || true)
+            [ -n "$declared_uploads_volume" ] || declared_uploads_volume="poetize_uploads"
+            actual_uploads_volume="${compose_project_name}_${declared_uploads_volume}"
             info "创建用户上传文件volume: $actual_uploads_volume"
             sudo docker volume create "$actual_uploads_volume" >/dev/null
         fi
@@ -16457,8 +16856,11 @@ perform_restore_operations() {
         fi
         if [ -z "$actual_redis_volume" ]; then
             local compose_project_name
+            local declared_redis_volume
             compose_project_name=$(get_compose_project_name)
-            actual_redis_volume="${compose_project_name}_redis_data"
+            declared_redis_volume=$(resolve_compose_declared_volume "docker-compose.yml" "/data" 2>/dev/null || true)
+            [ -n "$declared_redis_volume" ] || declared_redis_volume="redis_data"
+            actual_redis_volume="${compose_project_name}_${declared_redis_volume}"
             info "创建Redis数据volume: $actual_redis_volume"
             sudo docker volume create "$actual_redis_volume" >/dev/null
         fi
@@ -16483,8 +16885,11 @@ perform_restore_operations() {
         fi
         if [ -z "$actual_certbot_volume" ]; then
             local compose_project_name
+            local declared_certbot_volume
             compose_project_name=$(get_compose_project_name)
-            actual_certbot_volume="${compose_project_name}_certbot-etc"
+            declared_certbot_volume=$(resolve_compose_declared_volume "docker-compose.yml" "/etc/letsencrypt" 2>/dev/null || true)
+            [ -n "$declared_certbot_volume" ] || declared_certbot_volume="certbot-etc"
+            actual_certbot_volume="${compose_project_name}_${declared_certbot_volume}"
             info "创建证书volume: $actual_certbot_volume"
             sudo docker volume create "$actual_certbot_volume" >/dev/null
         fi

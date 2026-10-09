@@ -4,7 +4,14 @@
        内容盒而非视口，按钮会被定位到内容最底部（滚到底才看得见），
        起不到「回到底部」的作用。 -->
   <div class="chat-messages-wrap">
-    <div ref="messagesContainer" class="chat-messages" @scroll="handleScroll">
+    <div
+      ref="messagesContainer"
+      class="chat-messages"
+      @scroll="handleScroll"
+      @wheel.passive="handleWheel"
+      @touchstart.passive="handleTouchStart"
+      @touchmove.passive="handleTouchMove"
+    >
       <AIChatMessage
         v-for="message in messages"
         :key="message.id"
@@ -80,36 +87,51 @@ export default {
     // 否则流式回复期间用户想往上翻看没读完的内容，会被每次自动滚动立刻拽回底部。
     const BOTTOM_THRESHOLD = 40 // px：距底部在此范围内仍视为“在底部”
     const stickToBottom = ref(true)
-    // 上一次 scroll 事件的 scrollTop：用于判定滚动方向（见 handleScroll）。
-    // setup() 内的实例级普通变量即可 —— 每次滚动事件同步更新，无需响应式；
-    // 勿提为模块级：多个组件实例（如同页多处挂载）会互相串滚动状态。
-    let lastScrollTop = 0
 
     /**
-     * 根据当前滚动位置更新「粘底」状态（方向感知）。
+     * 解除粘底只听用户的输入意图（wheel 上滚 / 触屏下滑），不从 scroll 事件反推方向。
      *
-     * 为什么不能只看距离：流式期间内容持续长高，与 scroll 事件存在竞态 ——
-     * 用户明明已滚到最底部，事件触发瞬间 scrollHeight 又长了，distance 会被
-     * 推过阈值，单看距离就误判成「用户在上方」→ 按钮到了底部也不消失，
-     * 且 stickToBottom=false 会短路所有自动滚动，内容越涨越追不上。
+     * 原因：「scrollTop 减小」不等于「用户上翻」——除了用户操作还有三类来源：
+     * ① 内容收缩（折叠思考面板、图片塌陷）触发浏览器把 scrollTop 向下 clamp；
+     * ② 滚动边界的惯性回弹；
+     * ③ 程序滚动。它们都不产生 wheel / touchmove，天然被本方案排除。
+     * 而反过来，若在 scroll 事件里加「scrollHeight 未变才算用户」之类的门禁，
+     * 流式期间内容每几十毫秒长一次，用户上翻的 scroll 事件会大面积撞上门禁被吞，
+     * 粘底解除不了，人会被自动滚动一直拽着 —— 所以上翻意图必须换信号源。
+     */
+    const handleWheel = (e) => {
+      if (e.deltaY < 0) {
+        stickToBottom.value = false
+      }
+    }
+
+    // 触屏：手指下滑（clientY 增大）= 视口往回滚看更早内容，与 wheel 上滚同义
+    let touchStartY = null
+    const handleTouchStart = (e) => {
+      touchStartY = e.touches[0].clientY
+    }
+    const handleTouchMove = (e) => {
+      if (touchStartY !== null && e.touches[0].clientY > touchStartY + 10) {
+        stickToBottom.value = false
+      }
+    }
+
+    /**
+     * scroll 事件只负责一件事：回到底部就恢复粘底（最强信号，无条件）。
      *
-     * 因此分两个信号：
-     * - 触及底部（distance ≤ 阈值）→ 无条件恢复粘底（最强信号）；
-     * - 只有 scrollTop 真的减小（用户向上滚）才解除粘底；
-     *   内容增长 / 程序向下滚动（scrollTop 不变或增大）不改变状态。
+     * 为什么不能只看距离判定「是否在底部以上」：流式期间内容持续长高，与
+     * scroll 事件存在竞态 —— 用户明明已滚到最底部，事件触发瞬间 scrollHeight
+     * 又长了，distance 会被推过阈值，单看距离就误判成「用户在上方」→ 按钮
+     * 到了底部也不消失，且 stickToBottom=false 会短路所有自动滚动，内容越涨
+     * 越追不上。恢复用「触及底部」这个无歧义信号，解除用 wheel/touch 意图信号。
      */
     const handleScroll = () => {
       const el = messagesContainer.value
       if (!el) return
-      const st = el.scrollTop
-      const distance = el.scrollHeight - st - el.clientHeight
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight
       if (distance <= BOTTOM_THRESHOLD) {
         stickToBottom.value = true
-      } else if (st < lastScrollTop - 1) {
-        // 1px 容差：过滤触控板惯性滚动中的抖动
-        stickToBottom.value = false
       }
-      lastScrollTop = st
     }
 
     /**
@@ -240,6 +262,9 @@ export default {
       stickToBottom,
       scrollToBottom,
       handleScroll,
+      handleWheel,
+      handleTouchStart,
+      handleTouchMove,
       handleScrollToBottomClick,
     }
   },

@@ -56,17 +56,28 @@ jobs:
           #      而注释掉 load_module 又会反过来让 conf 里的 `brotli` 指令变成
           #      unknown directive —— 两头堵，只能换镜像
           #   3) 裸镜像没有 /var/log/nginx（access_log 目标）与 /etc/nginx/ssl 自签证书
-          # 自建镜像里这些前置条件天然齐备，只需再补两处「服务器上才有的东西」：
+          # 自建镜像里这些前置条件天然齐备，只需再补三处「生产环境才有的东西」：
           #   · /etc/letsencrypt/live/example.com 证书（服务器上由 certbot 签发）
           #   · upstream 的 compose 服务名解析（校验容器不在 compose 网络里）
+          #   · server_name 的域名替换（安装脚本 poetize:17158 会把
+          #     `server_name example.com www.example.com;` 换成真实域名；
+          #     不替换会让 valid_referers 的 server_names 与显式 example.com
+          #     撞成同一个 hash key，解析期报 conflicting parameter —— 生产靠
+          #     这步替换躲过，校验容器里必须复刻，否则误报）
           # 顺带也验证了 Dockerfile 本身能构建成功。
           echo "=== 构建自建 nginx 镜像 ==="
           docker build -t poetize-nginx-verify:ci current-release/docker/nginx
 
+          # 复刻安装脚本的 server_name 替换（占位域名用 RFC6761 保留域，避免再撞）
+          for conf in default.conf default.http.conf default.https.conf; do
+            sed -E 's/server_name example\.com www\.example\.com;/server_name ci-check.invalid;/g' \
+              "current-release/docker/nginx/$conf" > "/tmp/ci-$conf"
+          done
+
           for conf in default.conf default.http.conf default.https.conf; do
             echo "=== Validating docker/nginx/$conf ==="
             docker run --rm --user root \
-              -v "$PWD/current-release/docker/nginx/$conf:/usr/local/openresty/nginx/conf/conf.d/default.conf:ro" \
+              -v "/tmp/ci-$conf:/usr/local/openresty/nginx/conf/conf.d/default.conf:ro" \
               -v "$PWD/current-release/docker/nginx/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro" \
               -v "$PWD/current-release/docker/nginx/lua:/usr/local/openresty/nginx/lua:ro" \
               --add-host poetize-java:127.0.0.1 \

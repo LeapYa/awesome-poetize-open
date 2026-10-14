@@ -281,6 +281,14 @@ public class SearchEngineVerifier {
             return;
         }
 
+        // 服务器自身 / 可信代理 / 非公网 IP 不参与伪装计数与自动拉黑：
+        // 这类 IP 出现在此处只可能是上游 IP 解析异常（如 CDN 回源回环），
+        // 拉黑会造成全站或大面积 403（与 SecurityFilter 的守卫原则一致）。
+        if (ServerSelfIpUtil.isNeverBanIp(ip)) {
+            log.warn("跳过伪装搜索引擎拉黑: ip={}（服务器自身/可信代理/非公网地址，疑似上游 IP 解析异常）", ip);
+            return;
+        }
+
         String tenMinuteKey = CacheConstants.buildSearchBotSpoof10mKey(ip);
         long shortCount = redisUtil.incr(tenMinuteKey, 1);
         if (shortCount == 1) {

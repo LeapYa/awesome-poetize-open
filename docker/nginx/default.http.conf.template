@@ -95,6 +95,13 @@ server {
     listen 80;
     server_name example.com www.example.com;
 
+    # 真实访客 IP 解析（可信代理链，rewrite 阶段执行）：
+    # 结果写入 $real_client_ip_resolved，经 nginx.conf 的 map 暴露为 $real_client_ip；
+    # 未写入（脚本未加载 / 执行失败）时自动回退 $remote_addr。
+    # 解析语义与配置项详见 lua/real_ip_core.lua 头注释。
+    set $real_client_ip_resolved '';
+    rewrite_by_lua_file /usr/local/openresty/nginx/lua/real_ip_resolve.lua;
+
     # 封禁检查 - Lua 直接查 Redis（OpenResty）
     # 在 access 阶段执行，命中 IP 黑名单 / CIDR / UA / 地区任一规则直接返回 403，连 HTML 源码也不会返回
     # fail-open：Redis 不可用时放行，避免误伤全站

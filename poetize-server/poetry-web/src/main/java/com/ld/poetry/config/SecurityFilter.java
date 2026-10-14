@@ -6,6 +6,7 @@ import com.ld.poetry.service.SysAuditLogService;
 import com.ld.poetry.service.provider.Ip2RegionProvider;
 import com.ld.poetry.utils.IpUtil;
 import com.ld.poetry.utils.RedisUtil;
+import com.ld.poetry.utils.ServerSelfIpUtil;
 import com.ld.poetry.utils.UserAgentClassifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -112,11 +113,17 @@ public class SecurityFilter extends OncePerRequestFilter {
         String requestURI = request.getRequestURI();
         String clientIP = getClientIpAddress(request);
 
+        // 服务器自身 / 可信代理 / 非公网 IP：不参与 IP 级封禁判定。
+        // 若这类 IP 出现在黑名单或自动化拦截缓存里，只可能是上游 IP 解析异常
+        //（如 CDN 回源回环把服务器自身公网 IP 当成访客）写入的误封，继续拦截
+        // 会造成全站 403；与写入侧守卫（recordAttackAndCheckBlacklist 等）形成双保险。
+        boolean neverBanIp = ServerSelfIpUtil.isNeverBanIp(clientIP);
+
         // 清理过期的拉黑记录和攻击计数
         cleanupExpiredRecords();
 
         // 检查IP是否被拉黑
-        if (isIPBlacklisted(clientIP)) {
+        if (!neverBanIp && isIPBlacklisted(clientIP)) {
             log.warn("拒绝已拉黑IP的访问: {} from IP: {}", requestURI, clientIP);
             recordBlockEvent("IP_BLOCKED", false, "拦截已拉黑IP的访问", null, requestURI, null, clientIP);
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
@@ -125,7 +132,7 @@ public class SecurityFilter extends OncePerRequestFilter {
         }
 
         // 检查自动化浏览器拦截（探针上报判定 score >= 70 时写入）
-        if (isAutomationBlocked(clientIP)) {
+        if (!neverBanIp && isAutomationBlocked(clientIP)) {
             log.warn("拒绝自动化浏览器访问: {} from IP: {}", requestURI, clientIP);
             recordBlockEvent("AUTOMATION_BLOCKED", false, "拦截自动化浏览器访问", "探针上报判定",
                     requestURI, null, clientIP);
@@ -161,10 +168,17 @@ public class SecurityFilter extends OncePerRequestFilter {
         // 此时跳过硬拦截，交由 CommonQuery.saveHistory 的 DNS/IP 验证路径判定真伪。
         if (isAutomationToolUa(userAgent) && UserAgentClassifier.detectSearchEngineName(userAgent) == null) {
             log.info("拦截自动化工具: {} from IP: {}", userAgent, clientIP);
-            // 写入封禁缓存，后续同 IP 请求走 isAutomationBlocked 快速路径，无需重复解析 UA
-            String blockKey = CacheConstants.buildAutomationBlockKey(clientIP);
-            cacheService.set(blockKey, "UA声明自动化工具",
-                    CacheConstants.AUTOMATION_BLOCK_EXPIRE_TIME);
+            if (neverBanIp) {
+                // 服务器自身 / 可信代理 / 非公网 IP：本次请求仍拒绝，但不写入 IP 级封禁缓存，
+                // 避免"上游 IP 解析异常 → IP 级封禁 → 全站或大面积 403"
+                log.error("跳过自动化工具 IP 封禁写入: ip={}（服务器自身/可信代理/非公网地址，仅拒绝本次请求）",
+                        clientIP);
+            } else {
+                // 写入封禁缓存，后续同 IP 请求走 isAutomationBlocked 快速路径，无需重复解析 UA
+                String blockKey = CacheConstants.buildAutomationBlockKey(clientIP);
+                cacheService.set(blockKey, "UA声明自动化工具",
+                        CacheConstants.AUTOMATION_BLOCK_EXPIRE_TIME);
+            }
             recordBlockEvent("AUTOMATION_BLOCKED", false, "拦截自动化工具访问", "UA声明自动化工具",
                     requestURI, userAgent, clientIP);
             response.setStatus(HttpServletResponse.SC_FORBIDDEN);
@@ -604,6 +618,16 @@ public class SecurityFilter extends OncePerRequestFilter {
         if ("unknown_ip".equals(ip)) {
             log.error("拦截{}攻击: {} from 未知IP (无法获取真实IP地址，可能存在代理配置问题或恶意伪造，仅记录不拉黑)",
                     attackType, requestURI);
+            return;
+        }
+
+        // 服务器自身 / 可信代理 / 非公网 IP 一律不拉黑：
+        // 这类 IP 命中"攻击"只可能是上游 IP 解析异常（如 CDN 回源回环把服务器自身
+        // 公网 IP 当成访客）造成的误判，拉黑会造成全站或大面积 403。仅记录，供排障定位。
+        if (ServerSelfIpUtil.isNeverBanIp(ip)) {
+            log.error("拒绝自动拉黑异常IP: ip={}, attackType={}, uri={}（该 IP 为服务器自身/可信代理/非公网地址，"
+                    + "疑似上游代理或 CDN 回源配置导致访客 IP 解析错误，本次仅记录不拉黑）",
+                    ip, attackType, requestURI);
             return;
         }
 

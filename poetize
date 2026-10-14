@@ -9386,6 +9386,7 @@ modify_docker_compose_for_multi_instance() {
   sed_i "s/poetize_web_dist:/poetize_web_dist$suffix:/g" docker-compose.yml
   sed_i "s/poetize_admin_dist:/poetize_admin_dist$suffix:/g" docker-compose.yml
   sed_i "s/poetize_uploads:/poetize_uploads$suffix:/g" docker-compose.yml
+  sed_i "s/poetize_runtime:/poetize_runtime$suffix:/g" docker-compose.yml
   sed_i "s/ollama_data:/ollama_data$suffix:/g" docker-compose.yml
 
   # 修改容器间通信的主机名

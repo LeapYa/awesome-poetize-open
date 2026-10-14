@@ -90,6 +90,13 @@ public class CommonQuery {
                 return;
             }
 
+            // 服务器自身 / 可信代理 IP 不进入访问统计，也不触发下方的自动化封禁判定：
+            // 出现这类 IP 说明上游代理 / CDN 回源配置异常（如回源回环把服务器自身公网
+            // IP 当成访客）——计入统计会污染数据，触发自动化封禁则会导致全站 403。
+            if (ServerSelfIpUtil.isNeverBanIp(normalizedIp)) {
+                return;
+            }
+
             User currentUser = PoetryUtil.getCurrentUser();
             if (isVisitStatisticsOwner(currentUser)) {
                 return;

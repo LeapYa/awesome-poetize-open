@@ -85,9 +85,10 @@ COPY --from=builder /app/poetry-web/target/poetize-server-exec.jar /app/app.jar
 EXPOSE 8081
 
 # 创建健康检查脚本与 JVM 诊断目录（-XX:HeapDumpPath=/app/logs 依赖该目录，JVM 不会自动创建）
+# /app/runtime：与 nginx 共享的运行时目录（只读挂载），读取其写入的"服务器自身公网 IP"
 RUN echo '#!/bin/sh\nset -e\nif nc -z localhost 8081; then\n  curl -f http://localhost:8081/actuator/health || exit 1\n  exit 0\nfi\nexit 1' > /app/healthcheck.sh && \
     chmod +x /app/healthcheck.sh && \
-    mkdir -p /app/logs
+    mkdir -p /app/logs /app/runtime
 
 # 启动命令
 CMD ["sh", "-c", "ls -la /app && java --enable-preview $JAVA_OPTS -jar /app/app.jar"]

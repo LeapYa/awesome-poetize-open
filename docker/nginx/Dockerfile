@@ -210,8 +210,11 @@ RUN mkdir -p /usr/local/openresty/nginx/conf/conf.d /usr/local/openresty/nginx/l
 # 复制自定义配置
 COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
 
-# 复制 Lua 脚本（IP 黑名单检查，依赖 OpenResty 自带的 lua-resty-redis）
+# 复制 Lua 脚本（IP 黑名单检查，依赖 OpenResty 自带的 lua-resty-redis；含访客 IP 可信链解析）
 COPY lua/ /usr/local/openresty/nginx/lua/
+
+# 容器启动入口脚本（启动前探测"服务器自身公网 IP"写入共享运行时目录，详见脚本头注释）
+COPY entrypoint.sh /docker-entrypoint.sh
 
 # 复制配置模板文件
 COPY default.http.conf /usr/local/openresty/nginx/conf/conf.d/default.http.conf.template
@@ -255,6 +258,12 @@ RUN chown -R nginx:nginx /usr/local/openresty/nginx/ /usr/local/openresty/xdb/ &
     mkdir -p /app/data && \
     chown nginx:nginx /app/data && \
     chmod 755 /app/data && \
+    # 运行时共享目录（启动期产物：自身公网 IP；Java 容器只读挂载同一卷）
+    mkdir -p /app/runtime && \
+    chown nginx:nginx /app/runtime && \
+    chmod 755 /app/runtime && \
+    # 入口脚本可执行
+    chmod 755 /docker-entrypoint.sh && \
     # 设置默认SSL证书目录权限
     chown -R nginx:nginx /etc/nginx/ssl && \
     chmod 755 /etc/nginx/ssl
@@ -264,6 +273,9 @@ EXPOSE 80 443/tcp 443/udp
 
 # 切换到nginx用户
 USER nginx
+
+# 启动入口：先探测"服务器自身公网 IP"写入 /app/runtime/self_ips（失败静默跳过），再 exec CMD
+ENTRYPOINT ["/docker-entrypoint.sh"]
 
 # 启动命令
 CMD ["openresty", "-g", "daemon off;"]

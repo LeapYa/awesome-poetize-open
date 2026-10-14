@@ -18,6 +18,16 @@ services:
       # 通过环境变量传递，避免在 nginx.conf 中明文写密码
       - REDIS_PASSWORD=${REDIS_PASSWORD:-poetize_redis_2025}
       - REDIS_DB=${REDIS_DB:-0}
+      # ===== 访客 IP 解析（可信代理链，详见 docs/排障指南.md） =====
+      # SELF_PUBLIC_IPS：服务器自身公网 IP（手动配置，优先级最高；不配置时 entrypoint
+      #                  启动时自动探测一次并写入共享卷 poetize_runtime）
+      # TRUSTED_PROXY_CIDRS：可信代理 / CDN 回源网段（逗号分隔，可选）
+      # REAL_IP_HEADER：CDN 注入的真实客户端头名（如 EdgeOne 填 EO-Connecting-IP，
+      #                  默认 X-Forwarded-For 即只用标准 XFF 链）
+      - SELF_PUBLIC_IPS=${SELF_PUBLIC_IPS:-}
+      - TRUSTED_PROXY_CIDRS=${TRUSTED_PROXY_CIDRS:-}
+      - REAL_IP_HEADER=${REAL_IP_HEADER:-X-Forwarded-For}
+      - SELF_IP_FILE=${SELF_IP_FILE:-/app/runtime/self_ips}
     volumes:
       - poetize_web_dist:/usr/share/nginx/html/poetize
       - poetize_admin_dist:/usr/share/nginx/html/admin
@@ -31,6 +41,8 @@ services:
       - /etc/timezone:/etc/timezone:ro
       # 共享 Java 自动更新的 xdb 文件，只读挂载（ban_check.lua 直接查 xdb 做地区封禁）
       - ip2region_data:/data/ip2region:ro
+      # 运行时共享卷：entrypoint 写入"服务器自身公网 IP"，供 IP 解析跳过与 Java 侧排除（只读）
+      - poetize_runtime:/app/runtime
     ports:
       - "${HTTP_PORT:-80}:80/tcp"
       - "${HTTPS_PORT:-443}:443/tcp"
@@ -172,6 +184,9 @@ services:
       - poetize_nginx_logs:/app/nginx-logs:ro
       # xdb 文件共享卷：Java 读写（自动更新 + classpath 初始化），Nginx 只读挂载
       - ip2region_data:/data/ip2region
+      # 运行时共享卷（只读）：读取 nginx 启动时探测写入的"服务器自身公网 IP"，
+      # 用于封禁 / 统计入口统一排除自身 IP（见 ServerSelfIpUtil）
+      - poetize_runtime:/app/runtime:ro
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:
@@ -203,6 +218,11 @@ services:
       - SITE_URL=${SITE_URL:-http://localhost}
       # 容器网络网段，用于判断请求是否为内网服务的请求
       - DOCKER_SUBNET=${DOCKER_SUBNET:-172.28.147.0/28}
+      # ===== 服务器自身 IP 排除（封禁 / 统计入口统一使用，详见 ServerSelfIpUtil） =====
+      # SELF_PUBLIC_IPS 手动配置优先；未配置时读取共享卷中 nginx 启动探测写入的文件
+      - SELF_PUBLIC_IPS=${SELF_PUBLIC_IPS:-}
+      - TRUSTED_PROXY_CIDRS=${TRUSTED_PROXY_CIDRS:-}
+      - SELF_IP_FILE=${SELF_IP_FILE:-/app/runtime/self_ips}
       # Redis配置
       - SPRING_REDIS_HOST=${REDIS_HOST:-redis}
       - SPRING_REDIS_PORT=${REDIS_PORT:-6379}
@@ -338,3 +358,5 @@ volumes:
   poetize_nginx_logs:
   ollama_data:
   ip2region_data:
+  # 运行时共享卷：nginx entrypoint 写入自身公网 IP 等启动期产物，Java 只读挂载（容器重建即再生成，无需备份）
+  poetize_runtime:

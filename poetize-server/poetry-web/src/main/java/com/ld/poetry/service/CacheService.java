@@ -14,6 +14,7 @@ import com.ld.poetry.entity.User;
 import com.ld.poetry.entity.WebInfo;
 import com.ld.poetry.utils.RedisUtil;
 import com.ld.poetry.utils.PageVisitUtils;
+import com.ld.poetry.utils.ServerSelfIpUtil;
 import com.ld.poetry.utils.SpringContextUtil;
 import com.ld.poetry.utils.TokenValidationUtil;
 import com.ld.poetry.utils.UserAgentClassifier;
@@ -1483,6 +1484,12 @@ public class CacheService {
      */
     public boolean blacklistIP(String ip, String reason, long durationSeconds) {
         if (ip == null || ip.isEmpty()) {
+            return false;
+        }
+        // 服务器自身 / 可信代理 / 非公网 IP 拒绝拉黑：拉黑这类地址会导致全站或大面积 403
+        //（例如 CDN 回源回环场景中，服务器自身公网 IP 被误当成访客出现在拦截列表里）
+        if (ServerSelfIpUtil.isNeverBanIp(ip)) {
+            log.warn("拒绝拉黑IP: {}（服务器自身/可信代理/非公网地址，拉黑将导致全站或大面积 403）", ip);
             return false;
         }
         try {

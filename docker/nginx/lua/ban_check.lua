@@ -19,7 +19,6 @@
 --      查询模式：vectorIndex cache（512KiB/worker），数据段通过文件 IO 读取，内核页缓存多 worker 共享
 
 local redis = require "resty.redis"
-local bit = require "bit"
 local cjson = require "cjson.safe"
 
 -- xdb_searcher：ip2region 官方 lua_c 扩展（兼容 Lua 5.1 / LuaJIT）
@@ -138,141 +137,14 @@ local function get_client_ip()
     return ngx.var.remote_addr
 end
 
--- IPv4 解析为 uint32
-local function ipv4_to_uint32(ip)
-    local a, b, c, d = ip:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
-    if not a then return nil end
-    a, b, c, d = tonumber(a), tonumber(b), tonumber(c), tonumber(d)
-    if not a or not b or not c or not d then return nil end
-    if a > 255 or b > 255 or c > 255 or d > 255 then return nil end
-    return a * 16777216 + b * 65536 + c * 256 + d
+-- IP / CIDR 工具（IPv4/IPv6 解析 + CIDR 匹配）
+-- 已提取到共享模块 ip_cidr.lua，与 real_ip_core（真实访客 IP 解析）共用同一实现，
+-- 避免双份副本漂移。模块加载失败时 CIDR 封禁 fail-open（不拦截），其它封禁类型不受影响。
+local ip_cidr_ok, ip_cidr = pcall(require, "ip_cidr")
+if not ip_cidr_ok or not ip_cidr then
+    ngx.log(ngx.ERR, "ban_check: 加载 ip_cidr.lua 失败，CIDR 网段封禁将 fail-open: ", ip_cidr)
 end
-
--- IPv6 解析为 4 个 uint32（8 组 16bit 合并为 4 组 32bit）
--- 处理 :: 缩写，返回 {g0, g1, g2, g3} 或 nil
-local function ipv6_to_uint32_groups(ip)
-    if not ip then return nil end
-
-    -- 检测并拆分 ::
-    local left_str, right_str
-    local dc_start, dc_end = ip:find("::")
-    if dc_start then
-        -- 仅允许一个 ::
-        if ip:find("::", dc_end + 1) then
-            return nil
-        end
-        left_str = ip:sub(1, dc_start - 1)
-        right_str = ip:sub(dc_end + 1)
-    else
-        left_str = ip
-        right_str = ""
-    end
-
-    -- 按冒号切分（忽略空段）
-    local function split_groups(s)
-        local t = {}
-        if s and s ~= "" then
-            for g in s:gmatch("([^:]+)") do
-                table.insert(t, g)
-            end
-        end
-        return t
-    end
-
-    local left_groups = split_groups(left_str)
-    local right_groups = split_groups(right_str)
-    local total = #left_groups + #right_groups
-
-    if dc_start then
-        -- 含 ::，:: 至少展开一组零，非零段最多 7 个
-        if total > 7 then return nil end
-    else
-        -- 不含 ::，必须是 8 组
-        if total ~= 8 then return nil end
-    end
-
-    -- 中间填零展开为 8 组
-    local zeros_count = 8 - total
-    local groups = {}
-    for _, g in ipairs(left_groups) do table.insert(groups, g) end
-    for _ = 1, zeros_count do table.insert(groups, "0") end
-    for _, g in ipairs(right_groups) do table.insert(groups, g) end
-
-    if #groups ~= 8 then return nil end
-
-    -- 每 2 组 16bit 合并为 1 个 uint32
-    local uint32_groups = {}
-    for i = 1, 8, 2 do
-        local hi = tonumber(groups[i], 16)
-        local lo = tonumber(groups[i + 1], 16)
-        if not hi or not lo then return nil end
-        if hi > 0xFFFF or lo > 0xFFFF then return nil end
-        table.insert(uint32_groups, hi * 65536 + lo)
-    end
-
-    return uint32_groups
-end
-
--- CIDR 匹配（支持 IPv4 和 IPv6）
--- cidr_str: "IP/prefix"，例如 "192.168.1.0/24" 或 "2001:db8::/32"
--- ip: 客户端 IP
--- 返回 true 表示命中
--- 注意：LuaJIT bit 模块为 32 位有符号整数运算，band/rshift/bnot 对 32 位模式仍正确
-local function cidr_match(cidr_str, ip)
-    local slash = cidr_str:find("/")
-    if not slash then return false end
-    local cidr_ip = cidr_str:sub(1, slash - 1)
-    local prefix_len = tonumber(cidr_str:sub(slash + 1))
-    if not prefix_len or prefix_len < 0 then return false end
-
-    if cidr_ip:find(":") then
-        -- IPv6
-        if not ip:find(":") then return false end  -- 类型不匹配
-        if prefix_len > 128 then return false end
-        local cidr_groups = ipv6_to_uint32_groups(cidr_ip)
-        local ip_groups = ipv6_to_uint32_groups(ip)
-        if not cidr_groups or not ip_groups then return false end
-
-        if prefix_len == 0 then return true end  -- 匹配所有 IPv6
-
-        -- 分组比较：每组 32 位，>=32 精确比较，<32 用掩码，==0 跳过
-        local remaining = prefix_len
-        for i = 1, 4 do
-            if remaining <= 0 then break end
-            local group_prefix
-            if remaining >= 32 then
-                group_prefix = 32
-            else
-                group_prefix = remaining
-            end
-
-            if group_prefix == 32 then
-                -- 整组精确比较
-                if cidr_groups[i] ~= ip_groups[i] then return false end
-            elseif group_prefix == 0 then
-                -- 跳过该组（保险分支，正常流程不会到达）
-            else
-                local mask = bit.bnot(bit.rshift(0xFFFFFFFF, group_prefix))
-                if bit.band(cidr_groups[i], mask) ~= bit.band(ip_groups[i], mask) then
-                    return false
-                end
-            end
-            remaining = remaining - 32
-        end
-        return true
-    else
-        -- IPv4
-        if ip:find(":") then return false end  -- 类型不匹配
-        if prefix_len > 32 then return false end
-        local cidr_uint = ipv4_to_uint32(cidr_ip)
-        local ip_uint = ipv4_to_uint32(ip)
-        if not cidr_uint or not ip_uint then return false end
-        if prefix_len == 0 then return true end          -- 匹配所有 IPv4
-        if prefix_len >= 32 then return ip_uint == cidr_uint end  -- /32 精确匹配
-        local mask = bit.bnot(bit.rshift(0xFFFFFFFF, prefix_len))
-        return bit.band(ip_uint, mask) == bit.band(cidr_uint, mask)
-    end
-end
+local cidr_match = ip_cidr and ip_cidr.cidr_match
 
 -- UA 匹配（大小写不敏感）
 -- 返回命中的 pattern（用于日志），未命中返回 nil
@@ -696,8 +568,41 @@ end
 
 -- ========== 各项检查（命中时记录日志并返回 true） ==========
 
+-- ========== 永不拉黑判定（服务器自身 / 可信代理 / 私有地址） ==========
+-- 防止上游 IP 解析异常（如 CDN 回源回环把服务器自身公网 IP 当访客）写入黑名单后，
+-- nginx 层把所有经同链路回源的正常请求一并 403（全站不可用）。
+-- 与 Java 侧 ServerSelfIpUtil.isNeverBanIp 语义对齐；
+-- 配置来自 SELF_PUBLIC_IPS / SELF_IP_FILE / TRUSTED_PROXY_CIDRS 环境变量，
+-- 加载或构建失败时返回 false（跳过豁免，维持旧行为）。
+local real_ip_core = nil
+do
+    local core_ok, core_mod = pcall(require, "real_ip_core")
+    if core_ok and core_mod then
+        real_ip_core = core_mod
+    else
+        ngx.log(ngx.WARN, "ban_check: 加载 real_ip_core.lua 失败，自身 IP 黑名单豁免不可用: ", core_mod)
+    end
+end
+
+local never_ban_conf = nil  -- false 表示构建失败（不再重试）
+local function is_never_ban_ip(ip)
+    if not real_ip_core or not ip or ip == "" then return false end
+    if never_ban_conf == nil then
+        local ok, conf = pcall(real_ip_core.load_conf)
+        never_ban_conf = (ok and conf) or false
+    end
+    if not never_ban_conf then return false end
+    local ok, result = pcall(real_ip_core.is_never_ban, ip, never_ban_conf)
+    return ok and result or false
+end
+
 -- IP 黑名单检查
 local function check_ip_blacklist(red, ip, uri)
+    -- 服务器自身 / 可信代理 / 私有地址：即使黑名单键存在（历史误封残留），也不拦截，
+    -- 避免"解析异常 → 自身 IP 被拉黑 → 全站 403"的事故持续生效
+    if is_never_ban_ip(ip) then
+        return false
+    end
     local res, err = red:exists(BLACKLIST_KEY_PREFIX .. ip)
     if not res then
         -- Redis 操作失败，fail-open
@@ -717,7 +622,7 @@ local function check_cidr(cidr_rules, ip)
     for _, rule in ipairs(cidr_rules) do
         local value = rule.value
         if value and value ~= "" then
-            if cidr_match(value, ip) then
+            if cidr_match and cidr_match(value, ip) then
                 ngx.log(ngx.WARN, "ban_check: blocked CIDR=", value, " IP=", ip)
                 return true
             end

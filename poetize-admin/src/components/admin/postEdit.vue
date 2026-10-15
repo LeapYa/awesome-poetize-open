@@ -1161,6 +1161,7 @@ const uploadPicture = () => import("../common/uploadPicture");
     },
     
     beforeDestroy() {
+      this.pageDataLoadToken++;
       // 移除事件监听，避免内存泄漏
       this.$bus.$off('sysConfigUpdated', this.handleSysConfigUpdate);
       
@@ -1359,12 +1360,37 @@ const uploadPicture = () => import("../common/uploadPicture");
       async ensureDraftSessionCreated(loadToken) {
         let detail = null;
         if (this.draftId) {
+          const requestedDraftId = this.draftId;
           await this.acceptDraftInviteIfNeeded();
-          const res = await this.$http.get(this.$constant.baseURL + `/admin/articleDraft/${this.draftId}`, {}, true);
+          if (loadToken !== this.pageDataLoadToken) {
+            return;
+          }
+          const res = await this.$http.get(this.$constant.baseURL + `/admin/articleDraft/${requestedDraftId}`, {}, true);
+          if (loadToken !== this.pageDataLoadToken) {
+            return;
+          }
           if (res.code !== 200 || !res.data) {
             throw new Error(res.message || '加载草稿失败');
           }
           detail = res.data;
+          if (detail.draftType === 'REVISION' && detail.articleUpdatedAfterDraft) {
+            const action = await this.resolveExistingRevisionDraft(detail);
+            if (loadToken !== this.pageDataLoadToken) {
+              return;
+            }
+            if (action === 'discard') {
+              detail = await this.recreateRevisionDraftFromArticle(detail);
+              if (loadToken !== this.pageDataLoadToken) {
+                return;
+              }
+              if (!detail) {
+                throw new Error('重置修订草稿失败');
+              }
+              this.draftId = detail.id;
+              this.suppressNextDraftRouteReload = true;
+              this.$router.replace({ path: '/postEdit', query: { draftId: detail.id } });
+            }
+          }
         } else {
           // 新增文章：若已有未完成的新建草稿，先询问"继续编辑"还是"新建空白"，
           // 避免旧草稿被静默遗忘在草稿箱（用户以为内容丢了，实际是又建了一份空白草稿）
@@ -1500,13 +1526,19 @@ const uploadPicture = () => import("../common/uploadPicture");
       },
       async ensureRevisionDraftSessionCreated(loadToken) {
         const res = await this.$http.post(this.$constant.baseURL + `/admin/articleDraft/revision/${this.id}`, {}, true);
+        if (loadToken !== this.pageDataLoadToken) {
+          return;
+        }
         if (res.code !== 200 || !res.data) {
           throw new Error(res.message || '创建修订草稿失败');
         }
         let detail = res.data;
-        // 带内容的草稿不能静默套用：文章可能已被自动化工具/其他设备改过，先让用户决定
-        if (await this.resolveExistingRevisionDraft(detail) === 'discard') {
-          detail = await this.recreateRevisionDraftFromArticle();
+        const action = await this.resolveExistingRevisionDraft(detail);
+        if (loadToken !== this.pageDataLoadToken) {
+          return;
+        }
+        if (action === 'discard') {
+          detail = await this.recreateRevisionDraftFromArticle(detail);
           if (!detail) {
             throw new Error('重置修订草稿失败');
           }
@@ -1520,53 +1552,43 @@ const uploadPicture = () => import("../common/uploadPicture");
         this.$router.replace({ path: '/postEdit', query: { draftId: detail.id } });
         await this.initializeDraftSession(detail, loadToken);
       },
-      /**
-       * 打开已有文章的编辑页时，若该文章存在带内容的修订草稿，先询问用户：
-       * 继续编辑草稿，还是丢弃草稿、以文章当前内容重新开始。
-       *
-       * <p>解决协作场景：Agent（博客自动化技能）直接更新了文章，而此前的修订草稿仍是旧内容，
-       * 静默恢复会让用户误以为 Agent 的修改没有生效，必须手动删除草稿才能看到最新文章。</p>
-       *
-       * @returns {Promise<'keep'|'discard'>} keep：沿用草稿；discard：丢弃草稿改用最新文章
-       */
       resolveExistingRevisionDraft(detail) {
         if (!detail || !detail.crdtSnapshotBase64) {
-          // 空草稿不会覆盖文章内容（初始化时用文章内容填充），无需打断
           return Promise.resolve('keep');
         }
-        const editor = detail.lastEditorUsername || detail.ownerUsername || '未知用户';
-        const editedAt = detail.updateTime ? String(detail.updateTime).replace('T', ' ').slice(0, 19) : '未知时间';
-        const articleTitle = String(detail.sourceArticleTitle || '').trim();
-        const titleTip = articleTitle ? `文章：《${this.escapeDraftPreview(articleTitle)}》<br>` : '';
-        const staleTip = detail.articleUpdatedAfterDraft
-          ? '<br><br><span style="color:#e6a23c">注意：文章在草稿之后被更新过（可能是自动化工具或其他设备），继续使用草稿会覆盖这些更新。</span>'
-          : '';
-        const message = `该文章存在未发布的修订草稿。<br>${titleTip}最后编辑：${editor}（${editedAt}）${staleTip}<br><br>`
-          + '「继续编辑草稿」载入草稿内容；「使用最新文章」丢弃草稿，改为基于文章当前内容编辑。';
+        const currentAdmin = this.mainStore && this.mainStore.currentAdmin ? this.mainStore.currentAdmin : {};
+        const canReplace = Boolean(currentAdmin.isBoss)
+          || (currentAdmin.id != null && String(currentAdmin.id) === String(detail.ownerUserId));
+        const notice = detail.articleUpdatedAfterDraft
+          ? '文章可能已由其他设备或自动化工具修改，发布此草稿可能覆盖这些更新。'
+          : '可以继续编辑草稿，或从最新文章重新开始。';
+        const choiceTip = canReplace
+          ? '使用最新版将丢弃草稿及协作设置。'
+          : '如需使用最新版，请联系作者或站长。';
+        const message = `${notice}${choiceTip}`;
         return new Promise((resolve) => {
-          this.$confirm(message, '检测到未发布的草稿', {
-            confirmButtonText: '继续编辑草稿',
-            cancelButtonText: '使用最新文章',
+          this.$confirm(message, detail.articleUpdatedAfterDraft ? '文章已更新' : '已有未发布草稿', {
+            confirmButtonText: '继续编辑',
+            cancelButtonText: '使用最新版',
+            showCancelButton: canReplace,
+            closeOnClickModal: false,
             distinguishCancelAndClose: true,
-            dangerouslyUseHTMLString: true,
             type: detail.articleUpdatedAfterDraft ? 'warning' : 'info',
             center: true,
             customClass: 'mobile-responsive-confirm'
           }).then(() => resolve('keep'))
-            .catch((action) => resolve(action === 'cancel' ? 'discard' : 'keep'));
+            .catch((action) => resolve(action === 'cancel' && canReplace ? 'discard' : 'keep'));
         });
       },
-      /**
-       * 丢弃已有修订草稿并以文章最新内容重建（"使用最新文章"分支）
-       */
-      async recreateRevisionDraftFromArticle() {
+      async recreateRevisionDraftFromArticle(detail) {
+        const { id: draftId, articleId } = detail;
         try {
-          await this.$http.delete(this.$constant.baseURL + `/admin/articleDraft/${this.draftId}`, {}, true);
+          await this.$http.delete(this.$constant.baseURL + `/admin/articleDraft/${draftId}`, {}, true);
         } catch (error) {
           this.$message({ message: '删除旧草稿失败：' + (error.message || '未知错误'), type: 'error' });
           return null;
         }
-        const res = await this.$http.post(this.$constant.baseURL + `/admin/articleDraft/revision/${this.id}`, {}, true);
+        const res = await this.$http.post(this.$constant.baseURL + `/admin/articleDraft/revision/${articleId}`, {}, true);
         if (res.code !== 200 || !res.data) {
           this.$message({ message: res.message || '重建修订草稿失败', type: 'error' });
           return null;
@@ -1646,7 +1668,10 @@ const uploadPicture = () => import("../common/uploadPicture");
           return;
         }
         if (this.isDraftDocEmpty()) {
-          this.syncDraftDocFromForm();
+          // 空快照（新建草稿、修订草稿首次打开）：把表单内容整体写入协作文档。
+          // 必须以显式来源写入而非依赖 ready 守卫，否则写入会被静默跳过，
+          // 文档里只剩用户后来改动过的字段，未被改动的字段（如标题）会在下次加载时被空值覆盖。
+          this.syncDraftDocFromForm('remote');
         } else {
           this.applyDraftDocToForm();
         }
@@ -1769,15 +1794,21 @@ const uploadPicture = () => import("../common/uploadPicture");
           this.draftTranslationContentText.length === 0 &&
           this.draftMetaMap.size === 0;
       },
-      syncDraftDocFromForm() {
-        if (!this.isDraftMode || !this.draftMetaMap || this.skipDraftSync) {
+      /**
+       * 表单 → 协作文档 全量同步。
+       *
+       * @param {string} [initOrigin] 初始化写入的来源标记（传 'remote'）：绕过 ready 与本地编辑守卫，
+       *        使空快照草稿首次打开时能把表单内容整体写入文档；同时该来源不计入"本次编辑"，也不进撤销栈。
+       */
+      syncDraftDocFromForm(initOrigin) {
+        if (!this.isDraftMode || !this.draftMetaMap || (!initOrigin && this.skipDraftSync)) {
           return;
         }
-        this.syncDraftTextField('title');
-        this.syncDraftTextField('content');
-        this.syncDraftTextField('translationTitle');
-        this.syncDraftTextField('translationContent');
-        this.syncDraftMetaFields();
+        this.syncDraftTextField('title', initOrigin);
+        this.syncDraftTextField('content', initOrigin);
+        this.syncDraftTextField('translationTitle', initOrigin);
+        this.syncDraftTextField('translationContent', initOrigin);
+        this.syncDraftMetaFields(initOrigin);
       },
       applyDraftDocToForm() {
         if (!this.isDraftMode || !this.draftMetaMap) {
@@ -1831,28 +1862,34 @@ const uploadPicture = () => import("../common/uploadPicture");
       replaceYText(target, value) {
         applyTextDiff(target, value || '');
       },
-      syncDraftTextField(field) {
-        if (!this.isDraftMode || !this.draftReady || this.skipDraftSync) {
+      syncDraftTextField(field, initOrigin) {
+        if (!this.isDraftMode || (!initOrigin && (!this.draftReady || this.skipDraftSync))) {
           return;
         }
         if (field === 'title') {
-          applyTextDiff(this.draftTitleText, this.article.articleTitle || '', this.draftOrigins && this.draftOrigins.title);
+          applyTextDiff(this.draftTitleText, this.article.articleTitle || '', this.draftFieldOrigin('title', initOrigin));
           return;
         }
         if (field === 'content') {
-          applyTextDiff(this.draftContentText, this.article.articleContent || '', this.draftOrigins && this.draftOrigins.content);
+          applyTextDiff(this.draftContentText, this.article.articleContent || '', this.draftFieldOrigin('content', initOrigin));
           return;
         }
         if (field === 'translationTitle') {
-          applyTextDiff(this.draftTranslationTitleText, this.translationForm.translatedTitle || '', this.draftOrigins && this.draftOrigins.translationTitle);
+          applyTextDiff(this.draftTranslationTitleText, this.translationForm.translatedTitle || '', this.draftFieldOrigin('translationTitle', initOrigin));
           return;
         }
         if (field === 'translationContent') {
-          applyTextDiff(this.draftTranslationContentText, this.translationForm.translatedContent || '', this.draftOrigins && this.draftOrigins.translationContent);
+          applyTextDiff(this.draftTranslationContentText, this.translationForm.translatedContent || '', this.draftFieldOrigin('translationContent', initOrigin));
         }
       },
-      syncDraftMetaFields() {
-        if (!this.isDraftMode || !this.draftReady || !this.draftMetaMap || this.skipDraftSync) {
+      /**
+       * 解析字段写入协作文档的来源标记：初始化写入固定用 initOrigin，日常编辑用可被撤销栈追踪的来源
+       */
+      draftFieldOrigin(key, initOrigin) {
+        return initOrigin || (this.draftOrigins && this.draftOrigins[key]);
+      },
+      syncDraftMetaFields(initOrigin) {
+        if (!this.isDraftMode || !this.draftMetaMap || (!initOrigin && (!this.draftReady || this.skipDraftSync))) {
           return;
         }
         this.ydoc.transact(() => {
@@ -1869,7 +1906,7 @@ const uploadPicture = () => import("../common/uploadPicture");
             }
             this.draftMetaMap.set(field, value === undefined ? null : value);
           });
-        }, this.draftOrigins && this.draftOrigins.meta);
+        }, this.draftFieldOrigin('meta', initOrigin));
       },
       syncPendingTranslationFromForm() {
         if (!this.isDraftMode || !this.draftReady || this.skipDraftSync) {

@@ -1,6 +1,7 @@
 package com.ld.poetry.aop;
 
 import com.ld.poetry.config.PoetryResult;
+import com.ld.poetry.constants.CommonConst;
 import com.ld.poetry.service.SysAuditLogService;
 import com.ld.poetry.utils.PoetryUtil;
 import jakarta.servlet.http.HttpServletRequest;
@@ -42,29 +43,56 @@ public class AuditLogAspect {
             message = throwable.getMessage();
             throw throwable;
         } finally {
-            record(joinPoint, auditLog, success, message);
+            record(joinPoint, auditLog, success, message, result);
         }
     }
 
-    private void record(ProceedingJoinPoint joinPoint, AuditLog auditLog, boolean success, String message) {
+    private void record(ProceedingJoinPoint joinPoint, AuditLog auditLog, boolean success, String message, Object result) {
         try {
             Map<String, Object> detail = new LinkedHashMap<>();
             HttpServletRequest request = PoetryUtil.getRequest();
+            boolean apiRequest = request != null
+                    && request.getAttribute(CommonConst.API_AUTHENTICATED_ATTRIBUTE) instanceof Boolean;
             if (request != null) {
                 detail.put("method", request.getMethod());
             }
-            if (StringUtils.hasText(message)) {
+            // API 上游错误可能带密钥或配置值，不保存原始错误文本。
+            if (!apiRequest && StringUtils.hasText(message)) {
                 detail.put("message", message);
             }
 
             String targetId = resolveTargetId(joinPoint, auditLog.targetIdParam(), request);
+            String summary = auditLog.summary();
+            if (apiRequest) {
+                if (result instanceof PoetryResult<?> response) {
+                    detail.put("resultCode", response.getCode());
+                    if (success && response.getData() instanceof Map<?, ?> data) {
+                        if (data.get("articleId") instanceof Number articleId && "ARTICLE".equals(auditLog.targetType())) {
+                            targetId = articleId.toString();
+                        }
+                        if (data.get("taskId") instanceof String taskId) {
+                            detail.put("taskId", taskId);
+                        }
+                        if (data.get("changed") instanceof Boolean changed) {
+                            detail.put("changed", changed);
+                        }
+                    }
+                }
+                if ("ARTICLE_SECTION_UPDATE".equals(auditLog.action())) {
+                    boolean dryRun = Boolean.TRUE.equals(findValueInArgs(joinPoint.getArgs(), "dryRun"));
+                    detail.put("dryRun", dryRun);
+                    if (dryRun) {
+                        summary = "API预览文章章节更新（未写入）";
+                    }
+                }
+            }
             sysAuditLogService.recordOperation(
                     auditLog.type(),
                     auditLog.action(),
                     success,
                     auditLog.targetType(),
                     targetId,
-                    auditLog.summary(),
+                    summary,
                     detail);
         } catch (Exception e) {
             log.debug("记录操作审计日志失败: action={}, error={}", auditLog.action(), e.getMessage());
@@ -88,6 +116,12 @@ public class AuditLogAspect {
     private String resolveTargetId(ProceedingJoinPoint joinPoint, String targetIdParam, HttpServletRequest request) {
         if (!StringUtils.hasText(targetIdParam)) {
             return null;
+        }
+        if (request != null && request.getAttribute(CommonConst.API_AUTHENTICATED_ATTRIBUTE) instanceof Boolean) {
+            Object value = findValueInArgs(joinPoint.getArgs(), targetIdParam);
+            if (value != null) {
+                return String.valueOf(value);
+            }
         }
         String targetId = null;
         if (request != null) {

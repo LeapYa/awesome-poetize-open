@@ -33,6 +33,8 @@ public class CommonConst {
 
     public static final String AUTH_COOKIE = "s";
 
+    public static final String API_AUTHENTICATED_ATTRIBUTE = "com.ld.poetry.apiAuthenticated";
+
     /**
      * 保存次数
      */

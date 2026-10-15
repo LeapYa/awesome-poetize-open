@@ -39,6 +39,7 @@ import com.ld.poetry.service.SeoService;
 import com.ld.poetry.service.SitemapService;
 import com.ld.poetry.service.SortService;
 import com.ld.poetry.service.SummaryService;
+import com.ld.poetry.service.SysAuditLogService;
 import com.ld.poetry.service.SysPluginService;
 import com.ld.poetry.service.TranslationService;
 import com.ld.poetry.service.WebInfoService;
@@ -159,6 +160,8 @@ public class ApiController {
 
     private final ResourceMapper resourceMapper;
 
+    private final SysAuditLogService sysAuditLogService;
+
     public ApiController(ArticleService articleService,
                         LabelMapper labelMapper,
                         SortMapper sortMapper,
@@ -183,7 +186,8 @@ public class ApiController {
                         ArticleRecycleService articleRecycleService,
                         ArticleVersionService articleVersionService,
                         ResourceTrashService resourceTrashService,
-                        ResourceMapper resourceMapper) {
+                        ResourceMapper resourceMapper,
+                        SysAuditLogService sysAuditLogService) {
         this.articleService = articleService;
         this.labelMapper = labelMapper;
         this.sortMapper = sortMapper;
@@ -209,12 +213,14 @@ public class ApiController {
         this.articleVersionService = articleVersionService;
         this.resourceTrashService = resourceTrashService;
         this.resourceMapper = resourceMapper;
+        this.sysAuditLogService = sysAuditLogService;
     }
 
     /**
      * 验证API密钥
      */
     private WebInfo validateApiKey(HttpServletRequest request) {
+        request.setAttribute(CommonConst.API_AUTHENTICATED_ATTRIBUTE, Boolean.FALSE);
         // 使用Redis缓存获取网站信息
         WebInfo webInfo = cacheService.getCachedWebInfo();
 
@@ -236,29 +242,53 @@ public class ApiController {
 
         if (webInfo == null || webInfo.getApiEnabled() == null || !webInfo.getApiEnabled()) {
             log.warn("API请求被拒绝：API未启用");
-            throw new PoetryRuntimeException("API未启用");
+            throw rejectApiRequest(request, "API未启用");
         }
 
         // 验证API密钥
         String apiKey = request.getHeader("X-API-KEY");
         if (!StringUtils.hasText(apiKey) || !apiKey.equals(webInfo.getApiKey())) {
             log.warn("API请求被拒绝：无效的API密钥");
-            throw new PoetryRuntimeException("无效的API密钥");
+            throw rejectApiRequest(request, "无效的API密钥");
         }
 
         String clientIp = PoetryUtil.getIpAddr(request);
         if (!IpUtil.isIpAllowedByWhitelist(clientIp, webInfo.getApiIpWhitelist())) {
             log.warn("API请求被拒绝：IP不在白名单中 - ip={}", clientIp);
-            throw new PoetryRuntimeException("当前IP不在API白名单中");
+            throw rejectApiRequest(request, "当前IP不在API白名单中");
         }
 
+        request.setAttribute(CommonConst.API_AUTHENTICATED_ATTRIBUTE, Boolean.TRUE);
         return webInfo;
+    }
+
+    /**
+     * 记录开放 API 认证失败并返回用于抛出的异常。
+     *
+     * <p>认证拒绝发生在只读查询端点（未加 @AuditLog）时不会被审计切面捕获，
+     * 因此统一在认证入口记录，保证任一 API 端点的拒绝尝试都留痕。
+     * 已记录的拒绝由 {@link SysAuditLogService#recordOperation} 侧跳过，避免重复落库。</p>
+     */
+    private PoetryRuntimeException rejectApiRequest(HttpServletRequest request, String reason) {
+        try {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("source", "OPEN_API");
+            detail.put("authenticated", false);
+            detail.put("reason", reason);
+            String ip = PoetryUtil.getIpAddr(request);
+            sysAuditLogService.recordSecurityDedup("API_AUTH_REJECTED", false, null, null, null,
+                    "开放 API 认证未通过", detail, ip, ip, 0);
+        } catch (Exception e) {
+            log.debug("记录开放 API 认证失败日志异常: {}", e.getMessage());
+        }
+        return new PoetryRuntimeException(reason);
     }
 
     /**
      * API创建文章
      */
     @PostMapping("/article/create")
+    @AuditLog(action = "ARTICLE_CREATE", targetType = "ARTICLE", summary = "API创建文章")
     public PoetryResult<Map<String, Object>> createArticle(@RequestBody ArticleVO articleVO, HttpServletRequest request) {
         try {
             WebInfo webInfo = validateApiKey(request);
@@ -298,6 +328,7 @@ public class ApiController {
      * API异步创建文章
      */
     @PostMapping("/article/createAsync")
+    @AuditLog(action = "ARTICLE_CREATE_ASYNC", targetType = "ARTICLE", summary = "API提交文章创建任务")
     public PoetryResult<Map<String, Object>> createArticleAsync(@RequestBody ArticleVO articleVO,
                                                                 HttpServletRequest request) {
         try {
@@ -337,6 +368,7 @@ public class ApiController {
      * API更新文章
      */
     @PostMapping("/article/update")
+    @AuditLog(action = "ARTICLE_UPDATE", targetType = "ARTICLE", targetIdParam = "id", summary = "API更新文章")
     public PoetryResult<Map<String, Object>> updateArticle(@RequestBody ArticleVO articleVO, HttpServletRequest request) {
         try {
             WebInfo webInfo = validateApiKey(request);
@@ -385,6 +417,7 @@ public class ApiController {
      * API异步更新文章
      */
     @PostMapping("/article/updateAsync")
+    @AuditLog(action = "ARTICLE_UPDATE_ASYNC", targetType = "ARTICLE", targetIdParam = "id", summary = "API提交文章更新任务")
     public PoetryResult<Map<String, Object>> updateArticleAsync(@RequestBody ArticleVO articleVO,
                                                                 HttpServletRequest request) {
         try {
@@ -1132,6 +1165,7 @@ public class ApiController {
      * API激活文章主题
      */
     @PostMapping("/article-theme/activate")
+    @AuditLog(action = "PLUGIN_ACTIVE_SET", targetType = "PLUGIN", targetIdParam = "pluginKey", summary = "API切换文章主题")
     public PoetryResult<Map<String, Object>> activateArticleTheme(@RequestBody Map<String, Object> payload,
                                                                   HttpServletRequest request) {
         try {
@@ -1371,6 +1405,7 @@ public class ApiController {
      * API更新受控SEO配置
      */
     @PostMapping("/seo/config")
+    @AuditLog(action = "SEO_CONFIG_UPDATE", targetType = "SEO", summary = "API更新SEO配置")
     public PoetryResult<Map<String, Object>> updateSeoConfig(@RequestBody Map<String, Object> payload,
                                                              HttpServletRequest request) {
         try {
@@ -1416,6 +1451,7 @@ public class ApiController {
      * API触发sitemap更新
      */
     @PostMapping("/seo/sitemap/update")
+    @AuditLog(action = "SEO_SITEMAP_UPDATE", targetType = "SEO", summary = "API触发站点地图更新")
     public PoetryResult<Map<String, Object>> updateSeoSitemap(HttpServletRequest request) {
         try {
             validateApiKey(request);
@@ -1477,6 +1513,7 @@ public class ApiController {
      * API配置支付插件
      */
     @PostMapping("/payment/plugin/configure")
+    @AuditLog(action = "PAYMENT_CONFIG_UPDATE", targetType = "PLUGIN", targetIdParam = "pluginKey", summary = "API配置支付插件")
     public PoetryResult<Map<String, Object>> configurePaymentPlugin(@RequestBody Map<String, Object> payload,
                                                                     HttpServletRequest request) {
         try {
@@ -1540,6 +1577,7 @@ public class ApiController {
      * API测试支付插件连接
      */
     @PostMapping("/payment/plugin/testConnection")
+    @AuditLog(action = "PAYMENT_CONNECTION_TEST", targetType = "PLUGIN", targetIdParam = "pluginKey", summary = "API测试支付插件连接")
     public PoetryResult<Map<String, Object>> testPaymentPluginConnection(@RequestBody Map<String, Object> payload,
                                                                          HttpServletRequest request) {
         try {
@@ -1592,6 +1630,7 @@ public class ApiController {
      * API上传资源
      */
     @PostMapping("/resource/upload")
+    @AuditLog(action = "RESOURCE_UPLOAD", targetType = "RESOURCE", targetIdParam = "relativePath", summary = "API上传资源")
     public PoetryResult<Map<String, Object>> uploadResource(@RequestParam("file") MultipartFile file,
                                                             @RequestParam(value = "type", required = false) String type,
                                                             @RequestParam(value = "relativePath", required = false) String relativePath,
@@ -2977,6 +3016,7 @@ public class ApiController {
      * API发表/回复评论（免验证码，支持通过 commentInfo 设置 aiReply 属性进行 AI/管理员 模拟）
      */
     @PostMapping("/comment/save")
+    @AuditLog(action = "COMMENT_SAVE", targetType = "COMMENT", summary = "API发表或回复评论")
     public PoetryResult saveComment(HttpServletRequest request, @RequestBody CommentVO commentVO) {
         try {
             validateApiKey(request);
@@ -3079,6 +3119,7 @@ public class ApiController {
      * 如果该语言的翻译已存在，则覆盖更新；否则新增。
      */
     @PostMapping("/translation/save")
+    @AuditLog(action = "ARTICLE_TRANSLATION_SAVE", targetType = "ARTICLE", targetIdParam = "articleId", summary = "API保存文章翻译")
     public PoetryResult<Map<String, Object>> saveTranslation(
             @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
@@ -3137,6 +3178,7 @@ public class ApiController {
      * API删除文章的特定语言翻译
      */
     @PostMapping("/translation/delete")
+    @AuditLog(action = "ARTICLE_TRANSLATION_DELETE", targetType = "ARTICLE", targetIdParam = "articleId", summary = "API删除文章翻译")
     public PoetryResult<Map<String, Object>> deleteTranslation(
             @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
@@ -3181,6 +3223,7 @@ public class ApiController {
      * API重新生成文章翻译（删除现有翻译并重新翻译）
      */
     @PostMapping("/translation/regenerate")
+    @AuditLog(action = "ARTICLE_TRANSLATION_REGENERATE", targetType = "ARTICLE", targetIdParam = "articleId", summary = "API重新生成文章翻译")
     public PoetryResult<Map<String, Object>> regenerateTranslation(
             @RequestParam("articleId") Integer articleId,
             HttpServletRequest request) {
@@ -3229,6 +3272,7 @@ public class ApiController {
      * @param body 包含 articleId, heading, action, content, newHeadingLevel, skipAiTranslation
      */
     @PostMapping("/article/updateSection")
+    @AuditLog(action = "ARTICLE_SECTION_UPDATE", targetType = "ARTICLE", targetIdParam = "articleId", summary = "API更新文章章节")
     public PoetryResult<Map<String, Object>> updateArticleSection(
             @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
@@ -3409,6 +3453,7 @@ public class ApiController {
     // ================================ 分类管理 API ================================
 
     @PostMapping("/sort/create")
+    @AuditLog(action = "SORT_SAVE", targetType = "SORT", targetIdParam = "id", summary = "API新增分类")
     public PoetryResult createSort(@RequestBody Sort sort, HttpServletRequest request) {
         try {
             validateApiKey(request);
@@ -3433,6 +3478,7 @@ public class ApiController {
     }
 
     @PostMapping("/sort/update")
+    @AuditLog(action = "SORT_UPDATE", targetType = "SORT", targetIdParam = "id", summary = "API更新分类")
     public PoetryResult updateSort(@RequestBody Sort sort, HttpServletRequest request) {
         try {
             validateApiKey(request);
@@ -3455,6 +3501,7 @@ public class ApiController {
     }
 
     @PostMapping("/sort/delete")
+    @AuditLog(action = "SORT_DELETE", targetType = "SORT", targetIdParam = "id", summary = "API删除分类")
     public PoetryResult deleteSort(@RequestBody Map<String, Integer> payload, HttpServletRequest request) {
         try {
             validateApiKey(request);
@@ -3480,6 +3527,7 @@ public class ApiController {
     // ================================ 标签管理 API ================================
 
     @PostMapping("/label/create")
+    @AuditLog(action = "LABEL_SAVE", targetType = "LABEL", targetIdParam = "id", summary = "API新增标签")
     public PoetryResult createLabel(@RequestBody Label label, HttpServletRequest request) {
         try {
             validateApiKey(request);
@@ -3502,6 +3550,7 @@ public class ApiController {
     }
 
     @PostMapping("/label/update")
+    @AuditLog(action = "LABEL_UPDATE", targetType = "LABEL", targetIdParam = "id", summary = "API更新标签")
     public PoetryResult updateLabel(@RequestBody Label label, HttpServletRequest request) {
         try {
             validateApiKey(request);
@@ -3524,6 +3573,7 @@ public class ApiController {
     }
 
     @PostMapping("/label/delete")
+    @AuditLog(action = "LABEL_DELETE", targetType = "LABEL", targetIdParam = "id", summary = "API删除标签")
     public PoetryResult deleteLabel(@RequestBody Map<String, Integer> payload, HttpServletRequest request) {
         try {
             validateApiKey(request);

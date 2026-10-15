@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.ld.poetry.config.PoetryResult;
+import com.ld.poetry.constants.CommonConst;
 import com.ld.poetry.dao.SysAuditLogMapper;
 import com.ld.poetry.entity.SysAuditLog;
 import com.ld.poetry.entity.User;
@@ -158,6 +159,21 @@ public class SysAuditLogServiceImpl extends ServiceImpl<SysAuditLogMapper, SysAu
     @Override
     public void recordOperation(String logType, String action, boolean success, String targetType, String targetId,
                                 String summary, Map<String, Object> detail) {
+        HttpServletRequest request = PoetryUtil.getRequest();
+        Object apiAuthenticated = request == null ? null : request.getAttribute(CommonConst.API_AUTHENTICATED_ATTRIBUTE);
+        if (apiAuthenticated instanceof Boolean authenticated) {
+            if (!authenticated) {
+                // 认证失败已由 ApiController#validateApiKey 统一记录（覆盖全部 API 端点），此处跳过避免重复落库
+                return;
+            }
+            Map<String, Object> apiDetail = detail == null ? new LinkedHashMap<>() : new LinkedHashMap<>(detail);
+            apiDetail.put("source", "OPEN_API");
+            apiDetail.put("authenticated", true);
+            // 共享 API 密钥只能标识调用入口，不能证明是站长本人操作。
+            record("OPERATION", action, success, null, null, "开放 API",
+                    targetType, targetId, summary, apiDetail, null, null, null);
+            return;
+        }
         User user = PoetryUtil.getCurrentUser();
         record(StringUtils.hasText(logType) ? logType : "OPERATION", action, success,
                 null,

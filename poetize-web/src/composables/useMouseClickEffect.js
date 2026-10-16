@@ -229,8 +229,13 @@ function getCurrentEffect(mainStore) {
 }
 
 /**
- * 循环切换到下一个效果（临时覆盖）
- * 同时同步更新到后端插件系统
+ * 循环切换到下一个效果（仅本地临时覆盖，刷新后恢复后端配置）
+ *
+ * 不写后端：/sysPlugin/setActivePlugin 是管理员接口（requiredUserType=0），
+ * 而本函数由前台看板娘/首页的切换按钮触发、对全部访客可见，
+ * 发请求只会为普通用户和未登录访客制造注定失败的鉴权噪音（污染安全审计日志）。
+ * 如需持久化切换效果，请在管理后台「鼠标效果管理 / 外观设置」中操作。
+ *
  * @returns {Object} { type: 效果类型, label: 效果名称 }
  */
 export function cycleMouseClickEffect(mainStore) {
@@ -239,16 +244,8 @@ export function cycleMouseClickEffect(mainStore) {
   const nextIndex = (currentIndex + 1) % EFFECT_TYPES.length
   const nextEffect = EFFECT_TYPES[nextIndex]
 
-  // 设置本地临时覆盖
+  // 仅设置本地临时覆盖
   localOverride = nextEffect
-
-  // 同步更新到后端插件系统
-  request.post('/sysPlugin/setActivePlugin', {
-    pluginType: 'mouse_click_effect',
-    pluginKey: nextEffect
-  }).catch(err => {
-    console.debug('同步鼠标点击效果到后端失败:', err)
-  })
 
   return {
     type: nextEffect,

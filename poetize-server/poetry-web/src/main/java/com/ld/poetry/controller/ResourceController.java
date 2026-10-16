@@ -974,11 +974,13 @@ public class ResourceController {
     }
 
     /**
-     * 查询检测任务状态
+     * 查询检测任务状态。
+     *
+     * <p>刻意不加 @AuditLog：前端以 1 秒间隔轮询进度，只会把系统日志刷屏。
+     * 审计覆盖的是"启动检测"这类状态变更操作（见 startInvalidScan），只读状态查询不入审计。</p>
      */
     @GetMapping("/scanStatus")
     @LoginCheck(0)
-    @AuditLog(action = "RESOURCE_SCAN_STATUS_QUERY", targetType = "RESOURCE", targetIdParam = "taskId", summary = "查询资源检测任务状态")
     public PoetryResult<ResourceScanTaskVO> getScanStatus(@RequestParam("taskId") String taskId) {
         ResourceScanTaskVO task = resourceAvailabilityService.getTask(taskId);
         if (task == null) {

@@ -73,9 +73,15 @@ public class ArticleDraftController {
         return articleDraftService.replaceCollaborators(draftId, request == null ? null : request.getCollaboratorIds());
     }
 
+    /**
+     * 保存草稿快照。
+     *
+     * <p>刻意不加 @AuditLog：前端编辑器每 5 秒自动保存一次，属高频心跳行为，
+     * 记审计会把系统日志刷屏、淹没真正的管理操作；且自动保存不代表用户意图，无审计价值。
+     * 草稿的创建/修订/发布/删除/协作者变更/邀请等有意图的操作仍各自留有审计。</p>
+     */
     @PostMapping("/{draftId}/snapshot")
     @LoginCheck(1)
-    @AuditLog(action = "ARTICLE_DRAFT_SNAPSHOT_SAVE", targetType = "ARTICLE_DRAFT", targetIdParam = "draftId", summary = "保存草稿快照")
     public PoetryResult<Boolean> saveSnapshot(@PathVariable String draftId,
                                               @RequestBody ArticleDraftSnapshotRequest request) {
         return articleDraftService.saveSnapshot(draftId, request);

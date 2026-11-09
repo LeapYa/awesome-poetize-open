@@ -1,4 +1,4 @@
-FROM openresty/openresty:1.29.2.5-alpine AS builder
+FROM openresty/openresty:1.31.8.1-alpine AS builder
 # 国内镜像会在每个 "FROM openresty" 行后自动插入 apk 镜像加速（由 poetize 脚本 patch_dockerfile_mirror 动态查找 FROM 行完成），无需再手动维护行号
 
 RUN apk update
@@ -172,7 +172,7 @@ RUN gcc -std=c99 -Wall -O2 \
 #     echo "✅ lua-resty-http安装完成"
 
 # 最终镜像
-FROM openresty/openresty:1.29.2.5-alpine
+FROM openresty/openresty:1.31.8.1-alpine
 
 RUN apk update
 

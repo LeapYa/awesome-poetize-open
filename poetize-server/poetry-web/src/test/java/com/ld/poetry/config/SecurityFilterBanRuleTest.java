@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -273,6 +274,76 @@ class SecurityFilterBanRuleTest {
         filter.doFilter(request, response, chain);
 
         verify(chain).doFilter(request, response);
+    }
+
+    // ================================ 编码绕过 ================================
+
+    @Test
+    @DisplayName("URL 编码的 /.env 应拦截：/%2eenv 解码后命中精确黑名单")
+    void encodedEnvPath_blocksRequest() throws Exception {
+        assertBlockedAsMalicious("/%2eenv");
+    }
+
+    @Test
+    @DisplayName("多重 URL 编码的 /.env 应拦截：/%252eenv 需多轮解码才能识别")
+    void doubleEncodedEnvPath_blocksRequest() throws Exception {
+        assertBlockedAsMalicious("/%252eenv");
+    }
+
+    @Test
+    @DisplayName("编码隐藏文件变体应拦截：/%2eenv.production 解码后命中前缀规则")
+    void encodedEnvVariant_blocksRequest() throws Exception {
+        assertBlockedAsMalicious("/%2eenv.production");
+    }
+
+    @Test
+    @DisplayName("编码斜杠与隐藏文件应拦截：/%2f.env 归一化后为 /.env")
+    void encodedSlashEnvPath_blocksRequest() throws Exception {
+        assertBlockedAsMalicious("/%2f.env");
+    }
+
+    @Test
+    @DisplayName("path params 绕过应拦截：/.env;x 按 /.env 匹配")
+    void pathParamEnvPath_blocksRequest() throws Exception {
+        assertBlockedAsMalicious("/.env;x");
+    }
+
+    @Test
+    @DisplayName("NUL 截断绕过应拦截：/.env%00.jpg 截断后按 /.env 匹配")
+    void nulSuffixEnvPath_blocksRequest() throws Exception {
+        assertBlockedAsMalicious("/.env%00.jpg");
+    }
+
+    @Test
+    @DisplayName("畸形百分号编码应拦截：/%zz 走 malformedUri 分支")
+    void malformedPercentEncoding_blocksRequest() throws Exception {
+        assertBlockedAsMalicious("/%zz");
+    }
+
+    @Test
+    @DisplayName("正常含 env 字样的文章路径不应误伤：/article/how-to-use-dotenv 放行")
+    void normalEnvLikePath_passesThrough() throws Exception {
+        MockHttpServletRequest request = newRequest("1.2.3.4", "Mozilla/5.0");
+        request.setRequestURI("/article/how-to-use-dotenv");
+        MockHttpServletResponse response = newResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        assertEquals(200, response.getStatus());
+    }
+
+    private void assertBlockedAsMalicious(String uri) throws Exception {
+        MockHttpServletRequest request = newRequest("1.2.3.4", "curl/8.0.1");
+        request.setRequestURI(uri);
+        MockHttpServletResponse response = newResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(404, response.getStatus());
+        verify(chain, never()).doFilter(request, response);
     }
 
     // ================================ 辅助方法 ================================

@@ -9,7 +9,7 @@
 --      已封禁 IP 短暂恢复访问的风险，远小于全站瘫痪。
 --   2. 连接池复用：一个请求内获取一次 Redis 连接，IP 检查 / 规则刷新复用
 --      地区查询不再依赖 Redis，改用 xdb_searcher 直接查 xdb 文件
---   3. 短超时：连接 100ms，读取 200ms，避免阻塞 Nginx
+--   3. 超时：连接/读取默认 500ms（可用 REDIS_CONNECT_TIMEOUT_MS / REDIS_READ_TIMEOUT_MS 调整）
 --   4. 真实 IP：使用 Nginx 已计算好的 $real_client_ip 变量
 --   5. 健康检查豁免：HEAD / 或 /actuator/health 等不拦截
 --   6. 规则快照缓存：shared dict 缓存 15 秒，减少 Redis 读取
@@ -30,16 +30,17 @@ if not xdb_ok then
     xdb_mod = nil
 end
 
--- ========== Redis 连接参数（密码从环境变量读取，避免明文写在配置文件中） ==========
-local REDIS_HOST = "redis"
-local REDIS_PORT = 6379
-local REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
--- 必须与 Java 端 spring.data.redis.database 保持一致，否则 Lua 层查不到 Java 写入的 key
+-- ========== Redis 连接参数 ==========
+-- 由 docker-compose 注入环境变量，经 nginx.conf 的 env 指令暴露给 Lua。
+-- 必须与 Java 端 spring.data.redis 的 host/port/database 保持一致，否则 Lua 层查不到 Java 写入的 key。
+local REDIS_HOST = os.getenv("REDIS_HOST") or "redis"
+local REDIS_PORT = tonumber(os.getenv("REDIS_PORT") or "6379") or 6379
+local REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or ""
 local REDIS_DB = tonumber(os.getenv("REDIS_DB") or "0") or 0
 
--- 连接超时（毫秒）
-local CONNECT_TIMEOUT = 100
-local READ_TIMEOUT = 200
+-- 连接超时（毫秒）。外部 Redis 跨网络时 100ms 过于激进，统一放宽到 500ms；失败仍 fail-open。
+local CONNECT_TIMEOUT = tonumber(os.getenv("REDIS_CONNECT_TIMEOUT_MS") or "500") or 500
+local READ_TIMEOUT = tonumber(os.getenv("REDIS_READ_TIMEOUT_MS") or "500") or 500
 
 -- 连接池配置
 local POOL_SIZE = 50

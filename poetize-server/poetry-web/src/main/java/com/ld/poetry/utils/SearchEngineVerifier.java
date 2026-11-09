@@ -305,11 +305,13 @@ public class SearchEngineVerifier {
         String blacklistReason = "spoofed_search_engine:" + verification.claimedName() + ":"
                 + LocalDateTime.now();
         if (longCount >= LONG_SPOOF_THRESHOLD) {
-            redisUtil.set(blacklistKey, blacklistReason, CacheConstants.IP_BLACKLIST_EXPIRE_TIME);
+            // 只延长、不缩短：不能把管理员写入的 7d/永久封禁覆盖为 24h。
+            redisUtil.setIfLonger(blacklistKey, blacklistReason, CacheConstants.IP_BLACKLIST_EXPIRE_TIME);
             return;
         }
         if (shortCount >= SHORT_SPOOF_THRESHOLD) {
-            redisUtil.set(blacklistKey, blacklistReason, SHORT_BLACKLIST_SECONDS);
+            // 短封同样不得覆盖已有的长封
+            redisUtil.setIfLonger(blacklistKey, blacklistReason, SHORT_BLACKLIST_SECONDS);
         }
     }
 

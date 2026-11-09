@@ -90,7 +90,9 @@ public class NginxPageVisitLogConsumer {
             }
 
             int status = json.getIntValue("status");
-            if (status < 200 || status >= 400) {
+            // 只补录真正返回页面的 2xx。301/302 只是 HTTP→HTTPS 或路由跳转，
+            // 不是页面浏览；把它们计入会把扫描器的 301 洪泛污染成访问量。
+            if (status < 200 || status >= 300) {
                 return;
             }
 

@@ -54,15 +54,15 @@ public class SecurityFilter extends OncePerRequestFilter {
     // 拉黑时长（小时）
     private static final int BLACKLIST_DURATION_HOURS = 24;
 
-    // 明确的恶意扫描路径黑名单
+    // 明确的恶意扫描路径黑名单（统一小写，匹配前对请求路径做小写归一化）
     private static final Set<String> MALICIOUS_PATHS = Set.of(
             "/.env", "/.env.local", "/.env.production",
             "/.git", "/.git/config",
             "/phpmyadmin", "/pma",
             "/wp-admin", "/wp-login.php", "/wp-config.php",
             "/config.php", "/database.php", "/xmlrpc.php",
-            "/.aws", "/.docker", "/docker-compose.yml", "/Dockerfile",
-            "/.DS_Store",
+            "/.aws", "/.docker", "/docker-compose.yml", "/dockerfile",
+            "/.ds_store",
             "/admin.php", "/admin/login.php", "/administrator.php",
             "/manager.php", "/console.php", "/debug.php",
             "/test.php", "/info.php", "/phpinfo.php",
@@ -74,6 +74,13 @@ public class SecurityFilter extends OncePerRequestFilter {
             "/translation/test-summary",
             "/translation/definite_notexist_path",
             "/definite_notexist_path");
+
+    // 敏感隐藏文件的路径前缀：/.env.production、/.git/config、/.aws/credentials 等变体
+    private static final Set<String> SENSITIVE_DOT_PATH_PREFIXES = Set.of(
+            "/.env", "/.git", "/.aws", "/.docker", "/.htaccess", "/.htpasswd", "/.ds_store");
+
+    // 百分号解码最大轮数：覆盖常见的一至多重编码绕过（如 /%252eenv）
+    private static final int MAX_PATH_DECODE_ROUNDS = 5;
 
     // 敏感文件扩展名（精确匹配后缀）
     private static final Set<String> SENSITIVE_EXTENSIONS = Set.of(
@@ -217,13 +224,27 @@ public class SecurityFilter extends OncePerRequestFilter {
         boolean isMaliciousRequest = false;
         String attackType = "";
 
-        // 检查是否为恶意扫描路径
-        if (MALICIOUS_PATHS.contains(requestURI)) {
+        // 先做多轮解码与路径归一化，再做黑名单/特征匹配。
+        // 不能只对 requestURI 做精确匹配：Tomcat 暴露的 requestURI 仍是原始编码，
+        // /%2eenv、/%252eenv 这类请求在下游会被还原为 /.env，但字符串精确比较不会命中。
+        String normalizedUri;
+        boolean malformedUri = false;
+        try {
+            normalizedUri = normalizeRequestPath(requestURI);
+        } catch (IllegalArgumentException e) {
+            // 畸形百分号编码本身高度可疑；保守拒绝，且不把原始值继续送入匹配逻辑。
+            normalizedUri = requestURI;
+            malformedUri = true;
+            log.warn("请求路径包含非法百分号编码，按恶意请求处理: {}", requestURI);
+        }
+
+        // 检查是否为恶意扫描路径（解码、折叠加斜杠、去掉末尾斜杠后匹配）
+        if (malformedUri || isMaliciousPath(normalizedUri)) {
             isMaliciousRequest = true;
             attackType = "恶意路径扫描";
         }
-        // 检查是否包含恶意扫描特征
-        else if (containsMaliciousPattern(requestURI)) {
+        // 检查是否包含恶意扫描特征（传入已解码路径，避免重复解码）
+        else if (containsMaliciousPattern(normalizedUri)) {
             isMaliciousRequest = true;
             attackType = "可疑请求特征";
         }
@@ -256,29 +277,126 @@ public class SecurityFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 检查是否包含恶意模式
+     * 判断解码后的路径是否命中明确的恶意路径。
+     *
+     * <p>除精确集合外，还覆盖隐藏文件的常见变体（/.env.production、/.git/config、
+     * /.aws/credentials 等），避免扫描器换一个后缀就绕过。
+     */
+    private boolean isMaliciousPath(String normalizedUri) {
+        String lower = normalizedUri.toLowerCase(Locale.ROOT);
+        if (MALICIOUS_PATHS.contains(lower)) {
+            return true;
+        }
+        for (String prefix : SENSITIVE_DOT_PATH_PREFIXES) {
+            if (lower.equals(prefix) || lower.startsWith(prefix + ".") || lower.startsWith(prefix + "/")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 路径归一化：反复做百分号解码，折叠重复斜杠，去掉末尾斜杠。
+     *
+     * <p>使用 {@link URLDecoder} 前先把字面量 '+' 编码为 %2B，避免路径中的 '+' 被
+     * 表单语义错误地还原成空格。非法百分号编码会抛出 {@link IllegalArgumentException}，
+     * 由调用方按可疑请求处理。
+     */
+    private static String normalizeRequestPath(String rawPath) {
+        if (rawPath == null || rawPath.isEmpty()) {
+            return "/";
+        }
+
+        String current = rawPath.replace('\\', '/');
+        if (current.indexOf('%') >= 0) {
+            for (int round = 0; round < MAX_PATH_DECODE_ROUNDS; round++) {
+                String decoded = URLDecoder.decode(current.replace("+", "%2B"), StandardCharsets.UTF_8);
+                if (decoded.equals(current)) {
+                    break;
+                }
+                current = decoded;
+            }
+        }
+
+        current = collapseSlashes(current);
+        current = stripPathParams(current);
+        current = truncateAtControlChar(current);
+        while (current.length() > 1 && current.endsWith("/")) {
+            current = current.substring(0, current.length() - 1);
+        }
+        return current;
+    }
+
+    /**
+     * 去掉每个路径段里的 {@code ;jsessionid=...} 等 path params。
+     * Tomcat 会把 path params 从 servlet 映射中剥离，但 getRequestURI() 仍带着，
+     * 例如 {@code /.env;x} 必须按 {@code /.env} 参与匹配。
+     */
+    private static String stripPathParams(String value) {
+        StringBuilder stripped = new StringBuilder(value.length());
+        boolean inParams = false;
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (inParams) {
+                if (ch == '/') {
+                    inParams = false;
+                    stripped.append(ch);
+                }
+                continue;
+            }
+            if (ch == ';') {
+                inParams = true;
+                continue;
+            }
+            stripped.append(ch);
+        }
+        return stripped.toString();
+    }
+
+    /** 解码后的 NUL 等控制字符不再属于可匹配路径，截断到第一个控制字符 */
+    private static String truncateAtControlChar(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch < 0x20 || ch == 0x7f) {
+                return value.substring(0, i);
+            }
+        }
+        return value;
+    }
+
+    /** 折叠连续斜杠（Nginx 默认 merge_slashes 会把 //.env 视作 /.env） */
+    private static String collapseSlashes(String value) {
+        StringBuilder normalized = new StringBuilder(value.length());
+        boolean previousSlash = false;
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch == '/') {
+                if (previousSlash) {
+                    continue;
+                }
+                previousSlash = true;
+            } else {
+                previousSlash = false;
+            }
+            normalized.append(ch);
+        }
+        return normalized.toString();
+    }
+
+    /**
+     * 检查是否包含恶意模式（入参必须是已解码、已归一化的路径）。
      *
      * <p>
      * 将检测逻辑拆分为语义独立的子方法，便于单独测试和维护。
      * 检测顺序：路径遍历 → 敏感扩展名 → PHP 特征 → CMS 路径 → 注入攻击
      */
-    private boolean containsMaliciousPattern(String requestURI) {
-        try {
-            // URL 解码防止编码绕过（如 %2e%2e/ → ../）
-            String decoded = URLDecoder.decode(requestURI, StandardCharsets.UTF_8);
-            String lower = decoded.toLowerCase();
-
-            return isPathTraversal(decoded)
-                    || hasSensitiveExtension(lower)
-                    || hasPhpSignature(lower)
-                    || hasCmsPattern(lower)
-                    || hasInjectionPattern(lower);
-
-        } catch (Exception e) {
-            // URL 解码失败本身即可疑（如恶意构造的畸形编码）
-            log.warn("URL 解码失败，视为可疑请求: {}", requestURI);
-            return true;
-        }
+    private boolean containsMaliciousPattern(String normalizedUri) {
+        String lower = normalizedUri.toLowerCase(Locale.ROOT);
+        return isPathTraversal(normalizedUri)
+                || hasSensitiveExtension(lower)
+                || hasPhpSignature(lower)
+                || hasCmsPattern(lower)
+                || hasInjectionPattern(lower);
     }
 
     /** 路径遍历攻击检测（../ 或 ./） */
@@ -645,21 +763,29 @@ public class SecurityFilter extends OncePerRequestFilter {
         // 检查是否达到拉黑阈值
         if (currentCount >= ATTACK_THRESHOLD) {
             String blacklistKey = CacheConstants.buildIpBlacklistKey(ip);
-            redisUtil.set(blacklistKey, "auto:" + LocalDateTime.now().toString(), CacheConstants.IP_BLACKLIST_EXPIRE_TIME);
+            // 只延长、不缩短：已有 7d/永久封禁时，自动 24h 写入不能把它覆盖成 24h。
+            boolean applied = redisUtil.setIfLonger(blacklistKey,
+                    "auto:" + LocalDateTime.now().toString(), CacheConstants.IP_BLACKLIST_EXPIRE_TIME);
 
-            log.error("IP {} 因连续{}次恶意攻击被拉黑{}小时，拉黑时间: {}",
-                    ip, currentCount, BLACKLIST_DURATION_HOURS,
-                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            if (applied) {
+                log.error("IP {} 因连续{}次恶意攻击被拉黑{}小时，拉黑时间: {}",
+                        ip, currentCount, BLACKLIST_DURATION_HOURS,
+                        LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
-            Map<String, Object> banDetail = new LinkedHashMap<>();
-            banDetail.put("attackType", attackType);
-            banDetail.put("attackCount", currentCount);
-            banDetail.put("durationHours", BLACKLIST_DURATION_HOURS);
-            try {
-                sysAuditLogService.recordSecurityDedup("IP_AUTO_BLACKLISTED", false, null, null, null,
-                        "IP因连续恶意请求被自动拉黑", banDetail, ip, null, 0);
-            } catch (Exception e) {
-                log.debug("记录IP自动拉黑审计日志失败: ip={}, error={}", ip, e.getMessage());
+                Map<String, Object> banDetail = new LinkedHashMap<>();
+                banDetail.put("attackType", attackType);
+                banDetail.put("attackCount", currentCount);
+                banDetail.put("durationHours", BLACKLIST_DURATION_HOURS);
+                try {
+                    sysAuditLogService.recordSecurityDedup("IP_AUTO_BLACKLISTED", false, null, null, null,
+                            "IP因连续恶意请求被自动拉黑", banDetail, ip, null, 0);
+                } catch (Exception e) {
+                    log.debug("记录IP自动拉黑审计日志失败: ip={}, error={}", ip, e.getMessage());
+                }
+            } else {
+                // false 既可能是“已有更长封禁”，也可能是 Redis 写入失败；
+                // RedisUtil 会在失败时记录 ERROR，这里不能再断言是前者。
+                log.warn("IP {} 自动封禁未写入：已有更长封禁或 Redis 写入失败，请检查 RedisUtil 日志", ip);
             }
 
             // 重置攻击计数

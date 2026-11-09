@@ -14,10 +14,16 @@ services:
         max-file: "3"
     environment:
       - TZ=Asia/Shanghai
-      # Redis 密码传给 Nginx Lua 脚本，用于 IP 黑名单检查
-      # 通过环境变量传递，避免在 nginx.conf 中明文写密码
+      # Redis 连接参数传给 Nginx Lua 脚本，用于 IP 黑名单检查
+      # 通过环境变量传递，避免在 nginx.conf 中明文写密码；HOST/PORT 与 Java 端同源，
+      # 否则切到外部 Redis 后 Nginx 仍连内置容器名，边缘封禁会静默 fail-open。
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-poetize_redis_2025}
       - REDIS_DB=${REDIS_DB:-0}
+      # 外部 Redis 跨网络时 100ms 容易超时导致边缘 fail-open；默认 500ms
+      - REDIS_CONNECT_TIMEOUT_MS=${REDIS_CONNECT_TIMEOUT_MS:-500}
+      - REDIS_READ_TIMEOUT_MS=${REDIS_READ_TIMEOUT_MS:-500}
       # ===== 访客 IP 解析（可信代理链，详见 docs/排障指南.md） =====
       # SELF_PUBLIC_IPS：服务器自身公网 IP（手动配置，优先级最高；不配置时 entrypoint
       #                  启动时自动探测一次并写入共享卷 poetize_runtime）

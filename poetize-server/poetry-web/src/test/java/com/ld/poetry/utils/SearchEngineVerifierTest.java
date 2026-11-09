@@ -257,18 +257,20 @@ class SearchEngineVerifierTest {
     @Test
     void blacklistsRepeatedFailedSearchEngineSpoofing() throws Exception {
         FakeRedisUtil redisUtil = new FakeRedisUtil();
+        // 203.0.113.0/24 是 TEST-NET-3，会被 ServerSelfIpUtil 判为 never-ban；
+        // 这个用例要验证真实封禁，必须用公网地址。
         FakeDnsResolver dnsResolver = new FakeDnsResolver()
-                .reverse("203.0.113.10", "crawler.example.com")
-                .forward("crawler.example.com", List.of("203.0.113.10"));
+                .reverse("8.8.8.8", "crawler.example.com")
+                .forward("crawler.example.com", List.of("8.8.8.8"));
         SearchEngineVerifier verifier = newVerifier(redisUtil, dnsResolver);
 
-        awaitStatus(verifier, "203.0.113.10", GOOGLE_UA, "failed");
+        awaitStatus(verifier, "8.8.8.8", GOOGLE_UA, "failed");
         // SHORT_SPOOF_THRESHOLD=3：首次 failed 已计入计数，再触发 2 次即达阈值拉黑。
         for (int i = 0; i < 2; i++) {
-            verifier.verify("203.0.113.10", GOOGLE_UA);
+            verifier.verify("8.8.8.8", GOOGLE_UA);
         }
 
-        assertTrue(redisUtil.hasKey(CacheConstants.buildIpBlacklistKey("203.0.113.10")));
+        assertTrue(redisUtil.hasKey(CacheConstants.buildIpBlacklistKey("8.8.8.8")));
     }
 
     private UserAgentClassifier.BotVerification awaitStatus(SearchEngineVerifier verifier, String ip,
@@ -355,6 +357,7 @@ class SearchEngineVerifierTest {
 
     private static final class FakeRedisUtil extends RedisUtil {
         private final Map<String, Object> values = new ConcurrentHashMap<>();
+        private final Map<String, Long> ttls = new ConcurrentHashMap<>();
 
         @Override
         public Object get(String key) {
@@ -364,6 +367,11 @@ class SearchEngineVerifierTest {
         @Override
         public boolean set(String key, Object value, long time) {
             values.put(key, value);
+            if (time > 0) {
+                ttls.put(key, time);
+            } else {
+                ttls.remove(key);
+            }
             return true;
         }
 
@@ -376,7 +384,31 @@ class SearchEngineVerifierTest {
 
         @Override
         public boolean expire(String key, long time) {
+            if (values.containsKey(key)) {
+                ttls.put(key, time);
+            }
             return true;
+        }
+
+        @Override
+        public long getExpire(String key) {
+            if (!values.containsKey(key)) {
+                return -2;
+            }
+            Long ttl = ttls.get(key);
+            return ttl == null ? -1 : ttl;
+        }
+
+        @Override
+        public boolean setIfLonger(String key, Object value, long time) {
+            long ttl = getExpire(key);
+            if (ttl == -1) {
+                return false;
+            }
+            if (ttl == -2 || ttl < time) {
+                return set(key, value, time);
+            }
+            return false;
         }
 
         @Override

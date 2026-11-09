@@ -4,9 +4,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,6 +30,24 @@ public class RedisUtil {
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+
+    // TTL 比较与写入在 Redis 内原子完成，避免 getExpire -> set 的 TOCTOU：
+    // PTTL=-1 表示永久封禁，直接返回 0；不存在或新 TTL 更长才 SET（保留原值的 JSON 序列化形式）。
+    private static final RedisScript<Long> SET_IF_LONGER_SCRIPT = new DefaultRedisScript<>("""
+            local ttl = redis.call('PTTL', KEYS[1])
+            if ttl == -1 then
+                return 0
+            end
+            local target = tonumber(ARGV[2]) * 1000
+            if target <= 0 then
+                return 0
+            end
+            if ttl == -2 or ttl < target then
+                redis.call('SET', KEYS[1], ARGV[1], 'PX', target)
+                return 1
+            end
+            return 0
+            """, Long.class);
 
     // =============================common============================
 
@@ -162,6 +183,32 @@ public class RedisUtil {
             return Boolean.TRUE.equals(success);
         } catch (Exception e) {
             log.error("不存在时设置缓存失败，key: {}, value: {}, time: {}", key, value, time, e);
+            return false;
+        }
+    }
+
+    /**
+     * 仅在“新 TTL 更长”时写入，避免自动封禁把更长的封禁（24h/7d/永久）覆盖成短封。
+     *
+     * @param key   键
+     * @param value 值
+     * @param time  新的 TTL（秒）
+     * @return true 表示本次写入成功（key 不存在或新 TTL 更长）；false 表示已有更长封禁或写入失败
+     */
+    public boolean setIfLonger(String key, Object value, long time) {
+        try {
+            if (time <= 0) {
+                // 本方法只处理有限 TTL；永久写入请走 set()，避免误缩短无限期封禁
+                log.warn("setIfLonger 忽略非正 TTL: key={}, time={}", key, time);
+                return false;
+            }
+            String serializedValue = JsonUtils.toJsonString(value);
+            Long result = stringRedisTemplate.execute(SET_IF_LONGER_SCRIPT,
+                    Collections.singletonList(key), serializedValue, String.valueOf(time));
+            return result != null && result == 1L;
+        } catch (Exception e) {
+            // 读/写失败时保守不覆盖已有封禁；调用方仍会记录 ERROR 日志，避免静默失效
+            log.error("按更长 TTL 设置缓存失败，key: {}, time: {}", key, time, e);
             return false;
         }
     }

@@ -1,6 +1,6 @@
 -- rewrite 阶段执行：解析真实访客 IP 并写入 $real_client_ip_resolved
 --
--- 由各 server 块中的 `rewrite_by_lua_file` 调用；解析结果经 nginx.conf 的 map
+-- 由 rewrite_entry.lua 按顺序调用；解析结果经 nginx.conf 的 map
 -- 暴露为 $real_client_ip（下游 proxy_set_header / 日志 / ban_check.lua 统一引用），
 -- 未写入时 map 回退 $remote_addr（TCP 对端），任何失败都不阻断请求。
 --

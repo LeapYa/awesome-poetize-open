@@ -42,7 +42,7 @@ Plan these before drafting:
 - Opening paragraph: include the core keyword and state exactly what the article covers.
 - Tables: use comparison tables for tradeoffs, alternatives, feature differences, version differences, and troubleshooting choices.
 - Code blocks: add comments that explain intent, inputs, outputs, or risky lines.
-- Section endings: add a short takeaway sentence when it helps search engines and readers extract the point.
+- Section endings: add a takeaway only when the section carries a judgment the reader should leave with. Never restate what the section just said.
 - Disclaimer: add one at the end for gray-area technical content, including security bypasses, scraping, reverse engineering, or automation against third-party platforms.
 
 ## Anti-patterns

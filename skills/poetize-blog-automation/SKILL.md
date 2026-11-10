@@ -6,7 +6,7 @@ description: 让 AI 帮你运营 POETIZE 博客：写文章并一键发布、更
 summary: POETIZE 博客运营助手：写文章、发布、管理分类标签与评论、上传图片、翻译管理、切换主题、查看数据、配置 SEO、处理付费文章支付配置；误删误改可进回收站恢复（文章版本历史/资源回收站，需后端 v5.2.7+）。
 license: MIT
 homepage: https://github.com/LeapYa/awesome-poetize-open/tree/main/skills/poetize-blog-automation
-version: 2.5.1
+version: 2.5.2
 primaryEnv: POETIZE_API_KEY
 requires:
   anyBins:
@@ -78,12 +78,34 @@ disable-model-invocation: false
 Read [references/strategy-playbook.md](references/strategy-playbook.md) before deciding whether to create, refresh, or hide content.
 Read [references/decision-matrix.md](references/decision-matrix.md) before setting publish posture, search posture, or paywall posture.
 Read [references/creativity-workflow.md](references/creativity-workflow.md) before drafting article copy.
+Read [references/writing-cases.md](references/writing-cases.md) only when revising copy that failed review — the cases calibrate the rules below but must not enter the prompt.
 Run `poetize-blog.sh eval` to verify the local strategy layer before shipping skill changes.
 
 ## Writing Voice
 
 - Use first-person plural (`我们`) when writing about this project. Sound like an experienced developer talking with a friend: clear, practical, not academic.
 - Avoid thesis-style setup lines and formulaic transitions. Do not use `说白了`/`不得不说`/`众所周知`/`接下来我们将探讨`/`不是...而是` in article copy.
+
+## Writing Rules
+
+总纲：读者是没参与过项目的外部人，看不到内部记录，也不知道任何约定背景。只有内部能懂的指代、进度汇报、自我保证，写出来对读者都是负担。以下每条能用“是／否”判断。
+
+1. **读者设定统一**：假定读者没参与过项目、看不到内部记录，只有内部能懂的指代一律展开（不写“老办法”“上次那版”，写具体做法名）。
+2. **数据可追溯**：数量带总量、分项和统计范围，他人的数据、代码、结论带名称与标识（编号、链接、版本都行）；只给片段数量和“我们自己标的”都算没写完。
+3. **步骤可复现**：交付物写清它现在是什么状态、拿到之后第一步做什么、不做会怎样；参数和步骤能让人照着跑通，拿不到的信息写获取方式，不拿占位符代替说明（写“从页面 load 请求里复制 captcha_id”，不写“你的 gt”）。
+4. **原因先于做法**：先写为什么这么做、为什么不那么做，再给步骤；只给做法，读者无法判断什么时候该改。
+5. **结果可核查**：跑通、通过、完成这类词后面带对象或数字，否则不算证据；样本有局限就直接写条件——跑了多少次、成功几次、失败没放，辩解式说明读起来像掩饰。
+6. **不写元话语**：不汇报进度、不预告结构、不总结自己刚说的话（删掉“到这里整套流程就完整了”“本文分三部分”）。
+7. **不替读者下判断**：只写方法成立或不成立，不写谁“第一反应”怎么做，也不写“很多人都会”。
+8. **篇幅随信息量**：重要的展开，次要的一句带过；章节长度由内容多少决定，不要为凑篇幅把短内容抻长；单句成段全篇不超过两处，只用在真正的转折或结论上。
+9. **标点跟语义走**：时间、因果、递进用逗号连写；分号只在真正并列对照时用且全文少量；冒号只引出清单、定义、直接引语；引号只给直接引语和需强调的原话。
+10. **术语先解释后用**：专业词首次出现给一句白话解释，之后直接用；通用术语（过拟合、mAP 这类）不替换，换掉反而不准确。
+11. **不用比喻描述结构**：串起来、打通、闭环、抓手一律不用，写具体关系——因果、并列、递进、对照；圈内压缩词（收口、对齐、过一遍、落地）换成说清动作、对象和程度。
+12. **格式不影响语义**：标题只标真正的话题切换，强调用加粗不用标题；分隔线前后各留一个空行，需要视觉分隔时用 `***`。
+
+体裁差异：默认体裁是**技术教程**，第 3、5、12 条是硬要求（交付格式、参数获取、复现步骤、失效引用）。写**报告与公文**时第 2 条优先，责任归属和口径比可读性重要，第 8 条放宽。写**社媒与口播**时第 8 条的短段落是对的，要禁的是空行过多和广告腔，第 3 条可以弱化。换体裁按此换权重。
+
+第 2、3、5 条要求的是信息完备性，起草前必须先盘点事实，见 Workflow step 4。改稿自查处见 [assets/fast-check.md](assets/fast-check.md)：成稿后对照其中七行逐条确认再提交。
 
 ## Pre-Writing Topic Validation
 
@@ -100,6 +122,7 @@ If web search or article-list access is unavailable, record that limitation in `
 - Use comparison tables when they clarify choices, tradeoffs, version differences, or troubleshooting paths. Comment code only where intent is non-obvious.
 - Keep H1 out of article bodies: set the title in front matter, use `##` for top-level sections, and do not skip heading levels. For section edits, preserve the stored heading level by default and keep descendant levels relative to it.
 - Use blockquotes (`>`) for tips, notes, and quotations; add relevant legal, security, or compatibility disclaimers.
+- Chinese quoting conventions: wrap titles of works in `《》`, wrap file and column names in quotation marks, and use single quotes only inside double quotes.
 
 ## Workflow
 
@@ -111,6 +134,7 @@ If web search or article-list access is unavailable, record that limitation in `
 3. Diverge, then converge.
    Consider 2-4 plausible directions, choose one as `selectedAngle`, and record 1-3 rejected directions in `alternativesConsidered`. Even when one direction is strongly preferred, include at least one plausible rejected alternative.
 4. Write the article in Markdown following Content Layout Rules and Writing Voice.
+   Inventory facts before drafting: list the numbers, sources, and retrievable parameters you actually have. Anything missing is either written as how to obtain it or left out — never estimated, rounded up, or filled with a plausible-looking figure. A vague gap the reader can see beats a precise number that is invented.
    For images: either reference local files (CLI auto-uploads at publish time) or upload first via `poetize-blog.sh upload-image` and embed the URL. When the task is maintenance, prefer revising existing articles over creating duplicates.
 5. Add front matter for the article title, routing, and publishing metadata.
    New articles require `title`, `sort`/`sortId`, and `label`/`labelId`; content updates require `title` and may omit unchanged taxonomy. With inline `_brief`, omit `viewStatus` (derived from `publishIntent`) and omit `payType` for `free_default` (forced to `0`); `paid_explicit` requires `primaryGoal: conversion`, non-empty `whyPaid`, and `payType > 0`. Use existing taxonomy names when IDs are unknown (close matches are suggestions only); set `coverBlank: true` when no cover is needed.

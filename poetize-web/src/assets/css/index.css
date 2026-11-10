@@ -235,7 +235,7 @@ time,
 mark,
 audio,
 video {
-    font-family: 'MyAwesomeFont', serif !important;
+    font-family: var(--siteFont) !important;
 }
 
 /* 确保Element UI图标正常显示 */
@@ -276,7 +276,7 @@ i.fa {
 
 body {
     color: var(--fontColor);
-    font-family: 'MyAwesomeFont', serif !important;
+    font-family: var(--siteFont) !important;
     word-break: break-word;
 }
 

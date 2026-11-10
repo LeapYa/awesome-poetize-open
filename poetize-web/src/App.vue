@@ -108,8 +108,8 @@ export default {
   },
 
   mounted() {
-    // 确保字体加载
-    document.body.style.fontFamily = 'var(--globalFont), serif'
+    // 字体统一由 index.css 的 body / 标签组规则控制（body 上有 !important），
+    // 这里不再设置内联 font-family，避免出现第二套字体来源。
 
     if (this.captchaVisible) {
       this.ensureCaptchaContainerLoaded()
@@ -204,7 +204,7 @@ export default {
 
 <style>
 * {
-  font-family: 'MyAwesomeFont', serif;
+  font-family: var(--siteFont);
 }
 /* 消息通知全局层级，始终最高优先级显示 */
 .el-message {

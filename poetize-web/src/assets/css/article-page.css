@@ -969,3 +969,19 @@ body.dark-mode .article-page .echarts-container:hover {
     transform: translateY(0);
   }
 }
+
+/*
+ * 长文首屏优化：离屏正文块先使用系统字体，接近视口后再通过
+ * IntersectionObserver 移除该类，让浏览器按 unicode-range 只拉取
+ * 当前块真正命中的字体分片。导航、评论、聊天等全站文字不受影响。
+ */
+.article-page .entry-content .article-font-pending {
+  --siteFont: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+@media print {
+  .article-page .entry-content .article-font-pending {
+    --siteFont: 'MyAwesomeFont', serif;
+  }
+}

@@ -382,6 +382,7 @@ export default {
       loadingArticleId: null, // 正在加载的文章ID（用于防止异步回调干扰）
       shouldLoadComments: false,
       commentObserver: null,
+      fontLazyObserver: null,
       graphicContextMenu: {
         visible: false,
         x: 0,
@@ -444,6 +445,7 @@ export default {
 
     if (!this.$common.isEmpty(this.id)) {
       // 首次加载时强制清空预渲染内容，确保Vue重新渲染
+      this.teardownLazyArticleFont()
       this.articleContentHtml = ''
       this.articleContentKey = Date.now()
 
@@ -708,6 +710,7 @@ export default {
     // 组件销毁时清理状态，防止影响下一个文章组件
     this.clearComponentState()
     this.teardownCommentIntersectionObserver()
+    this.teardownLazyArticleFont()
     cleanupLazyImageObserver()
 
     // 销毁tocbot实例
@@ -879,6 +882,10 @@ export default {
       this.isLoading = false
 
       await this.$nextTick()
+
+      // 必须先于后续布局操作执行：离屏段落先使用系统字体，
+      // 避免浏览器为整篇长文一次性匹配并下载所有字体分片。
+      this.setupLazyArticleFont()
 
       this.normalizeContentLinks()
       this.processImages()
@@ -1062,6 +1069,7 @@ export default {
       this.decryptedVideoUrl = ''
       this.translatedTitle = ''
       this.translatedContent = ''
+      this.teardownLazyArticleFont()
       this.articleContentHtml = ''
       this.articleContentKey = Date.now()
       this.isLoading = false
@@ -1462,6 +1470,7 @@ export default {
 
       // 重置状态，防止显示旧数据
       this.article = {}
+      this.teardownLazyArticleFont()
       this.articleContentHtml = ''
       this.translatedTitle = ''
       this.translatedContent = ''
@@ -1880,6 +1889,199 @@ export default {
       } catch (error) {
         console.error('恢复页面状态出错:', error)
         localStorage.removeItem(pageStateKey)
+      }
+    },
+
+    /**
+     * 长文正文按视口启用字体：离屏块先用系统字体，接近视口时再交给浏览器
+     * 按 unicode-range 只拉取该块命中的分片。
+     *
+     * 注意：必须作为 renderArticleBody 里 $nextTick 后的第一个动作执行。
+     * 之前只要有人读一次布局（getBoundingClientRect / offsetHeight）或做一次
+     * 真实 await，浏览器就会先把整篇正文排一遍，一次性下载全部分片，
+     * 让这里彻底失效且没有任何报错。
+     */
+    setupLazyArticleFont() {
+      this.teardownLazyArticleFont()
+
+      if (
+        typeof window === 'undefined' ||
+        typeof IntersectionObserver === 'undefined'
+      ) {
+        return
+      }
+
+      // 单文件字体没有 unicode-range，任何文字都会拉整个字体包，
+      // 延迟启用只剩“推迟 + 额外重排”，没有收益。
+      const sysConfig = (this.mainStore && this.mainStore.sysConfig) || {}
+      if (
+        sysConfig['font.use.single'] === 'true' ||
+        sysConfig['font.use.single'] === true
+      ) {
+        return
+      }
+
+      const root = this.getLazyFontRoot()
+      if (!root) return
+
+      const blocks = this.collectLazyFontBlocks(root)
+      if (!blocks.length) return
+
+      blocks.forEach((block) => {
+        block.classList.add('article-font-pending')
+      })
+
+      this.fontLazyObserver = new IntersectionObserver(
+        (entries) => {
+          // 跳转动画进行中先不激活：途中逐个激活会持续改变页面高度，
+          // 把落点推走，并制造一串重排。动画结束后统一恢复。
+          if (this.fontLazySuspended) return
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return
+            this.activateLazyFontBlock(entry.target)
+          })
+        },
+        {
+          root: null,
+          // 提前约一屏加载，避免用户滚到文字时还停留在系统字体。
+          rootMargin: '600px 0px 900px 0px',
+          threshold: 0,
+        }
+      )
+
+      blocks.forEach((block) => {
+        this.fontLazyObserver.observe(block)
+      })
+
+      this.bindLazyFontJumpHandling()
+    },
+
+    getLazyFontRoot() {
+      if (!this.$el) return null
+      return this.$el.querySelector('.entry-content')
+    },
+
+    /**
+     * 收集需要延迟启用字体的块：正文里「直接包含文本」的最外层元素。
+     *
+     * 不用标签选择器枚举，避免漏掉 caption / dt / dd / summary / .md-alert
+     * 这类容器里的裸文本（漏掉的元素会让分片被提前下载，同屏还会字体混排）。
+     * 遇到直接含文本的元素就不再下探，其子元素靠 --siteFont 继承即可。
+     */
+    collectLazyFontBlocks(root) {
+      const blocks = []
+      const hasOwnText = (element) => {
+        for (let node = element.firstChild; node; node = node.nextSibling) {
+          // 用正则判断，避免为超长代码块构造一遍 trim 副本
+          if (node.nodeType === 3 && /\S/.test(node.nodeValue || '')) {
+            return true
+          }
+        }
+        return false
+      }
+      const walk = (parent) => {
+        for (
+          let child = parent.firstElementChild;
+          child;
+          child = child.nextElementSibling
+        ) {
+          // 跳过 SVG / MathML 等非 HTML 命名空间节点
+          if (
+            child.namespaceURI &&
+            child.namespaceURI !== 'http://www.w3.org/1999/xhtml'
+          ) {
+            continue
+          }
+          if (hasOwnText(child)) {
+            blocks.push(child)
+            continue
+          }
+          walk(child)
+        }
+      }
+      walk(root)
+      return blocks
+    },
+
+    activateLazyFontBlock(block) {
+      if (!block || !block.classList) return
+      if (!block.classList.contains('article-font-pending')) return
+      block.classList.remove('article-font-pending')
+      this.fontLazyObserver?.unobserve(block)
+    },
+
+    /**
+     * 目录 / 锚点跳转前暂停激活，等滚动动画结束后再恢复。
+     * tocbot 的平滑滚动时长是 420ms，这里留一点余量。
+     */
+    suspendLazyArticleFont(duration = 560) {
+      if (!this.fontLazyObserver) return
+      this.fontLazySuspended = true
+      this.fontLazyObserver.disconnect()
+      if (this.fontLazySuspendTimer) {
+        clearTimeout(this.fontLazySuspendTimer)
+      }
+      this.fontLazySuspendTimer = setTimeout(() => {
+        this.fontLazySuspendTimer = null
+        this.resumeLazyArticleFont()
+      }, duration)
+    },
+
+    resumeLazyArticleFont() {
+      this.fontLazySuspended = false
+      const observer = this.fontLazyObserver
+      if (!observer) return
+      const root = this.getLazyFontRoot()
+      if (!root) return
+      // 重新观察仍未激活的块，视口内的会立刻回调激活
+      root.querySelectorAll('.article-font-pending').forEach((block) => {
+        observer.observe(block)
+      })
+    },
+
+    bindLazyFontJumpHandling() {
+      if (this.fontJumpClickHandler) return
+      this.fontJumpClickHandler = (event) => {
+        const target = event.target
+        const link =
+          target && target.closest ? target.closest('a[href^="#"]') : null
+        if (!link) return
+        const hash = link.getAttribute('href') || ''
+        if (hash.length < 2) return
+        let anchor = null
+        try {
+          anchor = document.getElementById(decodeURIComponent(hash.slice(1)))
+        } catch (e) {
+          anchor = null
+        }
+        if (!anchor) return
+        this.suspendLazyArticleFont()
+      }
+      document.addEventListener('click', this.fontJumpClickHandler, true)
+    },
+
+    teardownLazyArticleFont() {
+      if (this.fontJumpClickHandler) {
+        document.removeEventListener('click', this.fontJumpClickHandler, true)
+        this.fontJumpClickHandler = null
+      }
+      if (this.fontLazySuspendTimer) {
+        clearTimeout(this.fontLazySuspendTimer)
+        this.fontLazySuspendTimer = null
+      }
+      this.fontLazySuspended = false
+
+      if (this.fontLazyObserver) {
+        this.fontLazyObserver.disconnect()
+        this.fontLazyObserver = null
+      }
+
+      // $el 不存在时不再回退到 document，避免误伤页面上其它实例
+      const root = this.getLazyFontRoot()
+      if (root) {
+        root
+          .querySelectorAll('.article-font-pending')
+          .forEach((block) => block.classList.remove('article-font-pending'))
       }
     },
 

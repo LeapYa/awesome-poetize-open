@@ -74,6 +74,13 @@
     --lightYellow: #F4E1C0;
 
     --globalFont: MyAwesomeFont;
+
+    /*
+     * 全站字体栈的唯一默认值：font-family 一律写 var(--siteFont)。
+     * 文章正文离屏块会局部覆盖这个变量为系统字体，实现按视口启用字体，
+     * 所以这里不要改名，也不要在调用处再写 fallback 字体列表。
+     */
+    --siteFont: 'MyAwesomeFont', serif;
 }
 
 /* 灰度模式，应用于 html 元素 */

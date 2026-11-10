@@ -448,9 +448,8 @@ axios.interceptors.response.use(
         return Promise.reject(error)
       }
 
-      // 服务器返回错误状态码
-      if (error.response.status === 401 || error.response.status === 403) {
-        // token相关错误，使用统一的token过期处理逻辑
+      // 只有 401 表示未认证；403 是权限不足或被安全策略拦截，不能清除登录态
+      if (error.response.status === 401) {
         const isAdminRequest = (error.config && error.config.isAdmin) || false
         handleTokenExpire(isAdminRequest, getCurrentRoutePath(), {
           showMessage: true,

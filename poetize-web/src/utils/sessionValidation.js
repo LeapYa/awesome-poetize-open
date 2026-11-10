@@ -17,6 +17,12 @@ function applyValidatedUser(userData) {
   }
 }
 
+function createSessionValidationError(message, isAuthenticationFailure = false) {
+  const error = new Error(message)
+  error.isAuthenticationFailure = isAuthenticationFailure
+  return error
+}
+
 async function validateSessionWithServer() {
   const response = await fetch(`${constant.baseURL}/user/token`, {
     method: 'POST',
@@ -24,12 +30,19 @@ async function validateSessionWithServer() {
   })
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+    throw createSessionValidationError(
+      `HTTP ${response.status}`,
+      response.status === 401
+    )
   }
 
   const result = await response.json()
   if (!result || result.code !== 200 || !result.data) {
-    throw new Error(result?.message || '登录已过期，请重新登录')
+    const isAuthenticationFailure = result?.code === 300 || result?.code === 401
+    throw createSessionValidationError(
+      result?.message || '登录状态校验失败',
+      isAuthenticationFailure
+    )
   }
 
   applyValidatedUser(result.data)
@@ -74,8 +87,15 @@ export async function ensureSessionValid(options = {}) {
   }
 
   const validationPromise = validateSessionWithServer()
-    .catch(() => {
+    .catch((error) => {
       resetSessionValidation()
+
+      // 断网、超时、5xx 或响应解析失败只能说明暂时无法校验，不能据此退出登录。
+      // 保留本地会话并返回可用状态，下次路由或页面重新可见时会再次校验。
+      if (!error?.isAuthenticationFailure) {
+        return true
+      }
+
       const mainStore = useMainStore()
       mainStore.loadCurrentUser({})
       mainStore.loadCurrentAdmin({})

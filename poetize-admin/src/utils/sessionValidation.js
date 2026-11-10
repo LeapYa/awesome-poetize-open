@@ -46,6 +46,12 @@ function applyValidatedUser(userData) {
   }
 }
 
+function createSessionValidationError(message, isAuthenticationFailure = false) {
+  const error = new Error(message)
+  error.isAuthenticationFailure = isAuthenticationFailure
+  return error
+}
+
 async function validateSessionWithServer() {
   const response = await fetchWithTimeout(`${constant.baseURL}/user/token`, {
     method: 'POST',
@@ -53,12 +59,19 @@ async function validateSessionWithServer() {
   })
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+    throw createSessionValidationError(
+      `HTTP ${response.status}`,
+      response.status === 401
+    )
   }
 
   const result = await response.json()
   if (!result || result.code !== 200 || !result.data) {
-    throw new Error(result?.message || '登录已过期，请重新登录')
+    const isAuthenticationFailure = result?.code === 300 || result?.code === 401
+    throw createSessionValidationError(
+      result?.message || '登录状态校验失败',
+      isAuthenticationFailure
+    )
   }
 
   applyValidatedUser(result.data)
@@ -133,7 +146,13 @@ export async function ensureSessionValid(options = {}) {
   beginSessionValidation()
 
   const validationPromise = validateSessionWithServer()
-    .catch(() => {
+    .catch((error) => {
+      // 网络或服务暂时不可用不等于登录失效，保留已验证的会话和后台内容。
+      if (!error?.isAuthenticationFailure) {
+        sessionState.status = sessionState.verifiedAt > 0 ? 'valid' : 'unknown'
+        return true
+      }
+
       resetSessionValidation({ status: 'invalid', clearStore: true })
       return false
     })

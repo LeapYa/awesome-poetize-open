@@ -167,6 +167,11 @@ public final class UserAgentClassifier {
     private static void mergeBucket(Map<String, UaBucket> buckets, String userAgent, long count, UaInfo resolvedInfo) {
         UaInfo info = resolvedInfo != null ? resolvedInfo : classify(userAgent);
         String key = info.type() + "|" + info.name();
+        if ("search_engine".equals(info.type())) {
+            // 已验证、未验证与验证异常必须独立计数，不能再靠 promoteBotVerification
+            // 把同一 UA 的多次访问“提升”成一个verified总数。
+            key += "|" + searchEngineVerificationGroup(info.botVerifyStatus());
+        }
         UaBucket bucket = buckets.computeIfAbsent(key, ignored -> new UaBucket(info, userAgent));
         bucket.num += count;
         if ("search_engine".equals(info.type())) {
@@ -185,8 +190,13 @@ public final class UserAgentClassifier {
         }
         if (hasText(type) && hasText(name)) {
             String cleanName = name.trim();
-            if ("search_engine".equals(type.trim()) && cleanName.endsWith("（未验证）")) {
-                cleanName = cleanName.substring(0, cleanName.length() - "（未验证）".length()).trim();
+            if ("search_engine".equals(type.trim())) {
+                // 兼容旧统计行中曾写入的展示后缀。
+                cleanName = stripSearchEngineDisplaySuffix(cleanName, "（未验证）");
+                cleanName = stripSearchEngineDisplaySuffix(cleanName, "（验证异常）");
+                // 历史记录可能仍保存为 search_engine + failed，必须重新走统一分类，
+                // 否则确认伪装的访问会绕过 spoofed_search_engine 并与真实蜘蛛混算。
+                return searchEngineInfo(cleanName, new BotVerification(cleanName, status, reason));
             }
             return new UaInfo(
                     type.trim(),
@@ -211,8 +221,13 @@ public final class UserAgentClassifier {
                     row.put("ua_type", bucket.info.type());
                     row.put("ua_type_label", bucket.info.typeLabel());
                     String displayName = bucket.info.name();
-                    if ("search_engine".equals(bucket.info.type()) && !"verified".equals(bucket.info.botVerifyStatus())) {
-                        displayName = displayName + "（未验证）";
+                    if ("search_engine".equals(bucket.info.type())) {
+                        String verificationGroup = searchEngineVerificationGroup(bucket.info.botVerifyStatus());
+                        if ("error".equals(verificationGroup)) {
+                            displayName = displayName + "（验证异常）";
+                        } else if (!"verified".equals(verificationGroup)) {
+                            displayName = displayName + "（未验证）";
+                        }
                     }
                     row.put("ua_name", displayName);
                     row.put("bot_verify_status", bucket.info.botVerifyStatus());
@@ -226,6 +241,26 @@ public final class UserAgentClassifier {
                 .toList();
     }
 
+    private static String stripSearchEngineDisplaySuffix(String name, String suffix) {
+        return name.endsWith(suffix)
+                ? name.substring(0, name.length() - suffix.length()).trim()
+                : name;
+    }
+
+    private static String searchEngineVerificationGroup(String status) {
+        if (status != null) {
+            String normalized = status.trim().toLowerCase(Locale.ROOT);
+            if ("verified".equals(normalized)) {
+                return "verified";
+            }
+            if ("error".equals(normalized) || "timeout".equals(normalized)) {
+                return "error";
+            }
+        }
+        // pending 只是当次访问写入时的首访快照，不代表一条仍在执行中的验证任务。
+        return "unknown";
+    }
+
     private static UaInfo searchEngineInfo(String searchEngine, BotVerification botVerification) {
         String status = botVerification != null && hasText(botVerification.status())
                 ? botVerification.status().trim().toLowerCase(Locale.ROOT)
@@ -233,7 +268,7 @@ public final class UserAgentClassifier {
         String reason = botVerification != null && hasText(botVerification.reason())
                 ? botVerification.reason().trim()
                 : "未执行搜索引擎IP验证";
-        if ("not_applicable".equals(status)) {
+        if ("not_applicable".equals(status) || "pending".equals(status)) {
             status = "unknown";
         }
         if ("failed".equals(status)) {

@@ -8,12 +8,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -175,12 +177,13 @@ public class SearchEngineVerifier {
     }
 
     private UserAgentClassifier.BotVerification verifyRule(SearchEngineRule rule, String ip) {
-        // 优先使用内置 IP 段（适用于官方不支持反向 DNS 的搜索引擎，如 360 Spider）
-        if (rule.builtinIpPrefixes != null && !rule.builtinIpPrefixes.isEmpty()) {
-            return verifyByBuiltinPrefixes(rule, ip);
-        }
+        // 有在线官方列表时优先在线验证，内置快照只在网络异常时做正向兜底。
         if (hasText(rule.ipPrefixUrl)) {
             return verifyByIpPrefix(rule, ip);
+        }
+        // 适用于官方不支持反向 DNS 且只提供固定 IP 段的搜索引擎，如 360 Spider。
+        if (rule.builtinIpPrefixes != null && !rule.builtinIpPrefixes.isEmpty()) {
+            return verifyByBuiltinPrefixes(rule, ip);
         }
         return verifyByDns(rule, ip);
     }
@@ -223,7 +226,9 @@ public class SearchEngineVerifier {
         try {
             List<String> prefixes = ipPrefixProvider.fetch(rule.ipPrefixUrl);
             if (prefixes == null || prefixes.isEmpty()) {
-                return UserAgentClassifier.BotVerification.unknown(rule.displayName, "官方IP列表为空");
+                UserAgentClassifier.BotVerification snapshotResult = verifyByBundledSnapshot(rule, ip);
+                return snapshotResult != null ? snapshotResult
+                        : UserAgentClassifier.BotVerification.unknown(rule.displayName, "官方IP列表为空");
             }
             boolean matched = prefixes.stream().anyMatch(prefix -> ipMatchesPrefix(ip, prefix));
             if (!matched) {
@@ -231,8 +236,24 @@ public class SearchEngineVerifier {
             }
             return UserAgentClassifier.BotVerification.verified(rule.displayName, "官方IP列表验证通过");
         } catch (Exception e) {
+            // 国内网络可能无法访问 duckduckgo.com。随包快照只用于“命中则判真”，
+            // 未命中仍走异常/未知，绝不能拿可能过期的快照把新官方 IP 误判为伪装。
+            UserAgentClassifier.BotVerification snapshotResult = verifyByBundledSnapshot(rule, ip);
+            if (snapshotResult != null) {
+                log.warn("官方IP列表拉取失败，随包快照正向验证通过: engine={}, ip={}, error={}",
+                        rule.displayName, ip, e.getMessage());
+                return snapshotResult;
+            }
             throw new IllegalStateException(e);
         }
+    }
+
+    private UserAgentClassifier.BotVerification verifyByBundledSnapshot(SearchEngineRule rule, String ip) {
+        if (rule.builtinIpPrefixes == null || rule.builtinIpPrefixes.isEmpty()) {
+            return null;
+        }
+        boolean matched = rule.builtinIpPrefixes.stream().anyMatch(prefix -> ipMatchesPrefix(ip, prefix));
+        return matched ? UserAgentClassifier.BotVerification.verified(rule.displayName, "官方IP列表快照验证通过") : null;
     }
 
     private UserAgentClassifier.BotVerification readCachedVerification(SearchEngineRule rule, String ip) {
@@ -391,6 +412,21 @@ public class SearchEngineVerifier {
         List<String> fetch(String url) throws Exception;
     }
 
+    private static List<String> loadBundledIpPrefixes(String resourcePath) {
+        try (InputStream input = SearchEngineVerifier.class.getResourceAsStream(resourcePath)) {
+            if (input == null) {
+                log.warn("未找到搜索引擎官方IP列表快照: {}", resourcePath);
+                return List.of();
+            }
+            String json = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            return HttpIpPrefixProvider.parsePrefixes(json);
+        } catch (Exception e) {
+            // 快照缺失不阻断应用启动；在线官方列表仍可用于验证。
+            log.warn("读取搜索引擎官方IP列表快照失败: {}, error={}", resourcePath, e.getMessage());
+            return List.of();
+        }
+    }
+
     private record SearchEngineRule(String displayName, String cacheName, List<String> allowedHostSuffixes,
                                     String ipPrefixUrl, List<String> builtinIpPrefixes) {
         private SearchEngineRule(String displayName, String cacheName, List<String> allowedHostSuffixes) {
@@ -399,6 +435,11 @@ public class SearchEngineVerifier {
 
         private SearchEngineRule(String displayName, String cacheName, String ipPrefixUrl) {
             this(displayName, cacheName, List.of(), ipPrefixUrl, List.of());
+        }
+
+        private SearchEngineRule(String displayName, String cacheName, String ipPrefixUrl,
+                                 List<String> bundledIpPrefixes) {
+            this(displayName, cacheName, List.of(), ipPrefixUrl, bundledIpPrefixes);
         }
 
         /**
@@ -463,10 +504,13 @@ public class SearchEngineVerifier {
                 "yandexbot",
                 List.of("yandex.ru", "yandex.net", "yandex.com")
         );
+        // DuckDuckBot 使用 Azure 动态 IP，官方列表是数百个 /32，不能写成固定大段 CIDR。
+        // 在线 JSON 优先；随包快照仅在拉取失败时正向兜底，未命中快照不会判 failed。
         private static final SearchEngineRule DUCKDUCKGO = new SearchEngineRule(
                 "DuckDuckBot",
                 "duckduckbot",
-                "https://duckduckgo.com/duckduckbot.json"
+                "https://duckduckgo.com/duckduckbot.json",
+                loadBundledIpPrefixes("/duckduckbot.json")
         );
         private static final SearchEngineRule APPLE = new SearchEngineRule(
                 "Applebot",

@@ -4,6 +4,7 @@ import com.ld.poetry.constants.CacheConstants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.net.http.HttpConnectTimeoutException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -211,6 +212,38 @@ class SearchEngineVerifierTest {
 
         assertEquals("DuckDuckBot", result.claimedName());
         assertEquals("failed", result.status());
+    }
+
+    @Test
+    void verifiesDuckDuckBotByBundledSnapshotWhenOfficialListTimesOut() throws Exception {
+        SearchEngineVerifier.IpPrefixProvider unavailableProvider = url -> {
+            throw new HttpConnectTimeoutException("HTTP connect timed out");
+        };
+        SearchEngineVerifier verifier = newVerifier(new FakeRedisUtil(), new FakeDnsResolver(), unavailableProvider);
+
+        // 两个地址都来自随包的 DuckDuckBot 官方列表快照。
+        for (String ip : List.of("40.88.21.235", "20.191.45.212")) {
+            UserAgentClassifier.BotVerification result = awaitStatus(
+                    verifier, ip, DUCKDUCKBOT_UA, "verified");
+            assertEquals("verified", result.status());
+            assertTrue(result.reason().contains("快照"));
+        }
+    }
+
+    @Test
+    void doesNotMarkIpAsSpoofedWhenOnlyOutdatedSnapshotCouldBeUsed() throws Exception {
+        SearchEngineVerifier.IpPrefixProvider unavailableProvider = url -> {
+            throw new HttpConnectTimeoutException("HTTP connect timed out");
+        };
+        SearchEngineVerifier verifier = newVerifier(new FakeRedisUtil(), new FakeDnsResolver(), unavailableProvider);
+
+        UserAgentClassifier.BotVerification result = awaitStatus(
+                verifier, "198.51.100.42", DUCKDUCKBOT_UA, "error");
+
+        // 快照未命中只能表示“无法确认”，不能据此确认伪装。
+        assertEquals("error", result.status());
+        assertEquals("search_engine", UserAgentClassifier.classify(
+                DUCKDUCKBOT_UA, Map.of(), result).type());
     }
 
     @Test

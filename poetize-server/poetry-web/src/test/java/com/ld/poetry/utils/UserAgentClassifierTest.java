@@ -244,22 +244,41 @@ class UserAgentClassifierTest {
     }
 
     @Test
-    void promotesVerificationStatusDuringAggregation() {
-        List<Map<String, Object>> records = List.of(
-                Map.of(
-                        "userAgent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-                        "botVerifyStatus", "unknown"
-                ),
-                Map.of(
-                        "userAgent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-                        "botVerifyStatus", "verified"
-                )
+    void separatesSearchEngineCountsByVerificationStateAndNormalizesLegacyRows() {
+        String bingbotUa = "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)";
+        List<Map<String, Object>> rows = List.of(
+                Map.of("user_agent", bingbotUa, "ua_type", "search_engine", "ua_name", "Bingbot",
+                        "bot_verify_status", "verified", "num", 10),
+                Map.of("user_agent", bingbotUa, "ua_type", "search_engine", "ua_name", "Bingbot",
+                        "bot_verify_status", "unknown", "num", 3),
+                Map.of("user_agent", bingbotUa, "ua_type", "search_engine", "ua_name", "Bingbot",
+                        "bot_verify_status", "pending", "num", 2),
+                Map.of("user_agent", bingbotUa, "ua_type", "search_engine", "ua_name", "Bingbot",
+                        "bot_verify_status", "error", "num", 1),
+                // 旧数据可能没有把 failed 同步改写成 spoofed_search_engine。
+                Map.of("user_agent", bingbotUa, "ua_type", "search_engine", "ua_name", "Bingbot",
+                        "bot_verify_status", "failed", "num", 4)
         );
 
-        List<Map<String, Object>> result = UserAgentClassifier.aggregateVisitRecords(records);
-        assertEquals(1, result.size());
-        assertEquals("Googlebot", result.get(0).get("ua_name")); // Since it's verified, no suffix
+        List<Map<String, Object>> result = UserAgentClassifier.aggregateRawUserAgentCounts(rows, 10);
+
+        assertEquals(4, result.size());
+        assertEquals("Bingbot", result.get(0).get("ua_name"));
         assertEquals("verified", result.get(0).get("bot_verify_status"));
+        assertEquals(10L, result.get(0).get("num"));
+
+        assertEquals("Bingbot（未验证）", result.get(1).get("ua_name"));
+        assertEquals("unknown", result.get(1).get("bot_verify_status"));
+        assertEquals(5L, result.get(1).get("num"));
+
+        assertEquals("spoofed_search_engine", result.get(2).get("ua_type"));
+        assertEquals("疑似伪装 Bingbot", result.get(2).get("ua_name"));
+        assertEquals("failed", result.get(2).get("bot_verify_status"));
+        assertEquals(4L, result.get(2).get("num"));
+
+        assertEquals("Bingbot（验证异常）", result.get(3).get("ua_name"));
+        assertEquals("error", result.get(3).get("bot_verify_status"));
+        assertEquals(1L, result.get(3).get("num"));
     }
 
     @Test

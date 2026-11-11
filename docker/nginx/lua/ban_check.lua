@@ -22,9 +22,12 @@ local redis = require "resty.redis"
 local cjson = require "cjson.safe"
 
 -- xdb_searcher：ip2region 官方纯 Lua 实现（docker/nginx/lua/xdb_searcher.lua，Apache-2.0）
--- ⚠️ 不要改回 lua_c 扩展（xdb_searcher.so）：该 C 扩展在 Alpine(musl) 上实测会概率性 SIGSEGV
---    （worker signal 11，崩溃在 ld-musl 的 free/memcpy 里，1.29 / 1.31 都复现过）。
---    段错误发生在 C 层，pcall/xpcall/jit.off() 全部无效，唯一可行路径是不执行那段 C 代码。
+-- ⚠️ 不要改回 lua_c 扩展（xdb_searcher.so），理由与实测数据见 xdb_searcher.lua 头部：
+--    1. 内存不可控：峰值 255.9 MB 且压测停止后不回落，纯 Lua 常驻 9 MB 左右，生产只给 128 MB；
+--    2. 延迟与吞吐：p95 265.8 ms 对 28.8 ms，QPS 531.7 对 2126.4（同为 50 线程 60 秒）。
+--    注意它并非到处都崩：1.29.2.5 上 25 分钟 52 万次请求零 signal 11，
+--    1.31.8.1 上才是高频崩溃（worker signal 11，崩在 ld-musl 的 free/memcpy）。
+--    但在容器内存限制下它会先撞上限，所以两条路都走不通。
 --    纯 Lua 版 API 基本一致，唯一差异：search(ip) → search_by_string(ip)。
 -- 模块由 nginx.conf 的 lua_package_path 从 /usr/local/openresty/nginx/lua/ 加载
 -- pcall 保护：模块缺失或加载失败时地区封禁 fail-open，不影响其它封禁类型

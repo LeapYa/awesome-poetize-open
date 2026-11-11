@@ -186,7 +186,7 @@ ENV LUAJIT_INC=/usr/local/openresty/luajit/include/luajit-2.1 \
     LUAJIT_LIB=/usr/local/openresty/luajit/lib
 
 RUN set -e; \
-    if ! apk add --no-cache perl geoip-dev libxslt-dev gd-dev; then \
+    if ! apk add --no-cache perl linux-headers geoip-dev libxslt-dev gd-dev; then \
         echo "⚠️  无法安装编译依赖（网络受限），跳过 nginx CVE 补丁，沿用基础镜像自带 nginx"; \
         exit 0; \
     fi; \

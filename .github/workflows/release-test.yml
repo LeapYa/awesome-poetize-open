@@ -46,17 +46,17 @@ jobs:
         run: |
           # v5.2.8 事故：location /static 的 if 块内使用 proxy_set_header，
           # nginx 解析期直接 [emerg]、容器无限重启，直到部署阶段才暴露。
-          # 这里在发布前用「自建镜像本体」跑 nginx -t，把解析期错误提前拦截。
+          # 这里在发布前用自建镜像本体跑 nginx -t，把解析期错误提前拦截。
           #
           # 为什么必须用自建镜像、而不是裸 openresty 镜像（连踩三个环境差异误报，
-          # 全是「裸镜像缺东西」而非配置错误）：
+          # 全是裸镜像缺东西而非配置错误）：
           #   1) 裸镜像没有 nginx 用户，而 nginx.conf 首行是 user nginx;
           #      → getpwnam("nginx") failed
           #   2) 裸镜像没有 brotli 模块 .so（由 Dockerfile 编译产出），load_module 失败；
           #      而注释掉 load_module 又会反过来让 conf 里的 `brotli` 指令变成
           #      unknown directive —— 两头堵，只能换镜像
           #   3) 裸镜像没有 /var/log/nginx（access_log 目标）与 /etc/nginx/ssl 自签证书
-          # 自建镜像里这些前置条件天然齐备，只需再补三处「生产环境才有的东西」：
+          # 自建镜像里这些前置条件天然齐备，只需再补三处生产环境才有的东西：
           #   · /etc/letsencrypt/live/example.com 证书（服务器上由 certbot 签发）
           #   · upstream 的 compose 服务名解析（校验容器不在 compose 网络里）
           #   · server_name 的域名替换（安装脚本 poetize:17158 会把

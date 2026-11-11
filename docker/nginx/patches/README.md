@@ -120,11 +120,13 @@ grep -c NGX_QUIC_OPENSSL_COMPAT objs/Makefile   # 期望 0
 4. 提交前先 `patch -p1 --dry-run` 验证；
 5. 构建后必须核对三件事：`nginx -V` 与基础镜像一致、`nginx -t` 通过、Lua 与动态模块可正常加载。
 
-## Brotli 模块必须用 OpenResty 源码编译
+## 动态模块必须用 OpenResty 源码编译
 
 2026-11-12 定稿。这一节记录一个曾经导致全站不可访问、排查了一整天的构建缺陷。
 
-**结论：动态模块必须用 OpenResty 源码包里的 `bundle/nginx-<ver>` 编译，不能用 nginx.org 的官方源码。**
+**结论：任何第三方 nginx 动态模块，都必须用 OpenResty 源码包里的 `bundle/nginx-<ver>` 编译，不能用 nginx.org 的官方源码。**
+
+brotli 只是第一个踩到的，不是它特殊：它恰好访问了被移动的位域字段。换成别的模块，只要访问结构体尾部，一样会中招。
 
 OpenResty 对 nginx 打了补丁，1.31 这一代的补丁改变了 `ngx_http_request_t` 的尾部布局。
 `--with-compat` 只放宽模块签名校验，**不解决结构体 ABI 差异**，所以模块能正常加载、
@@ -157,6 +159,17 @@ NULL 直接进了 libbrotlienc 内部的 memcpy。
 
 反汇编可见两个版本模块写入的位域偏移不同，1.29 上与运行时读的位置一致，1.31 上不一致。
 1.29 那一代 OpenResty 的补丁没有移动这段布局，所以一直没暴露——不是设计正确，是恰好对齐。
+
+哪些模块容易中招，取决于它访问结构体的哪一部分：
+
+| 模块访问的字段 | 风险 | 例子 |
+|---|---|---|
+| 结构体前部的指针（`headers_out`、`connection`、`pool`） | 低 | echo、headers-more |
+| 变量表、请求参数（`variables`、`args`） | 低 | set-misc、redis2 |
+| 结构体尾部的位域（`main_filter_need_in_memory`、各类 flag） | **高** | brotli |
+
+OpenResty 的补丁改动集中在结构体后半部分，所以只有访问尾部位域的模块才会踩到。
+不崩不代表没问题：偏移错了但恰好读到 0 且该字段不影响逻辑时，就是长期的静默错误。
 
 ### 验证时容易漏的一步
 

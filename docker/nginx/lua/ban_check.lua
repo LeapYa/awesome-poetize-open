@@ -13,7 +13,7 @@
 --   4. 真实 IP：使用 Nginx 已计算好的 $real_client_ip 变量
 --   5. 健康检查豁免：HEAD / 或 /actuator/health 等不拦截
 --   6. 规则快照缓存：shared dict 缓存 15 秒，减少 Redis 读取
---   7. 地区封禁：直接查 xdb 文件（ip2region 官方 lua_c 扩展），不依赖 Redis 地区缓存
+--   7. 地区封禁：直接查 xdb 文件（ip2region 官方纯 Lua 实现），不依赖 Redis 地区缓存
 --      xdb 文件由 Java 端每月自动更新到共享卷，Nginx 每 60s 检测文件大小热重载
 --      xdb_searcher 模块加载失败时地区封禁 fail-open，其它封禁类型不受影响
 --      查询模式：vectorIndex cache（512KiB/worker），数据段通过文件 IO 读取，内核页缓存多 worker 共享
@@ -21,13 +21,25 @@
 local redis = require "resty.redis"
 local cjson = require "cjson.safe"
 
--- xdb_searcher：ip2region 官方 lua_c 扩展（兼容 Lua 5.1 / LuaJIT）
--- 编译产物 xdb_searcher.so 由 Dockerfile 复制到 /usr/local/openresty/lualib/
+-- xdb_searcher：ip2region 官方纯 Lua 实现（docker/nginx/lua/xdb_searcher.lua，Apache-2.0）
+-- ⚠️ 不要改回 lua_c 扩展（xdb_searcher.so）：该 C 扩展在 Alpine(musl) 上实测会概率性 SIGSEGV
+--    （worker signal 11，崩溃在 ld-musl 的 free/memcpy 里，1.29 / 1.31 都复现过）。
+--    段错误发生在 C 层，pcall/xpcall/jit.off() 全部无效，唯一可行路径是不执行那段 C 代码。
+--    纯 Lua 版 API 基本一致，唯一差异：search(ip) → search_by_string(ip)。
+-- 模块由 nginx.conf 的 lua_package_path 从 /usr/local/openresty/nginx/lua/ 加载
 -- pcall 保护：模块缺失或加载失败时地区封禁 fail-open，不影响其它封禁类型
 local xdb_ok, xdb_mod = pcall(require, "xdb_searcher")
 if not xdb_ok then
     ngx.log(ngx.WARN, "ban_check: xdb_searcher 模块加载失败，地区封禁将 fail-open: ", xdb_mod)
     xdb_mod = nil
+else
+    -- 防御：若被解析到 C 扩展（lualib 里残留 xdb_searcher.so），启动即告警，避免线上再次陷入
+    -- worker 持续 signal 11 但日志无异常这种静默崩溃（排查过程见 docs/排障指南.md 部署常见问题 4）
+    local info = debug.getinfo(xdb_mod.new_with_vector_index, "S")
+    if info and info.what == "C" then
+        ngx.log(ngx.ERR, "ban_check: xdb_searcher 解析到了 C 扩展（xdb_searcher.so），",
+            "该实现存在 worker SIGSEGV 风险，请改为纯 Lua 版（docker/nginx/lua/xdb_searcher.lua）")
+    end
 end
 
 -- ========== Redis 连接参数 ==========
@@ -70,8 +82,8 @@ local XDB_V6_FALLBACK = "/usr/local/openresty/xdb/ip2region_v6.xdb"
 local XDB_CHECK_INTERVAL = 60
 
 -- worker 级 vectorIndex 缓存（每个 Nginx worker 独立持有 v_index 实例）
--- vectorIndex cache 模式：xdb.load_vector_index(path) → 每请求 xdb.new_with_vector_index(version, path, v_index) → searcher:search(ip) → searcher:close()
--- v_index 全局共享（512KiB），searcher 每请求创建/销毁（lua_c 文档要求每协程独立 searcher）
+-- vectorIndex cache 模式：xdb.load_vector_index(path) → 每请求 xdb.new_with_vector_index(version, path, v_index) → searcher:search_by_string(ip) → searcher:close()
+-- v_index 全局共享（512KiB），searcher 每请求创建/销毁（每个 searcher 持有独立文件句柄）
 -- 数据段通过文件 IO 读取，内核页缓存多 worker 共享，内存占用极低
 local v4_vindex = nil   -- vectorIndex 缓存（512KiB），worker 级共享
 local v6_vindex = nil
@@ -346,7 +358,7 @@ end
 
 -- 解析 IP 地区：根据 IP 类型选 v_index，每请求创建临时 searcher 查 xdb，返回 nation, province
 -- 查询失败或 IP 无效返回 nil, nil（fail-open）
--- vectorIndex 模式下 searcher 非并发安全，每请求创建/销毁（lua_c 文档要求每协程独立 searcher）
+-- 纯 Lua 版 search_by_string 不抛异常，失败时返回 ("", err)，第二个返回值用于日志
 local function resolve_ip_region(ip)
     if not ip or ip == "" then return nil, nil end
 
@@ -359,7 +371,7 @@ local function resolve_ip_region(ip)
     end
     if not v_index or not path then return nil, nil end
 
-    -- 每请求创建临时 searcher（vectorIndex 模式要求每协程独立 searcher）
+    -- 每请求创建临时 searcher（每个 searcher 持有独立文件句柄，查完必须 close）
     local version = is_v6 and xdb_mod.IPv6 or xdb_mod.IPv4
     local searcher, err = xdb_mod.new_with_vector_index(version, path, v_index)
     if not searcher then
@@ -367,10 +379,10 @@ local function resolve_ip_region(ip)
         return nil, nil
     end
 
-    -- pcall 保护：xdb search 可能因内部错误抛出异常
-    local region_str
+    -- pcall 保护：即使纯 Lua 实现，也不让内部异常冒泡到 access 阶段
+    local region_str, region_err
     local ok, search_err = pcall(function()
-        region_str = searcher:search(ip)
+        region_str, region_err = searcher:search_by_string(ip)
     end)
 
     -- 无论查询成功与否都关闭 searcher（避免 fd 泄漏）
@@ -382,7 +394,12 @@ local function resolve_ip_region(ip)
     end
 
     -- IP 未找到时返回空字符串，视为无地区信息
-    if not region_str or region_str == "" then return nil, nil end
+    if not region_str or region_str == "" then
+        if region_err then
+            ngx.log(ngx.WARN, "ban_check: xdb search 失败 IP=", ip, " err=", region_err)
+        end
+        return nil, nil
+    end
 
     return parse_xdb_region(region_str)
 end

@@ -119,3 +119,51 @@ grep -c NGX_QUIC_OPENSSL_COMPAT objs/Makefile   # 期望 0
    这样应用零风险；文件已分叉的需要单独评估并写进本文件；
 4. 提交前先 `patch -p1 --dry-run` 验证；
 5. 构建后必须核对三件事：`nginx -V` 与基础镜像一致、`nginx -t` 通过、Lua 与动态模块可正常加载。
+
+## 为什么锁在 OpenResty 1.29.2.5
+
+这一节只回答一个问题：1.31.8.1 为什么不采用。
+
+**现象**：1.31.8.1 上，凡是经过 lua 异步 socket 回调（ban_check 连 Redis）的请求，只要带 `Accept-Encoding: br`，nginx worker 必然 SIGSEGV。直连源站、不带 br 时完全正常，所以本地很难复现。
+
+**链路**：
+
+1. copy filter 的 `ctx->need_in_memory` 只在创建 ctx 时计算一次（`ngx_http_copy_filter_module.c:117`），之后不再更新
+2. ngx_lua 0.10.32 起，协程 resume 后 body 链先于 header 链被拉起，ctx 以 `need_in_memory = 0` 建好
+3. 响应文件 buf 因此没有被读进内存，以 `in_file` 形态直达 body filter
+4. ngx_brotli 的 body filter 不检查 `in_file`，直接取 `buf->pos`（文件 buf 下为 NULL），交给 libbrotlienc 内部的 memcpy
+
+**版本边界**（同配置、同一份 brotli 模块）：
+
+| OpenResty | ngx_lua | 建 ctx 时的 main_filter_need | 结果 |
+|---|---|---|---|
+| 1.29.2.5 | 0.10.31rc2 | 1 | 正常返回 br |
+| 1.31.1.1 | 0.10.31rc5 | 1 | 正常返回 br |
+| 1.31.8.1 | 0.10.32rc7 | 0 | SIGSEGV |
+
+边界落在 ngx_lua 0.10.31 与 0.10.32 之间。1.31 内核本身没有问题，1.31.1.1 就是 1.31 内核且工作正常。
+
+**已排除的假设**，不必重复验证：
+
+- musl 版本：1.2.5 与 1.2.6 的 memcpy 机器码逐字节相同
+- brotli 库版本：1.2.1 在 1.31.8.1 上压 800 多次带 br 请求零崩溃
+- brotli 模块产物：三个 1.31 镜像的 `.text` 段 sha256 一致
+
+**上游**：已提 google/ngx_brotli #180，即模块缺少 `in_file` 防御。
+
+**重新评估 1.31 的前置条件**：除 Dockerfile 头部已有的三条外，还要确认 brotli on + 带 br + 经 lua 异步 socket 这条路径不崩。
+
+**附：遇到 ld-musl 段错误时怎么定位**
+
+```bash
+dmesg -T | grep -i segfault | tail -5
+# segfault at 0 ip 00007f724e0a7ad4 ... in ld-musl-x86_64.so.1[7f724e098000+59000]
+```
+
+`[基址+长度]` 是内核记的 VMA 起始，不是文件偏移 0。真实偏移 = 该段 vaddr + (ip - 基址)：
+
+```
+0x14000 + (0x7f724e0a7ad4 - 0x7f724e098000) = 0x14000 + 0xfad4 = 0x23ad4
+```
+
+用 `readelf -lW` 确认段 vaddr（RX 段覆盖 0x14000~0x6d000，长度正好 0x59000），再用 `readelf -sW` 按地址前缀筛函数，得到 `memcpy + 0x94`。反汇编该处是 `movzbl (%rsi),%eax`，配合 `segfault at 0` 即可断定源指针为 NULL。

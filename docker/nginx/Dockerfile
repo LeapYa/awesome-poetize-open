@@ -47,30 +47,32 @@ RUN set -e; \
         exit 1; \
     fi
 
-# 获取Nginx版本
+# 获取Nginx版本与OpenResty版本
 RUN nginx -v 2>&1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+' > /tmp/nginx_version
+RUN openresty -v 2>&1 | grep -o 'openresty/[0-9]\+\(\.[0-9]\+\)*' | cut -d/ -f2 > /tmp/openresty_version
 
 # 编译Brotli模块
+# ⚠️ 必须用 OpenResty 源码包里的 bundle/nginx-<ver> 编译，不能用 nginx.org 的官方源码。
+#    OpenResty 对 nginx 打了补丁，ngx_http_request_t 的尾部布局与官方源码不同。
+#    --with-compat 只放宽签名校验，不解决结构体 ABI 差异：用官方源码编出的模块虽然能加载，
+#    访问 main_filter_need_in_memory 这类尾部位域时会写到错误偏移，运行时永远读到 0。
+#    于是 copy filter 不把文件 buf 读进内存，brotli 拿到 pos=NULL 的 buf，在 libbrotlienc
+#    内部的 memcpy 上段错误。1.31.8.1 上必现（sendfile on + 带 br 的请求），
+#    1.29.2.5 上因两套源码的布局恰好一致而未暴露。
 WORKDIR /usr/src/ngx_brotli
 RUN set -e; \
     if [ -f "config" ]; then \
-        echo "🔧 开始编译Brotli模块..."; \
+        echo "🔧 开始编译Brotli模块（使用 OpenResty bundle 源码）..."; \
         NGINX_VERSION=$(cat /tmp/nginx_version); \
-        # 尝试多个Nginx下载源
-        if wget --timeout=120 --tries=3 https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz; then \
-            echo "✅ 从nginx.org下载成功"; \
-        elif wget --timeout=120 --tries=3 https://mirrors.huaweicloud.com/nginx/nginx-${NGINX_VERSION}.tar.gz; then \
-            echo "✅ 从华为云下载成功，感谢newbe博客的整理"; \
-        elif wget --timeout=120 --tries=3 https://mirror.azure.cn/nginx/download/nginx-${NGINX_VERSION}.tar.gz; then \
-            echo "✅ 从Azure下载成功"; \
-        elif wget --timeout=120 --tries=3 https://mirrors.sohu.com/nginx/nginx-${NGINX_VERSION}.tar.gz; then \
-            echo "✅ 从搜狐下载成功"; \
-        else \
-            echo "❌ Nginx源码下载失败，请检查网络连接"; \
+        OPENRESTY_VERSION=$(cat /tmp/openresty_version); \
+        echo "   nginx=${NGINX_VERSION}  openresty=${OPENRESTY_VERSION}"; \
+        if ! wget --timeout=180 --tries=3 -O /usr/src/openresty-src.tar.gz \
+                https://openresty.org/download/openresty-${OPENRESTY_VERSION}.tar.gz; then \
+            echo "❌ OpenResty 源码下载失败。不要退回 nginx.org 源码：两者结构体布局不同，编出的模块会踩内存偏移错误"; \
             exit 1; \
         fi; \
-        tar -xzf nginx-${NGINX_VERSION}.tar.gz && \
-        cd nginx-${NGINX_VERSION} && \
+        tar -xzf /usr/src/openresty-src.tar.gz -C /usr/src && \
+        cd /usr/src/openresty-${OPENRESTY_VERSION}/bundle/nginx-${NGINX_VERSION} && \
         ./configure --with-compat --add-dynamic-module=/usr/src/ngx_brotli && \
         make modules && \
         mkdir -p /usr/local/openresty/nginx/modules/ && \

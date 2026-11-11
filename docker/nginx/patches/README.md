@@ -120,50 +120,51 @@ grep -c NGX_QUIC_OPENSSL_COMPAT objs/Makefile   # 期望 0
 4. 提交前先 `patch -p1 --dry-run` 验证；
 5. 构建后必须核对三件事：`nginx -V` 与基础镜像一致、`nginx -t` 通过、Lua 与动态模块可正常加载。
 
-## 为什么锁在 OpenResty 1.29.2.5
+## Brotli 模块必须用 OpenResty 源码编译
 
-这一节只回答一个问题：1.31.8.1 为什么不采用。
+2026-11-12 定稿。这一节记录一个曾经导致全站不可访问、排查了一整天的构建缺陷。
 
-**现象**：1.31.8.1 上，凡是经过 lua 异步 socket 回调（ban_check 连 Redis）的请求，只要带 `Accept-Encoding: br`，nginx worker 必然 SIGSEGV。直连源站、不带 br 时完全正常，所以本地很难复现。
+**结论：动态模块必须用 OpenResty 源码包里的 `bundle/nginx-<ver>` 编译，不能用 nginx.org 的官方源码。**
 
-**链路**：
+OpenResty 对 nginx 打了补丁，1.31 这一代的补丁改变了 `ngx_http_request_t` 的尾部布局。
+`--with-compat` 只放宽模块签名校验，**不解决结构体 ABI 差异**，所以模块能正常加载、
+平时也看不出异常，直到访问到被移动的位域字段。
 
-1. copy filter 的 `ctx->need_in_memory` 只在创建 ctx 时计算一次（`ngx_http_copy_filter_module.c:117`），之后不再更新
-2. ngx_lua 0.10.32 起，协程 resume 后 body 链先于 header 链被拉起，ctx 以 `need_in_memory = 0` 建好
-3. 响应文件 buf 因此没有被读进内存，以 `in_file` 形态直达 body filter
-4. ngx_brotli 的 body filter 不检查 `in_file`，直接取 `buf->pos`（文件 buf 下为 NULL），交给 libbrotlienc 内部的 memcpy
+### 症状
 
-**版本边界**（同配置、同一份 brotli 模块）：
+`sendfile on` + `brotli on`，任何带 `Accept-Encoding: br` 的静态文件请求都返回空响应，
+`error.log` 里是 `worker process exited on signal 11`。直连源站且不带 br 时完全正常，
+所以只看功能测试很容易漏掉。
 
-| OpenResty | ngx_lua | 建 ctx 时的 main_filter_need | 结果 |
-|---|---|---|---|
-| 1.29.2.5 | 0.10.31rc2 | 1 | 正常返回 br |
-| 1.31.1.1 | 0.10.31rc5 | 1 | 正常返回 br |
-| 1.31.8.1 | 0.10.32rc7 | 0 | SIGSEGV |
+### 先后顺序（错了会白查很久）
 
-边界落在 ngx_lua 0.10.31 与 0.10.32 之间。1.31 内核本身没有问题，1.31.1.1 就是 1.31 内核且工作正常。
+brotli 的 body filter 拿到 `in_file` 的 buf、`pos` 为 NULL，而 `ngx_buf_size()` 对
+非内存 buf 走 `file_last - file_pos` 分支，返回非零长度，绕过 `input_size == 0` 的检查，
+NULL 直接进了 libbrotlienc 内部的 memcpy。
 
-**已排除的假设**，不必重复验证：
+`in_file` 的 buf 之所以没被读进内存，是因为 copy filter 的 `ctx->need_in_memory` 为 0。
+而它本该由 brotli header filter 设置的 `main_filter_need_in_memory` 来决定——这个位域
+写错了位置，运行时永远读到 0。
 
-- musl 版本：1.2.5 与 1.2.6 的 memcpy 机器码逐字节相同
-- brotli 库版本：1.2.1 在 1.31.8.1 上压 800 多次带 br 请求零崩溃
-- brotli 模块产物：三个 1.31 镜像的 `.text` 段 sha256 一致
+### 实测对照（同一份 ngx_brotli 源码，只换编译用的 nginx 源码）
 
-**上游**：已提 google/ngx_brotli #180，即模块缺少 `in_file` 防御。
+| OpenResty | 编译用源码 | `sendfile on` + 带 br 压测 |
+|---|---|---|
+| 1.29.2.5 | nginx.org 1.29.2 | 正常（生产长期运行） |
+| 1.29.2.5 | bundle 1.29.2 | 正常 |
+| 1.31.8.1 | nginx.org 1.31.8 | 6 次请求全部 signal 11 |
+| 1.31.8.1 | bundle 1.31.8 | 100 次请求全部 200，零崩溃，`Content-Encoding: br` |
 
-**重新评估 1.31 的前置条件**：除 Dockerfile 头部已有的三条外，还要确认 brotli on + 带 br + 经 lua 异步 socket 这条路径不崩。
+反汇编可见两个版本模块写入的位域偏移不同，1.29 上与运行时读的位置一致，1.31 上不一致。
+1.29 那一代 OpenResty 的补丁没有移动这段布局，所以一直没暴露——不是设计正确，是恰好对齐。
 
-**附：遇到 ld-musl 段错误时怎么定位**
+### 验证时容易漏的一步
 
-```bash
-dmesg -T | grep -i segfault | tail -5
-# segfault at 0 ip 00007f724e0a7ad4 ... in ld-musl-x86_64.so.1[7f724e098000+59000]
-```
+本地复现必须显式写 `sendfile on`。nginx 默认是 `off`，此时 copy filter 会把文件 buf
+强制读进内存，`pos` 不为 NULL，怎么压都不崩——这正是这个问题被误判成"只在生产出现"
+的原因。
 
-`[基址+长度]` 是内核记的 VMA 起始，不是文件偏移 0。真实偏移 = 该段 vaddr + (ip - 基址)：
+### 现状
 
-```
-0x14000 + (0x7f724e0a7ad4 - 0x7f724e098000) = 0x14000 + 0xfad4 = 0x23ad4
-```
-
-用 `readelf -lW` 确认段 vaddr（RX 段覆盖 0x14000~0x6d000，长度正好 0x59000），再用 `readelf -sW` 按地址前缀筛函数，得到 `memcpy + 0x94`。反汇编该处是 `movzbl (%rsi),%eax`，配合 `segfault at 0` 即可断定源指针为 NULL。
+Dockerfile 已改为从 `openresty.org` 下载源码包、在 `bundle/nginx-<ver>` 里编译模块；
+下载失败时直接失败，不退回 nginx.org 源码。修复后 1.31.8.1 也可用，是否升级另议。

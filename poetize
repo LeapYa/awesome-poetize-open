@@ -2,7 +2,7 @@
 ## 作者: LeapYa
 ## 修改时间: 2026-11-12
 ## 描述: POETIZE 博客系统全局管理命令
-## 版本: 1.13.9
+## 版本: 1.13.10
 
 # 定义颜色
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 全局变量
-POETIZE_VERSION="1.13.9"
+POETIZE_VERSION="1.13.10"
 UPDATE_VERSION=""  # 升级到指定版本（空则使用最新稳定版本）
 USE_LATEST_TAG=true  # 是否使用最新稳定标签（false则使用main分支）
 EMBEDDED_CORE_DIR=""

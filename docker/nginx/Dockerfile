@@ -173,8 +173,9 @@ RUN set -e; \
 # 1.29.x 已停止 backport，新 CVE 只能自行回补。判定表、可达性分析与新增补丁的规矩见 patches/README.md。
 # 实现方式：下载官方源码包 → 应用 patches/*.patch → 以基础镜像同款参数重编 nginx → 只把 objs/nginx
 # 二进制替换进最终镜像。
-# 2026-11-12 起有意去掉 geoip/image_filter/xslt 三个从未 load_module 的动态模块（减审计面与构建时间），
-# 本二进制的 -V 不再与基础镜像逐字一致；动态模块加载兼容由 --with-compat 保证（brotli 已实测加载正常）。
+# 有意去掉 geoip/image_filter/xslt 三个从未 load_module 的动态模块（减审计面与构建时间）；
+# 基础镜像层自带的三个 .so 无 load 指令、保持惰性。本二进制的 -V 不再与基础镜像逐字一致，
+# 动态模块加载兼容由 --with-compat 保证（brotli 已实测加载正常）。
 # 复用 builder 阶段的编译环境，避免再装一遍 build-base（国内网络下这一步要好几分钟）。
 FROM builder AS nginx-patch
 

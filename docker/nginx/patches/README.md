@@ -54,7 +54,7 @@
 | CVE-2026-42530 | 1.31.0–1.31.1 | 1.29.2 没有对应代码 |
 | CVE-2026-42926 | 1.29.4–1.30.0 | 1.29.2 早于 1.29.4 |
 
-### 判定所依据的配置实测（三个配置文件合计，2026-11-12 复核）
+### 判定所依据的配置实测（三个配置文件合计）
 
 此前将正则 map 记为 0 处不准确：`nginx.conf` 有访客 IP、日志筛选等正则 map，两套站点模板也有 `$label_id`、`$is_api_request` 等正则 map。CVE-2026-42533 的配置级规避在模板：article/sort 的 `$1`、`$2` 先单独 `set` 到普通变量，再与 map 输出变量组合；当前表达式没有先引用数字捕获、再触发 map 覆盖捕获的用法。后续修改这类表达式必须重新复核。
 
@@ -84,7 +84,7 @@ alias location 总数                  16
 **注意**：这个结论绑定当前配置。若将来去掉 map 相关数字捕获的 `set` 隔离、开启 `ssi` / `slice` / `aio`、
 改用 gRPC 上游，或把 `ssl_session_tickets` 打开，对应的 CVE 前置条件可能成立，必须重新评估。
 
-## 为什么 CVE-2026-49975 会被审计漏掉（2026-11-12 补记）
+## 为什么 CVE-2026-49975 会被审计漏掉
 
 nginx 官方**没有把它当 CVE 处理**：
 
@@ -102,10 +102,10 @@ nginx 官方**没有把它当 CVE 处理**：
 全部 hunk 干净应用（OpenResty 只改过同文件的 `no_error_pages` 相关段，不与补丁 hunk 重叠）。
 
 **教训：审计的输入不能只有 advisories 页面。** nginx 把协议滥用类防御记为 Feature 时，
-advisories 不会出现条目，按页面清单对账就会结构性漏掉。从 2026-11-12 起审计输入改为：
+advisories 不会出现条目，按页面清单对账就会结构性漏掉。审计输入改为：
 advisories 全量 + CHANGES 全量（Security 与 Feature 都要过）+ HTTP/2 生态披露（oss-security）。
 
-### 2026-11-12 补丁行为实测（真实容器 + 真实 HTTP/2 连接）
+### 补丁行为实测（真实容器 + 真实 HTTP/2 连接）
 
 两个容器：打补丁的完整镜像 vs `openresty/openresty:1.29.2.5-alpine` 原版（无补丁），
 同一份最小配置（`listen 443 ssl` + `http2 on` + 自签证书），同一 h2 客户端脚本
@@ -166,7 +166,7 @@ grep -c NGX_QUIC_OPENSSL_COMPAT objs/Makefile   # 期望 0
 3. 补丁**从上游源码 diff 原样生成，不要手写**——优先挑 1.29.2 与修复版本之间该文件逐字节相同的，
    这样应用零风险；文件已分叉的需要单独评估并写进本文件；
 4. 提交前先 `patch -p1 --dry-run` 验证；
-5. 构建后必须核对三件事：`nginx -V` 与基础镜像一致（**2026-11-12 起例外**：geoip/image_filter/xslt
+5. 构建后必须核对三件事：`nginx -V` 与基础镜像一致（**例外**：geoip/image_filter/xslt
    三个从未 load_module 的动态模块已从自编译参数中移除，核对时排除这三项，动态模块加载兼容由
    `--with-compat` 保证，brotli 已实测）、`nginx -t` 通过、Lua 与动态模块可正常加载；
 6. 审计输入是三份材料合起来：advisories 全量、CHANGES 全量（Security 与 Feature 都要过，
@@ -174,7 +174,7 @@ grep -c NGX_QUIC_OPENSSL_COMPAT objs/Makefile   # 期望 0
 
 ## 动态模块必须用 OpenResty 源码编译
 
-2026-11-12 定稿。这一节记录一个曾经导致全站不可访问、排查了一整天的构建缺陷。
+这一节记录一个曾经导致全站不可访问、排查了一整天的构建缺陷。
 
 **结论：任何第三方 nginx 动态模块，都必须用 OpenResty 源码包里的 `bundle/nginx-<ver>` 编译，不能用 nginx.org 的官方源码。**
 
@@ -234,22 +234,7 @@ OpenResty 的补丁改动集中在结构体后半部分，所以只有访问尾�
 Dockerfile 已改为从 `openresty.org` 下载源码包、在 `bundle/nginx-<ver>` 里编译模块；
 下载失败时直接失败，不退回 nginx.org 源码。修复后 1.31.8.1 也可用，是否升级另议。
 
-### 2026-11-12 移除未使用的动态模块
-
-自编译 nginx 的 configure 参数去掉了 `--with-http_geoip_module=dynamic`、
-`--with-http_image_filter_module=dynamic`、`--with-http_xslt_module=dynamic` 三个选项，
-构建依赖同步去掉 `geoip-dev`/`libxslt-dev`/`gd-dev`。理由：三者在配置里从未 `load_module`，
-编译进二进制只增加 CVE 审计面与构建时间。注意：
-
-- 基础镜像自带的三个 `.so` 仍在最终镜像的 modules 目录里（来自 `openresty/openresty` 基础层，
-  我们的 `COPY --from=builder` 只新增 brotli 两个），但没有 load_module 指令它们是惰性文件；
-  真正运行的二进制里已不含这三段代码。
-- brotli 两个 `.so` 编译时只带 `--with-compat`，与本二进制的参数差异无关，已实测正常加载。
-- 社区热推清单（headers-more、WAF、GeoIP2、zstd、VTS、dav-ext 等）2026-11-12 全量对照过一遍：
-  headers-more 等已静态编入，其余或与 Java/Lua 层重复、或需要配套基础设施、或无使用场景，
-  不再新增第三方模块。
-
-## 通用攻击事件：采集边界与实现（2026-11-12）
+## 通用攻击事件：采集边界与实现
 
 本框架按行为分类，不按 CVE 编号添加计数器。复用现有 Redis 与 `poetize:security:blacklist:<IP>`，由 `ban_check.lua` 的 access 检查拒绝后续正常请求。Java 的 `/admin/security/blockIp` 受站长鉴权保护，没有专供 nginx 调用的内部封禁入口；因此采用 Lua 直接写临时封禁，既有管理员/更长封禁通过 `SET NX EX` 保留。
 
@@ -261,7 +246,7 @@ Dockerfile 已改为从 `openresty.org` 下载源码包、在 `bundle/nginx-<ver
 
 设计：每 worker 用 1MiB 原生错误 ring 与 1024 项有界队列；`log_by_lua` 最多消费 128 条日志，按消息开头白名单及 connection/status 关联，热路径不扫描 URI/UA，也不做网络 IO。0.1 秒 timer 每批最多刷 128 个事件，Redis 以自己的 `TIME` 为跨实例时钟；单次 EVAL 完成时间戳 `LPUSH`、`LTRIM`、从尾部剔除窗口外条目、阈值判定和封禁。每个 IP/事件列表最多 threshold+1 项，入队/出队摊销 O(1)；配置阈值上限 4096，单次清理最坏 O(threshold)。正常请求新增工作固定有界，正常负载不产生任何 Redis EVAL（实测 0 次）；Redis 故障丢弃积压、退避 5 秒并放行。`NGINX_ATTACK_ENABLED=false` 时 `collection_enabled()` 直接短路，不再注册 timer、不进 log 阶段函数。
 
-### 本地性能对照（2026-11-12，同镜像三模式微基准）
+### 本地性能对照（同镜像三模式微基准）
 
 对照方式：同一补丁镜像、2 worker/128MiB、保留真实 IP 解析 + Redis 黑名单 + xdb 路径，TLS HTTP/1.1 keepalive 1KiB 静态响应，16/64 并发各 5 次随机顺序 8 秒采样（30 样本、230911 请求零错误）。三模式：原版（无 hook/error 级日志）、总开关关闭、默认开启。这是本地微基准，不代表线上容量，也不覆盖 HTTP/2。
 

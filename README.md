@@ -115,58 +115,28 @@ bash <(curl -sL install.leapya.com)
 
 #### 1.1 准备服务器
 
-选择可靠的云服务商即可，根据价格和需求自行决定，常用平台：
+任选一家云服务商：国内如 [阿里云](https://www.aliyun.com/)、[腾讯云](https://www.tencent.com/)、[华为云](https://www.huaweicloud.com/)，海外如 [AWS](https://aws.amazon.com/)、[Vultr](https://www.vultr.com/)、[DigitalOcean](https://www.digitalocean.com/)。
 
-- [阿里云](https://www.aliyun.com/)、[腾讯云](https://www.tencent.com/)、[华为云](https://www.huaweicloud.com/)、[UCloud](https://www.ucloud.cn/)、[雨云](https://www.rainyun.com/) - 国内主流
-- [AWS](https://aws.amazon.com/)、[DigitalOcean](https://www.digitalocean.com/)、[Linode](https://www.linode.com/)、[Heroku](https://www.heroku.com/)、[Vultr](https://www.vultr.com/) - 海外主流
-
-**配置要求：**
-
-- **操作系统**：Ubuntu 20.04+、Debian 11+ 或 CentOS 7/8+（[更多系统测试结果](#14-系统兼容性测试结果)）
-- **CPU/内存**：2核2GB起步（1核1GB可运行但较卡，2核2GB足够了）
-- **硬盘空间**：15GB+
-- **带宽**：1Mbps 起步（套 CDN 后源站只需承担未命中回源流量，1Mbps 足够；未使用 CDN 时建议 5Mbps+，1Mbps≈128KB/s，一个普通页面至少 600KB）
-
-> **免费 CDN 方案（可选，进一步降低源站带宽压力）：**
-> - **腾讯云 EdgeOne**：免费版适合**已备案**域名；未备案域名会绕行美国节点，国内访问龟速，慎用
-> - **Cloudflare**：免费版全球可用，但国内访问默认线路较差，需配置**优选 IP**才能拿到合理速度
-
-**地域与线路选择：**
-
-| 地域 | 优点 | 注意事项 |
-|------|------|---------|
-| 国内 | 访问速度最快，国内搜索引擎收录更友好 | 需要ICP备案（约3-7个工作日） |
-| 香港/海外 | 免备案，即买即用 | 国内访问可能稍慢 |
-
-> **避坑提醒：**
-> - **香港/海外服务器**：优先选择**CN2线路**等有回国优化的线路，避免无线路优化，否则国内访问会很慢
-> - **国内服务器**：大部分云服务商的国内服务器没有海外出口线路或者封海外IP，海外用户访问会很慢甚至无法访问，一定要问清楚再购买，优先选择**BGP多线**，避免单线路（如仅电信/联通），否则国内跨运营商访问会很慢
-> - 如果需要备案，云服务器至少需要购买3个月以上的使用时长
-> - 记得在安全组/防火墙中 **开放80和443端口**
-> - 内存较低时部署脚本会自动开启swap交换空间进行优化
+- **配置**：2核2GB 起步，磁盘 15GB+，系统与配置的详细兼容性见[系统兼容性测试结果](#14-系统兼容性测试结果)
+- **地域**：国内访问快但需 ICP 备案（约 3-7 个工作日，服务器需购买 3 个月以上）；香港/海外免备案即买即用，建议选 CN2 等有回国优化的线路
+- **安全组**：开放 80 和 443 端口
 
 #### 1.2 购买域名
 
-在任意域名注册商购买域名即可，常用平台：
+任选一家注册商：国内如 [阿里云万网](https://wanwang.aliyun.com/)、[腾讯云DNSPod](https://dnspod.cloud.tencent.com/)，海外如 [Cloudflare](https://www.cloudflare.com/products/registrar/)、[Namesilo](https://www.namesilo.com/)。
 
-- [阿里云万网](https://wanwang.aliyun.com/)、[腾讯云DNSPod](https://dnspod.cloud.tencent.com/)、[华为云](https://www.huaweicloud.com/product/domain.html) - 国内主流
-- [Cloudflare](https://www.cloudflare.com/products/registrar/)、[Namesilo](https://www.namesilo.com/)、[Namecheap](https://www.namecheap.com/) - 海外注册商
-
-> 如果使用国内服务器，域名需要完成ICP备案才能正常访问，如果需要备案，域名不要选择 **.tk**、**.ml**、**.ga**、**.cf**、**.org** 等后缀，这些后缀的域名无法备案，选择 **.com**、**.net**、**.top**、**.xyz**、**.cn**、**.online** 等后缀的域名，备案流程可参考[ICP备案](https://help.aliyun.com/zh/icp-filing/basic-icp-service/user-guide/icp-filing-application-overview)，其他云服务商也类似，都是向各自的购买云服务器的云服务商申请备案。
+> 国内服务器需完成 ICP 备案才能访问：.tk/.ml/.ga/.cf/.org 等后缀无法备案，请选择 .com/.net/.top/.xyz/.cn 等；备案向服务器所属云服务商申请，流程参考[阿里云备案指引](https://help.aliyun.com/zh/icp-filing/basic-icp-service/user-guide/icp-filing-application-overview)。
 
 #### 1.3 配置域名解析
 
-购买域名后，需要将域名解析到服务器IP：
-
-1. 登录域名注册商的DNS管理控制台
-2. 添加以下解析记录：
+在域名注册商的 DNS 控制台添加两条 A 记录，指向服务器 IP：
 
 | 记录类型 | 主机记录 | 记录值 | TTL |
 |---------|---------|--------|-----|
 | A | @ | 你的服务器IP | 600 |
 | A | www | 你的服务器IP | 600 |
 
-> **说明**：`@` 表示根域名（如 `example.com`），`www` 表示带www前缀（如 `www.example.com`）。解析生效通常需要几分钟到几小时不等。
+> `@` 为根域名（`example.com`），`www` 为带 www 前缀。解析生效通常需要几分钟到几小时。
 
 #### 1.4 系统兼容性测试结果
 

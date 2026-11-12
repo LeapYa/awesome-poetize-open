@@ -16657,17 +16657,21 @@ reinstall_latest_system() {
     if is_internal_database_enabled; then
         local snapshot_cp_ok=false
         local snapshot_cp_try=0
+        local snapshot_cp_err=""
         while [ $snapshot_cp_try -lt 3 ]; do
             snapshot_cp_try=$((snapshot_cp_try + 1))
-            if cp "$BACKUP_DIR/poetry.sql" "poetize-server/sql/poetry.sql" 2>/dev/null; then
+            # 错误信息必须留下来：重试 3 次仍失败时，唯一能定位原因的就是 cp 自己的报错
+            if snapshot_cp_err=$(cp "$BACKUP_DIR/poetry.sql" "poetize-server/sql/poetry.sql" 2>&1); then
                 snapshot_cp_ok=true
                 break
             fi
-            warning "数据库快照复制失败（第 $snapshot_cp_try/3 次），稍后重试..."
+            warning "数据库快照复制失败（第 $snapshot_cp_try/3 次）: ${snapshot_cp_err:-cp 未返回错误信息}"
             sleep 2
         done
         if [ "$snapshot_cp_ok" != "true" ] || [ ! -s "poetize-server/sql/poetry.sql" ]; then
             error "数据库快照复制失败（已重试 3 次），中止重装，防止旧快照冒充本次备份"
+            error "  源文件: ${BACKUP_DIR:-<BACKUP_DIR 为空>}/poetry.sql"
+            error "  目标路径: $(pwd)/poetize-server/sql/poetry.sql"
             return 1
         fi
         # 快照新鲜度校验：目标文件必须是刚刚写入的；残留旧文件 mtime 陈旧会被在此拦下

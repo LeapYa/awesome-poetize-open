@@ -298,6 +298,10 @@ public class IpUtil {
             // 192.0.0.0/24 (IANA Special-Purpose) 和 192.0.2.0/24 (TEST-NET-1, RFC 5737)
             return false;
         }
+        // 已弃用 6to4 中继保留段，与 nginx ip_cidr.lua 的 never-ban 范围对齐。
+        if (first == 192 && second == 88 && third == 99) {
+            return false;
+        }
         if (first == 192 && second == 168) {
             return false;
         }

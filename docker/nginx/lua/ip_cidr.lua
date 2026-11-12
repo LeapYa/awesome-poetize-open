@@ -31,6 +31,13 @@ end
 -- 处理 :: 缩写，返回 {g0, g1, g2, g3} 或 nil
 local function ipv6_to_uint32_groups(ip)
     if not ip then return nil end
+    -- Java InetAddress 接受尾部嵌入 IPv4 的 IPv6 字面量。
+    local prefix, suffix = ip:match("^(.*:)(%d+%.%d+%.%d+%.%d+)$")
+    if suffix then
+        local v4 = ipv4_to_uint32(suffix)
+        if not v4 then return nil end
+        ip = prefix .. string.format("%x:%x", math.floor(v4 / 65536), v4 % 65536)
+    end
 
     -- 检测并拆分 ::
     local left_str, right_str
@@ -42,7 +49,9 @@ local function ipv6_to_uint32_groups(ip)
         end
         left_str = ip:sub(1, dc_start - 1)
         right_str = ip:sub(dc_end + 1)
+        if left_str:sub(-1) == ":" or right_str:sub(1, 1) == ":" then return nil end
     else
+        if ip:sub(1, 1) == ":" or ip:sub(-1) == ":" then return nil end
         left_str = ip
         right_str = ""
     end
@@ -84,7 +93,9 @@ local function ipv6_to_uint32_groups(ip)
     for i = 1, 8, 2 do
         local hi = tonumber(groups[i], 16)
         local lo = tonumber(groups[i + 1], 16)
-        if not hi or not lo then return nil end
+        if not groups[i]:match("^[%x]+$") or #groups[i] > 4
+           or not groups[i + 1]:match("^[%x]+$") or #groups[i + 1] > 4
+           or not hi or not lo then return nil end
         if hi > 0xFFFF or lo > 0xFFFF then return nil end
         table.insert(uint32_groups, hi * 65536 + lo)
     end
@@ -102,7 +113,7 @@ local function cidr_match(cidr_str, ip)
     if not slash then return false end
     local cidr_ip = cidr_str:sub(1, slash - 1)
     local prefix_len = tonumber(cidr_str:sub(slash + 1))
-    if not prefix_len or prefix_len < 0 then return false end
+    if not prefix_len or prefix_len < 0 or prefix_len % 1 ~= 0 then return false end
 
     if cidr_ip:find(":") then
         -- IPv6
@@ -160,7 +171,7 @@ end
 function _M.normalize_ip(raw)
     if raw == nil then return nil end
 
-    local ip = raw:match("^%s*(.-)%s*$")
+    local ip = string.lower(raw:match("^%s*(.-)%s*$"))
     if ip == "" then return nil end
 
     -- [2001:db8::1]:443 → 2001:db8::1
@@ -182,10 +193,20 @@ function _M.normalize_ip(raw)
 
     -- 用解析器做最终校验（同时拒绝主机名、垃圾串）
     if ip:find(":", 1, true) then
-        if ipv6_to_uint32_groups(ip) then return ip end
-        return nil
+        local groups = ipv6_to_uint32_groups(ip)
+        if not groups then return nil end
+        if groups[1] == 0 and groups[2] == 0 and groups[3] == 65535 then
+            local v4 = groups[4]
+            return string.format("%d.%d.%d.%d", math.floor(v4 / 16777216),
+                math.floor(v4 / 65536) % 256, math.floor(v4 / 256) % 256, v4 % 256)
+        end
+        return ip
     end
-    if ipv4_to_uint32(ip) then return ip end
+    local v4 = ipv4_to_uint32(ip)
+    if v4 then
+        return string.format("%d.%d.%d.%d", math.floor(v4 / 16777216),
+            math.floor(v4 / 65536) % 256, math.floor(v4 / 256) % 256, v4 % 256)
+    end
     return nil
 end
 
@@ -222,11 +243,16 @@ local PRIVATE_CIDRS = {
     "fe80::/10",       -- 链路本地
     "ff00::/8",        -- 组播
     "2001:db8::/32",   -- 文档 (RFC 3849)
+    "2001::/32",       -- Teredo（与 Java IpUtil 对齐）
+    "2002::/16",       -- 6to4（与 Java IpUtil 对齐）
+    "fec0::/10",       -- 已弃用 site-local（Java InetAddress.isSiteLocalAddress）
 }
 
 -- 判断是否为私有 / 回环 / 保留 / 链路本地 IP（非法 IP 返回 true，视为不可作为访客）
 function _M.is_private_ip(ip)
     if not ip or ip == "" then return true end
+    ip = _M.normalize_ip(ip)
+    if not ip then return true end
     if not (ipv4_to_uint32(ip) or ipv6_to_uint32_groups(ip)) then
         return true
     end

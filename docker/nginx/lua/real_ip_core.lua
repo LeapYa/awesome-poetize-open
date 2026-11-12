@@ -40,11 +40,13 @@ end
 --   conf.real_ip_header 厂商真实客户端头名（默认 X-Forwarded-For）
 function _M.build_conf(self_ips_raw, trusted_cidrs_raw, real_ip_header)
     local self_ips = ip_cidr.split_list(self_ips_raw)
-    local self_set = {}
+    local self_set, self_cidrs = {}, {}
     for _, ip in ipairs(self_ips) do
         local normalized = ip_cidr.normalize_ip(ip)
         if normalized then
             self_set[normalized] = true
+        elseif ip:find("/", 1, true) then
+            self_cidrs[#self_cidrs + 1] = string.lower(ip)
         end
     end
 
@@ -56,6 +58,7 @@ function _M.build_conf(self_ips_raw, trusted_cidrs_raw, real_ip_header)
     return {
         self_ips = self_ips,
         self_set = self_set,
+        self_cidrs = self_cidrs,
         trusted_cidrs = ip_cidr.split_list(trusted_cidrs_raw),
         real_ip_header = header,
     }
@@ -80,9 +83,14 @@ end
 function _M.is_trusted(ip, conf)
     if not ip then return false end
     if ip_cidr.is_private_ip(ip) then return true end
+    ip = ip_cidr.normalize_ip(ip)
+    if not ip then return true end
     if conf.self_set[ip] then return true end
-    for _, cidr in ipairs(conf.trusted_cidrs) do
+    for _, cidr in ipairs(conf.self_cidrs or {}) do
         if ip_cidr.cidr_match(cidr, ip) then return true end
+    end
+    for _, cidr in ipairs(conf.trusted_cidrs) do
+        if ip_cidr.cidr_match(cidr, ip) or ip_cidr.normalize_ip(cidr) == ip then return true end
     end
     return false
 end
@@ -114,6 +122,10 @@ function _M.resolve(xff_raw, vendor_raw, remote_addr, conf)
     --    注意回环场景下厂商头也可能等于服务器自身 IP（CDN 把发起回环的服务器当成客户端），
     --    此时跳过它继续走 XFF 链，才能解析出更深的真实访客。
     local header = conf.real_ip_header
+    -- 显式纯直连模式：不信任客户端自行携带的代理头；支持解析阶段事件安全归因。
+    if header and string.lower(header) == "off" then
+        return ip_cidr.normalize_ip(remote_addr) or remote_addr, "remote"
+    end
     if header and string.lower(header) ~= "x-forwarded-for" and vendor_raw and vendor_raw ~= "" then
         local v = last_valid_entry(vendor_raw)
         if v and not _M.is_trusted(v, conf) then

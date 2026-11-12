@@ -37,7 +37,7 @@
 | 1.29.8 | 2026-04-07 | **CVE-2026-49975**（HTTP/2 Bomb，官方 changelog 记为 Feature，见下节） | major（社区评级） | **是**：HTTPS 模板 `http2 on`，真实域名部署默认生效 | **已打补丁**（max_headers） |
 | 1.31.2 | 2026-06-17 | CVE-2026-42055 | medium | 否：无 `grpc_pass`、无 `proxy_protocol` | 不打 |
 | 1.31.2 | 2026-06-17 | CVE-2026-48142 | low | 否：无 `charset_map`（修复只是该指令的配置期校验） | 不打 |
-| 1.31.3 | 2026-07-15 | **CVE-2026-42533** | **major** | 否：`map` 带正则 **0** 处 | 不打 |
+| 1.31.3 | 2026-07-15 | **CVE-2026-42533** | **major** | 当前配置已规避：正则 `map` 存在，但相关数字捕获先由 `set` 保存，未在同一表达式中先引用捕获再触发 map | 不打，保留配置级规避 |
 | 1.31.3 | 2026-07-15 | CVE-2026-56434 | medium | 否：`ssi on` **0** 处 | 不打 |
 | 1.31.3 | 2026-07-15 | CVE-2026-60005 | medium | 否：`slice` 指令 **0** 处 | 不打 |
 | 1.31.6 | 2026-09-15 | CVE-2026-90439 | medium | 否，见下节 | 不适用 |
@@ -54,10 +54,12 @@
 | CVE-2026-42530 | 1.31.0–1.31.1 | 1.29.2 没有对应代码 |
 | CVE-2026-42926 | 1.29.4–1.30.0 | 1.29.2 早于 1.29.4 |
 
-### 判定所依据的配置实测（三个配置文件合计，2026-11-11）
+### 判定所依据的配置实测（三个配置文件合计，2026-11-12 复核）
+
+此前将正则 map 记为 0 处不准确：`nginx.conf` 有访客 IP、日志筛选等正则 map，两套站点模板也有 `$label_id`、`$is_api_request` 等正则 map。CVE-2026-42533 的配置级规避在模板：article/sort 的 `$1`、`$2` 先单独 `set` 到普通变量，再与 map 输出变量组合；当前表达式没有先引用数字捕获、再触发 map 覆盖捕获的用法。后续修改这类表达式必须重新复核。
 
 ```
-map 带正则 (~ 或 *~)                  0
+map 带正则 (~ 或 ~*)                  存在（相关数字捕获已用 set 保存）
 ssi on                               0
 slice 指令                            0
 aio 指令                              0
@@ -79,8 +81,8 @@ alias location 总数                  16
 （只要 HTTPS 模板的 `http2 on` 生效就可达，即所有真实域名部署，影响面比 95101 大得多）。
 均已打补丁，其余 9 条全部不可达，另 13 条由 OpenResty 上游回补。
 
-**注意**：这个结论绑定当前配置。若将来引入 `map` + 正则、开启 `ssi` / `slice` / `aio`、
-改用 gRPC 上游，或把 `ssl_session_tickets` 打开，对应的 CVE 就会变成可达，必须重新评估。
+**注意**：这个结论绑定当前配置。若将来去掉 map 相关数字捕获的 `set` 隔离、开启 `ssi` / `slice` / `aio`、
+改用 gRPC 上游，或把 `ssl_session_tickets` 打开，对应的 CVE 前置条件可能成立，必须重新评估。
 
 ## 为什么 CVE-2026-49975 会被审计漏掉（2026-11-12 补记）
 
@@ -229,3 +231,34 @@ OpenResty 的补丁改动集中在结构体后半部分，所以只有访问尾�
 
 Dockerfile 已改为从 `openresty.org` 下载源码包、在 `bundle/nginx-<ver>` 里编译模块；
 下载失败时直接失败，不退回 nginx.org 源码。修复后 1.31.8.1 也可用，是否升级另议。
+
+## 通用攻击事件：采集边界与实现（2026-11-12）
+
+本框架按行为分类，不按 CVE 编号添加计数器。复用现有 Redis 与 `poetize:security:blacklist:<IP>`，由 `ban_check.lua` 的 access 检查拒绝后续正常请求。Java 的 `/admin/security/blockIp` 受站长鉴权保护，没有专供 nginx 调用的内部封禁入口；因此采用 Lua 直接写临时封禁，既有管理员/更长封禁通过 `SET NX EX` 保留。
+
+| 层次 | 已有能力 | 本次补充 |
+|---|---|---|
+| Java 请求防护 | 恶意路径、路径遍历、URI 路径内 SQL/XSS 特征、缺参探测，共用 1 小时累计 3 次后封禁 24 小时 | 不重复统计后端响应 |
+| 身份与频率 | 搜索引擎伪装验证、脚本/未验证蜘蛛高 301 守卫、接口 `@RateLimit` 限流 | 复用 never-ban 与最终黑名单键，接口限流本身不升级黑名单 |
+| nginx 解析/协议 | max_headers 与 HTTP/3 补丁拒绝非法流量 | E1/E4/E5 计数；E2/E3 仅观测；E6 可选启用 |
+
+设计：每 worker 用 1MiB 原生错误 ring 与 1024 项有界队列；`log_by_lua` 最多消费 128 条日志，按消息开头白名单及 connection/status 关联，热路径不扫描 URI/UA，也不做网络 IO。0.1 秒 timer 每批最多刷 128 个事件，Redis 以自己的 `TIME` 为跨实例时钟；单次 EVAL 完成时间戳 `LPUSH`、`LTRIM`、从尾部剔除窗口外条目、阈值判定和封禁。每个 IP/事件列表最多 threshold+1 项，入队/出队摊销 O(1)；配置阈值上限 4096，单次清理最坏 O(threshold)。默认列表最多 11/21/121 项，时间戳原始负载约 154/294/1694 字节，加 Redis 元数据；采集固定内存约两 worker 共 2MiB ring、2MiB 诊断共享字典及最多 2048 条队列对象，未做吞吐压测，不声称实测延迟。正常请求新增工作固定有界；Redis 故障丢弃积压、退避 5 秒并放行。
+
+| 事件 | 已验证原生特征/状态 | 默认开关、阈值与动作 |
+|---|---|---|
+| E1 | `client sent too many header lines`，400 且 `$http2=h2`；不把所有 h2 400 当头超限 | 开；60 秒内第 11 次封 600 秒 |
+| E2 | 本地 QUIC 数据报真实产生 `quic too short dcid in initial` | 开；仅日志观测，阈值 20 预留、不参与封禁 |
+| E3 | 大 HTTP/2 头真实产生 `client sent too large header ... while processing HTTP/2 connection`，GOAWAY=11 | 开；仅日志观测，阈值 20 预留、不参与封禁 |
+| E4 | `client sent invalid ...` 加 400；本地非法头名触发 | 开；60 秒内第 21 次封 600 秒 |
+| E5 | `client sent too long URI`、`client sent too long header line`；414 或对外 400，内部 494 不直接出现在 access 状态 | 开；60 秒内第 11 次封 600 秒；身份不可得时仅观测 |
+| E6 | 无 upstream 的本地 400/404/405，且未归入其他解析事件 | 关；启用后 60 秒内第 121 次封 600 秒 |
+
+正常 1/100 头请求均为 200；默认容忍偶发畸形/超限，但共享公网出口仍可能聚合错误，需按运维日志调阈值。E6 易被过期资源触发且与已有后端防护重叠，默认关闭；SPA 改写为 200 的未知路径不可见。
+
+归因安全边界：早期 400/414 可能在 rewrite 与身份头读取前结束，不能只读 `$real_client_ip` 的 remote 回退。采集器复用 `core.resolve` 重算并回写统一变量；代理模式缺身份头时仅记 `identity_unavailable`，不能封 CDN 对端。只有显式 `REAL_IP_HEADER=off` 的纯直连模式允许按 remote 计数。E2/E3 的原生日志只有连接对端，即使能够稳定触发也不具备可靠访客身份，因此始终仅观测。前置代理必须覆盖身份头并限制源站回源入口；本框架沿用现有信任链，不为客户端自报头增加新的可信保证。
+
+兼容边界：Lua 与 Java 的 never-ban 均排除非公网、自身 IP/CIDR、可信 IP/CIDR。直接写黑名单的原因必须用 `cjson.encode(reason)` 保存为 JSON String；裸串会使 Java `RedisUtil.get()` 反序列化失败并删键。多实例必须连同一 Redis 数据库，共享 `poetize_runtime` 卷仅共享自身地址探测结果。
+
+不新增以下专用埋点：CVE-2026-42055（grpc/proxy_protocol）、56434（ssi）、60005（slice）、15176（alias+rewrite）、97205（aio）、48142（charset_map）在当前配置无对应入口；42533 按上述捕获隔离规避，不能再以正则 map 为 0 判定；90439 受影响代码不在二进制内；97629 的 session tickets 已关闭；1642 是 nginx 到上游方向的问题，不能靠客户端攻击事件归因覆盖。已有二进制与补丁保持不变。
+
+复现入口为 `scripts/test_nginx_attack_events.py`（本机 Docker、Python h2，`NGINX_EVENTS_TEST_IMAGE` 可指定现有补丁镜像）与 `scripts/test_nginx_ip_guard.lua`（LuaJIT）。集成入口先渲染生产 HTTP/HTTPS 模板跑 `nginx -t`，再测真实 ALPN h2、E1/E4/E5/E6、E2/E3 观测、跨实例阈值/拒绝、never-ban、TTL、开关和 Redis 故障；结果 JSON 与原始容器日志留在忽略的 `temp/nginx-events-test/`。模板校验只替换测试证书与必要的 referer 渲染，不把最小测试配置当作生产模板校验。部署者开关、日志与精确解封命令见 `docs/排障指南.md` 第 6 节。

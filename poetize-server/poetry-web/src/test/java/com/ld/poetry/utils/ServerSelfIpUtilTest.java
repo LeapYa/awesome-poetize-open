@@ -86,6 +86,16 @@ class ServerSelfIpUtilTest {
     }
 
     @Test
+    void neverBanMatchesLuaReservedRangesAndConfiguredExemptions() {
+        ServerSelfIpUtil.reconfigure("8.8.4.0/24", "9.9.9.9", null);
+        for (String ip : new String[]{"192.88.99.1", "2001::1", "2002::1", "fec0::1",
+                "::ffff:192.0.2.1", "8.8.4.4", "9.9.9.9", "2001:db8::1", "bad-address"}) {
+            assertTrue(ServerSelfIpUtil.isNeverBanIp(ip), ip);
+        }
+        assertFalse(ServerSelfIpUtil.isNeverBanIp("1.1.1.1"));
+    }
+
+    @Test
     void trustedProxyPlainIpEntryMatchesExactly() {
         ServerSelfIpUtil.reconfigure(null, "198.51.100.7", null);
         assertTrue(ServerSelfIpUtil.isTrustedProxyIp("198.51.100.7"));

@@ -166,7 +166,9 @@ grep -c NGX_QUIC_OPENSSL_COMPAT objs/Makefile   # 期望 0
 3. 补丁**从上游源码 diff 原样生成，不要手写**——优先挑 1.29.2 与修复版本之间该文件逐字节相同的，
    这样应用零风险；文件已分叉的需要单独评估并写进本文件；
 4. 提交前先 `patch -p1 --dry-run` 验证；
-5. 构建后必须核对三件事：`nginx -V` 与基础镜像一致、`nginx -t` 通过、Lua 与动态模块可正常加载；
+5. 构建后必须核对三件事：`nginx -V` 与基础镜像一致（**2026-11-12 起例外**：geoip/image_filter/xslt
+   三个从未 load_module 的动态模块已从自编译参数中移除，核对时排除这三项，动态模块加载兼容由
+   `--with-compat` 保证，brotli 已实测）、`nginx -t` 通过、Lua 与动态模块可正常加载；
 6. 审计输入是三份材料合起来：advisories 全量、CHANGES 全量（Security 与 Feature 都要过，
    CVE-2026-49975 就是只看 advisories 漏掉的）、HTTP/2 生态的跨软件披露（oss-security）。
 
@@ -231,6 +233,21 @@ OpenResty 的补丁改动集中在结构体后半部分，所以只有访问尾�
 
 Dockerfile 已改为从 `openresty.org` 下载源码包、在 `bundle/nginx-<ver>` 里编译模块；
 下载失败时直接失败，不退回 nginx.org 源码。修复后 1.31.8.1 也可用，是否升级另议。
+
+### 2026-11-12 移除未使用的动态模块
+
+自编译 nginx 的 configure 参数去掉了 `--with-http_geoip_module=dynamic`、
+`--with-http_image_filter_module=dynamic`、`--with-http_xslt_module=dynamic` 三个选项，
+构建依赖同步去掉 `geoip-dev`/`libxslt-dev`/`gd-dev`。理由：三者在配置里从未 `load_module`，
+编译进二进制只增加 CVE 审计面与构建时间。注意：
+
+- 基础镜像自带的三个 `.so` 仍在最终镜像的 modules 目录里（来自 `openresty/openresty` 基础层，
+  我们的 `COPY --from=builder` 只新增 brotli 两个），但没有 load_module 指令它们是惰性文件；
+  真正运行的二进制里已不含这三段代码。
+- brotli 两个 `.so` 编译时只带 `--with-compat`，与本二进制的参数差异无关，已实测正常加载。
+- 社区热推清单（headers-more、WAF、GeoIP2、zstd、VTS、dav-ext 等）2026-11-12 全量对照过一遍：
+  headers-more 等已静态编入，其余或与 Java/Lua 层重复、或需要配套基础设施、或无使用场景，
+  不再新增第三方模块。
 
 ## 通用攻击事件：采集边界与实现（2026-11-12）
 

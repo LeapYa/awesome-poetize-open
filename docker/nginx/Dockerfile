@@ -171,9 +171,10 @@ RUN set -e; \
 
 # ===== nginx 安全补丁构建 =====
 # 1.29.x 已停止 backport，新 CVE 只能自行回补。判定表、可达性分析与新增补丁的规矩见 patches/README.md。
-# 实现方式：下载官方源码包 → 应用 patches/*.patch → 用与基础镜像 `openresty -V` 逐项一致的
-# configure 参数重编 nginx → 只把 objs/nginx 二进制替换进最终镜像（模块集合、动态模块签名、
-# -V 输出均与基础镜像保持一致）。
+# 实现方式：下载官方源码包 → 应用 patches/*.patch → 以基础镜像同款参数重编 nginx → 只把 objs/nginx
+# 二进制替换进最终镜像。
+# 2026-11-12 起有意去掉 geoip/image_filter/xslt 三个从未 load_module 的动态模块（减审计面与构建时间），
+# 本二进制的 -V 不再与基础镜像逐字一致；动态模块加载兼容由 --with-compat 保证（brotli 已实测加载正常）。
 # 复用 builder 阶段的编译环境，避免再装一遍 build-base（国内网络下这一步要好几分钟）。
 FROM builder AS nginx-patch
 
@@ -188,7 +189,8 @@ ENV LUAJIT_INC=/usr/local/openresty/luajit/include/luajit-2.1 \
     LUAJIT_LIB=/usr/local/openresty/luajit/lib
 
 RUN set -e; \
-    if ! apk add --no-cache perl linux-headers geoip-dev libxslt-dev gd-dev; then \
+    # geoip-dev/libxslt-dev/gd-dev 仅服务于已移除的三个动态模块，不再安装
+    if ! apk add --no-cache perl linux-headers; then \
         echo "⚠️  无法安装编译依赖（网络受限），跳过 nginx CVE 补丁，沿用基础镜像自带 nginx"; \
         exit 0; \
     fi; \
@@ -233,10 +235,8 @@ RUN set -e; \
         --with-http_auth_request_module \
         --with-http_dav_module \
         --with-http_flv_module \
-        --with-http_geoip_module=dynamic \
         --with-http_gunzip_module \
         --with-http_gzip_static_module \
-        --with-http_image_filter_module=dynamic \
         --with-http_mp4_module \
         --with-http_random_index_module \
         --with-http_realip_module \
@@ -246,8 +246,6 @@ RUN set -e; \
         --with-http_stub_status_module \
         --with-http_sub_module \
         --with-http_v2_module \
-        --with-http_v3_module \
-        --with-http_xslt_module=dynamic \
         --with-ipv6 \
         --with-mail \
         --with-mail_ssl_module \

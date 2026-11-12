@@ -169,6 +169,10 @@ grep -c NGX_QUIC_OPENSSL_COMPAT objs/Makefile   # 期望 0
 5. 构建后必须核对三件事：`nginx -V` 与基础镜像一致（**例外**：geoip/image_filter/xslt
    三个从未 load_module 的动态模块已从自编译参数中移除，核对时排除这三项，动态模块加载兼容由
    `--with-compat` 保证，brotli 已实测）、`nginx -t` 通过、Lua 与动态模块可正常加载；
+   注意 `--with-http_v3_module` 不在移除之列：default.https.conf 的 `listen 443 quic`
+   依赖它，2026-11-13 曾被当成未使用配置误删，导致 CI 的 nginx -t 报
+   `the "quic" parameter requires ngx_http_v3_module`；判断"未使用"必须以全部
+   conf/template 的实际指令为准，不能只看 load_module；
 6. 审计输入是三份材料合起来：advisories 全量、CHANGES 全量（Security 与 Feature 都要过，
    CVE-2026-49975 就是只看 advisories 漏掉的）、HTTP/2 生态的跨软件披露（oss-security）。
 

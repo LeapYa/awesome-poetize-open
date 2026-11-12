@@ -30,10 +30,11 @@
 | 1.31.0 | 2026-05-13 | CVE-2026-42945（rewrite 堆溢出，CVSS 9.2）、42946（scgi/uwsgi 越界读）、42934（charset 越界读）、40460（HTTP/3 地址伪造）、40701（OCSP resolver UAF） | 1.29.2.4 |
 | 1.31.1 | 2026-05-22 | CVE-2026-9256（rewrite 缓冲区溢出） | 1.29.2.5 |
 
-### 二、1.29.2 受影响且上游**没有**回补的（共 10 条，逐条判定）
+### 二、1.29.2 受影响且上游**没有**回补的（共 11 条，逐条判定）
 
 | nginx 修复版本 | 日期 | CVE | 严重度 | 本项目是否可达 | 处理 |
 |---|---|---|---|---|---|
+| 1.29.8 | 2026-04-07 | **CVE-2026-49975**（HTTP/2 Bomb，官方 changelog 记为 Feature，见下节） | major（社区评级） | **是**：HTTPS 模板 `http2 on`，真实域名部署默认生效 | **已打补丁**（max_headers） |
 | 1.31.2 | 2026-06-17 | CVE-2026-42055 | medium | 否：无 `grpc_pass`、无 `proxy_protocol` | 不打 |
 | 1.31.2 | 2026-06-17 | CVE-2026-48142 | low | 否：无 `charset_map`（修复只是该指令的配置期校验） | 不打 |
 | 1.31.3 | 2026-07-15 | **CVE-2026-42533** | **major** | 否：`map` 带正则 **0** 处 | 不打 |
@@ -67,18 +68,40 @@ ssl_session_tickets off              1     ← 已关闭
 ssl_session_tickets on               0
 http3 on                             1     ← 仅 HTTPS 模板
 listen ... quic                      1     ← 仅 HTTPS 模板
+http2 on                             1     ← 仅 HTTPS 模板（default.https.conf:131）
 alias location 总数                  16
 其中同时含 rewrite                    0
 ```
 
 ## 结论一句话
 
-命中面只有一条：**CVE-2026-95101**，而且只在自建 HTTPS 并开启 HTTP/3 的部署形态下可达
-（CDN 回源、nginx 不做 TLS 的场景不触碰）。已打补丁，其余 9 条全部不可达，
-另 13 条由 OpenResty 上游回补。
+命中面有两条：**CVE-2026-95101**（仅自建 HTTPS + HTTP/3 时可达）与 **CVE-2026-49975**
+（只要 HTTPS 模板的 `http2 on` 生效就可达，即所有真实域名部署，影响面比 95101 大得多）。
+均已打补丁，其余 9 条全部不可达，另 13 条由 OpenResty 上游回补。
 
 **注意**：这个结论绑定当前配置。若将来引入 `map` + 正则、开启 `ssi` / `slice` / `aio`、
 改用 gRPC 上游，或把 `ssl_session_tickets` 打开，对应的 CVE 就会变成可达，必须重新评估。
+
+## 为什么 CVE-2026-49975 会被审计漏掉（2026-11-12 补记）
+
+nginx 官方**没有把它当 CVE 处理**：
+
+1. advisories 页面至今没有这个条目；
+2. nginx 1.29.8（2026-04-07）的 changelog 把 `max_headers` 记为 `Feature:`，不是 `Security:`；
+3. CVE-2026-49975 这个编号由 CNA 分配给了 Apache httpd 变体，nginx 只是社区用它统一指称。
+
+攻击本体（HTTP/2 Bomb，oss-security 2026-06-03 披露）：滥用 HPACK 动态表索引，
+一个请求携带数千个指向同一头部的单字节索引，每个索引在服务端产生约 70 字节的元数据分配
+（放大比约 5700:1），再借流控停滞（零窗口 + 周期性 WINDOW_UPDATE）把已分配的内存锁死不释放。
+单连接、小 VPS 上几十秒可耗尽数十 GB，worker 直接 OOM，且不需要认证。
+
+我们的修复：把 1.29.8 引入的 `max_headers` 指令（默认 1000 个请求头）回补到 1.29.2。
+官方 commit `365694160a85229a7cb006738de9260d49ff5fa2` 在 OpenResty bundle 的 1.29.2 源码上
+全部 hunk 干净应用（OpenResty 只改过同文件的 `no_error_pages` 相关段，不与补丁 hunk 重叠）。
+
+**教训：审计的输入不能只有 advisories 页面。** nginx 把协议滥用类防御记为 Feature 时，
+advisories 不会出现条目，按页面清单对账就会结构性漏掉。从 2026-11-12 起审计输入改为：
+advisories 全量 + CHANGES 全量（Security 与 Feature 都要过）+ HTTP/2 生态披露（oss-security）。
 
 ## 为什么 CVE-2026-90439 不适用
 
@@ -118,7 +141,9 @@ grep -c NGX_QUIC_OPENSSL_COMPAT objs/Makefile   # 期望 0
 3. 补丁**从上游源码 diff 原样生成，不要手写**——优先挑 1.29.2 与修复版本之间该文件逐字节相同的，
    这样应用零风险；文件已分叉的需要单独评估并写进本文件；
 4. 提交前先 `patch -p1 --dry-run` 验证；
-5. 构建后必须核对三件事：`nginx -V` 与基础镜像一致、`nginx -t` 通过、Lua 与动态模块可正常加载。
+5. 构建后必须核对三件事：`nginx -V` 与基础镜像一致、`nginx -t` 通过、Lua 与动态模块可正常加载；
+6. 审计输入是三份材料合起来：advisories 全量、CHANGES 全量（Security 与 Feature 都要过，
+   CVE-2026-49975 就是只看 advisories 漏掉的）、HTTP/2 生态的跨软件披露（oss-security）。
 
 ## 动态模块必须用 OpenResty 源码编译
 

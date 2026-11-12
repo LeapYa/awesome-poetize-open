@@ -104,8 +104,14 @@ def config(probe):
             upstream=ngx.var.upstream_status}))
     }''' if probe else '''lua_capture_error_log 1m;
     lua_shared_dict attack_events 2m;
-    init_worker_by_lua_block { require("attack_events").init_worker() }
-    log_by_lua_block { require("attack_events").log_request() }'''
+    init_worker_by_lua_block {
+        local events = require("attack_events")
+        if events.collection_enabled() then events.init_worker() end
+    }
+    log_by_lua_block {
+        local events = require("attack_events")
+        if events.collection_enabled() then events.log_request() end
+    }'''
     return f'''worker_processes 2;
 pid /tmp/events-nginx.pid;
 error_log stderr info;

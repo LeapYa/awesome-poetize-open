@@ -75,6 +75,7 @@ local function native_feature(line)
 end
 
 local function log(event, ip, action, reason, count)
+    -- 结构化结果保持 warn，不依赖全局 error_log info；正常请求不写此类日志。
     ngx.log(ngx.WARN, "attack_event ", cjson.encode({event = event, ip = ip or "unknown",
         action = action, reason = reason, count = count or 0,
         window_seconds = window, ban_seconds = ban_ttl}))
@@ -239,6 +240,10 @@ local function flush(premature)
     end
     red:set_keepalive(10000, 10)
     if head > tail then queue, head, tail = {}, 1, 0 end
+end
+
+function M.collection_enabled()
+    return active
 end
 
 function M.init_worker()

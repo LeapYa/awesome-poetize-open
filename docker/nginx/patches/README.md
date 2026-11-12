@@ -242,7 +242,24 @@ Dockerfile 已改为从 `openresty.org` 下载源码包、在 `bundle/nginx-<ver
 | 身份与频率 | 搜索引擎伪装验证、脚本/未验证蜘蛛高 301 守卫、接口 `@RateLimit` 限流 | 复用 never-ban 与最终黑名单键，接口限流本身不升级黑名单 |
 | nginx 解析/协议 | max_headers 与 HTTP/3 补丁拒绝非法流量 | E1/E4/E5 计数；E2/E3 仅观测；E6 可选启用 |
 
-设计：每 worker 用 1MiB 原生错误 ring 与 1024 项有界队列；`log_by_lua` 最多消费 128 条日志，按消息开头白名单及 connection/status 关联，热路径不扫描 URI/UA，也不做网络 IO。0.1 秒 timer 每批最多刷 128 个事件，Redis 以自己的 `TIME` 为跨实例时钟；单次 EVAL 完成时间戳 `LPUSH`、`LTRIM`、从尾部剔除窗口外条目、阈值判定和封禁。每个 IP/事件列表最多 threshold+1 项，入队/出队摊销 O(1)；配置阈值上限 4096，单次清理最坏 O(threshold)。默认列表最多 11/21/121 项，时间戳原始负载约 154/294/1694 字节，加 Redis 元数据；采集固定内存约两 worker 共 2MiB ring、2MiB 诊断共享字典及最多 2048 条队列对象，未做吞吐压测，不声称实测延迟。正常请求新增工作固定有界；Redis 故障丢弃积压、退避 5 秒并放行。
+设计：每 worker 用 1MiB 原生错误 ring 与 1024 项有界队列；`log_by_lua` 最多消费 128 条日志，按消息开头白名单及 connection/status 关联，热路径不扫描 URI/UA，也不做网络 IO。0.1 秒 timer 每批最多刷 128 个事件，Redis 以自己的 `TIME` 为跨实例时钟；单次 EVAL 完成时间戳 `LPUSH`、`LTRIM`、从尾部剔除窗口外条目、阈值判定和封禁。每个 IP/事件列表最多 threshold+1 项，入队/出队摊销 O(1)；配置阈值上限 4096，单次清理最坏 O(threshold)。正常请求新增工作固定有界，正常负载不产生任何 Redis EVAL（实测 0 次）；Redis 故障丢弃积压、退避 5 秒并放行。`NGINX_ATTACK_ENABLED=false` 时 `collection_enabled()` 直接短路，不再注册 timer、不进 log 阶段函数。
+
+### 本地性能对照（2026-11-12，同镜像三模式微基准）
+
+对照方式：同一补丁镜像、2 worker/128MiB、保留真实 IP 解析 + Redis 黑名单 + xdb 路径，TLS HTTP/1.1 keepalive 1KiB 静态响应，16/64 并发各 5 次随机顺序 8 秒采样（30 样本、230911 请求零错误）。三模式：原版（无 hook/error 级日志）、总开关关闭、默认开启。这是本地微基准，不代表线上容量，也不覆盖 HTTP/2。
+
+修复前（框架首次压测）发现两个回归并已修复：
+
+1. **`error_log` 提到 info 后正常请求日志放大**：每个请求约 277 字节额外日志。根因是 `ban_check.lua` 的 vectorIndex 加载日志用 info 级——而这暴露了一个更早的缺陷：`access_by_lua_file` 每次请求重新执行整个文件块，文件顶层 `local v4_vindex` 等变量随请求重建，注释里宣称的"worker 级缓存"从未生效，等于**每个请求重载一次 512KiB vectorIndex**（原版 error 级日志只是把这个成本藏住了）。
+2. **总开关关闭不等于回到原版**：hook/ring/共享字典/log 函数调用仍保留。
+
+修复后状态：
+
+- `ban_check.lua` 的 xdb 状态移入 `package.loaded["poetize.ban_check.xdb"]`，真正实现 worker 级缓存；实测集成日志中三个容器合计仅 4 条加载日志（每 worker 首载 1 条），修复前为每请求 1 条。这也顺带消除了每请求 512KiB 的重复分配。
+- vectorIndex 加载日志降为 notice（只在真正加载/重载时出现）；`error_log` 保持 info——E1 的原生拒绝（`client sent too many header lines`）是 info 级，降回 error 会漏采 E1。info 级下正常流量的残余日志只有 keepalive 断开一条（约每连接 1 条，1000 个新连接实测 361KB）。
+- `NGINX_ATTACK_ENABLED=false` 时 log 阶段与 init_worker 均被 `collection_enabled()` 短路，新增成本只剩配置声明。
+
+修复前的中位数对照（供参考）：16 并发吞吐与原版持平（差异在噪声内）、CPU +4.9%；64 并发吞吐 −3.5%、CPU +9.4%、P95 92.71ms 对 91.96ms。修复后的复测数字见 `temp/nginx-events-perf/results.json`（修复前基线存档 `results-prefix.json`），判定以复测为准。
 
 | 事件 | 已验证原生特征/状态 | 默认开关、阈值与动作 |
 |---|---|---|

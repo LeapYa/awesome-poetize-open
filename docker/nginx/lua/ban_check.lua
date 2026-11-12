@@ -84,18 +84,22 @@ local XDB_V6_FALLBACK = "/usr/local/openresty/xdb/ip2region_v6.xdb"
 -- Nginx 每 60s 检测文件大小变化，变化时重载 vectorIndex
 local XDB_CHECK_INTERVAL = 60
 
--- worker 级 vectorIndex 缓存（每个 Nginx worker 独立持有 v_index 实例）
 -- vectorIndex cache 模式：xdb.load_vector_index(path) → 每请求 xdb.new_with_vector_index(version, path, v_index) → searcher:search_by_string(ip) → searcher:close()
--- v_index 全局共享（512KiB），searcher 每请求创建/销毁（每个 searcher 持有独立文件句柄）
+-- v_index 每 worker 共享（512KiB），searcher 每请求创建/销毁（每个 searcher 持有独立文件句柄）
 -- 数据段通过文件 IO 读取，内核页缓存多 worker 共享，内存占用极低
-local v4_vindex = nil   -- vectorIndex 缓存（512KiB），worker 级共享
-local v6_vindex = nil
-local v4_path = nil     -- v_index 对应的 xdb 路径（创建 searcher 时需要）
-local v6_path = nil
-local v4_size = 0       -- 上次加载时的文件大小，用于热重载检测
-local v6_size = 0
-local v4_last_check = 0 -- 上次检查时间戳
-local v6_last_check = 0
+--
+-- 本文件由 access_by_lua_file 执行。它没有独立模块环境，顶层 local 会随每次请求重建。
+-- 因此缓存必须放进 package.loaded，不能误写成文件顶层 local。
+local xdb_cache = package.loaded["poetize.ban_check.xdb"]
+if not xdb_cache then
+    xdb_cache = {
+        v4_vindex = nil, v6_vindex = nil,
+        v4_path = nil, v6_path = nil,
+        v4_size = 0, v6_size = 0,
+        v4_last_check = 0, v6_last_check = 0,
+    }
+    package.loaded["poetize.ban_check.xdb"] = xdb_cache
+end
 
 -- AI 爬虫硬名单（与 Java CacheConstants.BUILTIN_AI_CRAWLER_UA 保持同步）
 -- 阻断训练数据采集，允许搜索/用户引用爬虫
@@ -287,39 +291,41 @@ local function ensure_v4_vindex()
 
     local now = ngx.now()
     -- 未到检查间隔，直接返回现有 v_index
-    if v4_vindex and (now - v4_last_check) < XDB_CHECK_INTERVAL then
-        return v4_vindex, v4_path
+    if xdb_cache.v4_vindex and (now - xdb_cache.v4_last_check) < XDB_CHECK_INTERVAL then
+        return xdb_cache.v4_vindex, xdb_cache.v4_path
     end
-    v4_last_check = now
+    xdb_cache.v4_last_check = now
 
     -- 选择 xdb 路径（共享卷优先，fallback 兜底）
     local path, size = resolve_xdb_path(XDB_V4_SHARED, XDB_V4_FALLBACK)
     if not path then
-        if v4_vindex then
+        if xdb_cache.v4_vindex then
             ngx.log(ngx.WARN, "ban_check: v4 xdb 文件不可用，保留旧 v_index")
-            return v4_vindex, v4_path
+            return xdb_cache.v4_vindex, xdb_cache.v4_path
         end
         ngx.log(ngx.WARN, "ban_check: v4 xdb 文件不存在，地区封禁对 IPv4 将 fail-open")
         return nil, nil
     end
 
     -- 文件大小和路径未变，无需重载
-    if v4_vindex and size == v4_size and path == v4_path then
-        return v4_vindex, v4_path
+    if xdb_cache.v4_vindex and size == xdb_cache.v4_size and path == xdb_cache.v4_path then
+        return xdb_cache.v4_vindex, xdb_cache.v4_path
     end
 
     -- 加载新版本 vectorIndex（512KiB，比 content cache 的 11MB 省 95% 内存）
     local v_index, err = xdb_mod.load_vector_index(path)
     if not v_index then
         ngx.log(ngx.WARN, "ban_check: 加载 v4 xdb vectorIndex 失败: ", path, " err=", err or "unknown")
-        return v4_vindex, v4_path  -- 保留旧 v_index
+        return xdb_cache.v4_vindex, xdb_cache.v4_path  -- 保留旧 v_index
     end
 
-    v4_vindex = v_index
-    v4_path = path
-    v4_size = size
-    ngx.log(ngx.INFO, "ban_check: v4 vectorIndex 已加载/重载: ", path, " size=", size)
-    return v4_vindex, v4_path
+    xdb_cache.v4_vindex = v_index
+    xdb_cache.v4_path = path
+    xdb_cache.v4_size = size
+    -- 只在真正加载或重载时记录。不能使用 info：全局日志为捕获 E1 必须保持 info，
+    -- 而 keepalive 断开等正常事件也会进入该级别。
+    ngx.log(ngx.NOTICE, "ban_check: v4 vectorIndex 已加载/重载: ", path, " size=", size)
+    return xdb_cache.v4_vindex, xdb_cache.v4_path
 end
 
 -- 惰性加载 v6 vectorIndex（逻辑同 ensure_v4_vindex）
@@ -327,36 +333,36 @@ local function ensure_v6_vindex()
     if not xdb_mod then return nil, nil end
 
     local now = ngx.now()
-    if v6_vindex and (now - v6_last_check) < XDB_CHECK_INTERVAL then
-        return v6_vindex, v6_path
+    if xdb_cache.v6_vindex and (now - xdb_cache.v6_last_check) < XDB_CHECK_INTERVAL then
+        return xdb_cache.v6_vindex, xdb_cache.v6_path
     end
-    v6_last_check = now
+    xdb_cache.v6_last_check = now
 
     local path, size = resolve_xdb_path(XDB_V6_SHARED, XDB_V6_FALLBACK)
     if not path then
-        if v6_vindex then
+        if xdb_cache.v6_vindex then
             ngx.log(ngx.WARN, "ban_check: v6 xdb 文件不可用，保留旧 v_index")
-            return v6_vindex, v6_path
+            return xdb_cache.v6_vindex, xdb_cache.v6_path
         end
         ngx.log(ngx.WARN, "ban_check: v6 xdb 文件不存在，地区封禁对 IPv6 将 fail-open")
         return nil, nil
     end
 
-    if v6_vindex and size == v6_size and path == v6_path then
-        return v6_vindex, v6_path
+    if xdb_cache.v6_vindex and size == xdb_cache.v6_size and path == xdb_cache.v6_path then
+        return xdb_cache.v6_vindex, xdb_cache.v6_path
     end
 
     local v_index, err = xdb_mod.load_vector_index(path)
     if not v_index then
         ngx.log(ngx.WARN, "ban_check: 加载 v6 xdb vectorIndex 失败: ", path, " err=", err or "unknown")
-        return v6_vindex, v6_path
+        return xdb_cache.v6_vindex, xdb_cache.v6_path
     end
 
-    v6_vindex = v_index
-    v6_path = path
-    v6_size = size
-    ngx.log(ngx.INFO, "ban_check: v6 vectorIndex 已加载/重载: ", path, " size=", size)
-    return v6_vindex, v6_path
+    xdb_cache.v6_vindex = v_index
+    xdb_cache.v6_path = path
+    xdb_cache.v6_size = size
+    ngx.log(ngx.NOTICE, "ban_check: v6 vectorIndex 已加载/重载: ", path, " size=", size)
+    return xdb_cache.v6_vindex, xdb_cache.v6_path
 end
 
 -- 解析 IP 地区：根据 IP 类型选 v_index，每请求创建临时 searcher 查 xdb，返回 nation, province

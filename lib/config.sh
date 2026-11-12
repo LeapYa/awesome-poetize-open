@@ -9,7 +9,7 @@
 # 配置文件路径（相对于项目根目录）
 ENV_FILE=".env"
 ENV_EXAMPLE_FILE=".env.example"
-BACKUP_DIR=".config/env_backups"
+ENV_BACKUP_DIR=".config/env_backups"
 MAX_BACKUPS=5
 
 # ============================================
@@ -151,9 +151,9 @@ update_env_vars() {
 # 返回: 0 成功, 1 失败
 backup_env_config() {
     local timestamp=$(date +%Y%m%d_%H%M%S)
-    local backup_file="${BACKUP_DIR}/env_${timestamp}.bak"
+    local backup_file="${ENV_BACKUP_DIR}/env_${timestamp}.bak"
     
-    mkdir -p "$BACKUP_DIR"
+    mkdir -p "$ENV_BACKUP_DIR"
     
     if [ -f "$ENV_FILE" ]; then
         cp "$ENV_FILE" "$backup_file"
@@ -170,15 +170,15 @@ backup_env_config() {
 
 # 清理旧备份，保留最近 MAX_BACKUPS 个
 cleanup_old_backups() {
-    if [ ! -d "$BACKUP_DIR" ]; then
+    if [ ! -d "$ENV_BACKUP_DIR" ]; then
         return 0
     fi
     
-    local backup_count=$(ls -1 "$BACKUP_DIR"/env_*.bak 2>/dev/null | wc -l)
+    local backup_count=$(ls -1 "$ENV_BACKUP_DIR"/env_*.bak 2>/dev/null | wc -l)
     
     if [ "$backup_count" -gt "$MAX_BACKUPS" ]; then
         local to_delete=$((backup_count - MAX_BACKUPS))
-        ls -1t "$BACKUP_DIR"/env_*.bak 2>/dev/null | tail -n "$to_delete" | xargs rm -f
+        ls -1t "$ENV_BACKUP_DIR"/env_*.bak 2>/dev/null | tail -n "$to_delete" | xargs rm -f
         _config_info "已清理 $to_delete 个旧备份"
     fi
 }
@@ -191,7 +191,7 @@ restore_env_config() {
     
     if [ -z "$backup_file" ]; then
         # 使用最新备份
-        backup_file=$(ls -1t "$BACKUP_DIR"/env_*.bak 2>/dev/null | head -1)
+        backup_file=$(ls -1t "$ENV_BACKUP_DIR"/env_*.bak 2>/dev/null | head -1)
     fi
     
     if [ -f "$backup_file" ]; then
@@ -206,13 +206,13 @@ restore_env_config() {
 
 # 列出可用备份
 list_backups() {
-    if [ ! -d "$BACKUP_DIR" ] || [ -z "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]; then
+    if [ ! -d "$ENV_BACKUP_DIR" ] || [ -z "$(ls -A "$ENV_BACKUP_DIR" 2>/dev/null)" ]; then
         _config_info "没有可用的配置备份"
         return 0
     fi
     
     echo "可用的配置备份:"
-    ls -1t "$BACKUP_DIR"/env_*.bak 2>/dev/null | while read f; do
+    ls -1t "$ENV_BACKUP_DIR"/env_*.bak 2>/dev/null | while read f; do
         local filename=$(basename "$f")
         local timestamp="${filename#env_}"
         timestamp="${timestamp%.bak}"

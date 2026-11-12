@@ -161,5 +161,21 @@ check "必需函数名单已赋值（块在顶层）" "25" "$fn_total"
 fn_miss=$(set +u; POETIZE_SOURCE_ONLY=true bash -c 'source "$1" >/dev/null 2>&1; for f in $POETIZE_REQUIRED_FUNCS; do type -t "$f" >/dev/null 2>&1 || printf "%s " "$f"; done' _ "$work/poetize_defs.sh" 2>/dev/null)
 check "25 个函数全部真实可加载" "" "$fn_miss"
 
+printf '\n--- 7. 配置库不再与主脚本撞名 ---\n'
+# 事故：lib/config.sh 曾定义同名全局变量 BACKUP_DIR=".config/env_backups"，
+# 升级流程里任何一次 source 都会把创建的备份目录覆盖掉，重装阶段就找不到 poetry.sql。
+check "lib/config.sh 不再定义 BACKUP_DIR" "0" "$(grep -c '^BACKUP_DIR=' lib/config.sh)"
+guard_backup=$(bash -c '
+  BACKUP_DIR="/tmp/poetize_update_backup_guard"
+  source lib/config.sh
+  [ "$BACKUP_DIR" = "/tmp/poetize_update_backup_guard" ] && echo yes || echo "no:$BACKUP_DIR"
+' 2>/dev/null)
+check "加载 lib/config.sh 不覆盖 BACKUP_DIR" "yes" "$guard_backup"
+eval "$(tr -d '\r' < poetize | sed -n '/^is_internal_database_enabled()/,/^}/p')"
+BACKUP_DIR="/tmp/poetize_update_backup_guard"
+unset ENABLE_MYSQL
+is_internal_database_enabled >/dev/null 2>&1 || true
+check "内部库判定不覆盖 BACKUP_DIR" "/tmp/poetize_update_backup_guard" "$BACKUP_DIR"
+
 printf '\n结果: %s 项失败\n' "$fail"
 [ "$fail" -eq 0 ]

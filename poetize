@@ -18619,5 +18619,1001 @@ main() {
     dispatch_command "${1:-}" "${@:2}"
 }
 
+# ===== 主脚本层补齐的函数（原本只存在于内嵌 deploy-core.sh 的 heredoc 文本里）=====
+# poetize 内嵌了 deploy-core.sh 全文作为 heredoc（第 475-11877 行），那份文本里的函数定义
+# 只是被 cat 输出的字符串，只有 change_domain / enable_https 会把它 source 进当前 shell。
+# 升级流程不会 source，调用其中 25 个函数时 bash 只报 command not found 并继续执行——这正是
+# write_snapshot_meta 与 get_snapshot_baseline_status 缺失、快照基线写不出、恢复流程退化为
+# 保守判定的根因。下面这份是主脚本层的真实定义，与内嵌脚本内容逐字一致，改动请同步两边。
+
+auto_confirm() {
+  local prompt="$1"
+  local default_answer="${2:-y}"
+  local options="${3:--n 1 -r}"
+  
+  # 如果是自动确认模式，直接返回默认答案
+  if [ "$AUTO_YES" = "true" ]; then
+    echo "$prompt"
+    echo "自动回答: $default_answer (AUTO_YES=true)"
+    REPLY="$default_answer"
+    echo ""
+    # 根据默认答案返回相应的退出码
+    case "$default_answer" in
+      [Yy]|[Yy][Ee][Ss]) return 0 ;;
+      [Nn]|[Nn][Oo]) return 1 ;;
+      *) return 0 ;;
+    esac
+  fi
+  
+  # 带超时的用户输入
+  echo -n "$prompt"
+  if read -t 30 $options; then
+    # 用户在30秒内输入了内容
+    echo ""
+  else
+    # 超时或用户未输入，使用默认答案
+    echo ""
+    echo "30秒内未收到输入，自动选择默认选项: $default_answer"
+    REPLY="$default_answer"
+  fi
+  echo ""
+  
+  # 根据用户输入返回相应的退出码
+  case "$REPLY" in
+    [Yy]|[Yy][Ee][Ss]) return 0 ;;
+    [Nn]|[Nn][Oo]) return 1 ;;
+    "") 
+      # 空输入使用默认答案
+      case "$default_answer" in
+        [Yy]|[Yy][Ee][Ss]) return 0 ;;
+        [Nn]|[Nn][Oo]) return 1 ;;
+        *) return 0 ;;
+      esac
+      ;;
+    *) 
+      # 其他输入使用默认答案
+      case "$default_answer" in
+        [Yy]|[Yy][Ee][Ss]) return 0 ;;
+        [Nn]|[Nn][Oo]) return 1 ;;
+        *) return 0 ;;
+      esac
+      ;;
+  esac
+}
+
+configure_ip_access_block() {
+  info "配置IP访问策略..."
+  
+  # 判断主域名是否为IP地址格式
+  local is_ip_deployment=false
+  
+  # 检查是否为 localhost
+  if [ "$PRIMARY_DOMAIN" = "localhost" ]; then
+    is_ip_deployment=true
+  # 检查是否为 127.0.0.1
+  elif [ "$PRIMARY_DOMAIN" = "127.0.0.1" ]; then
+    is_ip_deployment=true
+  # 检查是否为有效的IPv4地址格式
+  elif is_valid_ipv4 "$PRIMARY_DOMAIN"; then
+    is_ip_deployment=true
+  # 检查是否为有效的IPv6地址格式  
+  elif is_valid_ipv6 "$PRIMARY_DOMAIN"; then
+    is_ip_deployment=true
+  fi
+  
+  if [ "$is_ip_deployment" = true ]; then
+    # IP地址部署模式：删除IP访问拦截配置，允许IP直接访问
+    info "检测到IP地址部署模式 ($PRIMARY_DOMAIN)，允许IP直接访问"
+    
+    # 删除 BLOCK_IP_ACCESS_START 和 BLOCK_IP_ACCESS_END 之间的所有内容
+    # 注意：只处理 HTTP 配置，HTTPS 配置仅在域名部署时使用，不需要处理
+    sed_i '/# BLOCK_IP_ACCESS_START/,/# BLOCK_IP_ACCESS_END/d' docker/nginx/default.http.conf
+    sed_i '/# BLOCK_IP_ACCESS_START/,/# BLOCK_IP_ACCESS_END/d' docker/nginx/default.conf
+    
+    # 同时删除开头的注释说明（如果还存在的话）
+    sed_i '/# ===== 禁止IP直接访问配置（仅域名模式启用）=====/d' docker/nginx/default.http.conf
+    sed_i '/# ===== 禁止IP直接访问配置（仅域名模式启用）=====/d' docker/nginx/default.conf
+    
+    success "已配置为允许IP直接访问"
+  else
+    # 域名部署模式：保留IP访问拦截配置
+    info "检测到域名部署模式 ($PRIMARY_DOMAIN)，将禁止IP直接访问"
+    success "已配置为禁止IP直接访问（仅允许通过域名访问）"
+  fi
+}
+
+disable_certbot_service() {
+  info "禁用certbot容器..."
+  
+  # 使用 .env 文件控制 HTTPS，certbot 通过 profiles 控制
+  # 当 ENABLE_HTTPS=false 时，docker-compose 不会启动 certbot 服务
+  if [ -f "lib/config.sh" ]; then
+    source "lib/config.sh"
+    update_env_var "ENABLE_HTTPS" "false"
+    sync_compose_profiles  # 同步 COMPOSE_PROFILES
+    success "已通过 .env 禁用 HTTPS (certbot 将不会启动)"
+  else
+    # 回退方案：如果 config.sh 不可用，使用旧的 awk 方法
+    warning "配置库不可用，使用传统方法禁用 certbot"
+    awk '
+    /^  certbot:/ {
+      in_certbot = 1
+      print "  # " $0 " # 已禁用（不需要SSL证书）"
+      next
+    }
+    in_certbot {
+      # 检查是否到了下一个服务定义（以两个空格开头后跟非空格字符）
+      if (/^  [^ ]/) {
+        in_certbot = 0
+        print
+      } else if (/^$/) {
+        # 空行保持原样
+        print
+      } else {
+        # 注释掉certbot服务内的所有行
+        print "  #" $0
+      }
+      next
+    }
+    {
+      print
+    }
+    ' docker-compose.yml > docker-compose.yml.tmp && mv docker-compose.yml.tmp docker-compose.yml
+  fi
+  
+  success "已禁用certbot容器"
+}
+
+ensure_project_workdir() {
+  if [ -n "$POETIZE_PROJECT_DIR" ] && [ -d "$POETIZE_PROJECT_DIR" ]; then
+    cd "$POETIZE_PROJECT_DIR" 2>/dev/null || return 1
+    return 0
+  fi
+
+  ensure_accessible_workdir
+}
+
+extract_server_names_from_nginx_file() {
+  local nginx_config_file="$1"
+
+  [ -f "$nginx_config_file" ] || return 1
+
+  awk '
+    /# AUTO_REDIRECT_SECONDARY_DOMAINS_START/ { in_auto_redirect = 1; next }
+    /# AUTO_REDIRECT_SECONDARY_DOMAINS_END/ { in_auto_redirect = 0; next }
+    in_auto_redirect { next }
+    /^[[:space:]]*server_name[[:space:]]+/ {
+      line = $0
+      sub(/^[[:space:]]*server_name[[:space:]]+/, "", line)
+      sub(/;.*/, "", line)
+      count = split(line, names, /[[:space:]]+/)
+      for (i = 1; i <= count; i++) {
+        if (names[i] != "" && names[i] != "_" && names[i] != "example.com" && names[i] != "www.example.com") {
+          print names[i]
+        }
+      }
+    }
+  ' "$nginx_config_file" | sort -u
+}
+
+get_server_public_ip() {
+  local ip=""
+  local timeout="${DNS_CHECK_TIMEOUT:-5}"
+  
+  # IP检测服务列表（按优先级排序）
+  local services=(
+    "ifconfig.me"
+    "ipinfo.io/ip"
+    "icanhazip.com"
+    "api.ipify.org"
+    "checkip.amazonaws.com"
+  )
+  
+  # 依次尝试各个服务
+  for service in "${services[@]}"; do
+    if command -v curl &>/dev/null; then
+      ip=$(curl -s --connect-timeout "$timeout" --max-time "$timeout" "http://$service" 2>/dev/null | tr -d '[:space:]')
+    elif command -v wget &>/dev/null; then
+      ip=$(wget -qO- --timeout="$timeout" "http://$service" 2>/dev/null | tr -d '[:space:]')
+    fi
+    
+    # 验证获取的IP是否有效
+    if [ -n "$ip" ] && is_valid_ipv4 "$ip"; then
+      echo "$ip"
+      return 0
+    fi
+  done
+  
+  # 所有服务都失败
+  echo ""
+  return 1
+}
+
+get_snapshot_baseline_status() {
+    local meta_file="$1"
+    local mariadb_container="$2"
+    local db_root_password="$3"
+    local snapshot_count=""
+    local db_count=""
+
+    [ -f "$meta_file" ] || { printf "UNKNOWN\n"; return 0; }
+    snapshot_count=$(grep '^SNAPSHOT_MIGRATION_COUNT=' "$meta_file" | head -n 1 | cut -d'=' -f2- | tr -d '[:space:]')
+    [ -n "$snapshot_count" ] || { printf "UNKNOWN\n"; return 0; }
+    # 0 / 非数字不是有效基线：查询失败时 write_snapshot_meta 兜底写 0，而任何库计数都 >= 0，
+    # 若当有效基线则恒判 FRESH → 跳过导入 → 重演 v5.2.8"恢复成功假象"。按 UNKNOWN 保守恢复。
+    [ "$snapshot_count" -gt 0 ] 2>/dev/null || { printf "UNKNOWN\n"; return 0; }
+
+    db_count=$(sql_exec_query_in_container "$mariadb_container" "$db_root_password" \
+        "SELECT COUNT(*) FROM db_migrations WHERE success = 1;" 2>/dev/null | tr -d '[:space:]')
+    db_count="${db_count:-0}"
+
+    if [ "$db_count" -lt "$snapshot_count" ] 2>/dev/null; then
+        printf "STALE\n"
+    else
+        printf "FRESH\n"
+    fi
+}
+
+handle_https_port_mapping() {
+  local compose_file="docker-compose.yml"
+  if [ ! -f "$compose_file" ]; then
+    return
+  fi
+
+  if [ "$ENABLE_HTTPS" = "false" ]; then
+    info "检测到 HTTPS 已禁用，正在从 docker-compose.yml 中禁用 443 端口映射..."
+    # 注释掉 443 端口映射 (TCP 和 UDP)
+    sed_i 's/^\(\s*\)- "\${HTTPS_PORT:-443}:443\/tcp"/\1# - "\${HTTPS_PORT:-443}:443\/tcp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)- "\${HTTPS_PORT:-443}:443\/udp"/\1# - "\${HTTPS_PORT:-443}:443\/udp"/g' "$compose_file"
+    # 兼容直接写死端口的情况
+    sed_i 's/^\(\s*\)- "443:443\/tcp"/\1# - "443:443\/tcp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)- "443:443\/udp"/\1# - "443:443\/udp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)- "443:443"/\1# - "443:443"/g' "$compose_file"
+  else
+    # 确保 443 端口映射未被注释
+    sed_i 's/^\(\s*\)# - "\${HTTPS_PORT:-443}:443\/tcp"/\1- "\${HTTPS_PORT:-443}:443\/tcp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)# - "\${HTTPS_PORT:-443}:443\/udp"/\1- "\${HTTPS_PORT:-443}:443\/udp"/g' "$compose_file"
+    # 兼容直接写死端口的情况（恢复）
+    sed_i 's/^\(\s*\)# - "443:443\/tcp"/\1- "443:443\/tcp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)# - "443:443\/udp"/\1- "443:443\/udp"/g' "$compose_file"
+    sed_i 's/^\(\s*\)# - "443:443"/\1- "443:443"/g' "$compose_file"
+  fi
+}
+
+ip_list_contains() {
+  local ip_list="$1"
+  local target_ip="$2"
+  
+  for ip in $ip_list; do
+    if [ "$ip" = "$target_ip" ]; then
+      return 0
+    fi
+  done
+  
+  return 1
+}
+
+is_private_ip() {
+  local ip="$1"
+  
+  # 检查IPv4内网地址
+  if is_valid_ipv4 "$ip"; then
+    # 分割IP地址
+    local IFS='.'
+    read -ra octets <<< "$ip"
+    local o1=$((10#${octets[0]}))
+    local o2=$((10#${octets[1]}))
+    
+    # 检查 10.0.0.0/8 (10.0.0.0 - 10.255.255.255)
+    if [ "$o1" -eq 10 ]; then
+      return 0
+    fi
+    
+    # 检查 172.16.0.0/12 (172.16.0.0 - 172.31.255.255)
+    if [ "$o1" -eq 172 ] && [ "$o2" -ge 16 ] && [ "$o2" -le 31 ]; then
+      return 0
+    fi
+    
+    # 检查 192.168.0.0/16 (192.168.0.0 - 192.168.255.255)
+    if [ "$o1" -eq 192 ] && [ "$o2" -eq 168 ]; then
+      return 0
+    fi
+    
+    # 检查 127.0.0.0/8 (127.0.0.0 - 127.255.255.255)
+    if [ "$o1" -eq 127 ]; then
+      return 0
+    fi
+    
+    return 1
+  fi
+  
+  # 检查IPv6内网地址
+  if is_valid_ipv6 "$ip"; then
+    local ip_lower=$(echo "$ip" | tr '[:upper:]' '[:lower:]')
+    
+    # 检查 ::1 (loopback)
+    if [ "$ip_lower" = "::1" ]; then
+      return 0
+    fi
+    
+    # 检查 fe80::/10 (link-local) - 以fe80开头
+    if [[ "$ip_lower" =~ ^fe[89ab] ]]; then
+      return 0
+    fi
+    
+    # 检查 fc00::/7 (unique local) - 以fc或fd开头
+    if [[ "$ip_lower" =~ ^f[cd] ]]; then
+      return 0
+    fi
+    
+    return 1
+  fi
+  
+  # 既不是有效IPv4也不是有效IPv6
+  return 1
+}
+
+is_root_domain() {
+  local domain="$1"
+  # 检查域名是否以www开头
+  if [[ "$domain" =~ ^www\. ]]; then
+    return 1
+  fi
+  
+  # 统计点的数量，根域名应该只有一个点
+  local dot_count=$(echo "$domain" | tr -cd '.' | wc -c)
+  if [ "$dot_count" -eq 1 ]; then
+    return 0  # 是根域名
+  else
+    return 1  # 不是根域名
+  fi
+}
+
+is_valid_ipv4() {
+  local ip="$1"
+  
+  # 检查基本格式：四个数字用点分隔
+  if [[ ! "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    return 1
+  fi
+  
+  # 分割IP地址并验证每个数字段
+  local IFS='.'
+  read -ra octets <<< "$ip"
+  
+  # 必须有4个数字段
+  if [ ${#octets[@]} -ne 4 ]; then
+    return 1
+  fi
+  
+  # 验证每个数字段在0-255范围内
+  for octet in "${octets[@]}"; do
+    # 去除前导零后检查（避免八进制解析问题）
+    local num=$((10#$octet))
+    if [ "$num" -lt 0 ] || [ "$num" -gt 255 ]; then
+      return 1
+    fi
+  done
+  
+  return 0
+}
+
+is_valid_ipv6() {
+  local ip="$1"
+  
+  # 空字符串不是有效IPv6
+  if [ -z "$ip" ]; then
+    return 1
+  fi
+  
+  # IPv6地址格式：8组4位十六进制数，用冒号分隔
+  # 支持压缩格式（::）
+  # 简化验证：检查是否只包含有效字符（0-9, a-f, A-F, :）且包含冒号
+  if [[ ! "$ip" =~ ^[0-9a-fA-F:]+$ ]]; then
+    return 1
+  fi
+  
+  # 必须包含至少一个冒号
+  if [[ ! "$ip" =~ : ]]; then
+    return 1
+  fi
+  
+  # 不能以单个冒号开头或结尾（除非是::）
+  if [[ "$ip" =~ ^:[^:] ]] || [[ "$ip" =~ [^:]:$ ]]; then
+    return 1
+  fi
+  
+  # 不能有超过2个连续的冒号
+  if [[ "$ip" =~ :::+ ]]; then
+    return 1
+  fi
+  
+  # 只能有一个::（压缩标记）
+  local double_colon_count=$(echo "$ip" | grep -o '::' | wc -l)
+  if [ "$double_colon_count" -gt 1 ]; then
+    return 1
+  fi
+  
+  return 0
+}
+
+prompt_primary_domain_with_timeout() {
+  local suggested_domain="${1:-${DOMAINS[0]}}"
+  local default_choice=1
+  local i
+
+  for i in "${!DOMAINS[@]}"; do
+    if [ "${DOMAINS[$i]}" = "$suggested_domain" ]; then
+      default_choice=$((i+1))
+      break
+    fi
+  done
+
+  info "检测到多个域名，请确认主域名（30秒后自动使用推荐值）："
+  for i in "${!DOMAINS[@]}"; do
+    if [ "${DOMAINS[$i]}" = "$suggested_domain" ]; then
+      echo "  $((i+1)). ${DOMAINS[i]} (推荐)"
+    else
+      echo "  $((i+1)). ${DOMAINS[i]}"
+    fi
+  done
+  echo "  0. 手动输入其他域名"
+  
+  echo -n "请选择主域名 (1-${#DOMAINS[@]} 或 0，默认 ${default_choice}): "
+  
+  # 使用read的超时功能
+  if read -t 30 choice; then
+    choice="${choice:-$default_choice}"
+    # 验证输入
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 0 ] && [ "$choice" -le "${#DOMAINS[@]}" ]; then
+      if [ "$choice" -eq 0 ]; then
+        echo -n "请输入主域名: "
+        read custom_domain
+        if [ -n "$custom_domain" ]; then
+          PRIMARY_DOMAIN="$custom_domain"
+          info "使用手动输入的主域名: $PRIMARY_DOMAIN"
+        else
+          PRIMARY_DOMAIN="$suggested_domain"
+          info "输入为空，使用推荐主域名: $PRIMARY_DOMAIN"
+        fi
+      else
+        PRIMARY_DOMAIN="${DOMAINS[$((choice-1))]}"
+        info "选择的主域名: $PRIMARY_DOMAIN"
+      fi
+    else
+      warn "输入无效，使用推荐主域名: $suggested_domain"
+      PRIMARY_DOMAIN="$suggested_domain"
+    fi
+  else
+    # 超时后使用推荐值
+    echo ""
+    warn "输入超时，使用推荐主域名: $suggested_domain"
+    PRIMARY_DOMAIN="$suggested_domain"
+  fi
+}
+
+resolve_domain_ip() {
+  local domain="$1"
+  local timeout="${DNS_CHECK_TIMEOUT:-5}"
+  local ipv4_ips=""
+  local ipv6_ips=""
+  local all_ips=""
+
+  # 优先使用 dig 命令
+  if command -v dig &>/dev/null; then
+    # 解析A记录（IPv4）
+    ipv4_ips=$(dig +short +time="$timeout" +tries=1 "$domain" A 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tr '\n' ' ' | xargs)
+    # 解析AAAA记录（IPv6）
+    ipv6_ips=$(dig +short +time="$timeout" +tries=1 "$domain" AAAA 2>/dev/null | grep -E '^[0-9a-fA-F:]+$' | tr '\n' ' ' | xargs)
+    all_ips="$ipv4_ips $ipv6_ips"
+    all_ips=$(echo "$all_ips" | xargs)
+    if [ -n "$all_ips" ]; then
+      echo "$all_ips"
+      return 0
+    fi
+  fi
+
+  # 备用 nslookup 命令
+  if command -v nslookup &>/dev/null; then
+    # 解析IPv4
+    ipv4_ips=$(nslookup "$domain" 2>/dev/null | grep -A 10 "Name:" | grep "Address:" | grep -v "#" | awk '{print $2}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tr '\n' ' ' | xargs)
+    # 解析IPv6
+    ipv6_ips=$(nslookup -type=AAAA "$domain" 2>/dev/null | grep -A 10 "Name:" | grep "Address:" | grep -v "#" | awk '{print $2}' | grep -E '^[0-9a-fA-F:]+$' | tr '\n' ' ' | xargs)
+    all_ips="$ipv4_ips $ipv6_ips"
+    all_ips=$(echo "$all_ips" | xargs)
+    if [ -n "$all_ips" ]; then
+      echo "$all_ips"
+      return 0
+    fi
+  fi
+
+  # 备用 host 命令
+  if command -v host &>/dev/null; then
+    # 解析IPv4
+    ipv4_ips=$(host -W "$timeout" "$domain" 2>/dev/null | grep "has address" | awk '{print $NF}' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tr '\n' ' ' | xargs)
+    # 解析IPv6
+    ipv6_ips=$(host -W "$timeout" "$domain" 2>/dev/null | grep "has IPv6 address" | awk '{print $NF}' | grep -E '^[0-9a-fA-F:]+$' | tr '\n' ' ' | xargs)
+    all_ips="$ipv4_ips $ipv6_ips"
+    all_ips=$(echo "$all_ips" | xargs)
+    if [ -n "$all_ips" ]; then
+      echo "$all_ips"
+      return 0
+    fi
+  fi
+
+  # 兜底 getent ahosts 命令（同时返回IPv4和IPv6）
+  if command -v getent &>/dev/null; then
+    all_ips=$(getent ahosts "$domain" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' | xargs)
+    if [ -n "$all_ips" ]; then
+      echo "$all_ips"
+      return 0
+    fi
+  fi
+
+  # 所有方法都失败
+  echo ""
+  return 1
+}
+
+revert_to_http_protocol() {
+  info "HTTPS启用失败，正在将FRONTEND_PROTOCOL从https替换为http..."
+  
+  # 使用 .env 文件配置协议
+  if [ -f "lib/config.sh" ]; then
+    source "lib/config.sh"
+    update_env_var "FRONTEND_PROTOCOL" "http"
+    update_env_var "ENABLE_HTTPS" "false"
+    sync_compose_profiles  # 同步 COMPOSE_PROFILES
+    # 更新 SITE_URL
+    local domain=$(read_env_config "PRIMARY_DOMAIN" "localhost")
+    update_env_var "SITE_URL" "http://${domain}"
+    success "已将FRONTEND_PROTOCOL替换为http (通过 .env)"
+    
+    if project_requires_python_backend; then
+      info "重启Python后端以使新配置生效..."
+      if sudo docker compose restart python-backend 2>/dev/null; then
+        success "Python后端重启成功"
+      else
+        warning "Python后端重启失败，可能需要手动重启: docker compose restart python-backend"
+      fi
+    else
+      info "当前版本无需重启独立 Python 后端"
+    fi
+  elif [ -f "docker-compose.yml" ]; then
+    # 回退方案：直接修改 docker-compose.yml
+    # 检查当前是否为https
+    if grep -q "FRONTEND_PROTOCOL=https" docker-compose.yml; then
+      # 替换为http
+      sed_i "s/FRONTEND_PROTOCOL=https/FRONTEND_PROTOCOL=http/g" docker-compose.yml
+      success "已将FRONTEND_PROTOCOL替换为http"
+      
+      if project_requires_python_backend; then
+        info "重启Python后端以使新配置生效..."
+        if sudo docker compose restart python-backend 2>/dev/null; then
+          success "Python后端重启成功"
+        else
+          warning "Python后端重启失败，可能需要手动重启: docker compose restart python-backend"
+        fi
+      else
+        info "当前版本无需重启独立 Python 后端"
+      fi
+    else
+      info "FRONTEND_PROTOCOL已经是http或未找到相关配置"
+    fi
+  else
+    warning "未找到docker-compose.yml文件"
+  fi
+}
+
+run_docker_compose() {
+    ensure_project_workdir || {
+      LAST_DOCKER_COMPOSE_ERROR_KIND="workdir_missing"
+      LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=false
+      error "项目工作目录不可访问，无法执行 Docker Compose"
+      return 1
+    }
+
+    # 构建compose命令数组，自动探测版本，并根据需要加sudo
+    local compose_cmd=()
+    local capture_output=false
+    local tmp_output=""
+
+    # 探测compose版本
+    if docker compose version &>/dev/null; then
+      compose_cmd+=(docker compose)
+    elif command -v docker-compose &>/dev/null; then
+      compose_cmd+=(docker-compose)
+    else
+      error "未找到 docker compose / docker-compose，可执行文件！请提交issue"
+      return 1
+    fi
+
+    # 如当前用户非 root 且 sudo 可用，追加 sudo
+    if command -v sudo &>/dev/null && [[ $EUID -ne 0 ]]; then
+      compose_cmd=(sudo "${compose_cmd[@]}")
+    fi
+
+    # 根据 ENABLE_HTTPS/MYSQL/REDIS 配置添加对应的 --profile
+    local profile_args=()
+    if [ -f "lib/config.sh" ]; then
+      source "lib/config.sh"
+      local enable_https=$(read_env_config "ENABLE_HTTPS" "true")
+      local enable_mysql=$(read_env_config "ENABLE_MYSQL" "true")
+      local enable_redis=$(read_env_config "ENABLE_REDIS" "true")
+      
+      [ "$enable_https" = "true" ] && profile_args+=(--profile https)
+      [ "$enable_mysql" = "true" ] && profile_args+=(--profile mysql)
+      [ "$enable_redis" = "true" ] && profile_args+=(--profile redis)
+    else
+      # 回退方案：使用全局变量
+      [ "$ENABLE_HTTPS" = "true" ] || [ "$ENABLE_HTTPS" = true ] && profile_args+=(--profile https)
+      [ "$ENABLE_MYSQL" = "true" ] || [ "$ENABLE_MYSQL" = true ] && profile_args+=(--profile mysql)
+      [ "$ENABLE_REDIS" = "true" ] || [ "$ENABLE_REDIS" = true ] && profile_args+=(--profile redis)
+    fi
+
+    LAST_DOCKER_COMPOSE_CMD="${compose_cmd[*]} ${profile_args[*]} $*"
+    LAST_DOCKER_COMPOSE_RC=0
+    LAST_DOCKER_COMPOSE_ERROR_KIND=""
+    LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=true
+
+    if [ "$1" = "up" ]; then
+      capture_output=true
+      tmp_output=$(mktemp 2>/dev/null || printf "/tmp/poetize-compose-up-%s.log" "$$")
+      LAST_DOCKER_COMPOSE_ERROR_FILE="$tmp_output"
+    else
+      LAST_DOCKER_COMPOSE_ERROR_FILE=""
+    fi
+
+    if [ "$capture_output" = true ]; then
+      # 保留实时输出，同时保存原始错误供启动失败诊断使用
+      "${compose_cmd[@]}" "${profile_args[@]}" "$@" > >(tee "$tmp_output") 2> >(tee -a "$tmp_output" >&2)
+      LAST_DOCKER_COMPOSE_RC=$?
+    else
+      # shellcheck disable=SC2068
+      "${compose_cmd[@]}" "${profile_args[@]}" "$@"
+      LAST_DOCKER_COMPOSE_RC=$?
+    fi
+
+    return $LAST_DOCKER_COMPOSE_RC
+}
+
+sed_i() {
+  # 跨平台兼容的sed -i替代函数
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS需要空备份扩展名
+    sed -i '' "$@"
+  else
+    # Linux可以直接使用-i
+    sed -i "$@"
+  fi
+}
+
+select_primary_domain() {
+  if [ "$PRIMARY_DOMAIN_LOCKED" = true ] && [ -n "$PRIMARY_DOMAIN" ]; then
+    return
+  fi
+
+  # 优先级0: 如果只有一个域名，直接使用它
+  if [ ${#DOMAINS[@]} -eq 1 ]; then
+    PRIMARY_DOMAIN="${DOMAINS[0]}"
+    PRIMARY_DOMAIN_LOCKED=true
+    return
+  fi
+
+  local root_domain=""
+  local www_domain=""
+  local suggested_domain=""
+  
+  # 遍历所有域名，分类收集
+  for domain in "${DOMAINS[@]}"; do
+    if is_root_domain "$domain"; then
+      # 根域名
+      if [ -z "$root_domain" ]; then
+        root_domain="$domain"
+      fi
+    elif [[ "$domain" =~ ^www\. ]]; then
+      # www子域名
+      if [ -z "$www_domain" ]; then
+        www_domain="$domain"
+      fi
+    fi
+  done
+  
+  # 推荐优先级1: www域名
+  if [ -n "$www_domain" ]; then
+    suggested_domain="$www_domain"
+  # 推荐优先级2: 根域名
+  elif [ -n "$root_domain" ]; then
+    suggested_domain="$root_domain"
+  # 推荐优先级3: 其他场景默认第一个
+  else
+    suggested_domain="${DOMAINS[0]}"
+  fi
+
+  prompt_primary_domain_with_timeout "$suggested_domain"
+
+  PRIMARY_DOMAIN_LOCKED=true
+}
+
+should_skip_dns_check() {
+  local domain="$1"
+  
+  # 检查是否为 localhost
+  if [ "$domain" = "localhost" ]; then
+    return 0
+  fi
+  
+  # 检查是否为 127.0.0.1
+  if [ "$domain" = "127.0.0.1" ]; then
+    return 0
+  fi
+  
+  # 检查是否为 ::1 (IPv6 loopback)
+  if [ "$domain" = "::1" ]; then
+    return 0
+  fi
+  
+  # 检查是否为有效的IPv4地址格式
+  if is_valid_ipv4 "$domain"; then
+    return 0
+  fi
+  
+  # 检查是否为有效的IPv6地址格式
+  if is_valid_ipv6 "$domain"; then
+    return 0
+  fi
+  
+  return 1
+}
+
+show_dns_fix_guide() {
+  local domain="$1"
+  local expected_ip="$2"
+  local actual_ip="$3"
+  
+  echo ""
+  echo -e "${YELLOW}========== DNS配置修复指南 ==========${NC}"
+  echo ""
+  echo -e "域名: ${BLUE}$domain${NC}"
+  echo -e "服务器IP: ${GREEN}$expected_ip${NC}"
+  
+  if [ -n "$actual_ip" ]; then
+    echo -e "当前解析IP: ${RED}$actual_ip${NC}"
+    echo ""
+    echo -e "${YELLOW}问题: 域名解析的IP与服务器IP不匹配${NC}"
+  else
+    echo -e "当前解析IP: ${RED}无法解析${NC}"
+    echo ""
+    echo -e "${YELLOW}问题: 域名DNS记录未配置或无法解析${NC}"
+  fi
+  
+  echo ""
+  echo -e "${BLUE}修复步骤:${NC}"
+  echo "1. 登录您的域名管理控制台（如阿里云、腾讯云、Cloudflare等）"
+  echo "2. 找到域名 $domain 的DNS解析设置"
+  echo "3. 添加或修改A记录:"
+  echo -e "   - 主机记录: ${GREEN}@${NC} 或 ${GREEN}$(echo $domain | cut -d. -f1)${NC}"
+  echo -e "   - 记录类型: ${GREEN}A${NC}"
+  echo -e "   - 记录值: ${GREEN}$expected_ip${NC}"
+  echo "4. 保存设置后等待DNS生效（通常需要几分钟到48小时）"
+  echo ""
+  echo -e "${YELLOW}如果您正在使用 Cloudflare 等 CDN 服务:${NC}"
+  echo -e "  开启 CDN 代理（如橙色云朵）会返回 CDN 节点 IP，导致校验失败。"
+  echo -e "  - 方案 A: 暂时在 DNS 控制台关闭代理状态（仅DNS），部署完成后再开启"
+  echo -e "  - 方案 B: 确认域名已指向本服务器，添加 ${GREEN}--skip-dns-check${NC} 参数重试"
+  echo ""
+  echo -e "${YELLOW}提示: DNS记录修改后可能需要等待一段时间才能生效${NC}"
+  echo -e "${YELLOW}您可以使用以下命令检查DNS是否生效:${NC}"
+  echo -e "  dig $domain"
+  echo -e "  nslookup $domain"
+  echo ""
+  echo -e "${YELLOW}========================================${NC}"
+  echo ""
+}
+
+validate_dns_for_domains() {
+  local no_prompt="${1:-}"
+  
+  # 检查是否跳过DNS校验
+  if [ "$SKIP_DNS_CHECK" = true ]; then
+    warning "已跳过DNS校验（--skip-dns-check）"
+    return 0
+  fi
+  
+  # 检查是否有域名需要验证
+  if [ ${#DOMAINS[@]} -eq 0 ]; then
+    return 0
+  fi
+  
+  info "开始DNS校验..."
+  echo ""
+  
+  # 获取服务器公网IP
+  info "正在获取服务器公网IP..."
+  local server_ip=$(get_server_public_ip)
+  
+  if [ -z "$server_ip" ]; then
+    warning "无法获取服务器公网IP，跳过DNS校验"
+    warning "请确保您的域名DNS已正确配置指向此服务器"
+    return 0
+  fi
+  
+  success "服务器公网IP: $server_ip"
+  
+  # 检查是否为内网IP
+  if is_private_ip "$server_ip"; then
+    warning "检测到服务器IP为内网地址 ($server_ip)，跳过DNS校验"
+    warning "内网环境下DNS校验不适用"
+    return 0
+  fi
+  
+  echo ""
+  
+  # 验证每个域名
+  local failed_domains=()
+  local has_failure=false
+  
+  for domain in "${DOMAINS[@]}"; do
+    validate_single_domain "$domain" "$server_ip"
+    local result=$?
+    
+    if [ $result -eq 1 ]; then
+      failed_domains+=("$domain")
+      has_failure=true
+    fi
+  done
+  
+  # 如果有验证失败的域名
+  if [ "$has_failure" = true ]; then
+    echo ""
+    warning "以下域名的DNS校验失败: ${failed_domains[*]}"
+    echo ""
+    echo -e "${YELLOW}DNS配置不正确可能导致:${NC}"
+    echo "  - HTTPS证书申请失败（Let's Encrypt需要验证域名所有权）"
+    echo "  - 网站无法通过域名访问"
+    echo ""
+    echo -e "${YELLOW}重点提示: 若您使用了 Cloudflare 等 CDN 服务，开启代理会导致解析IP不匹配。${NC}"
+    echo -e "${YELLOW}          如果您确认配置无误，请在安装命令后附加 ${GREEN}--skip-dns-check${YELLOW} 参数重试。${NC}"
+    echo ""
+    
+    # 如果指定了不询问，直接返回失败
+    if [ "$no_prompt" = "no_prompt" ]; then
+      return 1
+    fi
+    
+    # 询问用户是否继续
+    if auto_confirm "是否仍要继续部署? (y/N) " "n"; then
+      warning "用户选择继续部署，DNS校验失败的域名可能无法正常工作"
+      return 0
+    else
+      return 1
+    fi
+  fi
+  
+  echo ""
+  success "所有域名的DNS校验通过"
+  return 0
+}
+
+validate_single_domain() {
+  local domain="$1"
+  local server_ip="$2"
+  
+  # 检查是否应该跳过DNS校验
+  if should_skip_dns_check "$domain"; then
+    info "跳过 $domain 的DNS校验（本地地址或IP格式）"
+    return 2
+  fi
+  
+  info "正在验证域名 $domain 的DNS配置..."
+  
+  # 解析域名IP
+  local resolved_ips=$(resolve_domain_ip "$domain")
+  
+  if [ -z "$resolved_ips" ]; then
+    error "无法解析域名 $domain 的DNS记录"
+    show_dns_fix_guide "$domain" "$server_ip" ""
+    return 1
+  fi
+  
+  # 检查解析的IP是否包含服务器IP
+  if ip_list_contains "$resolved_ips" "$server_ip"; then
+    success "域名 $domain 的DNS配置正确 (解析到: $resolved_ips)"
+    return 0
+  else
+    error "域名 $domain 的DNS配置不正确"
+    echo -e "  期望IP: ${GREEN}$server_ip${NC}"
+    echo -e "  实际IP: ${RED}$resolved_ips${NC}"
+    show_dns_fix_guide "$domain" "$server_ip" "$resolved_ips"
+    return 1
+  fi
+}
+
+verify_key_schema_structures() {
+  local mariadb_container="$1"
+  local db_root_password="$2"
+  local item=""
+  local table_name=""
+  local column_name=""
+  local exists=""
+  local probe=""
+
+  # 连通性探测：数据库不可达/密码异常时保守放行（视为通过），
+  # 交由后续流程按原有记录表逻辑处理，避免因环境故障误触发强制补齐
+  probe=$(docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -B -e "SELECT 1;" 2>/dev/null | tr -d '[:space:]')
+  if [ "$probe" != "1" ]; then
+    warning "数据库连通性校验失败，跳过关键结构校验（保持记录表驱动的常规行为）"
+    return 0
+  fi
+
+  # ---- 关键表（当前版本标志性新表；缺失说明库远旧于当前版本或结构不完整）----
+  for item in article_version resource_trash article_payment article_draft ai_knowledge_document; do
+    exists=$(docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -B -e \
+      "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = '$item';" 2>/dev/null | tr -d '[:space:]')
+    if [ "$exists" != "1" ]; then
+      warning "关键结构缺失: 表 $item"
+      return 1
+    fi
+  done
+
+  # ---- 关键列（表|列）----
+  for item in \
+    "article|deleted_time" \
+    "resource|content_state" \
+    "resource|storage_key" \
+    "resource|public_id" \
+    "resource|trash_time" \
+    "resource|deletion_pending_time" \
+    "sys_plugin|version"; do
+    table_name="${item%%|*}"
+    column_name="${item##*|}"
+    exists=$(docker exec "$mariadb_container" mariadb -u root -p"$db_root_password" poetize -N -B -e \
+      "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = '$table_name' AND column_name = '$column_name';" 2>/dev/null | tr -d '[:space:]')
+    if [ "$exists" != "1" ]; then
+      warning "关键结构缺失: $table_name.$column_name"
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+write_snapshot_meta() {
+    local dump_file="$1"
+    local mariadb_container="$2"
+    local db_root_password="$3"
+    local meta_file="${dump_file}.meta"
+    local migration_count="0"
+
+    if [ -n "$mariadb_container" ] && [ -n "$db_root_password" ]; then
+        migration_count=$(sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" \
+            sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -B -e "SELECT COUNT(*) FROM db_migrations WHERE success = 1" 2>/dev/null' | tr -d '[:space:]')
+        # 查询失败兜底写 0：get_snapshot_baseline_status 会把 0 视为 UNKNOWN（0 不是有效基线——
+        # 任何库计数都 >= 0，若当有效基线则恒判 FRESH 跳过导入 → 重演"恢复成功假象"）
+        [ -n "$migration_count" ] || {
+            migration_count="0"
+            warning "迁移记录数查询失败，快照基线记为 0（恢复时将按 UNKNOWN 保守处理，不会据此跳过导入）"
+        }
+    fi
+
+    {
+        echo "SNAPSHOT_TIME=$(date '+%Y-%m-%d %H:%M:%S')"
+        echo "SNAPSHOT_EPOCH=$(date +%s)"
+        echo "SNAPSHOT_MIGRATION_COUNT=$migration_count"
+    } > "$meta_file" 2>/dev/null || true
+    info "快照基线已记录: 迁移记录数 $migration_count（$meta_file）"
+}
+
+# 启动自检：主脚本依赖的函数必须在当前 shell 真实可用。
+# 这类"定义写在 heredoc 里"的断层最隐蔽——脚本能跑、站点能开，只是相关功能静默失效。
+POETIZE_REQUIRED_FUNCS="auto_confirm configure_ip_access_block disable_certbot_service ensure_project_workdir extract_server_names_from_nginx_file get_server_public_ip get_snapshot_baseline_status handle_https_port_mapping ip_list_contains is_private_ip is_root_domain is_valid_ipv4 is_valid_ipv6 prompt_primary_domain_with_timeout resolve_domain_ip revert_to_http_protocol run_docker_compose sed_i select_primary_domain should_skip_dns_check show_dns_fix_guide validate_dns_for_domains validate_single_domain verify_key_schema_structures write_snapshot_meta"
+for _poetize_fn in $POETIZE_REQUIRED_FUNCS; do
+    if ! type -t "$_poetize_fn" >/dev/null 2>&1; then
+        printf "${RED}[失败]${NC} 核心函数在当前 shell 不可用: %s\n" "$_poetize_fn" >&2
+        printf "        主脚本与内嵌 deploy-core.sh 存在定义断层，相关功能会静默失效\n" >&2
+    fi
+done
+unset _poetize_fn
+
 # 运行主函数
 main "$@"

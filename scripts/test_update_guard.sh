@@ -149,5 +149,17 @@ check "SQL 查询 stderr 落进 error_file" "yes" "$(extract sql_exec_query_in_c
 check "安全备份不写进 sql_dir" "no" "$(extract restore_update_database_dump_if_needed | grep -q 'safety_dump="\${dump_sql' && echo yes || echo no)"
 check "安全备份优先落 BACKUP_DIR" "yes" "$(extract restore_update_database_dump_if_needed | grep -q 'safety_dir="\${BACKUP_DIR:-}"' && echo yes || echo no)"
 
+printf '\n--- 6. 主脚本层函数定义完整 ---\n'
+hd_end=$(tr -d '\r' < poetize | grep -n '^__POETIZE_EMBEDDED_DEPLOY_CORE_SH_' | head -1 | cut -d: -f1)
+blk_start=$(tr -d '\r' < poetize | grep -n '^# ===== 主脚本层补齐的函数' | head -1 | cut -d: -f1)
+check "补齐块在 heredoc 之外" "yes" "$([ -n "$blk_start" ] && [ "$blk_start" -gt "$hd_end" ] && echo yes || echo no)"
+# 整份 source（去掉 main 入口），这才能验证块所在的实际语法位置：
+# 若块被塞进 case 分支或函数体内，块内语句不会执行，名单变量根本不会被赋值。
+tr -d '\r' < poetize | grep -v '^main "\$@"$' > "$work/poetize_defs.sh"
+fn_total=$(set +u; POETIZE_SOURCE_ONLY=true bash -c 'source "$1" >/dev/null 2>&1; echo $POETIZE_REQUIRED_FUNCS | wc -w' _ "$work/poetize_defs.sh" 2>/dev/null)
+check "必需函数名单已赋值（块在顶层）" "25" "$fn_total"
+fn_miss=$(set +u; POETIZE_SOURCE_ONLY=true bash -c 'source "$1" >/dev/null 2>&1; for f in $POETIZE_REQUIRED_FUNCS; do type -t "$f" >/dev/null 2>&1 || printf "%s " "$f"; done' _ "$work/poetize_defs.sh" 2>/dev/null)
+check "25 个函数全部真实可加载" "" "$fn_miss"
+
 printf '\n结果: %s 项失败\n' "$fail"
 [ "$fail" -eq 0 ]

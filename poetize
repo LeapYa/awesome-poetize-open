@@ -973,7 +973,7 @@ mark_all_migrations_as_executed() {
     return 0
   fi
 
-  local sql_files=$(find "$sql_dir" -maxdepth 1 -name "*.sql" -not -name "poetry.sql" -not -name "poetry_old.sql" -type f | sort)
+  local sql_files=$(list_sql_migration_files "$sql_dir")
   local count=0
   local failed_count=0
     
@@ -6243,6 +6243,18 @@ resolve_sql_scripts_dir() {
     return 1
 }
 
+# 列出真正的迁移脚本。
+# 一律按命名规则筛选（12 位数字时间戳 + .sql），不再用"排除 poetry.sql / poetry_old.sql"
+# 这种黑名单写法：目录里任何别的 .sql 都会被当成迁移脚本，而 db_migrations.version 只有
+# varchar(20)，超长文件名必然写入失败（2026-11-12 升级事故根因之一）。
+list_sql_migration_files() {
+    local sql_dir="$1"
+
+    [ -n "$sql_dir" ] && [ -d "$sql_dir" ] || return 1
+    find "$sql_dir" -maxdepth 1 -type f \
+        -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].sql' 2>/dev/null | sort
+}
+
 SQL_EXEC_LAST_ERROR=""
 
 execute_sql_file_in_container() {
@@ -6283,16 +6295,30 @@ sql_exec_query_in_container() {
     local db_root_password="$2"
     local query="$3"
     local docker_cmd=(docker)
+    local error_file=""
 
     if command -v sudo >/dev/null 2>&1; then
         docker_cmd=(sudo docker)
     fi
 
-    "${docker_cmd[@]}" exec \
+    # stderr 必须捕获而不是直接丢弃：写入失败时调用方要能报出真实原因
+    # （2026-11-12 事故里 Data too long for column 'version' 被 2>/dev/null 完全吞掉，
+    #  日志只剩"失败: 1"，看不到是哪条文件、报的什么错）
+    error_file=$(mktemp 2>/dev/null || printf "/tmp/poetize-query-error-%s.log" "$$")
+    if "${docker_cmd[@]}" exec \
         -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" \
         -e POETIZE_SQL_QUERY="$query" \
         "$mariadb_container" \
-        sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -B -e "$POETIZE_SQL_QUERY"' 2>/dev/null
+        sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -B -e "$POETIZE_SQL_QUERY"' 2>"$error_file"; then
+        rm -f "$error_file" 2>/dev/null
+        return 0
+    fi
+
+    if [ -s "$error_file" ]; then
+        SQL_EXEC_LAST_ERROR=$(tail -n 5 "$error_file" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | sed 's/^ //; s/ $//')
+    fi
+    rm -f "$error_file" 2>/dev/null
+    return 1
 }
 
 sql_migrations_table_exists() {
@@ -6314,8 +6340,19 @@ record_sql_migration() {
     local success_flag="${6:-1}"
     local safe_description="${description//\'/\'\'}"
 
-    sql_exec_query_in_container "$mariadb_container" "$db_root_password" \
-        "INSERT INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '$safe_description', $execution_time_ms, $success_flag) ON DUPLICATE KEY UPDATE description=VALUES(description), execution_time_ms=VALUES(execution_time_ms), success=GREATEST(success, VALUES(success)), executed_at=CURRENT_TIMESTAMP;" >/dev/null 2>&1
+    # 返回真实成败（原来是"执行完就不管"，失败时静默返回 0）。
+    # 调用方靠再查一次 count 判断，看不到失败原因，所以这里把 SQL 报错一并打出来。
+    if sql_exec_query_in_container "$mariadb_container" "$db_root_password" \
+        "INSERT INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '$safe_description', $execution_time_ms, $success_flag) ON DUPLICATE KEY UPDATE description=VALUES(description), execution_time_ms=VALUES(execution_time_ms), success=GREATEST(success, VALUES(success)), executed_at=CURRENT_TIMESTAMP;" >/dev/null; then
+        return 0
+    fi
+
+    if [ -n "$SQL_EXEC_LAST_ERROR" ]; then
+        warning "  写入迁移记录失败 version=$version（长度 ${#version}，该列上限 20）: $SQL_EXEC_LAST_ERROR"
+    else
+        warning "  写入迁移记录失败 version=$version（长度 ${#version}，该列上限 20）"
+    fi
+    return 1
 }
 
 ensure_db_migrations_table() {
@@ -6379,7 +6416,7 @@ sync_sql_migration_scripts() {
     while IFS= read -r sql_file; do
         [ -z "$sql_file" ] && continue
         sql_files+=("$sql_file")
-    done < <(find "$sql_dir" -maxdepth 1 -name "*.sql" -not -name "poetry.sql" -not -name "poetry_old.sql" -type f | sort)
+    done < <(list_sql_migration_files "$sql_dir")
 
     total_count=${#sql_files[@]}
     if [ "$total_count" -eq 0 ]; then
@@ -6562,12 +6599,25 @@ restore_update_database_dump_if_needed() {
 
     # 覆盖性导入前，先把当前库状态完整备份一份，保证任何情况下都可回退
     if [ -n "$mariadb_container" ] && [ -n "$db_root_password" ]; then
-        local safety_dump="${dump_sql%.sql}.pre_restore_$(date +%Y%m%d%H%M%S).sql"
+        # ⚠️ 绝不能写进 $sql_dir：那是迁移脚本目录，多一个 .sql 就会被扫描当成迁移脚本。
+        # 2026-11-11 的事故就是这么来的——文件名 35 字符，db_migrations.version 只有
+        # varchar(20)，写入必然失败；而备份前补齐记录失败会中止数据库 dump，随后仍然删卷。
+        # 优先落备份目录（update 流程里有 BACKUP_DIR），否则落系统临时目录。
+        local safety_dir="${BACKUP_DIR:-}"
+        if [ -z "$safety_dir" ] || [ ! -d "$safety_dir" ]; then
+            safety_dir="${POETIZE_SAFETY_DIR:-/tmp/poetize_safety_dumps}"
+        fi
+        mkdir -p "$safety_dir" 2>/dev/null || true
+        local safety_dump="$safety_dir/poetry.pre_restore_$(date +%Y%m%d%H%M%S).sql"
         info "导入前将当前库状态安全备份到 $safety_dump ..."
         if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" \
             sh -lc 'mariadb-dump -u root -p"$POETIZE_DB_ROOT_PASSWORD" --single-transaction --routines --triggers --databases poetize' > "$safety_dump" 2>/dev/null \
             && [ -s "$safety_dump" ]; then
             success "当前库状态已安全备份（可随时回退）"
+            # 同一目录只保留最近 5 份，避免反复升级把 /tmp 占满
+            ls -1t "$safety_dir"/poetry.pre_restore_*.sql 2>/dev/null | tail -n +6 | while IFS= read -r _old_dump; do
+                rm -f "$_old_dump" 2>/dev/null
+            done
         else
             warning "当前库状态安全备份失败，继续导入快照"
             rm -f "$safety_dump" 2>/dev/null
@@ -15111,6 +15161,18 @@ resolve_sql_scripts_dir() {
     return 1
 }
 
+# 列出真正的迁移脚本。
+# 一律按命名规则筛选（12 位数字时间戳 + .sql），不再用"排除 poetry.sql / poetry_old.sql"
+# 这种黑名单写法：目录里任何别的 .sql 都会被当成迁移脚本，而 db_migrations.version 只有
+# varchar(20)，超长文件名必然写入失败（2026-11-12 升级事故根因之一）。
+list_sql_migration_files() {
+    local sql_dir="$1"
+
+    [ -n "$sql_dir" ] && [ -d "$sql_dir" ] || return 1
+    find "$sql_dir" -maxdepth 1 -type f \
+        -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].sql' 2>/dev/null | sort
+}
+
 SQL_EXEC_LAST_ERROR=""
 
 execute_sql_file_in_container() {
@@ -15151,16 +15213,30 @@ sql_exec_query_in_container() {
     local db_root_password="$2"
     local query="$3"
     local docker_cmd=(docker)
+    local error_file=""
 
     if command -v sudo >/dev/null 2>&1; then
         docker_cmd=(sudo docker)
     fi
 
-    "${docker_cmd[@]}" exec \
+    # stderr 必须捕获而不是直接丢弃：写入失败时调用方要能报出真实原因
+    # （2026-11-12 事故里 Data too long for column 'version' 被 2>/dev/null 完全吞掉，
+    #  日志只剩"失败: 1"，看不到是哪条文件、报的什么错）
+    error_file=$(mktemp 2>/dev/null || printf "/tmp/poetize-query-error-%s.log" "$$")
+    if "${docker_cmd[@]}" exec \
         -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" \
         -e POETIZE_SQL_QUERY="$query" \
         "$mariadb_container" \
-        sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -B -e "$POETIZE_SQL_QUERY"' 2>/dev/null
+        sh -lc 'mariadb -u root -p"$POETIZE_DB_ROOT_PASSWORD" poetize -N -B -e "$POETIZE_SQL_QUERY"' 2>"$error_file"; then
+        rm -f "$error_file" 2>/dev/null
+        return 0
+    fi
+
+    if [ -s "$error_file" ]; then
+        SQL_EXEC_LAST_ERROR=$(tail -n 5 "$error_file" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | sed 's/^ //; s/ $//')
+    fi
+    rm -f "$error_file" 2>/dev/null
+    return 1
 }
 
 sql_migrations_table_exists() {
@@ -15182,8 +15258,19 @@ record_sql_migration() {
     local success_flag="${6:-1}"
     local safe_description="${description//\'/\'\'}"
 
-    sql_exec_query_in_container "$mariadb_container" "$db_root_password" \
-        "INSERT INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '$safe_description', $execution_time_ms, $success_flag) ON DUPLICATE KEY UPDATE description=VALUES(description), execution_time_ms=VALUES(execution_time_ms), success=GREATEST(success, VALUES(success)), executed_at=CURRENT_TIMESTAMP;" >/dev/null 2>&1
+    # 返回真实成败（原来是"执行完就不管"，失败时静默返回 0）。
+    # 调用方靠再查一次 count 判断，看不到失败原因，所以这里把 SQL 报错一并打出来。
+    if sql_exec_query_in_container "$mariadb_container" "$db_root_password" \
+        "INSERT INTO db_migrations (version, description, execution_time_ms, success) VALUES ('$version', '$safe_description', $execution_time_ms, $success_flag) ON DUPLICATE KEY UPDATE description=VALUES(description), execution_time_ms=VALUES(execution_time_ms), success=GREATEST(success, VALUES(success)), executed_at=CURRENT_TIMESTAMP;" >/dev/null; then
+        return 0
+    fi
+
+    if [ -n "$SQL_EXEC_LAST_ERROR" ]; then
+        warning "  写入迁移记录失败 version=$version（长度 ${#version}，该列上限 20）: $SQL_EXEC_LAST_ERROR"
+    else
+        warning "  写入迁移记录失败 version=$version（长度 ${#version}，该列上限 20）"
+    fi
+    return 1
 }
 
 ensure_db_migrations_table() {
@@ -15247,7 +15334,7 @@ sync_sql_migration_scripts() {
     while IFS= read -r sql_file; do
         [ -z "$sql_file" ] && continue
         sql_files+=("$sql_file")
-    done < <(find "$sql_dir" -maxdepth 1 -name "*.sql" -not -name "poetry.sql" -not -name "poetry_old.sql" -type f | sort)
+    done < <(list_sql_migration_files "$sql_dir")
 
     total_count=${#sql_files[@]}
     if [ "$total_count" -eq 0 ]; then
@@ -15504,7 +15591,7 @@ backfill_sql_migration_success_records() {
     while IFS= read -r sql_file; do
         [ -z "$sql_file" ] && continue
         sql_files+=("$sql_file")
-    done < <(find "$sql_dir" -maxdepth 1 -name "*.sql" -not -name "poetry.sql" -not -name "poetry_old.sql" -type f | sort)
+    done < <(list_sql_migration_files "$sql_dir")
 
     total_count=${#sql_files[@]}
     if [ "$total_count" -eq 0 ]; then
@@ -15519,22 +15606,37 @@ backfill_sql_migration_success_records() {
         local already_executed
 
         version=$(basename "$sql_file" .sql)
+
+        # db_migrations.version 是 varchar(20)。超长写入会被 MySQL 直接拒绝，
+        # 而失败必须在这里就说清是哪个文件，不能只留一句"失败: 1"。
+        if [ "${#version}" -gt 20 ]; then
+            failed_count=$((failed_count + 1))
+            error "  迁移记录写入失败: $(basename "$sql_file")"
+            error "    文件名为 ${#version} 字符，超过 db_migrations.version 的 20 字符上限"
+            error "    该文件不符合迁移脚本命名（应为 12 位数字.sql），请检查 SQL 脚本目录"
+            continue
+        fi
+
         already_executed=$(sql_migration_success_count "$mariadb_container" "$db_root_password" "$version")
         if [ "$already_executed" = "1" ]; then
             already_count=$((already_count + 1))
             continue
         fi
 
-        record_sql_migration "$mariadb_container" "$db_root_password" "$version" "$description" 0 1
+        record_sql_migration "$mariadb_container" "$db_root_password" "$version" "$description" 0 1 || true
         already_executed=$(sql_migration_success_count "$mariadb_container" "$db_root_password" "$version")
         if [ "$already_executed" = "1" ]; then
             marked_count=$((marked_count + 1))
         else
             failed_count=$((failed_count + 1))
+            error "  迁移记录写入失败: $(basename "$sql_file")（version=$version）"
         fi
     done
 
     info "当前版本迁移记录: 总计: $total_count | 已有成功记录: $already_count | 本次补齐: $marked_count | 失败: $failed_count"
+    if [ "$failed_count" -gt 0 ]; then
+        error "有 $failed_count 条迁移记录无法补齐，具体文件名与原因见上方日志"
+    fi
     [ "$failed_count" -eq 0 ]
 }
 
@@ -15551,6 +15653,40 @@ prepare_migration_records_for_backup() {
     fi
 
     info "当前版本 SQL 脚本目录: $sql_dir"
+
+    # 清走历史遗留的"导入快照前安全备份"文件。旧版本把它们写在脚本目录里且从不清理，
+    # 会被迁移扫描当成脚本（文件名超长 → 写入失败 → 备份中止 → 仍删卷）。
+    # 只移不删：这些文件是可回退的库快照，不能当垃圾丢掉。
+    local stale_files=""
+    stale_files=$(find "$sql_dir" -maxdepth 1 -type f -name 'poetry.pre_restore_*.sql' 2>/dev/null || true)
+    if [ -n "$stale_files" ]; then
+        local stale_dir="${POETIZE_SAFETY_DIR:-/tmp/poetize_safety_dumps}"
+        mkdir -p "$stale_dir" 2>/dev/null || true
+        warning "脚本目录里发现历史遗留的安全备份文件，正在移出以免被当成迁移脚本："
+        while IFS= read -r stale_file; do
+            [ -z "$stale_file" ] && continue
+            if mv "$stale_file" "$stale_dir/" 2>/dev/null; then
+                info "  已移至 $stale_dir/$(basename "$stale_file")"
+            else
+                warning "  无法移动，已保留原地: $stale_file"
+            fi
+        done <<< "$stale_files"
+    fi
+
+    # 提示被忽略的 .sql：扫描只认 12 位数字命名，其余不会被当成迁移执行。
+    # 不静默跳过，避免有人手动放了脚本却以为已经跑过。
+    local ignored_list=""
+    ignored_list=$(find "$sql_dir" -maxdepth 1 -type f -name '*.sql' 2>/dev/null \
+        | grep -vE '/[0-9]{12}\.sql$' \
+        | grep -vE '/(poetry|poetry_old)\.sql$' \
+        | grep -vE '/poetry\.pre_restore_[0-9]+\.sql$' || true)
+    if [ -n "$ignored_list" ]; then
+        warning "以下 .sql 不符合迁移脚本命名（12 位数字.sql），已跳过、不会作为迁移执行："
+        while IFS= read -r ignored_file; do
+            [ -n "$ignored_file" ] && warning "  $(basename "$ignored_file")"
+        done <<< "$ignored_list"
+    fi
+
     backfill_sql_migration_success_records "$mariadb_container" "$db_root_password" "$sql_dir" "升级备份前基线标记"
 }
 
@@ -15693,6 +15829,36 @@ cleanup_restored_redis_cache() {
     success "Redis可重建缓存清理完成"
 }
 
+# 备份完整性门禁：删卷前必须能证明关键数据真的落盘了。
+# 只看备份函数的返回值不够——历史上出现过中途失败却被当成成功，这里直接核对实体产物。
+verify_backup_artifacts() {
+    local backup_dir="$1"
+
+    if [ -z "$backup_dir" ] || [ ! -d "$backup_dir" ]; then
+        error "备份目录不存在: ${backup_dir:-<空>}"
+        return 1
+    fi
+
+    # 数据库快照是核心数据，必须存在且非空
+    if [ ! -s "$backup_dir/poetry.sql" ]; then
+        error "备份缺少数据库快照 poetry.sql（不存在或为空）"
+        error "  数据库 dump 未完成，继续升级会丢失全部博文与配置"
+        return 1
+    fi
+
+    if [ ! -f "$backup_dir/poetry.sql.meta" ]; then
+        warning "备份缺少快照基线元数据 poetry.sql.meta（恢复流程将退化为保守判定）"
+    fi
+
+    # 清单文件由备份流程最后一步写入，它存在才说明备份走到了终点
+    if [ ! -f "$backup_dir/backup_manifest.txt" ]; then
+        error "备份未完成：缺少 backup_manifest.txt（备份流程中途终止）"
+        return 1
+    fi
+
+    return 0
+}
+
 # 创建完整数据备份
 create_full_backup() {
     info "开始创建完整数据备份..."
@@ -15708,8 +15874,19 @@ create_full_backup() {
     info "备份位置: 系统临时目录（不会被卸载删除）"
     
     # 执行实际备份操作
-    perform_backup_operations "$BACKUP_DIR"
-    
+    # ⚠️ 必须检查返回值：调用方（run_update）靠这个返回值决定是否继续卸载删卷。
+    # 2026-11-11 的事故里这里不检查，备份明明在数据库那步就中止了，却仍打印
+    # "完整数据备份创建完成"，下一步 down -v 照删不误，备份和线上数据一起没了。
+    if ! perform_backup_operations "$BACKUP_DIR"; then
+        error "数据备份失败，备份目录不完整: $BACKUP_DIR"
+        return 1
+    fi
+
+    if ! verify_backup_artifacts "$BACKUP_DIR"; then
+        error "备份产物校验未通过: $BACKUP_DIR"
+        return 1
+    fi
+
     success "完整数据备份创建完成: $BACKUP_DIR"
     return 0
 }
@@ -15735,7 +15912,7 @@ backup_data() {
     info "开始备份数据到: $backup_path"
     
     # 执行实际备份操作
-    if perform_backup_operations "$backup_path"; then
+    if perform_backup_operations "$backup_path" && verify_backup_artifacts "$backup_path"; then
         success "数据备份完成: $backup_path"
         info "备份内容包含:"
         info "  - 数据库数据"
@@ -15891,16 +16068,22 @@ perform_backup_operations() {
             error "迁移版本记录补齐失败，已停止数据库备份，避免升级时重复执行历史 SQL"
             return 1
         fi
-        if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc 'mariadb-dump -u root -p"$POETIZE_DB_ROOT_PASSWORD" --single-transaction --routines --triggers --databases poetize' > "$backup_dir/poetry.sql"; then
+        # dump 失败时要清掉空文件，否则空快照会被后续"文件存在"的检查误认为成功
+        if sudo docker exec -e POETIZE_DB_ROOT_PASSWORD="$db_root_password" "$mariadb_container" sh -lc 'mariadb-dump -u root -p"$POETIZE_DB_ROOT_PASSWORD" --single-transaction --routines --triggers --databases poetize' > "$backup_dir/poetry.sql" \
+            && [ -s "$backup_dir/poetry.sql" ]; then
             # 记录快照基线（迁移记录数），供恢复流程判断"库是否已加载本次快照"
             write_snapshot_meta "$backup_dir/poetry.sql" "$mariadb_container" "$db_root_password"
             success "数据库备份完成"
         else
-            error "数据库备份失败"
+            rm -f "$backup_dir/poetry.sql" 2>/dev/null
+            error "数据库备份失败（dump 未产出有效内容）"
             return 1
         fi
     else
-        warning "MariaDB容器未运行或数据库密码未找到，跳过数据库备份"
+        # 不能降级为"跳过"：调用方紧接着就会 down -v 删卷，没有库快照等于数据全丢
+        error "MariaDB 容器未运行或数据库密码未找到，无法备份数据库，已终止"
+        error "卷名与凭据解析依赖运行中的容器，请先确认服务处于运行状态"
+        return 1
     fi
     
     # 4. 备份Python配置文件
@@ -17068,7 +17251,8 @@ run_update() {
     # 1. 备份数据
     info "步骤 1/4: 创建完整数据备份"
     create_full_backup || {
-        error "数据备份失败，终止更新"
+        error "数据备份失败，终止更新（系统未做任何变更，可修复后重跑）"
+        [ -n "${BACKUP_DIR:-}" ] && error "不完整的备份目录请自行确认后再删: $BACKUP_DIR"
         exit 1
     }
 
@@ -17078,6 +17262,15 @@ run_update() {
         error "资源完整性校验未通过，终止更新（系统未做任何变更）"
         exit 1
     }
+
+    # 1.6 删卷前最后一道门禁：备份产物必须实体存在。
+    #     这一步刻意与步骤 1 重复——因为下一步 down -v 不可逆，
+    #     宁可多验一次，也不要出现"备份失败了但卷已经删了"的局面。
+    verify_backup_artifacts "${BACKUP_DIR:-}" || {
+        error "备份产物校验未通过，终止更新（系统未做任何变更）"
+        exit 1
+    }
+    info "备份产物校验通过，开始卸载旧系统"
 
     # 2. 卸载当前系统
     info "步骤 2/4: 卸载当前POETIZE系统"

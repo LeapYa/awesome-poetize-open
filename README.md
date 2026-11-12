@@ -189,7 +189,7 @@ bash <(curl -sL install.leapya.com)
 
 先通过 SSH 登录到你的服务器，在服务器终端（Shell/命令行，也就是黑框框）里运行下面的命令。
 
-以下方式任选其一即可，如果不想让安装脚本直接操作宿主机环境，支持在挂载了 Docker Socket 的容器内运行，详见[容器内隔离部署](#在-docker-容器内部署防污染-vps-环境)
+以下方式任选其一即可，如果不想让安装脚本直接操作宿主机环境，支持在挂载了 Docker Socket 的容器内运行，详见[容器内隔离部署](#72-在-docker-容器内部署防污染-vps-环境)
 
 ```bash
 # 方式一：交互模式
@@ -216,7 +216,7 @@ git clone https://github.com/LeapYa/awesome-poetize-open.git && cd awesome-poeti
 | 宝塔面板部署（不用 Docker） | 已安装宝塔面板，使用 Web 界面部署 | [宝塔部署教程](docs/宝塔部署教程.md) |
 | 免费部署（零成本） | 无服务器，利用 Render + Vercel 等免费平台 | [免费部署教程](docs/免费部署教程.md) |
 
-> **使用 1Panel / 宝塔等面板做外层反向代理？** 本项目的 `poetize-nginx` 容器已内置 IP 头伪造防护（公网直连携带 `X-Real-IP` 会被拒绝），使用 `poetize install` 部署时自动生效。如果你在外层再套了一层反代（如 1Panel OpenResty），只要反代到 `poetize-nginx` 走内网通信就没问题——1Panel 等通用反代默认不会过滤伪造 IP 头，但安全层由 `poetize-nginx` 负责。不要绕过 `poetize-nginx` 直接暴露 Java 服务，否则会失去防护。更多配置细节见[高级功能 - 外部反向代理注意事项](#使用外部反向代理1panel--宝塔--自建-nginx的安全注意事项)。
+> **使用 1Panel / 宝塔等面板做外层反向代理？** 本项目的 `poetize-nginx` 容器已内置 IP 头伪造防护（公网直连携带 `X-Real-IP` 会被拒绝），使用 `poetize install` 部署时自动生效。如果你在外层再套了一层反代（如 1Panel OpenResty），只要反代到 `poetize-nginx` 走内网通信就没问题——1Panel 等通用反代默认不会过滤伪造 IP 头，但安全层由 `poetize-nginx` 负责。不要绕过 `poetize-nginx` 直接暴露 Java 服务，否则会失去防护。更多配置细节见[高级功能 - 外部反向代理注意事项](#73-使用外部反向代理1panel--宝塔--自建-nginx的安全注意事项)。
 
 ### 3.访问方式
 
@@ -388,10 +388,10 @@ sudo docker system prune -af && cd .. && sudo rm -rf awesome-poetize-open && bas
 
 ### 7.高级功能
 
-#### 国内环境部署
+#### 7.1 国内环境部署
 
 `poetize install` 已内置国内镜像源加速。~~若网络受限，可从Release下载离线资源包，包含Docker安装包和所有镜像文件。~~
-#### 在 Docker 容器内部署（防污染 VPS 环境）
+#### 7.2 在 Docker 容器内部署（防污染 VPS 环境）
 
 如果你希望避免安装脚本直接操作宿主机环境，可以在 VPS 上开一个 Debian 容器，进入容器内执行部署脚本。
 
@@ -433,7 +433,7 @@ bash <(curl -sL install.leapya.com)
 | 容器＋--privileged（DinD） | ⚠️ 可尝试 | 不如挂 Socket 稳定，有安全风险 |
 | 普通容器（无 Socket，无特权） | ❌ 不可行 | Docker 守护进程无法启动 |
 
-#### 使用外部反向代理（1Panel / 宝塔 / 自建 Nginx）的安全注意事项
+#### 7.3 使用外部反向代理（1Panel / 宝塔 / 自建 Nginx）的安全注意事项
 
 本项目的 `poetize-nginx` 容器内置了 IP 头伪造防护：公网客户端直连时携带 `X-Real-IP` 会被拒绝（返回 400），只有来自内网/容器网络的反向代理传入的 IP 头才会被信任。使用 `poetize install` 脚本部署时该机制自动生效。
 
@@ -449,6 +449,24 @@ bash <(curl -sL install.leapya.com)
   real_ip_recursive on;
   ```
 - ❌ **不要绕过 `poetize-nginx` 直接暴露 Java 服务** — 会失去防伪造保护，访问统计地域数据可能被污染。
+
+#### 7.4 访客 IP 识别与接入层自动封禁（v5.2.14+）
+
+`poetize-nginx` 内置访客真实 IP 解析与攻击事件自动封禁：按事件类型在时间窗内对来源 IP 计数，超过阈值自动临时封禁（默认 60 秒窗口、封禁 600 秒）。非公网地址、服务器自身与可信代理段永不封禁、不参与统计；走 CDN/反代拿不到可信身份头时只做观测，绝不封禁代理节点本身。
+
+**访客 IP 从哪来（默认无需配置）**：默认 `REAL_IP_HEADER=X-Forwarded-For`，从 XFF 链最右端向左扫描，跳过无效/私有/自身/可信段，取第一个可信之外的 IP；链不可用时回退 TCP 对端地址。直连与标准一跳 CDN（如 Cloudflare）在默认配置下归因正确。
+
+**需要改 `.env` 的场景**（编辑站点目录下 `.env`，执行 `poetize -restart` 生效）：
+
+| 部署形态 | 配置 |
+|---------|------|
+| 直连或标准一跳 CDN | 保持默认 `X-Forwarded-For`，无需改动 |
+| EdgeOne 等注入私有真实 IP 头的 CDN | `REAL_IP_HEADER=EO-Connecting-IP`（替换为对应厂商头名） |
+| 纯直连、想彻底杜绝伪造头（可选加固） | `REAL_IP_HEADER=off`：不信任任何代理头，封禁永远命中真实对端，伪造 `X-Forwarded-For` 无效 |
+
+> **说明**：
+> - 多级代理/自建反代请配合 `TRUSTED_PROXY_CIDRS` 填写回源网段（逗号分隔），否则中间代理 IP 会被当成访客
+> - 攻击事件类型与阈值由 `NGINX_ATTACK_*` 系列环境变量控制，各项含义见 `.env.example` 内注释，默认关闭的事件保持关闭
 
 ## 🤖 智能体/OpenClaw 博客自动化
 

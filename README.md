@@ -189,7 +189,7 @@ bash <(curl -sL install.leapya.com)
 
 先通过 SSH 登录到你的服务器，在服务器终端（Shell/命令行，也就是黑框框）里运行下面的命令。
 
-以下方式任选其一即可，如果不想让安装脚本直接操作宿主机环境，支持在挂载了 Docker Socket 的容器内运行，详见[容器内隔离部署](#72-在-docker-容器内部署防污染-vps-环境)
+以下方式任选其一即可，如果不想让安装脚本直接操作宿主机环境，支持在挂载了 Docker Socket 的容器内运行，详见[容器内隔离部署](#62-在-docker-容器内部署防污染-vps-环境)
 
 ```bash
 # 方式一：交互模式
@@ -205,7 +205,7 @@ git clone https://github.com/LeapYa/awesome-poetize-open.git && cd awesome-poeti
 git clone https://github.com/LeapYa/awesome-poetize-open.git && cd awesome-poetize-open && sudo chmod +x poetize && sudo ./poetize install -d 域名.com -d www.域名.com
 ```
 
-> 部署脚本已经做好了错误处理和重试机制，如果仍然部署失败，请查看[常见问题](#6常见问题)
+> 部署脚本已经做好了错误处理和重试机制，如果仍然部署失败，请查看[常见问题](#5常见问题)
 
 #### 其他部署方式（beta）
 
@@ -216,7 +216,7 @@ git clone https://github.com/LeapYa/awesome-poetize-open.git && cd awesome-poeti
 | 宝塔面板部署（不用 Docker） | 已安装宝塔面板，使用 Web 界面部署 | [宝塔部署教程](docs/宝塔部署教程.md) |
 | 免费部署（零成本） | 无服务器，利用 Render + Vercel 等免费平台 | [免费部署教程](docs/免费部署教程.md) |
 
-> **使用 1Panel / 宝塔等面板做外层反向代理？** 本项目的 `poetize-nginx` 容器已内置 IP 头伪造防护（公网直连携带 `X-Real-IP` 会被拒绝），使用 `poetize install` 部署时自动生效。如果你在外层再套了一层反代（如 1Panel OpenResty），只要反代到 `poetize-nginx` 走内网通信就没问题——1Panel 等通用反代默认不会过滤伪造 IP 头，但安全层由 `poetize-nginx` 负责。不要绕过 `poetize-nginx` 直接暴露 Java 服务，否则会失去防护。更多配置细节见[高级功能 - 外部反向代理注意事项](#73-使用外部反向代理1panel--宝塔--自建-nginx的安全注意事项)。
+> **使用 1Panel / 宝塔等面板做外层反向代理？** 本项目的 `poetize-nginx` 容器已内置 IP 头伪造防护（公网直连携带 `X-Real-IP` 会被拒绝），使用 `poetize install` 部署时自动生效。如果你在外层再套了一层反代（如 1Panel OpenResty），只要反代到 `poetize-nginx` 走内网通信就没问题——1Panel 等通用反代默认不会过滤伪造 IP 头，但安全层由 `poetize-nginx` 负责。不要绕过 `poetize-nginx` 直接暴露 Java 服务，否则会失去防护。更多配置细节见[高级功能 - 外部反向代理注意事项](#63-使用外部反向代理1panel--宝塔--自建-nginx的安全注意事项)。
 
 ### 3.访问方式
 
@@ -233,72 +233,7 @@ git clone https://github.com/LeapYa/awesome-poetize-open.git && cd awesome-poeti
 
 > 首次登录后，进入后台管理，点击欢迎页的"开启配置向导"按钮，按步骤完成所有基础配置（站点信息、邮件服务、个人资料修改、SEO配置等）。
 
-### 4.可选配置
-
-#### （1）SEO优化配置
-
-SEO（搜索引擎优化）可以让你的博客更容易被 Google、百度等搜索引擎收录，让更多人通过搜索找到你的文章。
-
-本项目内置了完整的 SEO 功能，包括智能摘要生成、站点地图、搜索引擎推送等。如果你希望网站被更多人发现，建议阅读 [SEO优化指南](docs/SEO优化指南.md)。
-
-#### （2）更换字体
-
-  <details>
-  <summary><b>默认字体说明</b>（点击展开）</summary>
-
-  本项目默认使用「**萌趣体**」字体（来源：[字体视界](https://www.17font.com/)），该字体风格圆润可爱，非常适合个人博客的温馨氛围。
-
-  > **注意**：萌趣体是**单字重字体**，不支持粗体变体。这意味着 Markdown 中的 `**粗体**` 语法虽然会被正确解析，但视觉上加粗效果不明显。如需明显的粗体效果，建议更换为支持多字重的字体。
-
-  **推荐字体**
-
-  如需更换字体，以下是一些支持**多字重**的免费商用字体推荐：
-
-  | 字体名称 | 风格特点 | 字重数量 | 下载地址 |
-  | :--- | :--- | :--- | :--- |
-  | HarmonyOS Sans | 圆润现代 | 6种 | [官网下载](https://developer.huawei.com/consumer/cn/design/resource/) |
-  | MiSans | 圆润友好 | 6种 | [官网下载](https://hyperos.mi.com/font) |
-  | OPlusSans | 圆角柔和 | 5种 | [GitHub](https://github.com/nicemicrosun/OPPO_Sans) |
-  | 思源黑体 | 专业现代 | 7种 | [GitHub](https://github.com/adobe-fonts/source-han-sans) |
-  | 思源宋体 | 优雅衬线 | 7种 | [GitHub](https://github.com/adobe-fonts/source-han-serif) |
-
-  </details>
-
-
-  进入后台管理 → 配置管理，即可直接上传并切换字体，无需手动操作文件。
-
-#### （3）OAuth代理
-
-若需支持国外第三方登录平台（GitHub、Google等），请配置海外代理服务器，详见[OAuth代理配置说明文档](docs/OAuth代理配置说明.md)。
-
-#### （4）Ollama本地翻译模型
-
-如需启用本地AI翻译功能，编辑 `docker-compose.yml` 找到"Ollama翻译模型服务"部分取消注释即可。默认使用 `qwen3:0.6b` 轻量级模型。更多模型选择和配置详见 [Ollama官方模型库](https://ollama.com/library)。
-
-#### （5）使用外部数据库或Redis
-
-如果你已有 MariaDB/MySQL 或 Redis 服务，可在部署时直接使用，无需再启动内置容器：
-
-```bash
-# 使用外部数据库
-bash <(curl -sL install.leapya.com) -d 域名.com --db-host 数据库地址 --db-pwd 密码
-
-# 使用外部Redis
-bash <(curl -sL install.leapya.com) -d 域名.com --redis-host Redis地址 --redis-pwd 密码
-
-# 完整参数（可按需省略,也可以使用 -h 查看完整参数）
---db-host HOST       # 数据库主机地址
---db-port PORT       # 端口（默认3306）
---db-name NAME       # 数据库名（默认poetize）
---db-user USER       # 用户名（默认poetize）
---db-pwd PASSWORD    # 密码
---redis-host HOST    # Redis主机地址
---redis-port PORT    # 端口（默认6379）
---redis-pwd PASSWORD # 密码
---redis-db NUMBER    # 数据库编号（默认0）
-```
-
-### 5.常用命令
+### 4.常用命令
 
 本项目统一使用 `poetize` 管理脚本，执行 `poetize -h` 或在仓库根目录执行 `./poetize -h` 查看详细用法。
 
@@ -374,7 +309,7 @@ poetize -qy
 
 </details>
 
-### 6.常见问题
+### 5.常见问题
 
 #### 项目部署失败
 
@@ -386,12 +321,12 @@ sudo docker system prune -af && cd .. && sudo rm -rf awesome-poetize-open && bas
 
 更多详见[排障指南](#-排障指南)
 
-### 7.高级功能
+### 6.高级功能
 
-#### 7.1 国内环境部署
+#### 6.1 国内环境部署
 
 `poetize install` 已内置国内镜像源加速。~~若网络受限，可从Release下载离线资源包，包含Docker安装包和所有镜像文件。~~
-#### 7.2 在 Docker 容器内部署（防污染 VPS 环境）
+#### 6.2 在 Docker 容器内部署（防污染 VPS 环境）
 
 如果你希望避免安装脚本直接操作宿主机环境，可以在 VPS 上开一个 Debian 容器，进入容器内执行部署脚本。
 
@@ -433,7 +368,7 @@ bash <(curl -sL install.leapya.com)
 | 容器＋--privileged（DinD） | ⚠️ 可尝试 | 不如挂 Socket 稳定，有安全风险 |
 | 普通容器（无 Socket，无特权） | ❌ 不可行 | Docker 守护进程无法启动 |
 
-#### 7.3 使用外部反向代理（1Panel / 宝塔 / 自建 Nginx）的安全注意事项
+#### 6.3 使用外部反向代理（1Panel / 宝塔 / 自建 Nginx）的安全注意事项
 
 本项目的 `poetize-nginx` 容器内置了 IP 头伪造防护：公网客户端直连时携带 `X-Real-IP` 会被拒绝（返回 400），只有来自内网/容器网络的反向代理传入的 IP 头才会被信任。使用 `poetize install` 脚本部署时该机制自动生效。
 
@@ -450,7 +385,7 @@ bash <(curl -sL install.leapya.com)
   ```
 - ❌ **不要绕过 `poetize-nginx` 直接暴露 Java 服务** — 会失去防伪造保护，访问统计地域数据可能被污染。
 
-#### 7.4 访客 IP 识别与接入层自动封禁（v5.2.14+）
+#### 6.4 访客 IP 识别与接入层自动封禁（v5.2.14+）
 
 `poetize-nginx` 内置访客真实 IP 解析与攻击事件自动封禁：按事件类型在时间窗内对来源 IP 计数，超过阈值自动临时封禁（默认 60 秒窗口、封禁 600 秒）。非公网地址、服务器自身与可信代理段永不封禁、不参与统计；走 CDN/反代拿不到可信身份头时只做观测，绝不封禁代理节点本身。
 
@@ -467,6 +402,69 @@ bash <(curl -sL install.leapya.com)
 > **说明**：
 > - 多级代理/自建反代请配合 `TRUSTED_PROXY_CIDRS` 填写回源网段（逗号分隔），否则中间代理 IP 会被当成访客
 > - 攻击事件类型与阈值由 `NGINX_ATTACK_*` 系列环境变量控制，各项含义见 `.env.example` 内注释，默认关闭的事件保持关闭
+
+#### 6.5 SEO优化配置
+
+SEO（搜索引擎优化）可以让你的博客更容易被 Google、百度等搜索引擎收录，让更多人通过搜索找到你的文章。
+
+本项目内置了完整的 SEO 功能，包括智能摘要生成、站点地图、搜索引擎推送等。如果你希望网站被更多人发现，建议阅读 [SEO优化指南](docs/SEO优化指南.md)。
+
+#### 6.6 更换字体
+
+  <details>
+  <summary><b>默认字体说明</b>（点击展开）</summary>
+
+  本项目默认使用「**萌趣体**」字体（来源：[字体视界](https://www.17font.com/)），该字体风格圆润可爱，非常适合个人博客的温馨氛围。
+
+  > **注意**：萌趣体是**单字重字体**，不支持粗体变体。这意味着 Markdown 中的 `**粗体**` 语法虽然会被正确解析，但视觉上加粗效果不明显。如需明显的粗体效果，建议更换为支持多字重的字体。
+
+  **推荐字体**
+
+  如需更换字体，以下是一些支持**多字重**的免费商用字体推荐：
+
+  | 字体名称 | 风格特点 | 字重数量 | 下载地址 |
+  | :--- | :--- | :--- | :--- |
+  | HarmonyOS Sans | 圆润现代 | 6种 | [官网下载](https://developer.huawei.com/consumer/cn/design/resource/) |
+  | MiSans | 圆润友好 | 6种 | [官网下载](https://hyperos.mi.com/font) |
+  | OPlusSans | 圆角柔和 | 5种 | [GitHub](https://github.com/nicemicrosun/OPPO_Sans) |
+  | 思源黑体 | 专业现代 | 7种 | [GitHub](https://github.com/adobe-fonts/source-han-sans) |
+  | 思源宋体 | 优雅衬线 | 7种 | [GitHub](https://github.com/adobe-fonts/source-han-serif) |
+
+  </details>
+
+
+  进入后台管理 → 配置管理，即可直接上传并切换字体，无需手动操作文件。
+
+#### 6.7 OAuth代理
+
+若需支持国外第三方登录平台（GitHub、Google等），请配置海外代理服务器，详见[OAuth代理配置说明文档](docs/OAuth代理配置说明.md)。
+
+#### 6.8 Ollama本地翻译模型
+
+如需启用本地AI翻译功能，编辑 `docker-compose.yml` 找到"Ollama翻译模型服务"部分取消注释即可。默认使用 `qwen3:0.6b` 轻量级模型。更多模型选择和配置详见 [Ollama官方模型库](https://ollama.com/library)。
+
+#### 6.9 使用外部数据库或Redis
+
+如果你已有 MariaDB/MySQL 或 Redis 服务，可在部署时直接使用，无需再启动内置容器：
+
+```bash
+# 使用外部数据库
+bash <(curl -sL install.leapya.com) -d 域名.com --db-host 数据库地址 --db-pwd 密码
+
+# 使用外部Redis
+bash <(curl -sL install.leapya.com) -d 域名.com --redis-host Redis地址 --redis-pwd 密码
+
+# 完整参数（可按需省略,也可以使用 -h 查看完整参数）
+--db-host HOST       # 数据库主机地址
+--db-port PORT       # 端口（默认3306）
+--db-name NAME       # 数据库名（默认poetize）
+--db-user USER       # 用户名（默认poetize）
+--db-pwd PASSWORD    # 密码
+--redis-host HOST    # Redis主机地址
+--redis-port PORT    # 端口（默认6379）
+--redis-pwd PASSWORD # 密码
+--redis-db NUMBER    # 数据库编号（默认0）
+```
 
 ## 🤖 智能体/OpenClaw 博客自动化
 

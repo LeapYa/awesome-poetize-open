@@ -23,6 +23,7 @@ info() { printf '[INFO] %s\n' "$*" >&2; }
 extract() { sed -n "/^$1()/,/^}/p" poetize; }
 
 eval "$(extract list_sql_migration_files)"
+eval "$(extract is_internal_database_enabled)"
 eval "$(extract verify_backup_artifacts)"
 eval "$(extract backfill_sql_migration_success_records)"
 
@@ -85,6 +86,20 @@ check "产物齐全时通过" "0" "$?"
 
 verify_backup_artifacts "" >/dev/null 2>&1
 check "空路径被拒" "1" "$?"
+
+# 外部数据库（ENABLE_MYSQL=false）：不产生 poetry.sql，删卷也删不到它，应放行
+ext_dir="$work/backup_extdb"
+mkdir -p "$ext_dir"
+: > "$ext_dir/backup_manifest.txt"
+ENABLE_MYSQL=false verify_backup_artifacts "$ext_dir" >/dev/null 2>&1
+check "外部数据库缺快照时放行" "0" "$?"
+
+ENABLE_MYSQL=true verify_backup_artifacts "$ext_dir" >/dev/null 2>&1
+check "内部数据库缺快照仍被拒" "1" "$?"
+
+python -c "import os,sys; os.remove(sys.argv[1])" "$ext_dir/backup_manifest.txt" 2>/dev/null || true
+ENABLE_MYSQL=false verify_backup_artifacts "$ext_dir" >/dev/null 2>&1
+check "外部数据库也要求备份走完" "1" "$?"
 
 printf '\n--- 3. backfill 场景（stub 模拟 MySQL）---\n'
 declare -A RECORDED

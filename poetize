@@ -15829,6 +15829,25 @@ cleanup_restored_redis_cache() {
     success "Redis可重建缓存清理完成"
 }
 
+# 数据库是否由本项目自己的容器提供。
+# ENABLE_MYSQL=false 表示用户配了外部数据库：此时 compose 不启动 mysql 服务，
+# down -v 也删不到它的数据，所以升级前扫不到 mysql 容器是正常的，
+# 不能因此判定"备份失败"并中止升级（那会把外部库用户永久锁在升级门外）。
+is_internal_database_enabled() {
+    local flag="${ENABLE_MYSQL:-}"
+
+    if [ -z "$flag" ] && [ -f "lib/config.sh" ]; then
+        source "lib/config.sh" 2>/dev/null || true
+        if type read_env_config >/dev/null 2>&1; then
+            flag=$(read_env_config "ENABLE_MYSQL" "true" 2>/dev/null || true)
+        fi
+    fi
+
+    # 读不到就按内部数据库处理：宁可要求备份，也不要误判成外部而跳过
+    [ -z "$flag" ] && flag="true"
+    [ "$flag" = "true" ]
+}
+
 # 备份完整性门禁：删卷前必须能证明关键数据真的落盘了。
 # 只看备份函数的返回值不够——历史上出现过中途失败却被当成成功，这里直接核对实体产物。
 verify_backup_artifacts() {
@@ -15839,14 +15858,16 @@ verify_backup_artifacts() {
         return 1
     fi
 
-    # 数据库快照是核心数据，必须存在且非空
+    # 数据库快照是核心数据，必须存在且非空。
+    # 外部数据库不产生快照，且不在本次删卷范围内，跳过这一项。
     if [ ! -s "$backup_dir/poetry.sql" ]; then
-        error "备份缺少数据库快照 poetry.sql（不存在或为空）"
-        error "  数据库 dump 未完成，继续升级会丢失全部博文与配置"
-        return 1
-    fi
-
-    if [ ! -f "$backup_dir/poetry.sql.meta" ]; then
+        if is_internal_database_enabled; then
+            error "备份缺少数据库快照 poetry.sql（不存在或为空）"
+            error "  数据库 dump 未完成，继续升级会丢失全部博文与配置"
+            return 1
+        fi
+        info "外部数据库模式：本次升级不涉及本地数据卷，跳过数据库快照校验"
+    elif [ ! -f "$backup_dir/poetry.sql.meta" ]; then
         warning "备份缺少快照基线元数据 poetry.sql.meta（恢复流程将退化为保守判定）"
     fi
 
@@ -16080,10 +16101,15 @@ perform_backup_operations() {
             return 1
         fi
     else
-        # 不能降级为"跳过"：调用方紧接着就会 down -v 删卷，没有库快照等于数据全丢
-        error "MariaDB 容器未运行或数据库密码未找到，无法备份数据库，已终止"
-        error "卷名与凭据解析依赖运行中的容器，请先确认服务处于运行状态"
-        return 1
+        if is_internal_database_enabled; then
+            # 数据库在本项目容器里，紧接着就要 down -v 删它的卷，没有快照等于数据全丢
+            error "MariaDB 容器未运行或数据库密码未找到，无法备份数据库，已终止"
+            error "卷名与凭据解析依赖运行中的容器，请先确认服务处于运行状态"
+            return 1
+        fi
+        # 外部数据库：不在本次删卷范围内，扫不到容器是正常的
+        warning "检测到外部数据库（ENABLE_MYSQL=false），数据库不在本次升级的删卷范围内，跳过数据库备份"
+        warning "升级后请自行核对外部数据库连接与数据完整性"
     fi
     
     # 4. 备份Python配置文件
@@ -16627,32 +16653,38 @@ reinstall_latest_system() {
         return 1
     fi
     rm -f "poetize-server/sql/poetry.sql" "poetize-server/sql/poetry.sql.meta"
-    local snapshot_cp_ok=false
-    local snapshot_cp_try=0
-    while [ $snapshot_cp_try -lt 3 ]; do
-        snapshot_cp_try=$((snapshot_cp_try + 1))
-        if cp "$BACKUP_DIR/poetry.sql" "poetize-server/sql/poetry.sql" 2>/dev/null; then
-            snapshot_cp_ok=true
-            break
+
+    if is_internal_database_enabled; then
+        local snapshot_cp_ok=false
+        local snapshot_cp_try=0
+        while [ $snapshot_cp_try -lt 3 ]; do
+            snapshot_cp_try=$((snapshot_cp_try + 1))
+            if cp "$BACKUP_DIR/poetry.sql" "poetize-server/sql/poetry.sql" 2>/dev/null; then
+                snapshot_cp_ok=true
+                break
+            fi
+            warning "数据库快照复制失败（第 $snapshot_cp_try/3 次），稍后重试..."
+            sleep 2
+        done
+        if [ "$snapshot_cp_ok" != "true" ] || [ ! -s "poetize-server/sql/poetry.sql" ]; then
+            error "数据库快照复制失败（已重试 3 次），中止重装，防止旧快照冒充本次备份"
+            return 1
         fi
-        warning "数据库快照复制失败（第 $snapshot_cp_try/3 次），稍后重试..."
-        sleep 2
-    done
-    if [ "$snapshot_cp_ok" != "true" ] || [ ! -s "poetize-server/sql/poetry.sql" ]; then
-        error "数据库快照复制失败（已重试 3 次），中止重装，防止旧快照冒充本次备份"
-        return 1
+        # 快照新鲜度校验：目标文件必须是刚刚写入的；残留旧文件 mtime 陈旧会被在此拦下
+        if ! find "poetize-server/sql/poetry.sql" -mmin -5 2>/dev/null | grep -q .; then
+            error "数据库快照文件不是本次写入（mtime 校验失败），中止重装"
+            return 1
+        fi
+        # 快照基线元数据随行（供恢复流程判断"库是否已加载本次快照"）
+        if [ -f "$BACKUP_DIR/poetry.sql.meta" ]; then
+            cp "$BACKUP_DIR/poetry.sql.meta" "poetize-server/sql/poetry.sql.meta" 2>/dev/null \
+                || warning "快照基线元数据复制失败（恢复流程将退化为保守判定）"
+        fi
+        success "数据库快照已恢复到 poetize-server/sql/poetry.sql"
+    else
+        # 外部数据库模式下 mysql 服务不启动，无需把快照烧进镜像
+        info "外部数据库模式（ENABLE_MYSQL=false）：跳过数据库快照烧入"
     fi
-    # 快照新鲜度校验：目标文件必须是刚刚写入的；残留旧文件 mtime 陈旧会被在此拦下
-    if ! find "poetize-server/sql/poetry.sql" -mmin -5 2>/dev/null | grep -q .; then
-        error "数据库快照文件不是本次写入（mtime 校验失败），中止重装"
-        return 1
-    fi
-    # 快照基线元数据随行（供恢复流程判断"库是否已加载本次快照"）
-    if [ -f "$BACKUP_DIR/poetry.sql.meta" ]; then
-        cp "$BACKUP_DIR/poetry.sql.meta" "poetize-server/sql/poetry.sql.meta" 2>/dev/null \
-            || warning "快照基线元数据复制失败（恢复流程将退化为保守判定）"
-    fi
-    success "数据库快照已恢复到 poetize-server/sql/poetry.sql"
     # 恢复Python文件配置
     if [ -d "$BACKUP_DIR/.config" ]; then
         cp -r "$BACKUP_DIR/.config" ./
@@ -16997,7 +17029,11 @@ perform_restore_operations() {
                     warning "未找到MariaDB容器或数据库密码，跳过补导恢复"
                 fi
             else
-                warning "备份中未找到数据库快照，无法补导恢复"
+                if is_internal_database_enabled; then
+                    warning "备份中未找到数据库快照，无法补导恢复"
+                else
+                    info "外部数据库模式：无需恢复本地数据库快照"
+                fi
             fi
         fi
     elif [ -f "$backup_dir/poetry.sql" ]; then

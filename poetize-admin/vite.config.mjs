@@ -3,7 +3,6 @@ import vue from '@vitejs/plugin-vue2';
 import Components from 'unplugin-vue-components/vite';
 import { ElementUiResolver } from 'unplugin-vue-components/resolvers';
 import path from 'path';
-import viteCompression from 'vite-plugin-compression';
 import envCompatible from 'vite-plugin-env-compatible';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
@@ -73,10 +72,6 @@ export default defineConfig({
             dirs: [],
             dts: false,
             resolvers: [ElementUiResolver()],
-        }),
-        viteCompression({
-            algorithm: 'gzip',
-            threshold: 8192,
         }),
         envCompatible(),
     ],

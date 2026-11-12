@@ -22,13 +22,21 @@ jobs:
           # 严格按 lock 安装（lock 已入库）；禁止回退 npm install --force——依赖漂移正是
           # v5.2.8 白屏事故的触发条件，lock 失同步应让构建失败暴露，而非静默绕过。
           npm ci --legacy-peer-deps --no-fund --no-audit
-          NODE_OPTIONS="--max-old-space-size=4096" npx vite build --outDir dist-verify
+          # 走 package.json 的 build 链（build-with-compression → 预压缩），
+          # 让压缩产物生成逻辑在发布前被真实执行，而不是绕过它。
+          NODE_OPTIONS="--max-old-space-size=4096" npm run build -- --outDir dist-verify
           echo "=== 扫描产物：getTagNamespace 无参调用（>0 即白屏雷）==="
           if grep -rF 'getTagNamespace()' dist-verify/static/; then
             echo "✗ 检测到 vue 运行时调用丢参数的坏产物，禁止发布"
             exit 1
           fi
-          echo "✓ admin 产物校验通过"
+          echo "=== 扫描产物：预压缩文件 ==="
+          BR_COUNT=$(find dist-verify -name '*.br' | wc -l)
+          if [ "$BR_COUNT" -eq 0 ]; then
+            echo "✗ 未生成任何 .br 预压缩文件，压缩链路失效，禁止发布"
+            exit 1
+          fi
+          echo "✓ admin 产物校验通过（.br 文件 $BR_COUNT 个）"
 
   deploy-test:
     runs-on: ubuntu-latest

@@ -46,9 +46,6 @@ RUN echo "开始安装依赖..." && \
     npm ci --legacy-peer-deps --no-fund --no-audit --maxsockets 1 --network-timeout=600000 && \
     echo "依赖安装完成（npm ci 严格按 lock 安装）"
 
-# 安装全局工具（Brotli 压缩）
-RUN npm install -g brotli --no-fund --no-audit --maxsockets 1 || echo '警告: brotli 安装失败，将跳过 .br 文件生成'
-
 # 复制所有源代码
 COPY poetize-admin/ ./
 

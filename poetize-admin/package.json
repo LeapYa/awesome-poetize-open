@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "vite",
     "serve": "vite",
-    "build": "vite build && npm run compress",
+    "build": "node scripts/build-with-compression.cjs",
     "build:no-compress": "vite build",
     "preview": "vite preview",
     "compress": "node scripts/compress-build.js",
@@ -59,7 +59,6 @@
     "html-minifier-terser": "^7.2.0",
     "unplugin-vue-components": "^0.27.5",
     "vite": "^7.3.0",
-    "vite-plugin-compression": "^0.5.1",
     "vite-plugin-env-compatible": "^2.0.1",
     "vue-template-compiler": "^2.7.16"
   },

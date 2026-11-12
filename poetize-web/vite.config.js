@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import viteCompression from 'vite-plugin-compression'
 import JavaScriptObfuscator from 'javascript-obfuscator'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -281,13 +280,6 @@ export default defineConfig({
         /^(Loader|Zombie|Printer|SortArticle|MyAside|Danmaku|Card|Process|VideoPlayer|Emoji|ProButton|UploadPicture|Live2DTips|Live2DCanvas|Live2DToolbar|Live2DToggle)$/,
       ],
       dts: false, // 不生成 d.ts 文件
-    }),
-    // Gzip compression
-    viteCompression({
-      algorithm: 'gzip',
-      ext: '.gz',
-      threshold: 8192,
-      deleteOriginFile: false
     }),
     captchaObfuscator(),
   ],

@@ -1465,18 +1465,31 @@ export default {
           }
           this.uaBanDialogVisible = false;
         } else {
-          this.$message({
-            message: res.message || '封禁失败',
-            type: 'error'
-          });
+          this.showUaBanError(res.message);
         }
       }).catch((error) => {
-        this.$message({
-          message: '封禁失败: ' + (error && error.message ? error.message : '未知错误'),
-          type: 'error'
-        });
+        this.showUaBanError(error && error.message);
       }).finally(() => {
         this.uaBanLoading = false;
+      });
+    },
+
+    // 地区校准失败会返回可选值列表，用通知卡片展示，避免长消息被 message 截断
+    showUaBanError(message) {
+      const errMsg = message || '封禁失败';
+      if (errMsg.indexOf('可选值参考') >= 0) {
+        this.$notify({
+          title: '添加封禁规则失败',
+          message: errMsg,
+          type: 'error',
+          duration: 10000,
+          customClass: 'ban-error-notify'
+        });
+        return;
+      }
+      this.$message({
+        message: '封禁失败: ' + errMsg,
+        type: 'error'
       });
     },
 

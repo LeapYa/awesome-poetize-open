@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SearchEngineVerifierTest {
@@ -304,6 +305,30 @@ class SearchEngineVerifierTest {
         }
 
         assertTrue(redisUtil.hasKey(CacheConstants.buildIpBlacklistKey("8.8.8.8")));
+    }
+
+    @Test
+    void peekVerificationReadsOnlyFinishedCachedResults() throws Exception {
+        FakeRedisUtil redisUtil = new FakeRedisUtil();
+        FakeDnsResolver dnsResolver = new FakeDnsResolver()
+                .reverse("66.249.66.1", "crawl-66-249-66-1.googlebot.com")
+                .forward("crawl-66-249-66-1.googlebot.com", List.of("66.249.66.1"));
+        SearchEngineVerifier verifier = newVerifier(redisUtil, dnsResolver);
+
+        // 未验证过、无缓存时不触发验证，返回 null
+        assertNull(verifier.peekVerification("66.249.66.1", GOOGLE_UA));
+
+        awaitStatus(verifier, "66.249.66.1", GOOGLE_UA, "verified");
+        assertEquals("verified", verifier.peekVerification("66.249.66.1", GOOGLE_UA).status());
+
+        // pending 只是后台任务未完成的占位，不能当作最终结论回补
+        redisUtil.set(CacheConstants.buildSearchBotVerifyKey("bingbot", "157.55.39.1"),
+                "pending|DNS验证已提交后台任务", 60);
+        assertNull(verifier.peekVerification("157.55.39.1", BING_UA));
+
+        // 非搜索引擎 UA 不参与回补
+        assertNull(verifier.peekVerification("66.249.66.1",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"));
     }
 
     private UserAgentClassifier.BotVerification awaitStatus(SearchEngineVerifier verifier, String ip,

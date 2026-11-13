@@ -93,6 +93,33 @@ public class SearchEngineVerifier {
         this.dnsVerifyConcurrency = dnsVerifyConcurrency;
     }
 
+    /**
+     * 只读取已完成的验证缓存，不触发新的 DNS 验证。
+     * <p>访问记录写入时验证多为异步执行，落库的是首访快照（unknown）；
+     * 展示和同步前用本方法补正，避免真实搜索引擎一直停留在“未验证”。
+     *
+     * @return 已缓存的验证结果；无缓存或仍在验证中（pending）时返回 null
+     */
+    public UserAgentClassifier.BotVerification peekVerification(String ip, String userAgent) {
+        String claimedName = UserAgentClassifier.detectSearchEngineName(userAgent);
+        if (!hasText(claimedName)) {
+            return null;
+        }
+        SearchEngineRule rule = SearchEngineRule.match(claimedName);
+        if (rule == null) {
+            return null;
+        }
+        String normalizedIp = normalizeIp(ip);
+        if (!hasText(normalizedIp)) {
+            return null;
+        }
+        UserAgentClassifier.BotVerification cached = readCachedVerification(rule, normalizedIp);
+        if (cached == null || "pending".equals(cached.status())) {
+            return null;
+        }
+        return cached;
+    }
+
     public UserAgentClassifier.BotVerification verify(String ip, String userAgent) {
         String claimedName = UserAgentClassifier.detectSearchEngineName(userAgent);
         if (!hasText(claimedName)) {

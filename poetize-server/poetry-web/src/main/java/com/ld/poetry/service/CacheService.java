@@ -14,6 +14,7 @@ import com.ld.poetry.entity.User;
 import com.ld.poetry.entity.WebInfo;
 import com.ld.poetry.utils.RedisUtil;
 import com.ld.poetry.utils.PageVisitUtils;
+import com.ld.poetry.utils.SearchEngineVerifier;
 import com.ld.poetry.utils.ServerSelfIpUtil;
 import com.ld.poetry.utils.SpringContextUtil;
 import com.ld.poetry.utils.TokenValidationUtil;
@@ -83,6 +84,9 @@ public class CacheService {
 
     @Autowired
     private SysConfigMapper sysConfigMapper;
+
+    @Autowired
+    private SearchEngineVerifier searchEngineVerifier;
 
     // ================================ 用户缓存 ================================
 
@@ -2571,6 +2575,7 @@ public class CacheService {
                 }
             }
             
+            refreshSearchEngineVerification(records);
             log.info("获取{}的访问记录: {} 条", date, records.size());
             return records;
             
@@ -2849,12 +2854,71 @@ public class CacheService {
                 }
             }
             
+            refreshSearchEngineVerification(unsyncedRecords);
             log.info("获取{}的未同步访问记录: {} 条", date, unsyncedRecords.size());
             return unsyncedRecords;
             
         } catch (Exception e) {
             log.error("获取未同步访问记录失败: date={}", date, e);
             return new java.util.ArrayList<>();
+        }
+    }
+
+    /**
+     * 用已完成的搜索引擎验证结果补正访问记录。
+     * <p>记录写入时验证是异步的，落库的是首访快照（unknown/pending），后台验证完成后
+     * 不会回写旧记录；这里在读取（展示、同步入库）前按 IP + UA 回查验证缓存，
+     * 把真实搜索引擎补正为最终结论。只读缓存，不触发新的 DNS 查询。
+     */
+    private void refreshSearchEngineVerification(List<Map<String, Object>> records) {
+        if (searchEngineVerifier == null || records == null || records.isEmpty()) {
+            return;
+        }
+
+        Map<String, UserAgentClassifier.BotVerification> verificationCache = new HashMap<>();
+        for (Map<String, Object> record : records) {
+            if (record == null) {
+                continue;
+            }
+            Object typeObj = record.get("uaType");
+            if (typeObj == null || !"search_engine".equals(typeObj.toString().trim())) {
+                continue;
+            }
+            Object statusObj = record.get("botVerifyStatus");
+            if (statusObj != null && "verified".equalsIgnoreCase(statusObj.toString().trim())) {
+                continue;
+            }
+            Object ipObj = record.get("ip");
+            Object uaObj = record.get("userAgent");
+            if (ipObj == null || uaObj == null) {
+                continue;
+            }
+            String ip = ipObj.toString().trim();
+            String userAgent = uaObj.toString();
+            if (ip.isEmpty() || userAgent.isBlank()) {
+                continue;
+            }
+
+            String cacheKey = ip + "|" + userAgent;
+            if (!verificationCache.containsKey(cacheKey)) {
+                try {
+                    verificationCache.put(cacheKey, searchEngineVerifier.peekVerification(ip, userAgent));
+                } catch (Exception e) {
+                    log.warn("读取搜索引擎验证缓存失败: ip={}, error={}", ip, e.getMessage());
+                    verificationCache.put(cacheKey, null);
+                }
+            }
+            UserAgentClassifier.BotVerification verification = verificationCache.get(cacheKey);
+            if (verification == null) {
+                continue;
+            }
+
+            record.put("botVerifyStatus", verification.status());
+            if (verification.reason() != null && !verification.reason().isBlank()) {
+                record.put("botVerifyReason", limitText(verification.reason(), 255));
+            } else {
+                record.remove("botVerifyReason");
+            }
         }
     }
 

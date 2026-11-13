@@ -1298,8 +1298,9 @@ public class WebInfoController {
                                                                    List<String> regionCandidates,
                                                                    boolean yesterdayOnly,
                                                                    List<String> ignoredIps) {
-        String claimedName = value.startsWith("疑似伪装 ")
-                ? value.substring("疑似伪装 ".length()).trim()
+        String spoofedPrefix = UserAgentClassifier.SPOOFED_SEARCH_ENGINE_NAME_PREFIX;
+        String claimedName = value.startsWith(spoofedPrefix)
+                ? value.substring(spoofedPrefix.length()).trim()
                 : value;
         boolean spoofed = "ua".equals(dimension) && "spoofed_search_engine".equals(uaType);
         List<Map<String, Object>> rows = historyInfoMapper.getVisitDetail(

@@ -32,7 +32,7 @@ class VisitRegionNormalizerTest {
     }
 
     @Test
-    void returnsCaseInsensitiveRegionCandidates() {
+    void returnsRawCandidatesForCountryDisplayName() {
         List<String> candidates = VisitRegionNormalizer.rawRegionCandidates("美国");
         assertTrue(candidates.contains("USA"));
         assertTrue(candidates.contains("United States of America"));

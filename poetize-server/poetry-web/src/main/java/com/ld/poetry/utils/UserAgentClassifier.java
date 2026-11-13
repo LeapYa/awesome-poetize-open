@@ -15,6 +15,9 @@ import java.util.regex.Pattern;
  */
 public final class UserAgentClassifier {
 
+    /** 伪装搜索引擎的展示名前缀，统计下钻等场景按此前缀还原声明的引擎名 */
+    public static final String SPOOFED_SEARCH_ENGINE_NAME_PREFIX = "疑似伪装 ";
+
     private static final int DEFAULT_LIMIT = 10;
 
     private UserAgentClassifier() {
@@ -290,7 +293,7 @@ public final class UserAgentClassifier {
             return new UaInfo(
                     "spoofed_search_engine",
                     "疑似伪装搜索引擎",
-                    "疑似伪装 " + searchEngine,
+                    SPOOFED_SEARCH_ENGINE_NAME_PREFIX + searchEngine,
                     status,
                     reason
             );

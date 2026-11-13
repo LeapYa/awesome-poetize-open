@@ -320,8 +320,12 @@ public interface HistoryInfoMapper extends BaseMapper<HistoryInfo> {
             " <if test=\"dimension == 'article'\">" +
             " and (page_uri = concat('/article/', #{value})" +
             " or page_uri like concat('/article/', #{value}, '?%')" +
+            " or page_uri = concat('/article/', #{value}, '/')" +
+            " or page_uri like concat('/article/', #{value}, '/?%')" +
             " or page_uri like concat('/article/%/', #{value})" +
-            " or page_uri like concat('/article/%/', #{value}, '?%'))" +
+            " or page_uri like concat('/article/%/', #{value}, '?%')" +
+            " or page_uri like concat('/article/%/', #{value}, '/')" +
+            " or page_uri like concat('/article/%/', #{value}, '/?%'))" +
             " </if>" +
             " <if test=\"dimension == 'user'\"> and user_id = #{userId}</if>" +
             " <if test=\"dimension == 'ua'\">" +

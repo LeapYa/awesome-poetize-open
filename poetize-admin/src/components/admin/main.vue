@@ -530,6 +530,7 @@
             <el-pagination background layout="total, prev, pager, next"
                            :current-page="uaDetailPage"
                            :page-size="uaDetailPageSize"
+                           :pager-count="5"
                            :total="uaDetailTotalSources"
                            @current-change="handleUaDetailPageChange">
             </el-pagination>
@@ -1745,6 +1746,12 @@ export default {
   .ua-detail-pagination {
     margin: 12px 0 0;
     text-align: right;
+  }
+
+  @media screen and (max-width: 768px) {
+    .ua-detail-pagination {
+      text-align: center;
+    }
   }
 
   .ua-detail-ua {

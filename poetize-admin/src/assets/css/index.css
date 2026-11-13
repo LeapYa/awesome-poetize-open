@@ -633,3 +633,33 @@ body {
 .el-select-dropdown[x-placement^="top"] .el-zoom-in-top-leave-active {
     transform: scaleY(0) translateY(10px) !important;
 }
+
+/* 分页条移动端适配：窄屏允许换行，避免页数较多时撑出横向滚动 */
+@media screen and (max-width: 768px) {
+    .el-pagination {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        white-space: normal;
+        row-gap: 4px;
+    }
+
+    .el-pagination .el-pager {
+        display: inline-flex;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .el-pagination__total,
+    .el-pagination__jump,
+    .el-pagination__sizes {
+        margin-left: 0;
+        margin-right: 4px;
+    }
+
+    .el-pagination button,
+    .el-pagination .el-pager li {
+        margin: 0 1px;
+    }
+}

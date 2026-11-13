@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class VisitRegionNormalizerTest {
 
@@ -28,6 +29,13 @@ class VisitRegionNormalizerTest {
         assertEquals("未知", VisitRegionNormalizer.resolveProvinceOrCountry(null, null, null));
         assertEquals("未知", VisitRegionNormalizer.resolveProvinceOrCountry("Reserved", "0", "-"));
         assertEquals("未知", VisitRegionNormalizer.resolveProvinceOrCountry(null, "内网IP", null));
+    }
+
+    @Test
+    void returnsCaseInsensitiveRegionCandidates() {
+        List<String> candidates = VisitRegionNormalizer.rawRegionCandidates("美国");
+        assertTrue(candidates.contains("USA"));
+        assertTrue(candidates.contains("United States of America"));
     }
 
     @Test

@@ -20,8 +20,10 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -118,6 +120,52 @@ public class SearchEngineVerifier {
             return null;
         }
         return cached;
+    }
+
+    /**
+     * 批量读取已完成的验证缓存。调用方以 ip|user-agent 作为结果 key。
+     */
+    public Map<String, UserAgentClassifier.BotVerification> peekVerificationBatch(
+            List<String> ips, List<String> userAgents) {
+        Map<String, UserAgentClassifier.BotVerification> result = new LinkedHashMap<>();
+        if (redisUtil == null || ips == null || userAgents == null || ips.size() != userAgents.size()
+                || ips.isEmpty()) {
+            return result;
+        }
+
+        Map<String, SearchEngineRule> rulesByRecord = new LinkedHashMap<>();
+        for (int i = 0; i < ips.size(); i++) {
+            String ip = normalizeIp(ips.get(i));
+            String userAgent = userAgents.get(i);
+            String claimedName = UserAgentClassifier.detectSearchEngineName(userAgent);
+            SearchEngineRule rule = SearchEngineRule.match(claimedName);
+            if (!hasText(ip) || !hasText(userAgent) || rule == null) {
+                continue;
+            }
+            rulesByRecord.putIfAbsent(ip + "|" + userAgent, rule);
+        }
+        if (rulesByRecord.isEmpty()) {
+            return result;
+        }
+
+        List<String> redisKeys = new ArrayList<>(rulesByRecord.size());
+        for (Map.Entry<String, SearchEngineRule> entry : rulesByRecord.entrySet()) {
+            String ip = entry.getKey().substring(0, entry.getKey().indexOf('|'));
+            redisKeys.add(CacheConstants.buildSearchBotVerifyKey(entry.getValue().cacheName, ip));
+        }
+        List<Object> cachedValues = redisUtil.multiGet(redisKeys);
+        int index = 0;
+        for (String recordKey : rulesByRecord.keySet()) {
+            if (index >= cachedValues.size()) {
+                break;
+            }
+            UserAgentClassifier.BotVerification verification = parseCachedVerification(
+                    rulesByRecord.get(recordKey).displayName, cachedValues.get(index++));
+            if (verification != null && !"pending".equalsIgnoreCase(verification.status())) {
+                result.put(recordKey, verification);
+            }
+        }
+        return result;
     }
 
     public UserAgentClassifier.BotVerification verify(String ip, String userAgent) {
@@ -288,6 +336,10 @@ public class SearchEngineVerifier {
             return null;
         }
         Object cached = redisUtil.get(CacheConstants.buildSearchBotVerifyKey(rule.cacheName, ip));
+        return parseCachedVerification(rule.displayName, cached);
+    }
+
+    private UserAgentClassifier.BotVerification parseCachedVerification(String displayName, Object cached) {
         if (cached == null) {
             return null;
         }
@@ -298,7 +350,7 @@ public class SearchEngineVerifier {
         }
         String status = text.substring(0, separator);
         String reason = text.substring(separator + 1);
-        return new UserAgentClassifier.BotVerification(rule.displayName, status, reason);
+        return new UserAgentClassifier.BotVerification(displayName, status, reason);
     }
 
     private void cacheVerification(SearchEngineRule rule, String ip,

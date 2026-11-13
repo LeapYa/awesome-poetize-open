@@ -128,6 +128,25 @@ public class RedisUtil {
     }
 
     /**
+     * 批量获取普通缓存，使用一次 Redis MGET 替代逐个 GET。
+     *
+     * @param keys 键列表
+     * @return 与 keys 顺序对应的值列表；输入为空或读取失败时返回空列表
+     */
+    public List<Object> multiGet(List<String> keys) {
+        if (keys == null || keys.isEmpty()) {
+            return Collections.emptyList();
+        }
+        try {
+            List<Object> values = redisTemplate.opsForValue().multiGet(keys);
+            return values != null ? values : Collections.emptyList();
+        } catch (Exception e) {
+            log.warn("批量获取缓存失败，keys数量: {}, 错误信息: {}", keys.size(), e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
      * 普通缓存放入
      * @param key 键
      * @param value 值

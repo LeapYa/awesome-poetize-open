@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class SearchEngineVerifierTest {
 
@@ -50,6 +51,21 @@ class SearchEngineVerifierTest {
     void shutdownVerifiers() {
         verifiers.forEach(SearchEngineVerifier::shutdown);
         verifiers.clear();
+    }
+
+    @Test
+    void readsVerificationCacheInOneBatch() {
+        FakeRedisUtil redisUtil = new FakeRedisUtil();
+        redisUtil.values.put(CacheConstants.buildSearchBotVerifyKey("googlebot", "66.249.66.1"),
+                "verified|批量读取");
+        SearchEngineVerifier verifier = newVerifier(redisUtil, new FakeDnsResolver());
+
+        Map<String, UserAgentClassifier.BotVerification> result = verifier.peekVerificationBatch(
+                List.of("66.249.66.1", "66.249.66.1"), List.of(GOOGLE_UA, GOOGLE_UA));
+
+        assertEquals("verified", result.get("66.249.66.1|" + GOOGLE_UA).status());
+        assertEquals(1, redisUtil.multiGetCalls);
+        assertFalse(result.isEmpty());
     }
 
     @Test
@@ -416,10 +432,17 @@ class SearchEngineVerifierTest {
     private static final class FakeRedisUtil extends RedisUtil {
         private final Map<String, Object> values = new ConcurrentHashMap<>();
         private final Map<String, Long> ttls = new ConcurrentHashMap<>();
+        private int multiGetCalls;
 
         @Override
         public Object get(String key) {
             return values.get(key);
+        }
+
+        @Override
+        public List<Object> multiGet(List<String> keys) {
+            multiGetCalls++;
+            return keys.stream().map(values::get).toList();
         }
 
         @Override

@@ -862,11 +862,15 @@ public class WebInfoController {
             }
 
             String today = java.time.LocalDate.now().toString();
+            List<Map<String, Object>> todayRecords;
             List<Map<String, Object>> unsyncedTodayRecords;
             try {
-                unsyncedTodayRecords = cacheService.getUnsyncedDailyVisitRecords(today);
+                // 一次读取并回补验证结果，后续今日统计、文章、来源统计复用同一批记录。
+                todayRecords = cacheService.getDailyVisitRecords(today);
+                unsyncedTodayRecords = cacheService.getUnsyncedVisitRecords(todayRecords);
             } catch (Exception e) {
-                log.error("获取今日未同步访问记录失败", e);
+                log.error("获取今日访问记录失败", e);
+                todayRecords = new ArrayList<>();
                 unsyncedTodayRecords = new ArrayList<>();
             }
 
@@ -993,7 +997,7 @@ public class WebInfoController {
 
             // 获取今日访问数据的实时统计（从Redis）
             try {
-                Map<String, Object> todayStats = cacheService.getTodayVisitStatisticsFromRedis();
+                Map<String, Object> todayStats = cacheService.getTodayVisitStatisticsFromRedis(todayRecords);
 
                 // 设置今日IP数量
                 result.put("ip_count_today", todayStats.get("ip_count_today"));
@@ -1030,7 +1034,6 @@ public class WebInfoController {
                 // 设置今日省份统计
                 result.put("province_today", todayStats.get("province_today"));
                 result.put("ua_today", todayStats.get("ua_today"));
-                List<Map<String, Object>> todayRecords = cacheService.getDailyVisitRecords(today);
                 result.put("article_today", buildArticleVisitStats(null, todayRecords));
                 try {
                     result.put("referrer_today", buildReferrerVisitStats(null, todayRecords, siteHost));
@@ -1155,10 +1158,14 @@ public class WebInfoController {
             } else {
                 items = buildVisitDetailFromDatabase(dim, dimensionValue, uaType, statusGroup, userId,
                         siteHost, unknownRegion, regionCandidates, false, ignoredIps);
-                // 总榜的 UA/文章/来源统计包含今日尚未落库的实时记录，省份与 IP 榜不包含
+                // 总榜的 UA/文章/来源统计包含今日尚未落库的实时记录，省份与 IP 榜不包含。
+                // UA 维度需要回补验证状态，否则今日尚未落库的搜索引擎记录会停留在首访快照，
+                // 与榜单的 verified/spoofed 分组口径不一致。
                 if (!"province".equals(dim) && !"ip".equals(dim)) {
+                    List<Map<String, Object>> currentTodayRecords =
+                            cacheService.getDailyVisitRecords(today, "ua".equals(dim));
                     mergeVisitDetailItems(items, buildVisitDetailFromRecords(
-                            cacheService.getUnsyncedDailyVisitRecords(today),
+                            cacheService.getUnsyncedVisitRecords(currentTodayRecords),
                             dim, dimensionValue, uaType, statusGroup, siteHost));
                 }
             }
@@ -1166,7 +1173,7 @@ public class WebInfoController {
             return PoetryResult.success(buildVisitDetailResult(items, page));
         } catch (Exception e) {
             log.error("获取访问明细失败: scope={}, dimension={}, value={}", scope, dimension, value, e);
-            return PoetryResult.fail("获取访问明细失败: " + e.getMessage());
+            return PoetryResult.fail("获取访问明细失败，请稍后重试");
         }
     }
 

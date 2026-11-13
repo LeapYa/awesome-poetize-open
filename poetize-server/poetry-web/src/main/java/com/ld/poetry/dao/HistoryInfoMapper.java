@@ -346,9 +346,9 @@ public interface HistoryInfoMapper extends BaseMapper<HistoryInfo> {
             " </if>" +
             " </if>" +
             " <if test=\"dimension == 'referrer'\">" +
-            " and (case when referer is null or referer = '' then 'Direct'" +
+            " and (case when referer is null or referer = '' then 'direct'" +
             " <if test=\"siteHost != null and siteHost != ''\">" +
-            " when lower(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(referer, '/', 3), '/', -1), ':', 1)) = lower(#{siteHost}) then 'Direct'" +
+            " when lower(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(referer, '/', 3), '/', -1), ':', 1)) = lower(#{siteHost}) then 'direct'" +
             " </if>" +
             " else lower(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(referer, '/', 3), '/', -1), ':', 1)) end) = lower(#{value})" +
             " </if>" +
@@ -362,22 +362,23 @@ public interface HistoryInfoMapper extends BaseMapper<HistoryInfo> {
             " <otherwise>" +
             " and (" +
             " <if test='regionCandidates != null and regionCandidates.size > 0'>" +
-            " nation in" +
-            " <foreach collection='regionCandidates' item='candidate' open='(' separator=',' close=')'>#{candidate}</foreach>" +
-            " or province in" +
-            " <foreach collection='regionCandidates' item='candidate' open='(' separator=',' close=')'>#{candidate}</foreach>" +
-            " or city in" +
-            " <foreach collection='regionCandidates' item='candidate' open='(' separator=',' close=')'>#{candidate}</foreach>" +
+            " lower(trim(nation)) in" +
+            " <foreach collection='regionCandidates' item='candidate' open='(' separator=',' close=')'>lower(#{candidate})</foreach>" +
+            " or lower(trim(province)) in" +
+            " <foreach collection='regionCandidates' item='candidate' open='(' separator=',' close=')'>lower(#{candidate})</foreach>" +
+            " or lower(trim(city)) in" +
+            " <foreach collection='regionCandidates' item='candidate' open='(' separator=',' close=')'>lower(#{candidate})</foreach>" +
             " or" +
             " </if>" +
-            " nation like concat(#{value}, '%')" +
-            " or province like concat(#{value}, '%')" +
-            " or city like concat(#{value}, '%'))" +
+            " lower(trim(nation)) like concat(lower(#{value}), '%')" +
+            " or lower(trim(province)) like concat(lower(#{value}), '%')" +
+            " or lower(trim(city)) like concat(lower(#{value}), '%'))" +
             " </otherwise>" +
             " </choose>" +
             " </if>" +
             " <if test=\"yesterdayOnly\">" +
-            " and date(create_time) = date_sub(curdate(), interval 1 day)" +
+            " and create_time >= date_sub(curdate(), interval 1 day)" +
+            " and create_time &lt; curdate()" +
             " </if>" +
             " <if test='ignoredIps != null and ignoredIps.size > 0'>" +
             " and ip not in" +

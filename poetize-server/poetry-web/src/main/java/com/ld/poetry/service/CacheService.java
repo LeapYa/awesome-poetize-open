@@ -2554,13 +2554,29 @@ public class CacheService {
      */
     @SuppressWarnings("unchecked")
     public java.util.List<java.util.Map<String, Object>> getDailyVisitRecords(String date) {
+        return getDailyVisitRecords(date, true);
+    }
+
+    /**
+     * 获取指定日期的访问记录，并允许调用方控制是否回补搜索引擎验证结果。
+     *
+     * <p>同一批 Redis 记录经常会被多个统计维度重复读取。默认保留历史行为，
+     * 需要在同一请求内复用记录时传入 {@code false}，避免重复执行验证缓存回补。</p>
+     *
+     * @param date 日期（格式：yyyy-MM-dd）
+     * @param refreshVerification 是否按 IP + UA 回补搜索引擎验证缓存
+     * @return 访问记录列表
+     */
+    @SuppressWarnings("unchecked")
+    public java.util.List<java.util.Map<String, Object>> getDailyVisitRecords(String date,
+                                                                                boolean refreshVerification) {
         try {
             String recordsKey = CacheConstants.buildDailyVisitRecordsKey(date);
             java.util.List<Object> recordJsonList = redisUtil.lGet(recordsKey, 0, -1);
-            
+
             java.util.List<java.util.Map<String, Object>> records = new java.util.ArrayList<>();
             Set<String> ignoredIps = getVisitIgnoreIps();
-            
+
             if (recordJsonList != null) {
                 for (Object recordJson : recordJsonList) {
                     try {
@@ -2574,11 +2590,13 @@ public class CacheService {
                     }
                 }
             }
-            
-            refreshSearchEngineVerification(records);
+
+            if (refreshVerification) {
+                refreshSearchEngineVerification(records);
+            }
             log.info("获取{}的访问记录: {} 条", date, records.size());
             return records;
-            
+
         } catch (Exception e) {
             log.error("获取每日访问记录失败: date={}", date, e);
             return new java.util.ArrayList<>();
@@ -2865,6 +2883,27 @@ public class CacheService {
     }
 
     /**
+     * 从已读取的访问记录中筛选未同步记录，避免同一请求再次读取 Redis。
+     */
+    public java.util.List<java.util.Map<String, Object>> getUnsyncedVisitRecords(
+            java.util.List<java.util.Map<String, Object>> records) {
+        java.util.List<java.util.Map<String, Object>> unsyncedRecords = new java.util.ArrayList<>();
+        if (records == null || records.isEmpty()) {
+            return unsyncedRecords;
+        }
+        for (java.util.Map<String, Object> record : records) {
+            if (record == null) {
+                continue;
+            }
+            Object synced = record.get("synced");
+            if (!(synced instanceof Boolean) || !((Boolean) synced)) {
+                unsyncedRecords.add(record);
+            }
+        }
+        return unsyncedRecords;
+    }
+
+    /**
      * 用已完成的搜索引擎验证结果补正访问记录。
      * <p>记录写入时验证是异步的，落库的是首访快照（unknown/pending），后台验证完成后
      * 不会回写旧记录；这里在读取（展示、同步入库）前按 IP + UA 回查验证缓存，
@@ -2876,6 +2915,33 @@ public class CacheService {
         }
 
         Map<String, UserAgentClassifier.BotVerification> verificationCache = new HashMap<>();
+        List<String> ips = new ArrayList<>();
+        List<String> userAgents = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (Map<String, Object> record : records) {
+            if (record == null || !"search_engine".equals(String.valueOf(record.get("uaType")))
+                    || "verified".equalsIgnoreCase(String.valueOf(record.get("botVerifyStatus")))) {
+                continue;
+            }
+            Object ipObj = record.get("ip");
+            Object uaObj = record.get("userAgent");
+            if (ipObj == null || uaObj == null || ipObj.toString().isBlank() || uaObj.toString().isBlank()) {
+                continue;
+            }
+            String ip = ipObj.toString().trim();
+            String userAgent = uaObj.toString();
+            String cacheKey = ip + "|" + userAgent;
+            if (seen.add(cacheKey)) {
+                verificationCache.put(cacheKey, null);
+                ips.add(ip);
+                userAgents.add(userAgent);
+            }
+        }
+
+        // 验证缓存以 IP + UA 去重，并由 SearchEngineVerifier 一次 MGET 读取，
+        // 避免每条搜索引擎记录逐个 GET Redis。
+        verificationCache.putAll(searchEngineVerifier.peekVerificationBatch(ips, userAgents));
+
         for (Map<String, Object> record : records) {
             if (record == null) {
                 continue;
@@ -3155,12 +3221,21 @@ public class CacheService {
      * @return 今日访问统计数据
      */
     public Map<String, Object> getTodayVisitStatisticsFromRedis() {
+        String today = java.time.LocalDate.now().toString();
+        return getTodayVisitStatisticsFromRedis(getDailyVisitRecords(today));
+    }
+
+    /**
+     * 基于已读取的今日记录生成实时统计，避免同一请求重复读取 Redis 和回补验证缓存。
+     */
+    public Map<String, Object> getTodayVisitStatisticsFromRedis(List<Map<String, Object>> todayRecords) {
         Map<String, Object> result = new HashMap<>();
-        
+
         try {
-            String today = java.time.LocalDate.now().toString();
-            List<Map<String, Object>> todayRecords = getDailyVisitRecords(today);
-            
+            if (todayRecords == null) {
+                todayRecords = new ArrayList<>();
+            }
+
             if (todayRecords.isEmpty()) {
                 log.info("今日暂无访问记录");
                 result.put("ip_count_today", 0L);

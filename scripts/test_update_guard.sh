@@ -28,7 +28,7 @@ eval "$(extract verify_backup_artifacts)"
 eval "$(extract backfill_sql_migration_success_records)"
 
 work=$(mktemp -d)
-cleanup() { python -c "import shutil,sys; shutil.rmtree(sys.argv[1], ignore_errors=True)" "$work" 2>/dev/null || true; }
+cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 
 fail=0
@@ -97,7 +97,7 @@ check "外部数据库缺快照时放行" "0" "$?"
 ENABLE_MYSQL=true verify_backup_artifacts "$ext_dir" >/dev/null 2>&1
 check "内部数据库缺快照仍被拒" "1" "$?"
 
-python -c "import os,sys; os.remove(sys.argv[1])" "$ext_dir/backup_manifest.txt" 2>/dev/null || true
+rm -f "$ext_dir/backup_manifest.txt"
 ENABLE_MYSQL=false verify_backup_artifacts "$ext_dir" >/dev/null 2>&1
 check "外部数据库也要求备份走完" "1" "$?"
 
@@ -148,6 +148,49 @@ check "record_sql_migration 失败返回非零" "yes" "$(extract record_sql_migr
 check "SQL 查询 stderr 落进 error_file" "yes" "$(extract sql_exec_query_in_container | grep -q '2>"\$error_file"' && echo yes || echo no)"
 check "安全备份不写进 sql_dir" "no" "$(extract restore_update_database_dump_if_needed | grep -q 'safety_dump="\${dump_sql' && echo yes || echo no)"
 check "安全备份优先落 BACKUP_DIR" "yes" "$(extract restore_update_database_dump_if_needed | grep -q 'safety_dir="\${BACKUP_DIR:-}"' && echo yes || echo no)"
+
+printf '\n--- 5.1. v5.2.14 事故回归 ---\n'
+reinstall_block=$(sed -n '/^reinstall_latest_system()/,/^# 恢复完整备份/p' poetize)
+check "安装失败捕获子进程退出码" "yes" "$(printf '%s' "$reinstall_block" | grep -q 'local deploy_rc=\$?' && echo yes || echo no)"
+check "安装失败明确提示第3步" "yes" "$(printf '%s' "$reinstall_block" | grep -q '第 3 步安装失败，请检查后重试' && echo yes || echo no)"
+check "安装失败提示使用备份恢复" "yes" "$(printf '%s' "$reinstall_block" | grep -q '数据卷已删除，请用备份目录恢复' && echo yes || echo no)"
+check "安装失败中止更新流程" "yes" "$(sed -n '/步骤 3\/4: 重新安装最新版本/,/步骤 4\/4/p' poetize | grep -q 'reinstall_latest_system ||' && echo yes || echo no)"
+check "更新安装自动跳过DNS校验" "yes" "$(printf '%s' "$reinstall_block" | grep -q 'deploy_cmd="\$deploy_cmd --skip-dns-check"' && echo yes || echo no)"
+check "初始化部署使用 SITE_URL 确认逻辑" "yes" "$(sed -n '/^init_deploy()/,/^get_secondary_domains()/p' poetize | grep -q 'update_site_url_with_confirmation' && echo yes || echo no)"
+check "SITE_URL保护逻辑在更换域名中生效" "yes" "$(sed -n '/^change_domain()/,/^# 手动启用 HTTPS/p' poetize | grep -q 'update_site_url_if_placeholder' && echo yes || echo no)"
+check "DNS不匹配提示 10 秒后继续" "3" "$(grep -c '10秒后默认继续' poetize)"
+check "auto_confirm 支持自定义超时" "2" "$(grep -c 'local timeout="\${4:-30}"' poetize)"
+
+site_dir="$work/site_url"
+mkdir -p "$site_dir"
+site_root="$PWD"
+printf 'SITE_URL=https://www.leapya.com\n' > "$site_dir/.env"
+site_keep=$(cd "$site_dir" && source "$site_root/lib/config.sh" && ENV_FILE=.env update_site_url_if_placeholder http localhost >/dev/null && grep '^SITE_URL=' .env)
+check "真实 SITE_URL 不被 localhost 覆盖" "SITE_URL=https://www.leapya.com" "$site_keep"
+printf 'SITE_URL=http://localhost\n' > "$site_dir/.env"
+site_fill=$(cd "$site_dir" && source "$site_root/lib/config.sh" && ENV_FILE=.env update_site_url_if_placeholder https www.leapya.com >/dev/null && grep '^SITE_URL=' .env)
+check "占位 SITE_URL 可被真实域名填充" "SITE_URL=https://www.leapya.com" "$site_fill"
+
+printf 'SITE_URL=http://localhost:9888\n' > "$site_dir/.env"
+site_keep_auto=$(cd "$site_dir" && AUTO_YES=true source "$site_root/lib/config.sh" && AUTO_YES=true ENV_FILE=.env update_site_url_with_confirmation https www.leapya.com >/dev/null && grep '^SITE_URL=' .env)
+check "自动模式保留 localhost:端口 配置" "SITE_URL=http://localhost:9888" "$site_keep_auto"
+site_keep_update=$(cd "$site_dir" && source "$site_root/lib/config.sh" && POETIZE_UPDATE_MODE=true ENV_FILE=.env update_site_url_with_confirmation https www.leapya.com >/dev/null && grep '^SITE_URL=' .env)
+check "更新模式保留已有 SITE_URL" "SITE_URL=http://localhost:9888" "$site_keep_update"
+site_keep_timeout=$(cd "$site_dir" && source "$site_root/lib/config.sh" && ENV_FILE=.env update_site_url_with_confirmation https www.leapya.com </dev/null >/dev/null && grep '^SITE_URL=' .env)
+check "10秒无响应保留已有 SITE_URL" "SITE_URL=http://localhost:9888" "$site_keep_timeout"
+site_keep_yes=$(printf 'y\n' | (cd "$site_dir" && source "$site_root/lib/config.sh" && ENV_FILE=.env update_site_url_with_confirmation https www.leapya.com >/dev/null) && grep '^SITE_URL=' "$site_dir/.env")
+check "用户确认保留时不被覆盖" "SITE_URL=http://localhost:9888" "$site_keep_yes"
+site_overwrite=$(printf 'n\n' | (cd "$site_dir" && source "$site_root/lib/config.sh" && ENV_FILE=.env update_site_url_with_confirmation https www.leapya.com >/dev/null) && grep '^SITE_URL=' "$site_dir/.env")
+check "用户明确不保留时写入新地址" "SITE_URL=https://www.leapya.com" "$site_overwrite"
+
+check "Brotli 编译应用全部 nginx 补丁" "yes" "$(grep -Fq 'for p in /tmp/ngx-patches/*.patch' docker/nginx/Dockerfile && echo yes || echo no)"
+check "Brotli 编译阶段携带补丁目录" "yes" "$(grep -q 'COPY patches/ /tmp/ngx-patches/' docker/nginx/Dockerfile && echo yes || echo no)"
+check "brotli 模块缺失时构建失败" "0" "$(grep -c 'cp objs/ngx_http_brotli_filter_module.so.*|| true' docker/nginx/Dockerfile)"
+check "nginx 补丁阶段不静默降级" "0" "$(grep -c '跳过 nginx CVE 补丁' docker/nginx/Dockerfile)"
+check "nginx 补丁产物目录被创建" "yes" "$(grep -q '^RUN mkdir -p /out' docker/nginx/Dockerfile && echo yes || echo no)"
+check "主程序补丁阶段复用源码包" "yes" "$(grep -q '复用 builder 阶段下载的同一份源码包' docker/nginx/Dockerfile && echo yes || echo no)"
+check "HTTPS 模板显式限制请求头数量" "yes" "$(grep -q 'max_headers 500;' docker/nginx/default.https.conf.template && echo yes || echo no)"
+check "排障文档使用容器内日志路径" "yes" "$(grep -q '/var/log/nginx/access.log' docs/排障指南.md && echo yes || echo no)"
 
 printf '\n--- 6. 主脚本层函数定义完整 ---\n'
 hd_end=$(tr -d '\r' < poetize | grep -n '^__POETIZE_EMBEDDED_DEPLOY_CORE_SH_' | head -1 | cut -d: -f1)

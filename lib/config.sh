@@ -132,6 +132,101 @@ read_env_config() {
     echo "$default_value"
 }
 
+# 判断 SITE_URL 是否仍是安装模板占位值。
+# 真实站点地址必须保留，尤其是 localhost 回源或 CDN 回源部署。
+is_placeholder_site_url() {
+    local value="${1:-}"
+    value="${value//$'\r'/}"
+    case "$value" in
+        ""|"http://example.com"|"https://example.com"|"http://example.com/"|"https://example.com/"|"http://localhost"|"https://localhost"|"http://localhost/"|"https://localhost/")
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# 仅在 SITE_URL 缺失或仍是模板占位值时自动写入。
+# 已有真实值不得因 localhost/CDN 部署而被覆盖。
+update_site_url_if_placeholder() {
+    local protocol="$1"
+    local domain="$2"
+    local current_site_url
+
+    current_site_url="$(read_env_config "SITE_URL" "")"
+    if is_placeholder_site_url "$current_site_url"; then
+        update_env_var "SITE_URL" "${protocol}://${domain}"
+        return $?
+    fi
+
+    if type info >/dev/null 2>&1; then
+        info "检测到已有 SITE_URL=${current_site_url}，保留原值（后台站点地址可随时修改）"
+    else
+        _config_info "检测到已有 SITE_URL=${current_site_url}，保留原值（后台站点地址可随时修改）"
+    fi
+    return 0
+}
+
+# 建站初期写入 SITE_URL 前的确认。
+# 已有配置（包括 localhost:端口 这类回源地址）默认保留；10 秒无响应也保留。
+# AUTO_YES / 更新模式不打断流程，直接沿用已有配置。
+update_site_url_with_confirmation() {
+    local protocol="$1"
+    local domain="$2"
+    local target="${protocol}://${domain}"
+    local current_site_url
+    local answer=""
+
+    current_site_url="$(read_env_config "SITE_URL" "")"
+    if is_placeholder_site_url "$current_site_url"; then
+        update_env_var "SITE_URL" "$target"
+        return $?
+    fi
+
+    if [ "$current_site_url" = "$target" ]; then
+        return 0
+    fi
+
+    if [ "${AUTO_YES:-false}" = "true" ] || [ "${POETIZE_UPDATE_MODE:-false}" = "true" ]; then
+        if type info >/dev/null 2>&1; then
+            info "保留已有 SITE_URL=${current_site_url}"
+        else
+            _config_info "保留已有 SITE_URL=${current_site_url}"
+        fi
+        return 0
+    fi
+
+    echo -n "检测到已有 SITE_URL=${current_site_url}，是否保留？(Y/n，10秒后默认保留): "
+    if read -t 10 -r answer; then
+        case "$answer" in
+            [Nn]|[Nn][Oo])
+                update_env_var "SITE_URL" "$target"
+                if type info >/dev/null 2>&1; then
+                    info "已写入 SITE_URL=${target}（后台站点地址可随时修改）"
+                else
+                    _config_info "已写入 SITE_URL=${target}（后台站点地址可随时修改）"
+                fi
+                ;;
+            *)
+                if type info >/dev/null 2>&1; then
+                    info "保留已有 SITE_URL=${current_site_url}"
+                else
+                    _config_info "保留已有 SITE_URL=${current_site_url}"
+                fi
+                ;;
+        esac
+    else
+        echo ""
+        if type info >/dev/null 2>&1; then
+            info "10秒内未收到输入，保留已有 SITE_URL=${current_site_url}"
+        else
+            _config_info "10秒内未收到输入，保留已有 SITE_URL=${current_site_url}"
+        fi
+    fi
+    return 0
+}
+
 # 批量更新环境变量
 # 用法: update_env_vars "VAR1=value1" "VAR2=value2" ...
 update_env_vars() {
@@ -333,11 +428,11 @@ apply_cli_args_to_env() {
     if [ -n "$PRIMARY_DOMAIN" ]; then
         update_env_var "PRIMARY_DOMAIN" "$PRIMARY_DOMAIN"
         
-        # 自动生成 SITE_URL
+        # 自动生成 SITE_URL（已有真实值不覆盖）
         local protocol="http"
         local enable_https=$(read_env_config "ENABLE_HTTPS" "true")
         [ "$enable_https" = "true" ] && protocol="https"
-        update_env_var "SITE_URL" "${protocol}://${PRIMARY_DOMAIN}"
+        update_site_url_if_placeholder "$protocol" "$PRIMARY_DOMAIN"
     fi
     
     # 数据库配置

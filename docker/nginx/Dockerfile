@@ -59,6 +59,8 @@ RUN openresty -v 2>&1 | grep -o 'openresty/[0-9]\+\(\.[0-9]\+\)*' | cut -d/ -f2 
 #    于是 copy filter 不把文件 buf 读进内存，brotli 拿到 pos=NULL 的 buf，在 libbrotlienc
 #    内部的 memcpy 上段错误。1.31.8.1 上必现（sendfile on + 带 br 的请求），
 #    1.29.2.5 上因两套源码的布局恰好一致而未暴露。
+#    动态模块还必须和最终 nginx 使用相同的全部补丁；否则补丁移动公共结构体字段时会静默 ABI 失配。
+COPY patches/ /tmp/ngx-patches/
 WORKDIR /usr/src/ngx_brotli
 RUN set -e; \
     if [ -f "config" ]; then \
@@ -73,11 +75,16 @@ RUN set -e; \
         fi; \
         tar -xzf /usr/src/openresty-src.tar.gz -C /usr/src && \
         cd /usr/src/openresty-${OPENRESTY_VERSION}/bundle/nginx-${NGINX_VERSION} && \
+        echo "🔐 对 ngx_brotli 编译源码应用全部 nginx 补丁，保持与最终 nginx 二进制 ABI 一致..." && \
+        for p in /tmp/ngx-patches/*.patch; do \
+            echo "→ 应用动态模块 ABI 补丁 $(basename "$p")"; \
+            patch -p1 --no-backup-if-mismatch < "$p"; \
+        done && \
         ./configure --with-compat --add-dynamic-module=/usr/src/ngx_brotli && \
         make modules && \
         mkdir -p /usr/local/openresty/nginx/modules/ && \
-        cp objs/ngx_http_brotli_filter_module.so /usr/local/openresty/nginx/modules/ 2>/dev/null || true && \
-        cp objs/ngx_http_brotli_static_module.so /usr/local/openresty/nginx/modules/ 2>/dev/null || true; \
+        cp objs/ngx_http_brotli_filter_module.so /usr/local/openresty/nginx/modules/ && \
+        cp objs/ngx_http_brotli_static_module.so /usr/local/openresty/nginx/modules/; \
         echo "🎉 Brotli模块编译完成"; \
     else \
         echo "⏭️ ngx_brotli未正确下载"; \
@@ -177,11 +184,13 @@ RUN set -e; \
 # 基础镜像层自带的三个 .so 无 load 指令、保持惰性。本二进制的 -V 不再与基础镜像逐字一致，
 # 动态模块加载兼容由 --with-compat 保证（brotli 已实测加载正常）。
 # 复用 builder 阶段的编译环境，避免再装一遍 build-base（国内网络下这一步要好几分钟）。
+# ⚠️ 不允许“拿不到源码就沿用基础镜像二进制”的降级：builder 阶段的 brotli 已按打过补丁的源码编译，
+#    主程序若退回未打补丁版本，两边的 ngx_http_request_t 布局再次不一致，会重现静默 ABI 失配。
+#    因此补丁阶段失败必须让构建失败，而不是产出“模块已补丁、主程序未补丁”的镜像。
 FROM builder AS nginx-patch
 
-# 先放一份基础镜像自带的二进制兜底：当构建环境拿不到源码/装不上编译依赖时，降级为原版继续构建，
-# 避免为了一个补丁把整站升级卡死
-RUN mkdir -p /out && cp /usr/local/openresty/nginx/sbin/nginx /out/nginx
+# 编译产物输出目录（最终镜像从这里取 nginx 二进制）
+RUN mkdir -p /out
 
 COPY patches/ /tmp/patches/
 
@@ -192,14 +201,16 @@ ENV LUAJIT_INC=/usr/local/openresty/luajit/include/luajit-2.1 \
 RUN set -e; \
     # geoip-dev/libxslt-dev/gd-dev 仅服务于已移除的三个动态模块，不再安装
     if ! apk add --no-cache perl linux-headers; then \
-        echo "⚠️  无法安装编译依赖（网络受限），跳过 nginx CVE 补丁，沿用基础镜像自带 nginx"; \
-        exit 0; \
+        echo "❌ 无法安装 nginx 补丁编译依赖。不能降级为未打补丁的二进制：brotli 已按补丁源码编译，退回会造成 ABI 失配"; \
+        exit 1; \
     fi; \
-    if ! wget -q -T 180 -t 3 -O /usr/src/openresty-src.tar.gz \
-            https://openresty.org/download/openresty-1.29.2.5.tar.gz; then \
-        echo "⚠️ OpenResty 源码下载失败，跳过 nginx CVE 补丁，沿用基础镜像自带 nginx"; \
-        exit 0; \
+    # 复用 builder 阶段下载的同一份源码包：只依赖一次网络下载，
+    # 并确保 brotli 模块与主程序二进制来自完全相同的源码。
+    if [ ! -s /usr/src/openresty-src.tar.gz ]; then \
+        echo "❌ 找不到 builder 阶段的 OpenResty 源码包，构建中止"; \
+        exit 1; \
     fi; \
+    rm -rf /usr/src/openresty-1.29.2.5; \
     tar -xzf /usr/src/openresty-src.tar.gz -C /usr/src; \
     cd /usr/src/openresty-1.29.2.5/bundle/nginx-1.29.2; \
     for p in /tmp/patches/*.patch; do \
@@ -290,7 +301,7 @@ RUN mkdir -p /var/log/nginx /var/cache/nginx /var/run /tmp && \
 COPY --from=builder /usr/local/openresty/nginx/modules/ /usr/local/openresty/nginx/modules/
 
 # 用回补了 CVE 的 nginx 二进制覆盖基础镜像自带版本
-# （补丁构建阶段降级时，/out/nginx 就是基础镜像的原版二进制，行为不变）
+# （补丁阶段不再降级：构建失败会直接中止，确保主程序与动态模块使用同一份补丁源码）
 COPY --from=nginx-patch /out/nginx /usr/local/openresty/nginx/sbin/nginx
 
 # 复制 fallback xdb 数据文件（运行时优先用共享卷里 Java 更新的版本，共享卷不存在时用此 fallback）

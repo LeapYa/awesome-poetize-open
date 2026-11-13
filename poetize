@@ -544,6 +544,7 @@ auto_confirm() {
   local prompt="$1"
   local default_answer="${2:-y}"
   local options="${3:--n 1 -r}"
+  local timeout="${4:-30}"
   
   # 如果是自动确认模式，直接返回默认答案
   if [ "$AUTO_YES" = "true" ]; then
@@ -561,13 +562,13 @@ auto_confirm() {
   
   # 带超时的用户输入
   echo -n "$prompt"
-  if read -t 30 $options; then
-    # 用户在30秒内输入了内容
+  if read -t "$timeout" $options; then
+    # 用户在超时前输入了内容
     echo ""
   else
     # 超时或用户未输入，使用默认答案
     echo ""
-    echo "30秒内未收到输入，自动选择默认选项: $default_answer"
+    echo "${timeout}秒内未收到输入，自动选择默认选项: $default_answer"
     REPLY="$default_answer"
   fi
   echo ""
@@ -1933,8 +1934,9 @@ validate_dns_for_domains() {
     fi
     
     # 询问用户是否继续
-    if auto_confirm "是否仍要继续部署? (y/N) " "n"; then
-      warning "用户选择继续部署，DNS校验失败的域名可能无法正常工作"
+    # 10 秒无响应按“继续”处理；CDN 回源、域名尚未切流都是合法部署形态
+    if auto_confirm "DNS 与当前服务器不匹配，是否继续部署? (Y/n，10秒后默认继续) " "y" "-n 1 -r" 10; then
+      warning "继续部署，DNS校验失败的域名可能无法正常工作"
       return 0
     else
       return 1
@@ -5598,12 +5600,12 @@ init_deploy() {
     if [ -f "lib/config.sh" ]; then
       source "lib/config.sh"
       update_env_var "PRIMARY_DOMAIN" "$PRIMARY_DOMAIN"
-      # 根据 HTTPS 状态设置协议和 SITE_URL
+      # 根据 HTTPS 状态设置协议；已有 SITE_URL 默认保留（超时/自动模式同样保留）
       local protocol="http"
       if [ "$ENABLE_HTTPS" = "true" ]; then
         protocol="https"
       fi
-      update_env_var "SITE_URL" "${protocol}://${PRIMARY_DOMAIN}"
+      update_site_url_with_confirmation "$protocol" "$PRIMARY_DOMAIN"
       success "已更新域名配置 (通过 .env)"
     else
       # 回退方案：直接修改 docker-compose.yml
@@ -7403,9 +7405,9 @@ revert_to_http_protocol() {
     update_env_var "FRONTEND_PROTOCOL" "http"
     update_env_var "ENABLE_HTTPS" "false"
     sync_compose_profiles  # 同步 COMPOSE_PROFILES
-    # 更新 SITE_URL
+    # 更新 SITE_URL：保留已有真实站点地址，避免 HTTPS 回退把 canonical 改成 localhost
     local domain=$(read_env_config "PRIMARY_DOMAIN" "localhost")
-    update_env_var "SITE_URL" "http://${domain}"
+    update_site_url_if_placeholder "http" "$domain"
     success "已将FRONTEND_PROTOCOL替换为http (通过 .env)"
     
     if project_requires_python_backend; then
@@ -7550,9 +7552,9 @@ prompt_for_domains() {
         echo ""
         continue
       else
-        # 用户选择不重新输入，询问是否继续部署
-        if auto_confirm "是否仍要继续部署? (y/N) " "n"; then
-          warning "用户选择继续部署，DNS校验失败的域名可能无法正常工作"
+        # 用户选择不重新输入，询问是否继续部署（10 秒无响应默认继续）
+        if auto_confirm "是否继续部署? (Y/n，10秒后默认继续) " "y" "-n 1 -r" 10; then
+          warning "继续部署，DNS校验失败的域名可能无法正常工作"
           break
         else
           error "用户取消部署，请先修复DNS配置"
@@ -16823,6 +16825,23 @@ EOF
                 info "使用域名: $domain"
             fi
         done
+        # 更新是对现有可用环境的重装：域名可能指向 CDN，不能重新执行"A 记录必须等于本机 IP"校验。
+        # 先确认目标脚本支持该参数，避免旧版 deploy.sh 因未知选项直接失败。
+        local deploy_target=""
+        if [[ "$deploy_cmd" == *"/usr/local/bin/poetize install"* ]]; then
+            deploy_target="/usr/local/bin/poetize"
+        elif [[ "$deploy_cmd" == *"./deploy.sh"* ]]; then
+            deploy_target="./deploy.sh"
+        elif [[ "$deploy_cmd" == *"./poetize install"* ]]; then
+            deploy_target="./poetize"
+        fi
+        if [ -n "$deploy_target" ] && [ -f "$deploy_target" ] \
+                && grep -q -- '--skip-dns-check' "$deploy_target" 2>/dev/null; then
+            deploy_cmd="$deploy_cmd --skip-dns-check"
+            info "更新模式：已为安装命令启用 --skip-dns-check（保留现有域名/CDN 配置）"
+        else
+            warning "目标安装脚本不支持 --skip-dns-check，DNS 不匹配时将按 10 秒默认继续处理"
+        fi
         info "完整安装命令: $deploy_cmd"
     else
         info "未找到域名配置，将使用交互式域名输入"
@@ -16831,8 +16850,19 @@ EOF
     # 设置更新模式标志，防止安装流程中的 mark_all_migrations_as_executed 误标记迁移脚本
     export POETIZE_UPDATE_MODE=true
 
-    # 执行完整安装命令
+    # 执行完整安装命令。
+    # 安装子进程失败时必须把失败传播给 run_update；否则外层会继续恢复并打印假成功。
+    if [ -z "$deploy_cmd" ]; then
+        error "安装命令为空，无法重新安装系统"
+        return 1
+    fi
     eval "$deploy_cmd"
+    local deploy_rc=$?
+    if [ "$deploy_rc" -ne 0 ]; then
+        error "第 3 步安装失败，请检查后重试（退出码: $deploy_rc）"
+        error "数据卷已删除，请用备份目录恢复: ${BACKUP_DIR:-<备份目录未知>}"
+        return "$deploy_rc"
+    fi
     
     success "最新版本系统安装完成"
     return 0
@@ -17661,7 +17691,8 @@ change_domain() {
         update_env_var "ENABLE_HTTPS" "$enable_https"
         local protocol="http"
         [ "$enable_https" = "true" ] && protocol="https"
-        update_env_var "SITE_URL" "${protocol}://${PRIMARY_DOMAIN}"
+        # 更换域名时保留已有真实 SITE_URL；只有占位值才自动生成
+        update_site_url_if_placeholder "$protocol" "$PRIMARY_DOMAIN"
         update_env_var "FRONTEND_PROTOCOL" "$protocol"
         sync_compose_profiles
     else
@@ -18634,6 +18665,7 @@ auto_confirm() {
   local prompt="$1"
   local default_answer="${2:-y}"
   local options="${3:--n 1 -r}"
+  local timeout="${4:-30}"
   
   # 如果是自动确认模式，直接返回默认答案
   if [ "$AUTO_YES" = "true" ]; then
@@ -18651,13 +18683,13 @@ auto_confirm() {
   
   # 带超时的用户输入
   echo -n "$prompt"
-  if read -t 30 $options; then
-    # 用户在30秒内输入了内容
+  if read -t "$timeout" $options; then
+    # 用户在超时前输入了内容
     echo ""
   else
     # 超时或用户未输入，使用默认答案
     echo ""
-    echo "30秒内未收到输入，自动选择默认选项: $default_answer"
+    echo "${timeout}秒内未收到输入，自动选择默认选项: $default_answer"
     REPLY="$default_answer"
   fi
   echo ""
@@ -19168,9 +19200,9 @@ revert_to_http_protocol() {
     update_env_var "FRONTEND_PROTOCOL" "http"
     update_env_var "ENABLE_HTTPS" "false"
     sync_compose_profiles  # 同步 COMPOSE_PROFILES
-    # 更新 SITE_URL
+    # 更新 SITE_URL：保留已有真实站点地址，避免 HTTPS 回退把 canonical 改成 localhost
     local domain=$(read_env_config "PRIMARY_DOMAIN" "localhost")
-    update_env_var "SITE_URL" "http://${domain}"
+    update_site_url_if_placeholder "http" "$domain"
     success "已将FRONTEND_PROTOCOL替换为http (通过 .env)"
     
     if project_requires_python_backend; then
@@ -19486,8 +19518,9 @@ validate_dns_for_domains() {
     fi
     
     # 询问用户是否继续
-    if auto_confirm "是否仍要继续部署? (y/N) " "n"; then
-      warning "用户选择继续部署，DNS校验失败的域名可能无法正常工作"
+    # 10 秒无响应按“继续”处理；CDN 回源、域名尚未切流都是合法部署形态
+    if auto_confirm "DNS 与当前服务器不匹配，是否继续部署? (Y/n，10秒后默认继续) " "y" "-n 1 -r" 10; then
+      warning "继续部署，DNS校验失败的域名可能无法正常工作"
       return 0
     else
       return 1

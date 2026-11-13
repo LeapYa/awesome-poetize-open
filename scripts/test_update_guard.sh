@@ -157,7 +157,7 @@ check "安装失败提示使用备份恢复" "yes" "$(printf '%s' "$reinstall_bl
 check "安装失败中止更新流程" "yes" "$(sed -n '/步骤 3\/4: 重新安装最新版本/,/步骤 4\/4/p' poetize | grep -q 'reinstall_latest_system ||' && echo yes || echo no)"
 check "更新安装自动跳过DNS校验" "yes" "$(printf '%s' "$reinstall_block" | grep -q 'deploy_cmd="\$deploy_cmd --skip-dns-check"' && echo yes || echo no)"
 check "初始化部署使用 SITE_URL 确认逻辑" "yes" "$(sed -n '/^init_deploy()/,/^get_secondary_domains()/p' poetize | grep -q 'update_site_url_with_confirmation' && echo yes || echo no)"
-check "SITE_URL保护逻辑在更换域名中生效" "yes" "$(sed -n '/^change_domain()/,/^# 手动启用 HTTPS/p' poetize | grep -q 'update_site_url_if_placeholder' && echo yes || echo no)"
+check "SITE_URL保护逻辑在更换域名中生效" "yes" "$(sed -n '/^change_domain()/,/^# 手动启用 HTTPS/p' poetize | grep -q 'update_site_url_for_domain_change' && echo yes || echo no)"
 check "DNS不匹配提示 10 秒后继续" "3" "$(grep -c '10秒后默认继续' poetize)"
 check "auto_confirm 支持自定义超时" "2" "$(grep -c 'local timeout="\${4:-30}"' poetize)"
 
@@ -182,6 +182,16 @@ site_keep_yes=$(printf 'y\n' | (cd "$site_dir" && source "$site_root/lib/config.
 check "用户确认保留时不被覆盖" "SITE_URL=http://localhost:9888" "$site_keep_yes"
 site_overwrite=$(printf 'n\n' | (cd "$site_dir" && source "$site_root/lib/config.sh" && ENV_FILE=.env update_site_url_with_confirmation https www.leapya.com >/dev/null) && grep '^SITE_URL=' "$site_dir/.env")
 check "用户明确不保留时写入新地址" "SITE_URL=https://www.leapya.com" "$site_overwrite"
+
+printf 'SITE_URL=https://old.example.com\n' > "$site_dir/.env"
+site_domain_sync=$(cd "$site_dir" && source "$site_root/lib/config.sh" && ENV_FILE=.env update_site_url_for_domain_change https old.example.com new.example.com >/dev/null && grep '^SITE_URL=' .env)
+check "更换主域名时同步 SITE_URL" "SITE_URL=https://new.example.com" "$site_domain_sync"
+printf 'SITE_URL=https://cdn.example.net\n' > "$site_dir/.env"
+site_cdn_keep=$(cd "$site_dir" && source "$site_root/lib/config.sh" && ENV_FILE=.env update_site_url_for_domain_change https old.example.com new.example.com >/dev/null && grep '^SITE_URL=' .env)
+check "CDN 域名不被更换主域名覆盖" "SITE_URL=https://cdn.example.net" "$site_cdn_keep"
+printf 'SITE_URL=http://localhost:9888\n' > "$site_dir/.env"
+site_origin_keep=$(cd "$site_dir" && source "$site_root/lib/config.sh" && ENV_FILE=.env update_site_url_for_domain_change https localhost new.example.com >/dev/null && grep '^SITE_URL=' .env)
+check "回源端口地址不被更换主域名覆盖" "SITE_URL=http://localhost:9888" "$site_origin_keep"
 
 check "Brotli 编译应用全部 nginx 补丁" "yes" "$(grep -Fq 'for p in /tmp/ngx-patches/*.patch' docker/nginx/Dockerfile && echo yes || echo no)"
 check "Brotli 编译阶段携带补丁目录" "yes" "$(grep -q 'COPY patches/ /tmp/ngx-patches/' docker/nginx/Dockerfile && echo yes || echo no)"

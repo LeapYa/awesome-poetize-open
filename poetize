@@ -17691,8 +17691,8 @@ change_domain() {
         update_env_var "ENABLE_HTTPS" "$enable_https"
         local protocol="http"
         [ "$enable_https" = "true" ] && protocol="https"
-        # 更换域名时保留已有真实 SITE_URL；只有占位值才自动生成
-        update_site_url_if_placeholder "$protocol" "$PRIMARY_DOMAIN"
+        # 更换域名时：SITE_URL 指向旧主域名则同步为新域名，CDN/回源地址保留
+        update_site_url_for_domain_change "$protocol" "$current_primary" "$PRIMARY_DOMAIN"
         update_env_var "FRONTEND_PROTOCOL" "$protocol"
         sync_compose_profiles
     else

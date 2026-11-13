@@ -227,6 +227,54 @@ update_site_url_with_confirmation() {
     return 0
 }
 
+# 提取 URL/域名的 authority（去掉协议、路径、query、fragment 与末尾斜杠），统一小写。
+normalize_site_authority() {
+    local value="${1:-}"
+    value="${value//$'\r'/}"
+    value="${value#*://}"
+    value="${value%%/*}"
+    value="${value%%\?*}"
+    value="${value%%#*}"
+    printf '%s' "$value" | tr '[:upper:]' '[:lower:]'
+}
+
+# 更换主域名时同步 SITE_URL。
+# 仅当现有 SITE_URL 的 authority 与旧主域名一致时才更新；CDN 加速域名、
+# localhost:端口 这类回源地址必须保留（authority 含端口，不会与纯域名相等）。
+update_site_url_for_domain_change() {
+    local protocol="$1"
+    local old_domain="$2"
+    local new_domain="$3"
+    local current_site_url
+    local current_authority
+    local old_authority
+
+    current_site_url="$(read_env_config "SITE_URL" "")"
+    if is_placeholder_site_url "$current_site_url"; then
+        update_env_var "SITE_URL" "${protocol}://${new_domain}"
+        return $?
+    fi
+
+    current_authority="$(normalize_site_authority "$current_site_url")"
+    old_authority="$(normalize_site_authority "$old_domain")"
+    if [ -n "$old_authority" ] && [ "$current_authority" = "$old_authority" ]; then
+        update_env_var "SITE_URL" "${protocol}://${new_domain}"
+        if type info >/dev/null 2>&1; then
+            info "已将 SITE_URL 从 ${current_site_url} 同步为新域名 ${protocol}://${new_domain}"
+        else
+            _config_info "已将 SITE_URL 从 ${current_site_url} 同步为新域名 ${protocol}://${new_domain}"
+        fi
+        return $?
+    fi
+
+    if type info >/dev/null 2>&1; then
+        info "SITE_URL=${current_site_url} 与旧主域名不一致（CDN/回源），保留原值"
+    else
+        _config_info "SITE_URL=${current_site_url} 与旧主域名不一致（CDN/回源），保留原值"
+    fi
+    return 0
+}
+
 # 批量更新环境变量
 # 用法: update_env_vars "VAR1=value1" "VAR2=value2" ...
 update_env_vars() {

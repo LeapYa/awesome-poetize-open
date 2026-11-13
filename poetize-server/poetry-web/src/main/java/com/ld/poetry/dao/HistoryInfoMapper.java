@@ -22,6 +22,30 @@ import java.util.Map;
 @Mapper
 public interface HistoryInfoMapper extends BaseMapper<HistoryInfo> {
 
+    /** 省份/国家聚合原始口径，与 getHistoryByProvince 保持一致 */
+    String PROVINCE_REGION_EXPR =
+            "case" +
+            " when nation is not null and trim(nation) != ''" +
+            "   and trim(nation) not in ('0', '-', '未知', '内网IP')" +
+            "   and lower(trim(nation)) not in ('reserved', 'unknown', 'null', 'undefined', '内网ip', 'china', 'cn', 'chn', 'prc')" +
+            "   and trim(nation) != '中国' then trim(nation)" +
+            " when province is not null and trim(province) != ''" +
+            "   and trim(province) not in ('0', '-', '未知', '内网IP')" +
+            "   and lower(trim(province)) not in ('reserved', 'unknown', 'null', 'undefined', '内网ip') then trim(province)" +
+            " when nation is not null and trim(nation) != ''" +
+            "   and trim(nation) not in ('0', '-', '未知', '内网IP')" +
+            "   and lower(trim(nation)) not in ('reserved', 'unknown', 'null', 'undefined', '内网ip') then trim(nation)" +
+            " when city is not null and trim(city) != ''" +
+            "   and trim(city) not in ('0', '-', '未知', '内网IP')" +
+            "   and lower(trim(city)) not in ('reserved', 'unknown', 'null', 'undefined', '内网ip') then trim(city)" +
+            " else '未知' end";
+
+    /** 下钻明细中的来源站点口径：空 Referer / 站内跳转归为 Direct，host 统一小写 */
+    String VISIT_DETAIL_REFERRER_EXPR =
+            "case when referer is null or referer = '' then 'Direct'" +
+            " when lower(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(referer, '/', 3), '/', -1), ':', 1)) = lower(#{siteHost}) then 'Direct'" +
+            " else lower(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(referer, '/', 3), '/', -1), ':', 1)) end";
+
     /**
      * 批量插入访问记录
      * @param historyInfoList 访问记录列表
@@ -278,6 +302,105 @@ public interface HistoryInfoMapper extends BaseMapper<HistoryInfo> {
             " limit 200" +
             "</script>")
     List<Map<String, Object>> getHistoryByUserAgentYesterday(@Param("ignoredIps") List<String> ignoredIps);
+
+    /**
+     * 榜单下钻明细：按 IP + User-Agent 聚合某个统计行对应的访问来源。
+     * <p>支持维度：ip / article / user / ua / referrer / province。
+     * 搜索引擎行按验证状态分组过滤；伪装引擎行兼容历史上以
+     * search_engine + failed 落库的旧数据。
+     */
+    @Select("<script>" +
+            "select ip, nation, province, city, user_agent, bot_verify_status, bot_verify_reason," +
+            " count(*) as num, max(create_time) as last_time" +
+            " <if test=\"dimension == 'province'\">, " + PROVINCE_REGION_EXPR + " as dim_region</if>" +
+            " <if test=\"dimension == 'article'\">, " + VISIT_DETAIL_REFERRER_EXPR + " as referrer_host</if>" +
+            " from history_info" +
+            " where 1 = 1" +
+            " <if test=\"dimension == 'ip'\"> and ip = #{value}</if>" +
+            " <if test=\"dimension == 'article'\">" +
+            " and (page_uri = concat('/article/', #{value})" +
+            " or page_uri like concat('/article/', #{value}, '?%')" +
+            " or page_uri like concat('/article/%/', #{value})" +
+            " or page_uri like concat('/article/%/', #{value}, '?%'))" +
+            " </if>" +
+            " <if test=\"dimension == 'user'\"> and user_id = #{userId}</if>" +
+            " <if test=\"dimension == 'ua'\">" +
+            " <if test=\"spoofed\">" +
+            " and ((ua_type = 'spoofed_search_engine' and ua_name = #{value})" +
+            " or (ua_type = 'search_engine' and ua_name = #{claimedName} and bot_verify_status = 'failed'))" +
+            " </if>" +
+            " <if test=\"!spoofed\">" +
+            " and ua_type = #{uaType}" +
+            " and (ua_name = #{value}" +
+            " or ua_name = concat(#{value}, '（未验证）')" +
+            " or ua_name = concat(#{value}, '（验证异常）'))" +
+            " </if>" +
+            " <if test=\"statusGroup == 'verified'\">" +
+            " and bot_verify_status = 'verified'" +
+            " </if>" +
+            " <if test=\"statusGroup == 'error'\">" +
+            " and bot_verify_status in ('error', 'timeout')" +
+            " </if>" +
+            " <if test=\"statusGroup == 'unknown'\">" +
+            " and (bot_verify_status is null or bot_verify_status not in ('verified', 'error', 'timeout', 'failed'))" +
+            " </if>" +
+            " </if>" +
+            " <if test=\"dimension == 'referrer'\">" +
+            " and (case when referer is null or referer = '' then 'Direct'" +
+            " <if test=\"siteHost != null and siteHost != ''\">" +
+            " when lower(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(referer, '/', 3), '/', -1), ':', 1)) = lower(#{siteHost}) then 'Direct'" +
+            " </if>" +
+            " else lower(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(referer, '/', 3), '/', -1), ':', 1)) end) = lower(#{value})" +
+            " </if>" +
+            " <if test=\"dimension == 'province'\">" +
+            " <choose>" +
+            " <when test=\"unknownRegion\">" +
+            " and lower(coalesce(trim(nation), '')) in ('', '0', '-', '未知', '内网ip', 'unknown', 'reserved', 'null', 'undefined')" +
+            " and lower(coalesce(trim(province), '')) in ('', '0', '-', '未知', '内网ip', 'unknown', 'reserved', 'null', 'undefined')" +
+            " and lower(coalesce(trim(city), '')) in ('', '0', '-', '未知', '内网ip', 'unknown', 'reserved', 'null', 'undefined')" +
+            " </when>" +
+            " <otherwise>" +
+            " and (" +
+            " <if test='regionCandidates != null and regionCandidates.size > 0'>" +
+            " nation in" +
+            " <foreach collection='regionCandidates' item='candidate' open='(' separator=',' close=')'>#{candidate}</foreach>" +
+            " or province in" +
+            " <foreach collection='regionCandidates' item='candidate' open='(' separator=',' close=')'>#{candidate}</foreach>" +
+            " or city in" +
+            " <foreach collection='regionCandidates' item='candidate' open='(' separator=',' close=')'>#{candidate}</foreach>" +
+            " or" +
+            " </if>" +
+            " nation like concat(#{value}, '%')" +
+            " or province like concat(#{value}, '%')" +
+            " or city like concat(#{value}, '%'))" +
+            " </otherwise>" +
+            " </choose>" +
+            " </if>" +
+            " <if test=\"yesterdayOnly\">" +
+            " and date(create_time) = date_sub(curdate(), interval 1 day)" +
+            " </if>" +
+            " <if test='ignoredIps != null and ignoredIps.size > 0'>" +
+            " and ip not in" +
+            " <foreach collection='ignoredIps' item='ignoredIp' open='(' separator=',' close=')'>#{ignoredIp}</foreach>" +
+            " </if>" +
+            " group by ip, nation, province, city, user_agent, bot_verify_status, bot_verify_reason" +
+            " <if test=\"dimension == 'province'\">, dim_region</if>" +
+            " <if test=\"dimension == 'article'\">, referrer_host</if>" +
+            " order by num desc" +
+            " limit 1000" +
+            "</script>")
+    List<Map<String, Object>> getVisitDetail(@Param("dimension") String dimension,
+                                             @Param("value") String value,
+                                             @Param("uaType") String uaType,
+                                             @Param("claimedName") String claimedName,
+                                             @Param("spoofed") boolean spoofed,
+                                             @Param("statusGroup") String statusGroup,
+                                             @Param("userId") Integer userId,
+                                             @Param("siteHost") String siteHost,
+                                             @Param("unknownRegion") boolean unknownRegion,
+                                             @Param("regionCandidates") List<String> regionCandidates,
+                                             @Param("yesterdayOnly") boolean yesterdayOnly,
+                                             @Param("ignoredIps") List<String> ignoredIps);
 
     /**
      * 文章页面访问原始统计

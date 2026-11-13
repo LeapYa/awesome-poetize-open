@@ -153,9 +153,15 @@
               <div class="history-name">省份/国家访问TOP10</div>
               <div>
                 <el-table :data="historyInfo.ip_history_province">
-                  <el-table-column type="index" align="center" width="60"></el-table-column>
-                  <el-table-column prop="province" align="center" label="省份/国家" min-width="120"></el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="80"></el-table-column>
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
+                  <el-table-column prop="province" align="center" label="省份/国家" min-width="100"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="60"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'history', 'province')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -163,9 +169,15 @@
               <div class="history-name">IP访问TOP10</div>
               <div>
                 <el-table :data="historyInfo.ip_history_ip">
-                  <el-table-column type="index" align="center" width="60"></el-table-column>
-                  <el-table-column prop="ip" align="center" label="IP" min-width="120"></el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="80"></el-table-column>
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
+                  <el-table-column prop="ip" align="center" label="IP" min-width="100"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="60"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'history', 'ip')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -173,7 +185,7 @@
               <div class="history-name">UA访问TOP10</div>
               <div>
                 <el-table :data="getUaRows('ua_history_top')">
-                  <el-table-column type="index" align="center" width="50"></el-table-column>
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
                   <el-table-column align="center" label="类型" width="90">
                     <template slot-scope="scope">
                       <el-tag class="ua-type-tag" size="mini" :type="getUaTagType(scope.row.ua_type)">
@@ -181,14 +193,20 @@
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column align="center" label="客户端" min-width="130">
+                  <el-table-column align="center" label="客户端" min-width="100">
                     <template slot-scope="scope">
                       <el-tooltip :disabled="!scope.row.sample_ua" :content="scope.row.sample_ua" placement="top">
                         <span class="ua-name-cell">{{ scope.row.ua_name || '未知客户端' }}</span>
                       </el-tooltip>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="70"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="55"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'history', 'ua')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -196,7 +214,7 @@
               <div class="history-name">文章页面访问TOP10</div>
               <div>
                 <el-table :data="getArticleRows('article_history_top')">
-                  <el-table-column type="index" align="center" width="50"></el-table-column>
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
                   <el-table-column align="center" label="文章" min-width="160">
                     <template slot-scope="scope">
                       <el-tooltip :disabled="!scope.row.article_path" :content="scope.row.article_path" placement="top">
@@ -204,7 +222,13 @@
                       </el-tooltip>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="70"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="55"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'history', 'article')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -212,8 +236,8 @@
               <div class="history-name">来源网站TOP10</div>
               <div>
                 <el-table :data="getReferrerRows('referrer_history_top')">
-                  <el-table-column type="index" align="center" width="60"></el-table-column>
-                  <el-table-column prop="referrer_host" align="center" label="来源网站" min-width="120">
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
+                  <el-table-column prop="referrer_host" align="center" label="来源网站" min-width="100">
                     <template slot-scope="scope">
                       <span :title="scope.row.referrer_host">
                         <i v-if="scope.row.referrer_host === 'Direct'" class="el-icon-link" style="color: #909399; margin-right: 3px;"></i>
@@ -221,7 +245,13 @@
                       </span>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="80"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="60"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'history', 'referrer')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -235,9 +265,15 @@
               <div class="history-name">今日访问省份/国家统计</div>
               <div>
                 <el-table :data="historyInfo.province_today">
-                  <el-table-column type="index" align="center" width="60"></el-table-column>
-                  <el-table-column prop="province" align="center" label="省份/国家" min-width="120"></el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="80"></el-table-column>
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
+                  <el-table-column prop="province" align="center" label="省份/国家" min-width="100"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="60"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'today', 'province')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -252,6 +288,12 @@
                   </el-table-column>
                   <el-table-column prop="username" align="center" label="用户" min-width="100"></el-table-column>
                   <el-table-column prop="visitCount" align="center" label="次数" width="60"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'today', 'user')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -259,7 +301,7 @@
               <div class="history-name">今日UA访问统计</div>
               <div>
                 <el-table :data="getUaRows('ua_today')">
-                  <el-table-column type="index" align="center" width="50"></el-table-column>
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
                   <el-table-column align="center" label="类型" width="90">
                     <template slot-scope="scope">
                       <el-tag class="ua-type-tag" size="mini" :type="getUaTagType(scope.row.ua_type)">
@@ -267,14 +309,20 @@
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column align="center" label="客户端" min-width="130">
+                  <el-table-column align="center" label="客户端" min-width="100">
                     <template slot-scope="scope">
                       <el-tooltip :disabled="!scope.row.sample_ua" :content="scope.row.sample_ua" placement="top">
                         <span class="ua-name-cell">{{ scope.row.ua_name || '未知客户端' }}</span>
                       </el-tooltip>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="70"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="55"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'today', 'ua')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -282,7 +330,7 @@
               <div class="history-name">今日文章页面访问统计</div>
               <div>
                 <el-table :data="getArticleRows('article_today')">
-                  <el-table-column type="index" align="center" width="50"></el-table-column>
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
                   <el-table-column align="center" label="文章" min-width="160">
                     <template slot-scope="scope">
                       <el-tooltip :disabled="!scope.row.article_path" :content="scope.row.article_path" placement="top">
@@ -290,7 +338,13 @@
                       </el-tooltip>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="70"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="55"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'today', 'article')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -298,8 +352,8 @@
               <div class="history-name">今日来源网站统计</div>
               <div>
                 <el-table :data="getReferrerRows('referrer_today')">
-                  <el-table-column type="index" align="center" width="60"></el-table-column>
-                  <el-table-column prop="referrer_host" align="center" label="来源网站" min-width="120">
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
+                  <el-table-column prop="referrer_host" align="center" label="来源网站" min-width="100">
                     <template slot-scope="scope">
                       <span :title="scope.row.referrer_host">
                         <i v-if="scope.row.referrer_host === 'Direct'" class="el-icon-link" style="color: #909399; margin-right: 3px;"></i>
@@ -307,7 +361,13 @@
                       </span>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="80"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="60"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'today', 'referrer')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -328,6 +388,12 @@
                   </el-table-column>
                   <el-table-column prop="username" align="center" label="用户" min-width="100"></el-table-column>
                   <el-table-column prop="visitCount" align="center" label="次数" width="60"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'yesterday', 'user')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -335,7 +401,7 @@
               <div class="history-name">昨日UA访问统计</div>
               <div>
                 <el-table :data="getUaRows('ua_yest')">
-                  <el-table-column type="index" align="center" width="50"></el-table-column>
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
                   <el-table-column align="center" label="类型" width="90">
                     <template slot-scope="scope">
                       <el-tag class="ua-type-tag" size="mini" :type="getUaTagType(scope.row.ua_type)">
@@ -343,14 +409,20 @@
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column align="center" label="客户端" min-width="130">
+                  <el-table-column align="center" label="客户端" min-width="100">
                     <template slot-scope="scope">
                       <el-tooltip :disabled="!scope.row.sample_ua" :content="scope.row.sample_ua" placement="top">
                         <span class="ua-name-cell">{{ scope.row.ua_name || '未知客户端' }}</span>
                       </el-tooltip>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="70"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="55"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'yesterday', 'ua')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -358,7 +430,7 @@
               <div class="history-name">昨日文章页面访问统计</div>
               <div>
                 <el-table :data="getArticleRows('article_yest')">
-                  <el-table-column type="index" align="center" width="50"></el-table-column>
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
                   <el-table-column align="center" label="文章" min-width="160">
                     <template slot-scope="scope">
                       <el-tooltip :disabled="!scope.row.article_path" :content="scope.row.article_path" placement="top">
@@ -366,7 +438,13 @@
                       </el-tooltip>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="70"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="55"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'yesterday', 'article')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -374,8 +452,8 @@
               <div class="history-name">昨日来源网站统计</div>
               <div>
                 <el-table :data="getReferrerRows('referrer_yest')">
-                  <el-table-column type="index" align="center" width="60"></el-table-column>
-                  <el-table-column prop="referrer_host" align="center" label="来源网站" min-width="120">
+                  <el-table-column type="index" align="center" width="45"></el-table-column>
+                  <el-table-column prop="referrer_host" align="center" label="来源网站" min-width="100">
                     <template slot-scope="scope">
                       <span :title="scope.row.referrer_host">
                         <i v-if="scope.row.referrer_host === 'Direct'" class="el-icon-link" style="color: #909399; margin-right: 3px;"></i>
@@ -383,7 +461,13 @@
                       </span>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="num" align="center" label="数量" width="80"></el-table-column>
+                  <el-table-column prop="num" align="center" label="数量" width="60"></el-table-column>
+                  <el-table-column label="操作" align="center" width="65">
+                    <template slot-scope="scope">
+                      <el-button type="text" class="detail-link"
+                                 @click.stop="openVisitDetail(scope.row, 'yesterday', 'referrer')">明细</el-button>
+                    </template>
+                  </el-table-column>
                 </el-table>
               </div>
             </div>
@@ -397,6 +481,147 @@
         </div>
         <visit-stats ref="visitStatsChart"></visit-stats>
       </el-card>
+
+      <el-dialog
+        :title="uaDetailTitle"
+        :visible.sync="uaDetailVisible"
+        width="900px"
+        append-to-body>
+        <div v-loading="loadingUaDetail" class="ua-detail-dialog">
+          <div class="ua-detail-summary">
+            <span>共 {{ uaDetailTotalSources }} 个来源 / {{ uaDetailTotalVisits }} 次访问</span>
+          </div>
+          <el-table :data="uaDetailItems" max-height="460" class="ua-detail-table">
+            <el-table-column type="index" align="center" width="45"></el-table-column>
+            <el-table-column prop="ip" label="IP" width="120"></el-table-column>
+            <el-table-column prop="region" label="地区" width="100"></el-table-column>
+            <el-table-column prop="num" label="次数" width="60" align="center"></el-table-column>
+            <el-table-column v-if="uaDetailShowReferrer" label="来源网站" width="120">
+              <template slot-scope="scope">
+                <span :title="scope.row.referrer_host">{{ scope.row.referrer_host || 'Direct' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="last_time" label="最近访问" width="140"></el-table-column>
+            <el-table-column v-if="uaDetailShowVerify" label="验证" width="90" align="center">
+              <template slot-scope="scope">
+                <el-tooltip :disabled="!scope.row.bot_verify_reason" :content="scope.row.bot_verify_reason" placement="top">
+                  <el-tag size="mini" :type="getUaVerifyTagType(scope.row.bot_verify_status)">
+                    {{ getUaVerifyLabel(scope.row.bot_verify_status) }}
+                  </el-tag>
+                </el-tooltip>
+              </template>
+            </el-table-column>
+            <el-table-column label="User-Agent" min-width="180">
+              <template slot-scope="scope">
+                <el-tooltip :disabled="!scope.row.user_agent" :content="scope.row.user_agent" placement="top">
+                  <span class="ua-detail-ua">{{ scope.row.user_agent || '未知' }}</span>
+                </el-tooltip>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="80" align="center">
+              <template slot-scope="scope">
+                <el-tag v-if="isUaIpBanned(scope.row.ip)" size="mini" type="info">已封禁</el-tag>
+                <el-button v-else type="text" class="ua-detail-ban" @click="openUaBanDialog(scope.row)">封禁</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-if="!loadingUaDetail && uaDetailItems.length === 0" class="ua-detail-empty">没有匹配的访问明细</div>
+          <div v-if="uaDetailTotalSources > 0" class="ua-detail-pagination">
+            <el-pagination background layout="total, prev, pager, next"
+                           :current-page="uaDetailPage"
+                           :page-size="uaDetailPageSize"
+                           :total="uaDetailTotalSources"
+                           @current-change="handleUaDetailPageChange">
+            </el-pagination>
+          </div>
+        </div>
+      </el-dialog>
+
+      <el-dialog
+        title="封禁"
+        :visible.sync="uaBanDialogVisible"
+        width="520px"
+        append-to-body>
+        <div class="ua-ban-form">
+          <div class="ua-ban-row">
+            <span class="ua-ban-label">封禁类型</span>
+            <el-radio-group v-model="uaBanType" size="small">
+              <el-radio-button label="ip">IP</el-radio-button>
+              <el-radio-button label="ua">UA</el-radio-button>
+              <el-radio-button label="cidr">IP网段</el-radio-button>
+              <el-radio-button label="province">省份</el-radio-button>
+              <el-radio-button label="country">国家</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div class="ua-ban-row" v-if="uaBanType === 'ip'">
+            <span class="ua-ban-label">目标 IP</span>
+            <span class="ua-ban-value">{{ uaBanIp }}</span>
+          </div>
+          <template v-if="uaBanType === 'ua'">
+            <div class="ua-ban-row ua-ban-row--reason">
+              <span class="ua-ban-label">UA 文本</span>
+              <el-input
+                v-model="uaBanUaValue"
+                type="textarea"
+                :rows="3"
+                maxlength="512"
+                show-word-limit
+                placeholder="要封禁的 User-Agent">
+              </el-input>
+            </div>
+            <div class="ua-ban-row">
+              <span class="ua-ban-label">匹配方式</span>
+              <el-radio-group v-model="uaBanMatchMode" size="small">
+                <el-radio-button label="contains">包含</el-radio-button>
+                <el-radio-button label="equals">完全相等</el-radio-button>
+              </el-radio-group>
+            </div>
+          </template>
+          <div class="ua-ban-row" v-if="uaBanType === 'cidr'">
+            <span class="ua-ban-label">IP 网段</span>
+            <el-input v-model="uaBanCidrValue" placeholder="如 192.168.1.0/24"></el-input>
+          </div>
+          <div class="ua-ban-row" v-if="uaBanType === 'province'">
+            <span class="ua-ban-label">省份</span>
+            <el-input v-model="uaBanProvinceValue" placeholder="如 广东"></el-input>
+          </div>
+          <div class="ua-ban-row" v-if="uaBanType === 'country'">
+            <span class="ua-ban-label">国家</span>
+            <el-input v-model="uaBanCountryValue" placeholder="如 美国"></el-input>
+          </div>
+          <div class="ua-ban-row">
+            <span class="ua-ban-label">拉黑时长</span>
+            <el-radio-group v-model="uaBanDuration" size="small">
+              <el-radio-button label="1h">1 小时</el-radio-button>
+              <el-radio-button label="24h">24 小时</el-radio-button>
+              <el-radio-button label="7d">7 天</el-radio-button>
+              <el-radio-button label="30d">30 天</el-radio-button>
+              <el-radio-button label="permanent">永久</el-radio-button>
+            </el-radio-group>
+          </div>
+          <div class="ua-ban-row ua-ban-row--reason">
+            <span class="ua-ban-label">原因</span>
+            <el-input
+              v-model="uaBanReason"
+              type="textarea"
+              :rows="2"
+              maxlength="200"
+              show-word-limit
+              placeholder="拉黑原因（可选）">
+            </el-input>
+          </div>
+          <div class="ua-ban-tip">
+            <i class="el-icon-warning-outline"></i>
+            {{ uaBanType === 'ip'
+              ? '封禁立即生效，该 IP 之后的请求会被直接拒绝'
+              : '封禁规则立即生效，匹配的请求会被直接拒绝' }}；可在「系统日志 → 封禁列表」中解除。
+          </div>
+        </div>
+        <span slot="footer" class="dialog-footer">
+          <el-button @click="uaBanDialogVisible = false" :disabled="uaBanLoading">取 消</el-button>
+          <el-button type="danger" :loading="uaBanLoading" @click="confirmUaBan">确定拉黑</el-button>
+        </span>
+      </el-dialog>
 
       <el-dialog
         title="清理访问数据"
@@ -549,6 +774,39 @@ export default {
       refreshing: false,
       isDarkMode: false,
       activeTab: 'total',
+      uaDetailVisible: false,
+      loadingUaDetail: false,
+      uaDetailTitle: '',
+      uaDetailType: '',
+      uaDetailName: '',
+      uaDetailDimension: '',
+      uaDetailScope: '',
+      uaDetailValue: '',
+      uaDetailBotVerifyStatus: '',
+      uaDetailPage: 1,
+      uaDetailPageSize: 20,
+      uaDetailItems: [],
+      uaDetailTotalSources: 0,
+      uaDetailTotalVisits: 0,
+      uaBanDialogVisible: false,
+      uaBanType: 'ip',
+      uaBanIp: '',
+      uaBanUaValue: '',
+      uaBanMatchMode: 'contains',
+      uaBanCidrValue: '',
+      uaBanProvinceValue: '',
+      uaBanCountryValue: '',
+      uaBanDuration: '24h',
+      uaBanReason: '',
+      uaBanLoading: false,
+      uaBannedIps: [],
+      uaBanDurationMap: {
+        '1h': 3600,
+        '24h': 86400,
+        '7d': 604800,
+        '30d': 2592000,
+        'permanent': -1
+      },
       cleanDialogVisible: false,
       currentVisitIp: '',
       loadingCurrentIp: false,
@@ -571,7 +829,14 @@ export default {
     }
   },
 
-  computed: {},
+  computed: {
+    uaDetailShowVerify() {
+      return this.uaDetailType === 'search_engine' || this.uaDetailType === 'spoofed_search_engine';
+    },
+    uaDetailShowReferrer() {
+      return this.uaDetailDimension === 'article';
+    }
+  },
 
   watch: {},
 
@@ -934,6 +1199,286 @@ export default {
       return Array.isArray(rows) ? rows : [];
     },
 
+    openVisitDetail(row, scope, dimension) {
+      if (!row) return;
+      const scopeLabels = {
+        history: '总榜',
+        today: '今日',
+        yesterday: '昨日'
+      };
+      let value = '';
+      let label = '';
+      switch (dimension) {
+        case 'ua':
+          value = row.ua_name || '';
+          label = row.ua_name || '未知客户端';
+          break;
+        case 'ip':
+          value = row.ip || '';
+          label = row.ip || '';
+          break;
+        case 'province':
+          value = row.province || '';
+          label = row.province || '';
+          break;
+        case 'article':
+          value = row.article_token || '';
+          label = row.article_title || row.article_token || '未知文章';
+          break;
+        case 'referrer':
+          value = row.referrer_host || '';
+          label = row.referrer_host || '';
+          break;
+        case 'user':
+          value = row.userId != null ? String(row.userId) : '';
+          label = row.username || '访客用户';
+          break;
+        default:
+          return;
+      }
+      if (!value) {
+        this.$message.warning('该行缺少可用于查询明细的标识');
+        return;
+      }
+
+      this.uaDetailType = dimension === 'ua' ? (row.ua_type || '') : '';
+      this.uaDetailDimension = dimension;
+      this.uaDetailName = label;
+      this.uaDetailTitle = `访问明细 · ${label}（${scopeLabels[scope] || '今日'}）`;
+      this.uaDetailScope = scope;
+      this.uaDetailValue = value;
+      this.uaDetailBotVerifyStatus = dimension === 'ua' ? (row.bot_verify_status || '') : '';
+      this.uaDetailPage = 1;
+      this.uaDetailItems = [];
+      this.uaDetailTotalSources = 0;
+      this.uaDetailTotalVisits = 0;
+      this.uaDetailVisible = true;
+      this.loadBlacklistedIps();
+      this.loadVisitDetail();
+    },
+
+    loadVisitDetail() {
+      this.loadingUaDetail = true;
+      this.$http.get(this.$constant.baseURL + "/webInfo/getVisitDetail", {
+        scope: this.uaDetailScope,
+        dimension: this.uaDetailDimension,
+        value: this.uaDetailValue,
+        uaType: this.uaDetailType,
+        botVerifyStatus: this.uaDetailBotVerifyStatus,
+        page: this.uaDetailPage
+      }, true).then((res) => {
+        if (res.success || res.code === 200) {
+          const data = res.data || {};
+          this.uaDetailItems = Array.isArray(data.items) ? data.items : [];
+          this.uaDetailTotalSources = data.total_sources || 0;
+          this.uaDetailTotalVisits = data.total_visits || 0;
+          this.uaDetailPageSize = data.page_size || 20;
+          if (data.page) {
+            this.uaDetailPage = data.page;
+          }
+        } else {
+          this.$message({
+            message: res.message || '获取访问明细失败',
+            type: 'error'
+          });
+        }
+      }).catch((error) => {
+        this.$message({
+          message: error.message,
+          type: 'error'
+        });
+      }).finally(() => {
+        this.loadingUaDetail = false;
+      });
+    },
+
+    handleUaDetailPageChange(page) {
+      this.uaDetailPage = page;
+      this.loadVisitDetail();
+    },
+
+    getUaVerifyLabel(status) {
+      const normalized = (status || '').toLowerCase();
+      if (normalized === 'verified') return '已验证';
+      if (normalized === 'error' || normalized === 'timeout') return '验证异常';
+      if (normalized === 'failed') return '伪装';
+      return '未验证';
+    },
+
+    getUaVerifyTagType(status) {
+      const normalized = (status || '').toLowerCase();
+      if (normalized === 'verified') return 'success';
+      if (normalized === 'error' || normalized === 'timeout') return 'warning';
+      if (normalized === 'failed') return 'danger';
+      return 'info';
+    },
+
+    loadBlacklistedIps() {
+      this.$http.get(this.$constant.baseURL + '/admin/security/blacklist', {}, true)
+        .then((res) => {
+          if (res.success && Array.isArray(res.data)) {
+            this.uaBannedIps = res.data
+              .map(item => item && item.ip)
+              .filter(ip => !!ip);
+          }
+        })
+        .catch(() => {
+          // 黑名单读取失败不影响明细查看，封禁入口仍可用
+        });
+    },
+
+    isUaIpBanned(ip) {
+      return !!ip && this.uaBannedIps.indexOf(ip) !== -1;
+    },
+
+    openUaBanDialog(row) {
+      if (!row) return;
+      const region = row.region || '';
+      const regionType = row.region_type || '';
+      this.uaBanIp = row.ip || '';
+      this.uaBanUaValue = row.user_agent || '';
+      this.uaBanMatchMode = 'contains';
+      this.uaBanCidrValue = this.suggestCidr(this.uaBanIp);
+      this.uaBanProvinceValue = regionType === 'province' ? region : '';
+      this.uaBanCountryValue = regionType === 'country'
+        ? region
+        : (regionType === 'province' ? '中国' : '');
+      this.uaBanType = this.uaBanIp ? 'ip' : (this.uaBanUaValue ? 'ua' : 'province');
+      this.uaBanDuration = '24h';
+      this.uaBanReason = this.uaDetailName
+        ? `访问明细手动封禁 · ${this.uaDetailName}`
+        : '访问明细手动封禁';
+      this.uaBanDialogVisible = true;
+    },
+
+    suggestCidr(ip) {
+      const value = (ip || '').trim();
+      if (!value) return '';
+      if (value.indexOf(':') >= 0) {
+        return value + '/64';
+      }
+      const parts = value.split('.');
+      if (parts.length === 4) {
+        return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+      }
+      return '';
+    },
+
+    uaBanDurationLabel() {
+      const labels = {
+        '1h': '1 小时',
+        '24h': '24 小时',
+        '7d': '7 天',
+        '30d': '30 天',
+        'permanent': '永久'
+      };
+      return labels[this.uaBanDuration] || '24 小时';
+    },
+
+    uaBanDurationSeconds() {
+      return Object.prototype.hasOwnProperty.call(this.uaBanDurationMap, this.uaBanDuration)
+        ? this.uaBanDurationMap[this.uaBanDuration]
+        : 86400;
+    },
+
+    confirmUaBan() {
+      const durationSeconds = this.uaBanDurationSeconds();
+      const durationLabel = this.uaBanDurationLabel();
+      const reason = (this.uaBanReason || '').trim();
+      const baseURL = this.$constant.baseURL;
+
+      let request;
+      let buildMessage;
+      if (this.uaBanType === 'ip') {
+        const ip = (this.uaBanIp || '').trim();
+        if (!ip) {
+          this.$message.warning('IP 不能为空');
+          return;
+        }
+        request = this.$http.post(baseURL + '/admin/security/blockIp', {
+          ip,
+          reason,
+          durationSeconds
+        }, true);
+        buildMessage = (data) => data.alreadyBlocked
+          ? `IP ${ip} 已在黑名单，已刷新为 ${durationLabel}`
+          : `已拉黑 IP ${ip}，时长：${durationLabel}`;
+      } else if (this.uaBanType === 'ua') {
+        const value = (this.uaBanUaValue || '').trim();
+        if (!value) {
+          this.$message.warning('UA 不能为空');
+          return;
+        }
+        request = this.$http.post(baseURL + '/admin/security/blockRule', {
+          type: 'ua',
+          value,
+          matchMode: this.uaBanMatchMode,
+          reason,
+          durationSeconds
+        }, true);
+        buildMessage = (data) => data.existed
+          ? `UA 封禁规则已存在，已刷新为 ${durationLabel}`
+          : `已添加 UA 封禁规则，时长：${durationLabel}`;
+      } else if (this.uaBanType === 'cidr') {
+        const value = (this.uaBanCidrValue || '').trim();
+        if (!value) {
+          this.$message.warning('IP 网段不能为空');
+          return;
+        }
+        request = this.$http.post(baseURL + '/admin/security/blockRule', {
+          type: 'cidr',
+          value,
+          reason,
+          durationSeconds
+        }, true);
+        buildMessage = (data) => data.existed
+          ? `IP 网段封禁规则已存在，已刷新为 ${durationLabel}`
+          : `已添加 IP 网段封禁规则：${value}，时长：${durationLabel}`;
+      } else {
+        const isCountry = this.uaBanType === 'country';
+        const typeLabel = isCountry ? '国家' : '省份';
+        const value = (isCountry ? this.uaBanCountryValue : this.uaBanProvinceValue || '').trim();
+        if (!value) {
+          this.$message.warning(`${typeLabel}不能为空`);
+          return;
+        }
+        request = this.$http.post(baseURL + '/admin/security/blockRule', {
+          type: 'region',
+          value,
+          regionType: this.uaBanType,
+          reason,
+          durationSeconds
+        }, true);
+        buildMessage = (data) => data.existed
+          ? `${typeLabel}封禁规则已存在，已刷新为 ${durationLabel}`
+          : `已添加${typeLabel}封禁规则：${value}，时长：${durationLabel}`;
+      }
+
+      this.uaBanLoading = true;
+      request.then((res) => {
+        if (res.success || res.code === 200) {
+          const data = res.data || {};
+          this.$message({ message: buildMessage(data), type: 'success' });
+          if (this.uaBanType === 'ip' && !this.isUaIpBanned(this.uaBanIp)) {
+            this.uaBannedIps.push(this.uaBanIp);
+          }
+          this.uaBanDialogVisible = false;
+        } else {
+          this.$message({
+            message: res.message || '封禁失败',
+            type: 'error'
+          });
+        }
+      }).catch((error) => {
+        this.$message({
+          message: '封禁失败: ' + (error && error.message ? error.message : '未知错误'),
+          type: 'error'
+        });
+      }).finally(() => {
+        this.uaBanLoading = false;
+      });
+    },
+
     getArticleRows(key) {
       const rows = this.historyInfo && this.historyInfo[key];
       return Array.isArray(rows) ? rows : [];
@@ -1177,6 +1722,85 @@ export default {
 
   .ua-type-tag {
     margin: 0;
+  }
+
+  .ua-detail-dialog {
+    min-height: 120px;
+  }
+
+  .ua-detail-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    color: #606266;
+    font-size: 13px;
+  }
+
+  .ua-detail-truncated {
+    color: #909399;
+  }
+
+  .ua-detail-pagination {
+    margin: 12px 0 0;
+    text-align: right;
+  }
+
+  .ua-detail-ua {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ua-detail-empty {
+    padding: 30px 0;
+    text-align: center;
+    color: #909399;
+  }
+
+  .ua-detail-ban {
+    padding: 0;
+    color: #f56c6c;
+  }
+
+  .detail-link {
+    padding: 0;
+  }
+
+  .ua-ban-form {
+    padding: 0 4px;
+  }
+
+  .ua-ban-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .ua-ban-row--reason {
+    align-items: flex-start;
+  }
+
+  .ua-ban-label {
+    flex: 0 0 64px;
+    color: #606266;
+    font-size: 13px;
+    line-height: 32px;
+  }
+
+  .ua-ban-value {
+    color: #f56c6c;
+    font-weight: bold;
+  }
+
+  .ua-ban-tip {
+    color: #909399;
+    font-size: 12px;
+    line-height: 1.6;
   }
 
   /* 移动端表格适配 */

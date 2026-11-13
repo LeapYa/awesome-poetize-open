@@ -179,6 +179,19 @@ public final class UserAgentClassifier {
         }
     }
 
+    /**
+     * 解析单条访问记录（Redis 记录或数据库原始行）的 UA 分类结果。
+     * 记录带已分类字段时优先使用，缺失时回退到按 User-Agent 重新分类。
+     */
+    public static UaInfo resolveVisitRecord(Map<String, Object> record) {
+        if (record == null) {
+            return null;
+        }
+        Object uaObj = firstNonNull(record.get("userAgent"), record.get("user_agent"));
+        String ua = uaObj == null ? null : uaObj.toString();
+        return resolveInfo(ua, record);
+    }
+
     private static UaInfo resolveInfo(String userAgent, Map<String, Object> row) {
         String type = firstText(row, "uaType", "ua_type");
         String name = firstText(row, "uaName", "ua_name");
@@ -241,13 +254,15 @@ public final class UserAgentClassifier {
                 .toList();
     }
 
-    private static String stripSearchEngineDisplaySuffix(String name, String suffix) {
+    /** 去掉统计展示时追加在搜索引擎名称后的验证状态后缀 */
+    public static String stripSearchEngineDisplaySuffix(String name, String suffix) {
         return name.endsWith(suffix)
                 ? name.substring(0, name.length() - suffix.length()).trim()
                 : name;
     }
 
-    private static String searchEngineVerificationGroup(String status) {
+    /** 把验证状态归为 verified / error / unknown 三组，供统计展示与下钻查询共用 */
+    public static String searchEngineVerificationGroup(String status) {
         if (status != null) {
             String normalized = status.trim().toLowerCase(Locale.ROOT);
             if ("verified".equals(normalized)) {

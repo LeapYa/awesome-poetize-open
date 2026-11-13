@@ -46,6 +46,12 @@ import java.util.stream.Collectors;
 @RequestMapping("/webInfo")
 public class WebInfoController {
 
+    /** 榜单下钻明细分页大小 */
+    private static final int VISIT_DETAIL_PAGE_SIZE = 20;
+    /** 支持下钻的统计维度 */
+    private static final Set<String> VISIT_DETAIL_DIMENSIONS =
+            Set.of("ip", "article", "user", "ua", "referrer", "province");
+
     @Autowired
     private WebInfoService webInfoService;
 
@@ -965,6 +971,7 @@ public class WebInfoController {
                                 User user = commonQuery.getUser(userId);
                                 if (user != null) {
                                     Map<String, Object> userInfo = new HashMap<>();
+                                    userInfo.put("userId", userId);
                                     userInfo.put("avatar", user.getAvatar());
                                     userInfo.put("username", user.getUsername());
                                     userInfo.put("visitCount", visitCount);
@@ -1003,6 +1010,7 @@ public class WebInfoController {
                                     User user = commonQuery.getUser(Integer.valueOf(userId));
                                     if (user != null) {
                                         Map<String, Object> userInfo = new HashMap<>();
+                                        userInfo.put("userId", userId);
                                         userInfo.put("avatar", user.getAvatar());
                                         userInfo.put("username", user.getUsername());
                                         userInfo.put("visitCount", visitCount);
@@ -1079,6 +1087,339 @@ public class WebInfoController {
             Map<String, Object> defaultResult = createDefaultHistoryResult();
             return PoetryResult.success(defaultResult);
         }
+    }
+
+    /**
+     * 获取某一统计行对应的访问明细（后台榜单点击“查看明细”时下钻）。
+     *
+     * @param scope           统计范围：history / today / yesterday
+     * @param dimension       明细维度：ip / article / user / ua / referrer / province
+     * @param value           维度值：IP、文章 token、用户 ID、UA 名称、来源站点、省份/国家
+     * @param uaType          UA 维度必填，统计行的 UA 类型
+     * @param botVerifyStatus UA 维度使用，统计行的验证状态，用于区分搜索引擎的验证分组
+     */
+    @LoginCheck(0)
+    @GetMapping("/getVisitDetail")
+    public PoetryResult<Map<String, Object>> getVisitDetail(@RequestParam String scope,
+                                                            @RequestParam String dimension,
+                                                            @RequestParam(required = false) String value,
+                                                            @RequestParam(required = false) String uaType,
+                                                            @RequestParam(required = false) String botVerifyStatus,
+                                                            @RequestParam(defaultValue = "1") int page,
+                                                            HttpServletRequest request) {
+        try {
+            String dim = dimension == null ? "" : dimension.trim().toLowerCase(Locale.ROOT);
+            if (!VISIT_DETAIL_DIMENSIONS.contains(dim)) {
+                return PoetryResult.fail("不支持的明细类型");
+            }
+            String dimensionValue = "ua".equals(dim)
+                    ? normalizeUaDisplayName(value)
+                    : (value == null ? "" : value.trim());
+            if (dimensionValue.isEmpty()) {
+                return PoetryResult.fail("明细查询条件不能为空");
+            }
+
+            String statusGroup = "ua".equals(dim) && "search_engine".equals(uaType)
+                    ? UserAgentClassifier.searchEngineVerificationGroup(botVerifyStatus)
+                    : null;
+            Integer userId = "user".equals(dim) ? parsePositiveInteger(dimensionValue) : null;
+            if ("user".equals(dim) && userId == null) {
+                return PoetryResult.success(buildVisitDetailResult(new ArrayList<>(), page));
+            }
+            String siteHost = resolveSiteHost(request);
+            boolean unknownRegion = "province".equals(dim)
+                    && VisitRegionNormalizer.UNKNOWN_REGION.equals(dimensionValue);
+            List<String> regionCandidates = "province".equals(dim)
+                    ? VisitRegionNormalizer.rawRegionCandidates(dimensionValue)
+                    : List.of();
+            List<String> ignoredIps = cacheService.getVisitIgnoreIpList();
+            String today = java.time.LocalDate.now().toString();
+
+            List<Map<String, Object>> items;
+            if ("today".equalsIgnoreCase(scope)) {
+                items = buildVisitDetailFromRecords(cacheService.getDailyVisitRecords(today),
+                        dim, dimensionValue, uaType, statusGroup, siteHost);
+            } else if ("yesterday".equalsIgnoreCase(scope)) {
+                if ("ua".equals(dim)) {
+                    List<Map<String, Object>> yesterdayRecords =
+                            cacheService.getDailyVisitRecords(java.time.LocalDate.now().minusDays(1).toString());
+                    items = yesterdayRecords.isEmpty()
+                            ? buildVisitDetailFromDatabase(dim, dimensionValue, uaType, statusGroup, userId,
+                            siteHost, unknownRegion, regionCandidates, true, ignoredIps)
+                            : buildVisitDetailFromRecords(yesterdayRecords, dim, dimensionValue, uaType,
+                            statusGroup, siteHost);
+                } else {
+                    items = buildVisitDetailFromDatabase(dim, dimensionValue, uaType, statusGroup, userId,
+                            siteHost, unknownRegion, regionCandidates, true, ignoredIps);
+                }
+            } else {
+                items = buildVisitDetailFromDatabase(dim, dimensionValue, uaType, statusGroup, userId,
+                        siteHost, unknownRegion, regionCandidates, false, ignoredIps);
+                // 总榜的 UA/文章/来源统计包含今日尚未落库的实时记录，省份与 IP 榜不包含
+                if (!"province".equals(dim) && !"ip".equals(dim)) {
+                    mergeVisitDetailItems(items, buildVisitDetailFromRecords(
+                            cacheService.getUnsyncedDailyVisitRecords(today),
+                            dim, dimensionValue, uaType, statusGroup, siteHost));
+                }
+            }
+
+            return PoetryResult.success(buildVisitDetailResult(items, page));
+        } catch (Exception e) {
+            log.error("获取访问明细失败: scope={}, dimension={}, value={}", scope, dimension, value, e);
+            return PoetryResult.fail("获取访问明细失败: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> buildVisitDetailResult(List<Map<String, Object>> items, int page) {
+        if (items == null) {
+            items = new ArrayList<>();
+        }
+        items.sort((a, b) -> Long.compare(toLong(b.get("num")), toLong(a.get("num"))));
+        long totalVisits = items.stream().mapToLong(item -> toLong(item.get("num"))).sum();
+        int totalSources = items.size();
+        int totalPages = Math.max(1, (totalSources + VISIT_DETAIL_PAGE_SIZE - 1) / VISIT_DETAIL_PAGE_SIZE);
+        int safePage = Math.min(Math.max(page, 1), totalPages);
+        int from = (safePage - 1) * VISIT_DETAIL_PAGE_SIZE;
+        int to = Math.min(from + VISIT_DETAIL_PAGE_SIZE, totalSources);
+        List<Map<String, Object>> pageItems = from >= totalSources
+                ? new ArrayList<>()
+                : new ArrayList<>(items.subList(from, to));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("items", pageItems);
+        result.put("total_sources", totalSources);
+        result.put("total_visits", totalVisits);
+        result.put("page", safePage);
+        result.put("page_size", VISIT_DETAIL_PAGE_SIZE);
+        return result;
+    }
+
+    private boolean matchesVisitRecord(Map<String, Object> record, String dimension, String value,
+                                       String uaType, String statusGroup, String siteHost) {
+        switch (dimension) {
+            case "ip":
+                return value.equals(textOf(record.get("ip")));
+            case "article":
+                return value.equals(PageVisitUtils.extractArticleToken(textOf(record.get("pageUri"))));
+            case "province":
+                return value.equals(VisitRegionNormalizer.resolveProvinceOrCountry(
+                        record.get("nation"), record.get("province"), record.get("city")));
+            case "referrer": {
+                String host = extractRefererHost(textOf(record.get("referer")));
+                if (host == null || (siteHost != null && host.equalsIgnoreCase(siteHost))) {
+                    host = "Direct";
+                }
+                return value.equalsIgnoreCase(host);
+            }
+            case "user":
+                return value.equals(textOf(record.get("userId")));
+            case "ua": {
+                UserAgentClassifier.UaInfo info = UserAgentClassifier.resolveVisitRecord(record);
+                if (info == null || uaType == null || !uaType.equals(info.type()) || !value.equals(info.name())) {
+                    return false;
+                }
+                return statusGroup == null || statusGroup.equals(
+                        UserAgentClassifier.searchEngineVerificationGroup(info.botVerifyStatus()));
+            }
+            default:
+                return false;
+        }
+    }
+
+    private List<Map<String, Object>> buildVisitDetailFromRecords(List<Map<String, Object>> records,
+                                                                  String dimension, String value, String uaType,
+                                                                  String statusGroup, String siteHost) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        if (records == null || records.isEmpty()) {
+            return items;
+        }
+
+        Map<String, Map<String, Object>> buckets = new LinkedHashMap<>();
+        for (Map<String, Object> record : records) {
+            if (record == null || !matchesVisitRecord(record, dimension, value, uaType, statusGroup, siteHost)) {
+                continue;
+            }
+            UserAgentClassifier.UaInfo info = UserAgentClassifier.resolveVisitRecord(record);
+            if (info == null) {
+                continue;
+            }
+
+            String ip = textOf(record.get("ip"));
+            String userAgent = textOf(record.get("userAgent") != null
+                    ? record.get("userAgent") : record.get("user_agent"));
+            String referrerHost = null;
+            if ("article".equals(dimension)) {
+                referrerHost = extractRefererHost(textOf(record.get("referer")));
+                if (referrerHost == null || (siteHost != null && referrerHost.equalsIgnoreCase(siteHost))) {
+                    referrerHost = "Direct";
+                }
+            }
+            String key = ip + "|" + userAgent + "|" + info.botVerifyStatus()
+                    + "|" + (referrerHost == null ? "" : referrerHost);
+            Map<String, Object> item = buckets.get(key);
+            if (item == null) {
+                String region = VisitRegionNormalizer.resolveProvinceOrCountry(
+                        record.get("nation"), record.get("province"), record.get("city"));
+                item = new LinkedHashMap<>();
+                item.put("ip", ip);
+                item.put("region", region);
+                item.put("region_type", resolveRegionBanType(region));
+                item.put("user_agent", userAgent);
+                if (referrerHost != null) {
+                    item.put("referrer_host", referrerHost);
+                }
+                item.put("num", 0L);
+                item.put("last_time", "");
+                item.put("bot_verify_status", info.botVerifyStatus());
+                item.put("bot_verify_reason", info.botVerifyReason() == null ? "" : info.botVerifyReason());
+                buckets.put(key, item);
+            }
+            item.put("num", toLong(item.get("num")) + 1L);
+            String createTime = textOf(record.get("createTime"));
+            if (createTime.compareTo(String.valueOf(item.get("last_time"))) > 0) {
+                item.put("last_time", createTime);
+            }
+        }
+        items.addAll(buckets.values());
+        return items;
+    }
+
+    private List<Map<String, Object>> buildVisitDetailFromDatabase(String dimension, String value,
+                                                                   String uaType, String statusGroup,
+                                                                   Integer userId, String siteHost,
+                                                                   boolean unknownRegion,
+                                                                   List<String> regionCandidates,
+                                                                   boolean yesterdayOnly,
+                                                                   List<String> ignoredIps) {
+        String claimedName = value.startsWith("疑似伪装 ")
+                ? value.substring("疑似伪装 ".length()).trim()
+                : value;
+        boolean spoofed = "ua".equals(dimension) && "spoofed_search_engine".equals(uaType);
+        List<Map<String, Object>> rows = historyInfoMapper.getVisitDetail(
+                dimension, value, uaType, claimedName, spoofed, statusGroup, userId,
+                siteHost, unknownRegion, regionCandidates, yesterdayOnly, ignoredIps);
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        if (rows == null) {
+            return items;
+        }
+        Map<String, Map<String, Object>> buckets = new LinkedHashMap<>();
+        for (Map<String, Object> row : rows) {
+            if (row == null) {
+                continue;
+            }
+            String region;
+            if ("province".equals(dimension)) {
+                // 与省份榜口径一致：先把 SQL 聚合出的原始地域名再归一化一次
+                region = VisitRegionNormalizer.resolveProvinceOrCountry(null, row.get("dim_region"), null);
+                if (!value.equals(region)) {
+                    continue;
+                }
+            } else {
+                region = VisitRegionNormalizer.resolveProvinceOrCountry(
+                        row.get("nation"), row.get("province"), row.get("city"));
+            }
+            String ip = textOf(row.get("ip"));
+            String userAgent = textOf(row.get("user_agent"));
+            String status = textOf(row.get("bot_verify_status"));
+            String referrerHost = textOf(row.get("referrer_host"));
+            String key = ip + "|" + userAgent + "|" + status + "|" + referrerHost;
+            Map<String, Object> item = buckets.get(key);
+            if (item == null) {
+                item = new LinkedHashMap<>();
+                item.put("ip", ip);
+                item.put("region", region);
+                item.put("region_type", resolveRegionBanType(region));
+                item.put("user_agent", userAgent);
+                if ("article".equals(dimension)) {
+                    item.put("referrer_host", referrerHost.isEmpty() ? "Direct" : referrerHost);
+                }
+                item.put("num", 0L);
+                item.put("last_time", "");
+                item.put("bot_verify_status", status);
+                item.put("bot_verify_reason", textOf(row.get("bot_verify_reason")));
+                buckets.put(key, item);
+            }
+            item.put("num", toLong(item.get("num")) + toLong(row.get("num")));
+            String lastTime = formatVisitDetailTime(row.get("last_time"));
+            if (lastTime.compareTo(String.valueOf(item.get("last_time"))) > 0) {
+                item.put("last_time", lastTime);
+            }
+        }
+        items.addAll(buckets.values());
+        return items;
+    }
+
+    private void mergeVisitDetailItems(List<Map<String, Object>> target, List<Map<String, Object>> extra) {
+        if (extra == null || extra.isEmpty()) {
+            return;
+        }
+        Map<String, Map<String, Object>> index = new HashMap<>();
+        for (Map<String, Object> item : target) {
+            index.put(visitDetailItemKey(item), item);
+        }
+        for (Map<String, Object> item : extra) {
+            Map<String, Object> existing = index.get(visitDetailItemKey(item));
+            if (existing == null) {
+                target.add(item);
+                index.put(visitDetailItemKey(item), item);
+                continue;
+            }
+            existing.put("num", toLong(existing.get("num")) + toLong(item.get("num")));
+            String itemTime = String.valueOf(item.get("last_time"));
+            if (itemTime.compareTo(String.valueOf(existing.get("last_time"))) > 0) {
+                existing.put("last_time", itemTime);
+            }
+            if (existing.get("region") == null || String.valueOf(existing.get("region")).isBlank()) {
+                existing.put("region", item.get("region"));
+            }
+        }
+    }
+
+    private String visitDetailItemKey(Map<String, Object> item) {
+        return item.get("ip") + "|" + item.get("user_agent") + "|" + item.get("bot_verify_status")
+                + "|" + textOf(item.get("referrer_host"));
+    }
+
+    private String formatVisitDetailTime(Object value) {
+        if (value == null) {
+            return "";
+        }
+        String text = value.toString().replace('T', ' ');
+        return text.length() > 19 ? text.substring(0, 19) : text;
+    }
+
+    private String textOf(Object value) {
+        return value == null ? "" : value.toString().trim();
+    }
+
+    /**
+     * 判断明细中的地区值应按省份还是国家封禁。
+     * 未知地区不提供地区封禁入口。
+     */
+    private String resolveRegionBanType(String region) {
+        if (region == null || region.isBlank() || VisitRegionNormalizer.UNKNOWN_REGION.equals(region)) {
+            return "";
+        }
+        return VisitRegionNormalizer.normalizeCountryName(region) != null ? "country" : "province";
+    }
+
+    private Integer parsePositiveInteger(String value) {
+        try {
+            int parsed = Integer.parseInt(value);
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private String normalizeUaDisplayName(String uaName) {
+        if (uaName == null || uaName.isBlank()) {
+            return "";
+        }
+        String name = uaName.trim();
+        name = UserAgentClassifier.stripSearchEngineDisplaySuffix(name, "（未验证）");
+        return UserAgentClassifier.stripSearchEngineDisplaySuffix(name, "（验证异常）");
     }
 
     /**

@@ -2,8 +2,10 @@ package com.ld.poetry.utils;
 
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -69,6 +71,31 @@ public final class VisitRegionNormalizer {
         }
 
         return UNKNOWN_REGION;
+    }
+
+    /**
+     * 返回某个展示地区名在原始数据中可能出现的写法，用于下钻 SQL 粗筛。
+     * <p>国家名同时返回代码、英文名与中文名；省份后缀差异由 SQL 的 LIKE 覆盖。
+     * 精确归属仍以 {@link #resolveProvinceOrCountry(Object, Object, Object)} 的结果为准。
+     */
+    public static List<String> rawRegionCandidates(String region) {
+        if (!StringUtils.hasText(region)) {
+            return List.of();
+        }
+        Set<String> candidates = new LinkedHashSet<>();
+        candidates.add(region);
+        for (Map.Entry<String, String> entry : COUNTRY_NAMES.entrySet()) {
+            if (region.equals(entry.getValue())) {
+                candidates.add(entry.getKey());
+            }
+        }
+        for (Map.Entry<String, String> entry : REGION_COUNTRY_ALIASES.entrySet()) {
+            if (region.equals(entry.getValue())) {
+                candidates.add(entry.getKey());
+            }
+        }
+        candidates.remove("");
+        return new ArrayList<>(candidates);
     }
 
     public static String normalizeCountryName(Object value) {
@@ -214,9 +241,14 @@ public final class VisitRegionNormalizer {
         for (String countryCode : Locale.getISOCountries()) {
             Locale countryLocale = new Locale.Builder().setRegion(countryCode).build();
             String zhName = countryLocale.getDisplayCountry(ZH_CN);
+            String enName = countryLocale.getDisplayCountry(Locale.ENGLISH);
             names.put(normalizeKey(countryCode), zhName);
-            names.put(normalizeKey(countryLocale.getDisplayCountry(Locale.ENGLISH)), zhName);
+            names.put(normalizeKey(enName), zhName);
             names.put(normalizeKey(zhName), zhName);
+            // 保留原始写法，供下钻明细按原始地域值粗筛
+            names.putIfAbsent(countryCode, zhName);
+            names.putIfAbsent(enName, zhName);
+            names.putIfAbsent(zhName, zhName);
         }
 
         names.put(normalizeKey("USA"), "美国");
@@ -236,7 +268,22 @@ public final class VisitRegionNormalizer {
         names.put(normalizeKey("Macao"), "中国澳门");
         names.put(normalizeKey("Macau"), "中国澳门");
         names.put(normalizeKey("Taiwan"), "中国台湾");
+        // 保留显式别名的原始写法，供下钻明细按原始地域值粗筛
+        putRawAliases(names, "美国", "USA", "U.S.", "U.S.A.", "America", "United States of America");
+        putRawAliases(names, "英国", "UK", "U.K.", "Great Britain", "England");
+        putRawAliases(names, "韩国", "Korea", "South Korea");
+        putRawAliases(names, "俄罗斯", "Russia");
+        putRawAliases(names, "越南", "Vietnam");
+        putRawAliases(names, "中国香港", "Hong Kong");
+        putRawAliases(names, "中国澳门", "Macao", "Macau");
+        putRawAliases(names, "中国台湾", "Taiwan");
         return names;
+    }
+
+    private static void putRawAliases(Map<String, String> names, String country, String... rawValues) {
+        for (String rawValue : rawValues) {
+            names.putIfAbsent(rawValue, country);
+        }
     }
 
     private static Map<String, String> buildRegionCountryAliases() {

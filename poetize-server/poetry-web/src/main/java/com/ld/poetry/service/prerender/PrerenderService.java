@@ -400,13 +400,7 @@ public class PrerenderService {
                 + (collects.isEmpty() ? "<p>暂无收藏夹</p>"
                         : collects.entrySet().stream()
                                 .map(entry -> "<div class=\"collect-category\"><h3>" + text(entry.getKey()) + "</h3><ul>"
-                                        + entry.getValue().stream().map(item -> "<li><a href=\"" + attr(item.getUrl())
-                                                        + "\" target=\"_blank\" rel=\"noopener\" title=\""
-                                                        + attr(item.getIntroduction()) + "\"><img src=\"" + attr(item.getCover())
-                                                        + "\" alt=\"" + attr(item.getTitle())
-                                                        + "\" width=\"32\" height=\"32\" loading=\"lazy\"><span>"
-                                                        + text(item.getTitle()) + "</span><small>" + text(item.getIntroduction())
-                                                        + "</small></a></li>")
+                                        + entry.getValue().stream().map(this::renderFavoriteItem)
                                                 .collect(Collectors.joining())
                                         + "</ul></div>")
                                 .collect(Collectors.joining()))
@@ -940,6 +934,19 @@ public class PrerenderService {
         ResourcePathVO vo = new ResourcePathVO();
         BeanUtils.copyProperties(resourcePath, vo);
         return vo;
+    }
+
+    private String renderFavoriteItem(ResourcePathVO item) {
+        String icon = "<img src=\"" + attr(item.getCover()) + "\" alt=\"" + attr(item.getTitle())
+                + "\" width=\"32\" height=\"32\" loading=\"lazy\">";
+        String label = "<span>" + text(item.getTitle()) + "</span><small>" + text(item.getIntroduction()) + "</small>";
+        // 历史数据里可能残留 javascript:/data: 等伪协议，预渲染时降级为纯文本，不写入 href
+        String url = ExternalUrlUtil.normalizeHttpUrl(item.getUrl());
+        if (url == null) {
+            return "<li>" + icon + label + "</li>";
+        }
+        return "<li><a href=\"" + attr(url) + "\" target=\"_blank\" rel=\"noopener\" title=\""
+                + attr(item.getIntroduction()) + "\">" + icon + label + "</a></li>";
     }
 
     private String renderFriendGroup(String title, List<ResourcePathVO> friends) {

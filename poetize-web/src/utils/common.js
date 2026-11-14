@@ -31,6 +31,31 @@ function isSafeImageUrl(value = '') {
   return true
 }
 
+// 站外链接兜底：后端写入时已归一化，这里只防历史脏数据里的伪协议
+// 落到 href 或 window.open —— 两者都会在本站源里执行 javascript:
+function safeExternalUrl(value = '') {
+  const url = String(value == null ? '' : value).replace(
+    /[\u0000-\u0020\u007f\u00a0\u2000-\u200a\u3000\ufeff]/g,
+    ''
+  )
+  if (!url) {
+    return undefined
+  }
+  if (url.startsWith('//')) {
+    return `https:${url}`
+  }
+  if (url.startsWith('/')) {
+    return url
+  }
+  const protocolMatch = url.match(/^([a-z][a-z0-9+.-]*):/i)
+  if (protocolMatch) {
+    return ['http:', 'https:'].includes(protocolMatch[1].toLowerCase() + ':')
+      ? url
+      : undefined
+  }
+  return `https://${url}`
+}
+
 export default {
   /**
    * 获取默认头像
@@ -51,6 +76,11 @@ export default {
    * 获取AI头像URL（带默认AI头像回退）
    */
   getAiAvatarUrl,
+
+  /**
+   * 站外链接安全兜底，非法协议返回 undefined
+   */
+  safeExternalUrl,
 
   mobile() {
     let flag = navigator.userAgent.match(

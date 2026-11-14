@@ -84,14 +84,15 @@ public class ResourceAggregationController {
             }
         }
 
-        // 友链会渲染成 <a href>，只放行 http/https（缺 scheme 自动补 https://），
-        // 否则 javascript:/data: 之类会在站点源里执行
-        if (CommonConst.RESOURCE_PATH_TYPE_FRIEND.equals(resourcePathVO.getType())) {
+        // 友链与收藏夹的地址会渲染成 <a href> 或交给 window.open，只放行 http/https
+        // （缺 scheme 自动补 https://），否则 javascript:/data: 之类会在站点源里执行
+        if (isExternalLinkType(resourcePathVO.getType())) {
             String normalizedUrl = ExternalUrlUtil.normalizeHttpUrl(filteredUrl);
             if (normalizedUrl == null) {
+                String label = CommonConst.RESOURCE_PATH_TYPE_FRIEND.equals(resourcePathVO.getType()) ? "友链" : "收藏夹";
                 return PoetryResult.fail(StringUtils.hasText(filteredUrl)
-                        ? "友链地址需以 http:// 或 https:// 开头！"
-                        : "友链地址不能为空！");
+                        ? label + "地址需以 http:// 或 https:// 开头！"
+                        : label + "地址不能为空！");
             }
             filteredUrl = normalizedUrl;
         }
@@ -265,14 +266,15 @@ public class ResourceAggregationController {
             }
         }
 
-        // 友链会渲染成 <a href>，只放行 http/https（缺 scheme 自动补 https://），
-        // 否则 javascript:/data: 之类会在站点源里执行
-        if (CommonConst.RESOURCE_PATH_TYPE_FRIEND.equals(resourcePathVO.getType())) {
+        // 友链与收藏夹的地址会渲染成 <a href> 或交给 window.open，只放行 http/https
+        // （缺 scheme 自动补 https://），否则 javascript:/data: 之类会在站点源里执行
+        if (isExternalLinkType(resourcePathVO.getType())) {
             String normalizedUrl = ExternalUrlUtil.normalizeHttpUrl(filteredUrl);
             if (normalizedUrl == null) {
+                String label = CommonConst.RESOURCE_PATH_TYPE_FRIEND.equals(resourcePathVO.getType()) ? "友链" : "收藏夹";
                 return PoetryResult.fail(StringUtils.hasText(filteredUrl)
-                        ? "友链地址需以 http:// 或 https:// 开头！"
-                        : "友链地址不能为空！");
+                        ? label + "地址需以 http:// 或 https:// 开头！"
+                        : label + "地址不能为空！");
             }
             filteredUrl = normalizedUrl;
         }
@@ -442,6 +444,12 @@ public class ResourceAggregationController {
             baseRequestVO.setTotal(resultPage.getTotal());
         }
         return PoetryResult.success(baseRequestVO);
+    }
+
+    /** 地址最终会落到站外链接 sink（href / window.open）的资源类型 */
+    private boolean isExternalLinkType(String type) {
+        return CommonConst.RESOURCE_PATH_TYPE_FRIEND.equals(type)
+                || CommonConst.RESOURCE_PATH_TYPE_FAVORITES.equals(type);
     }
 
     /**

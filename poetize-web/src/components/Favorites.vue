@@ -123,7 +123,10 @@ export default {
 
   methods: {
     toUrl(url) {
-      window.open(url)
+      const safeUrl = this.$common.safeExternalUrl(url)
+      if (safeUrl) {
+        window.open(safeUrl, '_blank', 'noopener,noreferrer')
+      }
     },
     getCollect() {
       this.$http

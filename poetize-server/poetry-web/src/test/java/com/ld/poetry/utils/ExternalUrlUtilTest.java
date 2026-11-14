@@ -3,9 +3,7 @@ package com.ld.poetry.utils;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ExternalUrlUtilTest {
 
@@ -24,6 +22,9 @@ class ExternalUrlUtilTest {
         assertNull(ExternalUrlUtil.normalizeHttpUrl("java\tscript:alert(1)"));
         assertNull(ExternalUrlUtil.normalizeHttpUrl("java\nscript:alert(1)"));
         assertNull(ExternalUrlUtil.normalizeHttpUrl("  javascript:alert(1)  "));
+        assertNull(ExternalUrlUtil.normalizeHttpUrl("java\u00a0script:alert(1)"));
+        assertNull(ExternalUrlUtil.normalizeHttpUrl("java\u3000script:alert(1)"));
+        assertNull(ExternalUrlUtil.normalizeHttpUrl("\u0001javascript:alert(1)"));
     }
 
     @Test
@@ -38,6 +39,7 @@ class ExternalUrlUtilTest {
         assertEquals("https://example.com/a", ExternalUrlUtil.normalizeHttpUrl("https://example.com/a"));
         assertEquals("http://example.com/a", ExternalUrlUtil.normalizeHttpUrl("http://example.com/a"));
         assertEquals("HTTPS://Example.com", ExternalUrlUtil.normalizeHttpUrl("HTTPS://Example.com"));
+        assertEquals("https://example.com/a?b=1&c=2", ExternalUrlUtil.normalizeHttpUrl("https://example.com/a?b=1&c=2"));
     }
 
     @Test
@@ -47,11 +49,26 @@ class ExternalUrlUtilTest {
         assertNull(ExternalUrlUtil.normalizeHttpUrl("   "));
         assertNull(ExternalUrlUtil.normalizeHttpUrl("https://"));
         assertNull(ExternalUrlUtil.normalizeHttpUrl("/article/1"));
+        assertNull(ExternalUrlUtil.normalizeHttpUrl("https://?x=1"));
+        assertNull(ExternalUrlUtil.normalizeHttpUrl("https://#frag"));
+        assertNull(ExternalUrlUtil.normalizeHttpUrl("https:///evil.com"));
+        assertNull(ExternalUrlUtil.normalizeHttpUrl("https:\\\\evil.com"));
     }
 
     @Test
-    void isSafeLinkShouldFollowNormalization() {
-        assertTrue(ExternalUrlUtil.isSafeLink("example.com"));
-        assertFalse(ExternalUrlUtil.isSafeLink("javascript:alert(1)"));
+    void normalizeShouldEncodeInteriorWhitespaceRatherThanDropIt() {
+        // 删掉空格会静默改写链接目标，必须编码保留
+        assertEquals("https://example.com/my%20page", ExternalUrlUtil.normalizeHttpUrl("https://example.com/my page"));
+        assertEquals("https://example.com/a?q=hello%20world", ExternalUrlUtil.normalizeHttpUrl("https://example.com/a?q=hello world"));
+        assertEquals("https://example.com/a%20b", ExternalUrlUtil.normalizeHttpUrl("example.com/a b"));
+    }
+
+    @Test
+    void normalizeShouldTrimEdgeWhitespaceAndCleanScheme() {
+        assertEquals("https://example.com", ExternalUrlUtil.normalizeHttpUrl("  https://example.com  "));
+        assertEquals("https://example.com", ExternalUrlUtil.normalizeHttpUrl("\u00a0https://example.com\u00a0"));
+        // scheme 里夹空白时主机仍取紧凑形态，不会拼出 https:/%20/ 这种坏地址
+        assertEquals("https://example.com", ExternalUrlUtil.normalizeHttpUrl("https ://example.com"));
+        assertEquals("https://other.com", ExternalUrlUtil.normalizeHttpUrl("/ /other.com"));
     }
 }

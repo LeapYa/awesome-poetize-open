@@ -5,7 +5,7 @@
       :key="index"
       class="card-item shadow-box"
       v-animate
-      :href="safeHref(resourcePath.url)"
+      :href="$common.safeExternalUrl(resourcePath.url)"
       target="_blank"
       rel="noopener noreferrer"
     >
@@ -23,7 +23,7 @@
               style="background-color: var(--lightGreen)"
             >
               <div class="error-text">
-                <div v-html="'「' + resourcePath.title + '」'"></div>
+                <div>「{{ resourcePath.title }}」</div>
               </div>
             </div>
           </template>
@@ -79,26 +79,6 @@ export default {
   watch: {},
   created() {},
   mounted() {},
-  methods: {
-    // 友链地址来自访客投稿，后端已做归一化；这里兜底历史数据，
-    // 伪协议一律不渲染 href，避免 javascript:/data: 在站点源里执行
-    safeHref(url) {
-      const value = String(url == null ? '' : url).replace(
-        /[\u0000-\u0020\u007f]+/g,
-        ''
-      )
-      if (!value) {
-        return undefined
-      }
-      if (/^(javascript|data|vbscript|file):/i.test(value)) {
-        return undefined
-      }
-      if (/^(https?:)?\/\//i.test(value) || value.startsWith('/')) {
-        return value
-      }
-      return `https://${value}`
-    },
-  },
 }
 </script>
 

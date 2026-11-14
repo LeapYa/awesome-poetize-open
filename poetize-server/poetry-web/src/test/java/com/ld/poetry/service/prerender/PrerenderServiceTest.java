@@ -215,8 +215,8 @@ class PrerenderServiceTest {
 
     @Test
     void renderFriendGroupShouldDropPseudoProtocolAndNormalizeUrl() {
-        ResourcePathVO injected = createFriend("坏链接", "含脚本的地址", "javascript:alert(1)");
-        ResourcePathVO schemeless = createFriend("好链接", "正常站点", "example.com");
+        ResourcePathVO injected = createResourcePath("坏链接", "含脚本的地址", "javascript:alert(1)");
+        ResourcePathVO schemeless = createResourcePath("好链接", "正常站点", "example.com");
 
         String html = ReflectionTestUtils.invokeMethod(
                 service, "renderFriendGroup", "🥇友情链接", List.of(injected, schemeless));
@@ -226,13 +226,33 @@ class PrerenderServiceTest {
         assertTrue(html.contains("<li>坏链接 - 含脚本的地址</li>"), html);
         // 缺 scheme 的地址补 https://，避免被当成站内相对路径
         assertTrue(html.contains("href=\"https://example.com\""), html);
+        // 友链是互惠链接，必须 dofollow 递权重，不能套用评论的 nofollow/ugc 口径
+        assertFalse(html.contains("nofollow"), html);
+        assertFalse(html.contains("ugc"), html);
     }
 
-    private ResourcePathVO createFriend(String title, String introduction, String url) {
-        ResourcePathVO friend = new ResourcePathVO();
-        friend.setTitle(title);
-        friend.setIntroduction(introduction);
-        friend.setUrl(url);
-        return friend;
+    @Test
+    void renderFavoriteItemShouldDropPseudoProtocolAndNormalizeUrl() {
+        ResourcePathVO injected = createResourcePath("坏收藏", "含脚本的地址", "javascript:alert(1)");
+        injected.setCover("/cover.png");
+        ResourcePathVO schemeless = createResourcePath("好收藏", "正常站点", "example.com");
+        schemeless.setCover("/cover.png");
+
+        String injectedHtml = ReflectionTestUtils.invokeMethod(service, "renderFavoriteItem", injected);
+        String schemelessHtml = ReflectionTestUtils.invokeMethod(service, "renderFavoriteItem", schemeless);
+
+        // 收藏夹与友链同为 href sink，历史脏数据同样降级为纯文本
+        assertFalse(injectedHtml.contains("javascript:"), injectedHtml);
+        assertFalse(injectedHtml.contains("<a "), injectedHtml);
+        assertTrue(injectedHtml.contains("<span>坏收藏</span>"), injectedHtml);
+        assertTrue(schemelessHtml.contains("href=\"https://example.com\""), schemelessHtml);
+    }
+
+    private ResourcePathVO createResourcePath(String title, String introduction, String url) {
+        ResourcePathVO resourcePath = new ResourcePathVO();
+        resourcePath.setTitle(title);
+        resourcePath.setIntroduction(introduction);
+        resourcePath.setUrl(url);
+        return resourcePath;
     }
 }

@@ -10,6 +10,7 @@ import com.ld.poetry.constants.CacheConstants;
 import com.ld.poetry.constants.CommonConst;
 import com.ld.poetry.dao.ResourcePathMapper;
 import com.ld.poetry.entity.ResourcePath;
+import com.ld.poetry.utils.ExternalUrlUtil;
 import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.prerender.PrerenderFacade;
@@ -81,6 +82,18 @@ public class ResourceAggregationController {
             if (!StringUtils.hasText(filteredTitle) || !StringUtils.hasText(resourcePathVO.getType())) {
                 return PoetryResult.fail("标题和资源类型不能为空或包含不安全内容！");
             }
+        }
+
+        // 友链会渲染成 <a href>，只放行 http/https（缺 scheme 自动补 https://），
+        // 否则 javascript:/data: 之类会在站点源里执行
+        if (CommonConst.RESOURCE_PATH_TYPE_FRIEND.equals(resourcePathVO.getType())) {
+            String normalizedUrl = ExternalUrlUtil.normalizeHttpUrl(filteredUrl);
+            if (normalizedUrl == null) {
+                return PoetryResult.fail(StringUtils.hasText(filteredUrl)
+                        ? "友链地址需以 http:// 或 https:// 开头！"
+                        : "友链地址不能为空！");
+            }
+            filteredUrl = normalizedUrl;
         }
         
         // 本站信息和侧边栏背景类型的特殊验证：只能有一条记录
@@ -250,6 +263,18 @@ public class ResourceAggregationController {
             if (!StringUtils.hasText(filteredTitle) || !StringUtils.hasText(resourcePathVO.getType())) {
                 return PoetryResult.fail("标题和资源类型不能为空或包含不安全内容！");
             }
+        }
+
+        // 友链会渲染成 <a href>，只放行 http/https（缺 scheme 自动补 https://），
+        // 否则 javascript:/data: 之类会在站点源里执行
+        if (CommonConst.RESOURCE_PATH_TYPE_FRIEND.equals(resourcePathVO.getType())) {
+            String normalizedUrl = ExternalUrlUtil.normalizeHttpUrl(filteredUrl);
+            if (normalizedUrl == null) {
+                return PoetryResult.fail(StringUtils.hasText(filteredUrl)
+                        ? "友链地址需以 http:// 或 https:// 开头！"
+                        : "友链地址不能为空！");
+            }
+            filteredUrl = normalizedUrl;
         }
         if (CommonConst.RESOURCE_PATH_TYPE_LOVE_PHOTO.equals(resourcePathVO.getType())) {
             resourcePathVO.setRemark(PoetryUtil.getAdminUser().getId().toString());

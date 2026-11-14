@@ -9,6 +9,7 @@ import com.ld.poetry.dao.ResourcePathMapper;
 import com.ld.poetry.entity.ResourcePath;
 import com.ld.poetry.service.CacheService;
 import com.ld.poetry.service.prerender.PrerenderFacade;
+import com.ld.poetry.utils.ExternalUrlUtil;
 import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.utils.XssFilterUtil;
 import com.ld.poetry.vo.ResourcePathVO;
@@ -56,10 +57,17 @@ public class FriendController {
         String filteredIntroduction = StringUtils.hasText(resourcePathVO.getIntroduction()) ? XssFilterUtil.clean(resourcePathVO.getIntroduction()) : null;
         String filteredUrl = StringUtils.hasText(resourcePathVO.getUrl()) ? XssFilterUtil.clean(resourcePathVO.getUrl()) : null;
         String filteredCover = StringUtils.hasText(resourcePathVO.getCover()) ? XssFilterUtil.clean(resourcePathVO.getCover()) : null;
-        
+
         if (!StringUtils.hasText(filteredTitle) || !StringUtils.hasText(filteredCover) ||
                 !StringUtils.hasText(filteredUrl) || !StringUtils.hasText(filteredIntroduction)) {
             return PoetryResult.fail("信息不全或包含不安全内容！");
+        }
+
+        // 友链会渲染成 <a href>，只放行 http/https（缺 scheme 自动补 https://），
+        // 否则 javascript:/data: 之类会在站点源里执行
+        String normalizedUrl = ExternalUrlUtil.normalizeHttpUrl(filteredUrl);
+        if (normalizedUrl == null) {
+            return PoetryResult.fail("网站地址需以 http:// 或 https:// 开头！");
         }
         
         ResourcePath friend = new ResourcePath();
@@ -67,7 +75,7 @@ public class FriendController {
         friend.setTitle(filteredTitle);
         friend.setIntroduction(filteredIntroduction);
         friend.setCover(filteredCover);
-        friend.setUrl(filteredUrl);
+        friend.setUrl(normalizedUrl);
         friend.setRemark(PoetryUtil.getUserId().toString());
         friend.setType(CommonConst.RESOURCE_PATH_TYPE_FRIEND);
         friend.setStatus(Boolean.FALSE);

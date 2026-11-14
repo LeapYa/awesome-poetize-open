@@ -139,11 +139,11 @@ function legacyTokenToHtml(token) {
 }
 
 function isExternalLink(href) {
-  if (!/^https?:\/\//i.test(href)) {
+  if (!/^(https?:)?\/\//i.test(href)) {
     return false
   }
   try {
-    return new URL(href).host !== window.location.host
+    return new URL(href, window.location.href).host !== window.location.host
   } catch {
     return true
   }

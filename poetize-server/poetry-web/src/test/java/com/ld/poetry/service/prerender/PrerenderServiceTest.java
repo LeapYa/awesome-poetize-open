@@ -18,6 +18,7 @@ import com.ld.poetry.service.WebInfoService;
 import com.ld.poetry.service.WeiYanService;
 import com.ld.poetry.utils.CommonQuery;
 import com.ld.poetry.utils.mail.MailUtil;
+import com.ld.poetry.vo.ResourcePathVO;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,12 +27,16 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.test.util.ReflectionTestUtils;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -206,5 +211,28 @@ class PrerenderServiceTest {
         ArgumentCaptor<PrerenderPageData> captor = ArgumentCaptor.forClass(PrerenderPageData.class);
         verify(engine).buildPage(captor.capture());
         return captor.getValue();
+    }
+
+    @Test
+    void renderFriendGroupShouldDropPseudoProtocolAndNormalizeUrl() {
+        ResourcePathVO injected = createFriend("坏链接", "含脚本的地址", "javascript:alert(1)");
+        ResourcePathVO schemeless = createFriend("好链接", "正常站点", "example.com");
+
+        String html = ReflectionTestUtils.invokeMethod(
+                service, "renderFriendGroup", "🥇友情链接", List.of(injected, schemeless));
+
+        // 历史脏数据不能写进 href，否则静态友人帐页被点到就在站点源里执行脚本
+        assertFalse(html.contains("javascript:"), html);
+        assertTrue(html.contains("<li>坏链接 - 含脚本的地址</li>"), html);
+        // 缺 scheme 的地址补 https://，避免被当成站内相对路径
+        assertTrue(html.contains("href=\"https://example.com\""), html);
+    }
+
+    private ResourcePathVO createFriend(String title, String introduction, String url) {
+        ResourcePathVO friend = new ResourcePathVO();
+        friend.setTitle(title);
+        friend.setIntroduction(introduction);
+        friend.setUrl(url);
+        return friend;
     }
 }

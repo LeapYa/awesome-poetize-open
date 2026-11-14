@@ -19,6 +19,7 @@ import com.ld.poetry.service.WebInfoService;
 import com.ld.poetry.service.WeiYanService;
 import com.ld.poetry.utils.ArticleUrlUtil;
 import com.ld.poetry.utils.CommonQuery;
+import com.ld.poetry.utils.ExternalUrlUtil;
 import com.ld.poetry.utils.mail.MailUtil;
 import com.ld.poetry.vo.ArticleVO;
 import com.ld.poetry.vo.BaseRequestVO;
@@ -946,11 +947,19 @@ public class PrerenderService {
             return "";
         }
 
-        return "<h2>" + title + "</h2><ul>"
-                + friends.stream().map(friend -> "<li><a href=\"" + attr(friend.getUrl()) + "\" target=\"_blank\" rel=\"noopener\" title=\""
-                                + attr(friend.getIntroduction()) + "\">" + text(friend.getTitle()) + " - " + text(friend.getIntroduction()) + "</a></li>")
-                        .collect(Collectors.joining())
-                + "</ul>";
+        StringBuilder sb = new StringBuilder("<h2>").append(title).append("</h2><ul>");
+        for (ResourcePathVO friend : friends) {
+            String label = text(friend.getTitle()) + " - " + text(friend.getIntroduction());
+            // 历史数据里可能残留 javascript:/data: 等伪协议，预渲染时降级为纯文本，不写入 href
+            String url = ExternalUrlUtil.normalizeHttpUrl(friend.getUrl());
+            if (url == null) {
+                sb.append("<li>").append(label).append("</li>");
+                continue;
+            }
+            sb.append("<li><a href=\"").append(attr(url)).append("\" target=\"_blank\" rel=\"noopener\" title=\"")
+                    .append(attr(friend.getIntroduction())).append("\">").append(label).append("</a></li>");
+        }
+        return sb.append("</ul>").toString();
     }
 
     private String getSiteName(WebInfo webInfo) {

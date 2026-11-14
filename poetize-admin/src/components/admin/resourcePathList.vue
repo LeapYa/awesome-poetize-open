@@ -626,6 +626,9 @@
             });
           })
           .catch((error) => {
+            // v-model 已把开关翻到新值，服务端拒绝时（如友链地址非法）必须翻回来，
+            // 否则 UI 显示已启用而 DB 仍未启用
+            item.status = !item.status;
             this.$message({
               message: error.message,
               type: "error"

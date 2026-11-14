@@ -281,7 +281,13 @@ public class PrerenderService {
         if (!friendLinks.isEmpty()) {
             sb.append("<div class=\"prerender-friend-links\"><span>本站由</span>");
             for (FriendLinkItem link : friendLinks) {
-                sb.append("<a href=\"").append(attr(link.url))
+                // 配置里可能残留伪协议地址，与友人帐、收藏夹保持一致：归一化失败就降级为纯文本
+                String url = ExternalUrlUtil.normalizeHttpUrl(link.url);
+                if (url == null) {
+                    sb.append("<span>").append(text(link.name)).append("</span>");
+                    continue;
+                }
+                sb.append("<a href=\"").append(attr(url))
                         .append("\" target=\"_blank\" rel=\"noopener noreferrer nofollow\">")
                         .append(text(link.name)).append("</a>");
             }

@@ -167,6 +167,7 @@ export default {
       },
       articles: [],
       loading: false,
+      articleRequestId: 0,
     }
   },
 
@@ -233,8 +234,16 @@ export default {
     },
 
     pageArticles() {
-      this.pagination.current = this.pagination.current + 1
-      this.getArticles()
+      const previousPage = this.pagination.current
+      this.pagination.current = previousPage + 1
+      const request = this.getArticles()
+      const requestId = this.articleRequestId
+      request.then((ok) => {
+        // 请求期间切换了分类/标签时 pagination 已被重置，不能回滚
+        if (!ok && requestId === this.articleRequestId) {
+          this.pagination.current = previousPage
+        }
+      })
     },
 
     getSort() {
@@ -269,29 +278,43 @@ export default {
         labelId: label.id,
       }
       this.articles.splice(0, this.articles.length)
+      // 立即作废在飞的旧请求，$nextTick 到 getArticles 之间仍有响应落地的窗口
+      this.articleRequestId++
       this.loading = true
       this.$nextTick(() => {
         this.getArticles()
       })
     },
     getArticles() {
+      // 切换分类/标签时旧请求可能仍在飞，用序号丢弃过期响应，
+      // 否则旧数据会 concat 进新列表、旧 finally 会提前清掉 loading
+      const requestId = ++this.articleRequestId
       this.loading = true
-      this.$http
+      return this.$http
         .post(this.$constant.baseURL + '/article/listArticle', this.pagination)
         .then((res) => {
+          if (requestId !== this.articleRequestId) {
+            return false
+          }
           if (!this.$common.isEmpty(res.data)) {
             this.articles = this.articles.concat(res.data.records)
             this.pagination.total = res.data.total
           }
+          return true
         })
         .catch((error) => {
-          this.$message({
-            message: error.message,
-            type: 'error',
-          })
+          if (requestId === this.articleRequestId) {
+            this.$message({
+              message: error.message,
+              type: 'error',
+            })
+          }
+          return false
         })
         .finally(() => {
-          this.loading = false
+          if (requestId === this.articleRequestId) {
+            this.loading = false
+          }
         })
     },
   },

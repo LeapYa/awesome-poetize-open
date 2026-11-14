@@ -50,6 +50,39 @@ class PrerenderEngineTest {
     }
 
     @Test
+    void decorateLinksHandlesSingleQuotedHrefAndExistingTarget() {
+        PrerenderEngine engine = createEngine();
+        // 单引号 href、以及已带 target 的写法都必须被规范化（旧正则两者都会漏掉）
+        String html = "<p><a href='https://other.com/x'>单引号</a> "
+                + "<a href=\"https://other.com/y\" target=\"_blank\">已有target</a> "
+                + "<a href='/article/1' target='_self'>内链</a> "
+                + "<a href='#top'>锚点</a></p>";
+
+        String result = ReflectionTestUtils.invokeMethod(engine, "decorateLinks", html, "https://mysite.com");
+
+        assertTrue(result.contains("<a href=\"https://other.com/x\" target=\"_blank\" rel=\"nofollow noopener noreferrer\">单引号</a>"), result);
+        assertTrue(result.contains("<a href=\"https://other.com/y\" target=\"_blank\" rel=\"nofollow noopener noreferrer\">已有target</a>"), result);
+        assertTrue(result.contains("<a href=\"/article/1\" target=\"_blank\" rel=\"noopener noreferrer\">内链</a>"), result);
+        // 锚点不受影响，原始单引号写法逐字节保留
+        assertTrue(result.contains("<a href='#top'>锚点</a>"), result);
+    }
+
+    @Test
+    void decorateLinksPreservesNonLinkHtmlByteForByte() {
+        PrerenderEngine engine = createEngine();
+        // 只替换 <a> 开始标签：SVG 的 camelCase 属性、自闭合写法、<br /> 必须原样保留，
+        // 否则整篇重序列化会破坏与前端渲染产物的同构约定
+        String html = "<svg viewBox=\"0 0 16 16\"><circle cx=\"8\"/></svg><br />"
+                + "<a href=\"https://other.com\">x</a><img src=\"/a.png\" />";
+
+        String result = ReflectionTestUtils.invokeMethod(engine, "decorateLinks", html, "https://mysite.com");
+
+        assertTrue(result.contains("<svg viewBox=\"0 0 16 16\"><circle cx=\"8\"/></svg><br />"), result);
+        assertTrue(result.contains("<img src=\"/a.png\" />"), result);
+        assertTrue(result.contains("<a href=\"https://other.com\" target=\"_blank\" rel=\"nofollow noopener noreferrer\">x</a>"), result);
+    }
+
+    @Test
     void replaceTitlePreservesQuotes() {
         PrerenderEngine engine = createEngine();
         String htmlTemplate = "<html><head><title>Old</title></head><body></body></html>";

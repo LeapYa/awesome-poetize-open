@@ -5,7 +5,6 @@
         <h2 style="font-size: 24px">🌟青出于蓝</h2>
         <card
           :resourcePathList="eliteFriends"
-          @clickResourcePath="clickFriend"
         ></card>
 
         <hr />
@@ -13,7 +12,6 @@
         <h2 style="font-size: 24px; margin-top: 60px">🥇友情链接</h2>
         <card
           :resourcePathList="regularFriends"
-          @clickResourcePath="clickFriend"
         ></card>
 
         <hr />
@@ -316,9 +314,6 @@ export default {
             type: 'error',
           })
         })
-    },
-    clickFriend(path) {
-      window.open(path)
     },
     getFriends() {
       this.$http

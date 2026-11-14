@@ -43,11 +43,11 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     }
   }
   token.attrSet('target', '_blank')
-  // 站外链接追加 nofollow，避免用户评论稀释本站 SEO 权重
+  // 站外链接追加 nofollow/ugc，避免用户评论稀释本站 SEO 权重
   token.attrSet(
     'rel',
-    /^https?:\/\//i.test(href)
-      ? 'nofollow noopener noreferrer'
+    isExternalLink(href)
+      ? 'nofollow ugc noopener noreferrer'
       : 'noopener noreferrer'
   )
   return defaultLinkOpen(tokens, idx, options, env, self)
@@ -136,6 +136,17 @@ function legacyTokenToHtml(token) {
   }
 
   return ''
+}
+
+function isExternalLink(href) {
+  if (!/^https?:\/\//i.test(href)) {
+    return false
+  }
+  try {
+    return new URL(href).host !== window.location.host
+  } catch {
+    return true
+  }
 }
 
 function isSafeUrl(url) {

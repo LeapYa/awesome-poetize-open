@@ -8,6 +8,10 @@ import com.vladsch.flexmark.util.ast.Node;
 import com.vladsch.flexmark.util.data.MutableDataSet;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.text.StringEscapeUtils;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.nodes.Range;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -158,35 +162,59 @@ public class PrerenderEngine {
         return decorateLinks(htmlRenderer.render(document), baseUrl);
     }
 
-    private static final Pattern MARKDOWN_LINK_PATTERN =
-            Pattern.compile("<a\\s+([^>]*href=\"([^\"]*)\"[^>]*)>", Pattern.CASE_INSENSITIVE);
-
     /**
-     * 给渲染产物中的链接补充 target/rel 属性
+     * 给渲染产物中的链接补充 target/rel 属性。
+     * <p>用 Jsoup 解析定位每个 {@code <a>} 开始标签（兼容单/双引号、已带 target/rel 的写法），
+     * 仅原地替换开始标签本身，其余 HTML（含 SVG {@code viewBox}、{@code <br />} 等）逐字节保留，
+     * 避免整篇重序列化破坏与前端渲染产物的同构约定。
      */
     private String decorateLinks(String html, String baseUrl) {
         if (!StringUtils.hasText(html)) {
             return html;
         }
         String baseHost = extractHost(baseUrl);
-        Matcher matcher = MARKDOWN_LINK_PATTERN.matcher(html);
-        StringBuilder sb = new StringBuilder();
-        while (matcher.find()) {
-            String attrs = matcher.group(1);
-            String href = matcher.group(2);
-            String replacement = matcher.group();
-            // 页内锚点保持原样；已有 target 的不重复处理
-            if (StringUtils.hasText(href) && !href.startsWith("#")
-                    && !attrs.toLowerCase().contains("target=")) {
-                String rel = isExternalLink(href, baseHost)
-                        ? "nofollow noopener noreferrer"
-                        : "noopener noreferrer";
-                replacement = "<a " + attrs + " target=\"_blank\" rel=\"" + rel + "\">";
+        // 全限定名避免与 flexmark 的 Parser 简名冲突
+        Document document = Jsoup.parse(html, "", org.jsoup.parser.Parser.htmlParser().setTrackPosition(true));
+
+        record Replacement(int start, int end, String tag) {}
+        List<Replacement> replacements = new ArrayList<>();
+        for (Element link : document.select("a[href]")) {
+            Range range = link.sourceRange();
+            if (!range.isTracked()) {
+                continue;
             }
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+            String href = link.attr("href");
+            // 页内锚点保持原样
+            if (!StringUtils.hasText(href) || href.startsWith("#")) {
+                continue;
+            }
+            link.attr("target", "_blank");
+            link.attr("rel", isExternalLink(href, baseHost)
+                    ? "nofollow noopener noreferrer"
+                    : "noopener noreferrer");
+            replacements.add(new Replacement(range.startPos(), range.endPos(), buildStartTag(link)));
         }
-        matcher.appendTail(sb);
+
+        if (replacements.isEmpty()) {
+            return html;
+        }
+        // select 按文档顺序返回，从后往前替换以保证偏移量始终有效
+        StringBuilder sb = new StringBuilder(html);
+        for (int i = replacements.size() - 1; i >= 0; i--) {
+            Replacement r = replacements.get(i);
+            sb.replace(r.start(), r.end(), r.tag());
+        }
         return sb.toString();
+    }
+
+    private String buildStartTag(Element link) {
+        StringBuilder tag = new StringBuilder("<a");
+        link.attributes().forEach(attr -> tag.append(' ')
+                .append(attr.getKey())
+                .append("=\"")
+                .append(escapeAttribute(attr.getValue()))
+                .append('"'));
+        return tag.append('>').toString();
     }
 
     private boolean isExternalLink(String href, String baseHost) {

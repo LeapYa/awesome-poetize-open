@@ -98,13 +98,13 @@ class PrerenderServiceTest {
         when(languageSupport.getSourceLanguage()).thenReturn("zh");
         when(languageSupport.resolveLanguages(List.of("en"))).thenReturn(List.of("en"));
         when(mailUtil.getSiteUrl()).thenReturn("https://example.com");
-        when(engine.renderMarkdown(anyString(), any())).thenReturn("<p>preview</p>");
+        when(engine.renderMarkdown(anyString(), any(), any())).thenReturn("<p>preview</p>");
         when(engine.buildPage(any())).thenReturn("<html>preview</html>");
         stubNoArticleNews();
 
         service.renderArticle(1, List.of("en"));
 
-        verify(engine).renderMarkdown(eq("abc"), any());
+        verify(engine).renderMarkdown(eq("abc"), any(), any());
         verify(engine).writePage("article/1", "en", "<html>preview</html>");
     }
 
@@ -122,7 +122,7 @@ class PrerenderServiceTest {
         when(languageSupport.getSourceLanguage()).thenReturn("zh");
         when(languageSupport.resolveLanguages(List.of("pt"))).thenReturn(List.of("pt"));
         when(mailUtil.getSiteUrl()).thenReturn("https://example.com");
-        when(engine.renderMarkdown(anyString(), any())).thenReturn("<p>preview</p>");
+        when(engine.renderMarkdown(anyString(), any(), any())).thenReturn("<p>preview</p>");
         when(engine.buildPage(any())).thenReturn("<html>preview</html>");
         stubNoArticleNews();
 

@@ -1,11 +1,13 @@
 <template>
   <div class="card-container" v-if="!$common.isEmpty(resourcePathList)">
-    <div
+    <a
       v-for="(resourcePath, index) in resourcePathList"
       :key="index"
       class="card-item shadow-box"
       v-animate
-      @click="clickResourcePath(resourcePath)"
+      :href="resourcePath.url"
+      target="_blank"
+      rel="noopener"
     >
       <div class="card-image">
         <el-image
@@ -59,12 +61,11 @@
           发布于 {{ $common.getDateDiff(resourcePath.createTime) }}
         </div>
       </div>
-    </div>
+    </a>
   </div>
 </template>
 
 <script>
-import { $on, $off, $once, $emit } from '../../utils/gogocodeTransfer'
 export default {
   props: {
     resourcePathList: {
@@ -78,12 +79,6 @@ export default {
   watch: {},
   created() {},
   mounted() {},
-  methods: {
-    clickResourcePath(resourcePath) {
-      $emit(this, 'clickResourcePath', resourcePath.url)
-    },
-  },
-  emits: ['clickResourcePath'],
 }
 </script>
 
@@ -94,6 +89,7 @@ export default {
 }
 .card-item {
   position: relative;
+  display: block;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.88);
   overflow: hidden;
@@ -102,6 +98,8 @@ export default {
   flex-shrink: 0;
   width: calc(100% / 3 - 20px);
   cursor: pointer;
+  color: inherit;
+  text-decoration: none;
   animation: zoomIn 0.8s ease-in-out;
 }
 .card-image {

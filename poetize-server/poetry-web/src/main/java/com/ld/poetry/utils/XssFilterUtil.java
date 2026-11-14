@@ -23,6 +23,9 @@ public class XssFilterUtil {
 
     private static final Pattern NUMERIC_ENTITY_PATTERN = Pattern.compile("&#(x[0-9a-fA-F]+|X[0-9a-fA-F]+|\\d+);");
 
+    private static final Pattern TEXT_ENTITY_PATTERN =
+            Pattern.compile("&(amp|lt|gt|quot|apos|#\\d+|#x[0-9a-fA-F]+);", Pattern.CASE_INSENSITIVE);
+
     // 严格模式：不允许任何HTML标签，只允许纯文本
     private static final PolicyFactory STRICT_POLICY = new HtmlPolicyBuilder()
             .toFactory();
@@ -64,6 +67,34 @@ public class XssFilterUtil {
             // 出现异常时，返回转义后的内容
             return escapeHtml(content);
         }
+    }
+
+    /**
+     * 还原 {@link #clean(String)} 留在纯文本字段里的 HTML 实体，供渲染前解码一次，
+     * 否则渲染方再转义会让页面露出 {@code &#39;} 字面量。单趟替换，{@code &amp;lt;} 不会解成 {@code <}。
+     * <p>只能用于确定经过 clean 的字段；裸文本调用会改写作者原意。
+     */
+    public static String decodeTextEntities(String content) {
+        if (StringUtils.isBlank(content)) {
+            return content;
+        }
+
+        Matcher matcher = TEXT_ENTITY_PATTERN.matcher(content);
+        StringBuilder result = new StringBuilder();
+        while (matcher.find()) {
+            String body = matcher.group(1);
+            String replacement = switch (body.toLowerCase()) {
+                case "amp" -> "&";
+                case "lt" -> "<";
+                case "gt" -> ">";
+                case "quot" -> "\"";
+                case "apos" -> "'";
+                default -> decodeNumericEntity(body, matcher.group(0));
+            };
+            matcher.appendReplacement(result, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(result);
+        return result.toString();
     }
 
     /**
@@ -211,5 +242,16 @@ public class XssFilterUtil {
                 && codePoint != '&'
                 && codePoint != '"'
                 && codePoint != '\'';
+    }
+
+    private static String decodeNumericEntity(String body, String fallback) {
+        try {
+            int codePoint = body.charAt(1) == 'x' || body.charAt(1) == 'X'
+                    ? Integer.parseInt(body.substring(2), 16)
+                    : Integer.parseInt(body.substring(1));
+            return Character.isValidCodePoint(codePoint) ? new String(Character.toChars(codePoint)) : fallback;
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
     }
 }

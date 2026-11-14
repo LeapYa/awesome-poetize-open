@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapp
 import com.ld.poetry.dao.ResourcePathMapper;
 import com.ld.poetry.dao.WeiYanMapper;
 import com.ld.poetry.entity.Article;
+import com.ld.poetry.entity.ResourcePath;
 import com.ld.poetry.entity.WebInfo;
 import com.ld.poetry.entity.WeiYan;
 import com.ld.poetry.service.ArticleService;
@@ -246,6 +247,59 @@ class PrerenderServiceTest {
         assertFalse(injectedHtml.contains("<a "), injectedHtml);
         assertTrue(injectedHtml.contains("<span>坏收藏</span>"), injectedHtml);
         assertTrue(schemelessHtml.contains("href=\"https://example.com\""), schemelessHtml);
+    }
+
+    @Test
+    void toResourcePathVOShouldDecodeStoredEntities() {
+        ResourcePath stored = new ResourcePath();
+        stored.setTitle("It&#39;s a blog");
+        stored.setIntroduction("Tom &amp; Jerry");
+        stored.setClassify("🥇友情链接 &amp; 伙伴");
+        stored.setCover("https://example.com/c.png?a=1&amp;b=2");
+        stored.setUrl("https://example.com/?a=1&amp;b=2");
+        stored.setRemark("封面 &lt;备用&gt;");
+
+        ResourcePathVO vo = ReflectionTestUtils.invokeMethod(service, "toResourcePathVO", stored);
+
+        // 入库形态带实体，渲染前必须解码一次，否则 text()/attr() 会二次转义
+        assertEquals("It's a blog", vo.getTitle());
+        assertEquals("Tom & Jerry", vo.getIntroduction());
+        assertEquals("🥇友情链接 & 伙伴", vo.getClassify());
+        // 封面与链接里的 &amp; 不解码就会指向错误的查询串目标
+        assertEquals("https://example.com/c.png?a=1&b=2", vo.getCover());
+        assertEquals("https://example.com/?a=1&b=2", vo.getUrl());
+        assertEquals("封面 <备用>", vo.getRemark());
+    }
+
+    @Test
+    void renderFriendGroupShouldEscapeDecodedTextExactlyOnce() {
+        ResourcePath stored = new ResourcePath();
+        stored.setTitle("It&#39;s a blog");
+        stored.setIntroduction("Tom &amp; Jerry");
+        stored.setUrl("https://example.com/?a=1&amp;b=2");
+
+        ResourcePathVO vo = ReflectionTestUtils.invokeMethod(service, "toResourcePathVO", stored);
+        String html = ReflectionTestUtils.invokeMethod(service, "renderFriendGroup", "🥇友情链接", List.of(vo));
+
+        assertTrue(html.contains("It's a blog - Tom &amp; Jerry"), html);
+        assertFalse(html.contains("&#39;"), html);
+        assertFalse(html.contains("&amp;amp;"), html);
+        assertTrue(html.contains("href=\"https://example.com/?a=1&amp;b=2\""), html);
+    }
+
+    @Test
+    void decodedLegacyTagMustStayEscapedInFriendHtml() {
+        ResourcePath stored = new ResourcePath();
+        stored.setTitle("&lt;img src=x onerror=alert(1)&gt;");
+        stored.setIntroduction("正常简介");
+        stored.setUrl("https://example.com");
+
+        ResourcePathVO vo = ReflectionTestUtils.invokeMethod(service, "toResourcePathVO", stored);
+        String html = ReflectionTestUtils.invokeMethod(service, "renderFriendGroup", "🥇友情链接", List.of(vo));
+
+        // 解码只服务于显示，解码后仍须由 text() 转义，历史脏数据不能变成活标签
+        assertFalse(html.contains("<img"), html);
+        assertTrue(html.contains("&lt;img"), html);
     }
 
     private ResourcePathVO createResourcePath(String title, String introduction, String url) {

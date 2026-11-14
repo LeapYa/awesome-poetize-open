@@ -20,6 +20,7 @@ import com.ld.poetry.service.WeiYanService;
 import com.ld.poetry.utils.ArticleUrlUtil;
 import com.ld.poetry.utils.CommonQuery;
 import com.ld.poetry.utils.ExternalUrlUtil;
+import com.ld.poetry.utils.XssFilterUtil;
 import com.ld.poetry.utils.mail.MailUtil;
 import com.ld.poetry.vo.ArticleVO;
 import com.ld.poetry.vo.BaseRequestVO;
@@ -933,6 +934,14 @@ public class PrerenderService {
     private ResourcePathVO toResourcePathVO(ResourcePath resourcePath) {
         ResourcePathVO vo = new ResourcePathVO();
         BeanUtils.copyProperties(resourcePath, vo);
+        // 这些字段入库前过了 clean 带实体，不解码则 text()/attr() 二次转义会露出 &#39;，
+        // 封面与链接里的 &amp; 还会指向错误查询串；只能在此边界解码，文章标题等裸文本仍走 text()
+        vo.setTitle(XssFilterUtil.decodeTextEntities(vo.getTitle()));
+        vo.setClassify(XssFilterUtil.decodeTextEntities(vo.getClassify()));
+        vo.setIntroduction(XssFilterUtil.decodeTextEntities(vo.getIntroduction()));
+        vo.setCover(XssFilterUtil.decodeTextEntities(vo.getCover()));
+        vo.setUrl(XssFilterUtil.decodeTextEntities(vo.getUrl()));
+        vo.setRemark(XssFilterUtil.decodeTextEntities(vo.getRemark()));
         return vo;
     }
 

@@ -118,9 +118,16 @@
         <articleList :articleList="articles"></articleList>
         <div class="pagination-wrap">
           <div
+            v-if="loading"
+            class="pagination-loading"
+            style="user-select: none"
+          >
+            加载中…
+          </div>
+          <div
+            v-else-if="articles.length < pagination.total"
             @click="pageArticles()"
             class="pagination"
-            v-if="articles.length < pagination.total"
           >
             下一页
           </div>
@@ -159,6 +166,7 @@ export default {
         labelId: this.$route.query.labelId,
       },
       articles: [],
+      loading: false,
     }
   },
 
@@ -261,11 +269,13 @@ export default {
         labelId: label.id,
       }
       this.articles.splice(0, this.articles.length)
+      this.loading = true
       this.$nextTick(() => {
         this.getArticles()
       })
     },
     getArticles() {
+      this.loading = true
       this.$http
         .post(this.$constant.baseURL + '/article/listArticle', this.pagination)
         .then((res) => {
@@ -279,6 +289,9 @@ export default {
             message: error.message,
             type: 'error',
           })
+        })
+        .finally(() => {
+          this.loading = false
         })
     },
   },
@@ -357,6 +370,22 @@ export default {
   border: 1px solid var(--themeBackground);
   color: var(--themeBackground);
   box-shadow: 0 0 5px var(--themeBackground);
+}
+.pagination-loading {
+  padding: 13px 15px;
+  color: var(--greyFont);
+  letter-spacing: 2px;
+  text-align: center;
+  animation: paginationLoadingPulse 1.2s ease-in-out infinite;
+}
+@keyframes paginationLoadingPulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* 分类列表卡片样式 */

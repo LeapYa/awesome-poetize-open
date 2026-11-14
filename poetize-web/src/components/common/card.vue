@@ -23,7 +23,7 @@
               style="background-color: var(--lightGreen)"
             >
               <div class="error-text">
-                <div>「{{ resourcePath.title }}」</div>
+                <div>「{{ $common.decodeHtmlEntities(resourcePath.title) }}」</div>
               </div>
             </div>
           </template>
@@ -32,10 +32,10 @@
       <div class="card-body">
         <div class="card-title">
           <span v-if="resourcePath.recommendStatus"> 🔥 </span>
-          {{ resourcePath.title }}
+          {{ $common.decodeHtmlEntities(resourcePath.title) }}
         </div>
         <div class="card-desc">
-          {{ resourcePath.introduction }}
+          {{ $common.decodeHtmlEntities(resourcePath.introduction) }}
         </div>
 
         <div class="card-time">

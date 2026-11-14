@@ -56,6 +56,28 @@ function safeExternalUrl(value = '') {
   return `https://${url}`
 }
 
+// 后端 XssFilterUtil 走 OWASP sanitizer 输出纯文本，& < > " ' 会以实体形式入库，
+// 插值渲染前需解码一次，否则页面上直接露出 &#39; 这类字面量。
+// 单趟替换，避免 &amp;lt; 被二次解码成 <
+function decodeHtmlEntities(value = '') {
+  return String(value == null ? '' : value).replace(
+    /&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);/gi,
+    (match, body) => {
+      const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+      const key = body.toLowerCase()
+      if (key in named) {
+        return named[key]
+      }
+      const codePoint = key.startsWith('#x')
+        ? parseInt(key.slice(2), 16)
+        : Number(key.slice(1))
+      return codePoint >= 0 && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : match
+    }
+  )
+}
+
 export default {
   /**
    * 获取默认头像
@@ -81,6 +103,11 @@ export default {
    * 站外链接安全兜底，非法协议返回 undefined
    */
   safeExternalUrl,
+
+  /**
+   * 解码后端纯文本字段里残留的 HTML 实体，供插值渲染使用
+   */
+  decodeHtmlEntities,
 
   mobile() {
     let flag = navigator.userAgent.match(

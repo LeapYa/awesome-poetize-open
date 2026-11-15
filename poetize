@@ -1320,7 +1320,7 @@ get_latest_tag() {
       latest=$(git ls-remote --tags "$repo_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
     fi
   done < <(get_git_repo_candidates)
-  
+
   echo "$latest"
 }
 
@@ -13672,12 +13672,10 @@ main() {
     
     # 检测降级操作
     if [ -n "$UPDATE_VERSION" ]; then
-        # 读取当前部署版本
+        # 当前版本按 version.txt → .env → git describe 推断，不依赖单一文件
         local current_version=""
-        if [ -f ".config/version.txt" ]; then
-            current_version=$(grep "^VERSION=" .config/version.txt 2>/dev/null | cut -d'=' -f2)
-        fi
-        
+        current_version=$(resolve_project_version "$(get_safe_pwd)" 2>/dev/null || true)
+
         if [ -n "$current_version" ] && [ "$current_version" != "main" ]; then
             # 比较版本（去掉v前缀，使用sort -V比较）
             local target_v=$(echo "$UPDATE_VERSION" | sed 's/^v//')
@@ -16351,6 +16349,11 @@ is_china_environment() {
 
 # 解析更新目标的仓库地址和版本
 resolve_update_source() {
+    # 同一流程内已解析过则复用，确保降级校验与实际安装的是同一版本
+    if [ -n "$RESOLVED_TARGET_VERSION" ]; then
+        return 0
+    fi
+
     RESOLVED_GIT_URL=""
     RESOLVED_TARGET_VERSION=""
     RESOLVED_BRANCH_OPT=""
@@ -16365,33 +16368,36 @@ resolve_update_source() {
         info "使用指定版本: $RESOLVED_TARGET_VERSION"
     elif [ "$USE_LATEST_TAG" = "true" ]; then
         info "获取最新稳定版本..."
-        local release_api_url=""
-        if [ "$RESOLVED_GIT_URL" = "$(get_gitee_repo_url)" ]; then
-            release_api_url="https://gitee.com/api/v5/repos/leapya/poetize/releases/latest"
-            RESOLVED_TARGET_VERSION=$(curl -fsSL "$release_api_url" 2>/dev/null | grep -o '"tag_name":"[^"]*"' | head -1 | sed 's/"tag_name":"//;s/"//')
-        else
-            release_api_url="https://api.github.com/repos/LeapYa/awesome-poetize-open/releases/latest"
-            RESOLVED_TARGET_VERSION=$(curl -fsSL "$release_api_url" 2>/dev/null | grep -o '"tag_name": "[^"]*"' | head -1 | sed 's/"tag_name": "//;s/"//')
-        fi
+        # git tags 优先于 Release API：fork 仓库的 releases 可能长期滞后
+        # （v5.2.16 误判 v5.2.9 事故根因），tags 随分支同步推送，更接近真实最新版本。
+        # tag 同步窗口期内解析失败时由 run_update 的降级保护兜底，不会静默降级。
+        local repo_url=""
+        while IFS= read -r repo_url; do
+            if [ -z "$repo_url" ]; then
+                continue
+            fi
+            RESOLVED_TARGET_VERSION=$(git ls-remote --tags "$repo_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
+            if [ -n "$RESOLVED_TARGET_VERSION" ]; then
+                RESOLVED_GIT_URL="$repo_url"
+                info "使用最新标签版本: $RESOLVED_TARGET_VERSION"
+                break
+            fi
+        done < <(get_git_repo_candidates)
 
-        if [ -n "$RESOLVED_TARGET_VERSION" ]; then
-            info "使用最新稳定版本: $RESOLVED_TARGET_VERSION"
-        else
-            warning "无法从 Release API 获取版本，尝试使用 git tags..."
-            local repo_url=""
-            while IFS= read -r repo_url; do
-                if [ -z "$repo_url" ]; then
-                    continue
-                fi
-                RESOLVED_TARGET_VERSION=$(git ls-remote --tags "$repo_url" 2>/dev/null | grep -o 'refs/tags/v[0-9.]*$' | sed 's|refs/tags/||' | sort -V | tail -1)
-                if [ -n "$RESOLVED_TARGET_VERSION" ]; then
-                    RESOLVED_GIT_URL="$repo_url"
-                    info "使用最新标签版本: $RESOLVED_TARGET_VERSION"
-                    break
-                fi
-            done < <(get_git_repo_candidates)
+        if [ -z "$RESOLVED_TARGET_VERSION" ]; then
+            warning "无法从 git tags 获取版本，尝试 Release API..."
+            local release_api_url=""
+            if [ "$RESOLVED_GIT_URL" = "$(get_gitee_repo_url)" ]; then
+                release_api_url="https://gitee.com/api/v5/repos/leapya/poetize/releases/latest"
+                RESOLVED_TARGET_VERSION=$(curl -fsSL "$release_api_url" 2>/dev/null | grep -o '"tag_name":"[^"]*"' | head -1 | sed 's/"tag_name":"//;s/"//')
+            else
+                release_api_url="https://api.github.com/repos/LeapYa/awesome-poetize-open/releases/latest"
+                RESOLVED_TARGET_VERSION=$(curl -fsSL "$release_api_url" 2>/dev/null | grep -o '"tag_name": "[^"]*"' | head -1 | sed 's/"tag_name": "//;s/"//')
+            fi
 
-            if [ -z "$RESOLVED_TARGET_VERSION" ]; then
+            if [ -n "$RESOLVED_TARGET_VERSION" ]; then
+                info "使用最新稳定版本: $RESOLVED_TARGET_VERSION（Release API）"
+            else
                 warning "无法获取最新版本标签，将使用main分支"
             fi
         fi
@@ -16435,8 +16441,6 @@ pull_code_on_target() {
     ensure_update_dependencies
     resolve_update_source
 
-    info "使用仓库地址: $RESOLVED_GIT_URL"
-
     local target_parent_dir="${POETIZE_PROJECT_PARENT_DIR:-$(pwd)}"
     local target_project_name="${BACKUP_PROJECT_NAME:-${POETIZE_PROJECT_NAME:-awesome-poetize-open}}"
     local target_dir="${target_parent_dir}/${target_project_name}"
@@ -16447,11 +16451,31 @@ pull_code_on_target() {
         return 1
     fi
 
-    # 克隆项目
-    git clone --depth 1 $RESOLVED_BRANCH_OPT "$RESOLVED_GIT_URL" "$target_dir"
-    
-    # 检查是否成功
-    if [ -d "$target_dir" ] && [ -f "$target_dir/poetize" ]; then
+    # 克隆项目：首选解析出的仓库，失败时回退其余候选仓库。
+    # 各镜像的 tag 同步存在时间差，解析出的版本可能在某个镜像上尚未同步，单仓库克隆会因此失败。
+    local clone_success=false
+    local repo_url=""
+    local tried_urls=" "
+    while IFS= read -r repo_url; do
+        if [ -z "$repo_url" ]; then
+            continue
+        fi
+        case "$tried_urls" in
+            *" $repo_url "*) continue ;;
+        esac
+        tried_urls="$tried_urls$repo_url "
+        info "使用仓库地址: $repo_url"
+        if git clone --depth 1 $RESOLVED_BRANCH_OPT "$repo_url" "$target_dir" \
+            && [ -d "$target_dir" ] && [ -f "$target_dir/poetize" ]; then
+            clone_success=true
+            RESOLVED_GIT_URL="$repo_url"
+            break
+        fi
+        warning "仓库 $repo_url 克隆失败，尝试下一个候选仓库..."
+        rm -rf "$target_dir"
+    done < <(printf "%s\n" "$RESOLVED_GIT_URL"; get_git_repo_candidates)
+
+    if [ "$clone_success" = "true" ]; then
         success "项目代码拉取成功${RESOLVED_TARGET_VERSION:+: $RESOLVED_TARGET_VERSION}"
         cd "$target_dir"
         set_project_context "$target_dir"
@@ -17258,32 +17282,46 @@ run_update() {
     # 查找项目目录
     find_project_dir
 
-    # 检测降级操作
-    if [ -n "$UPDATE_VERSION" ]; then
-        # 读取当前部署版本
-        local current_version=""
-        if [ -f ".config/version.txt" ]; then
-            current_version=$(grep "^VERSION=" .config/version.txt 2>/dev/null | cut -d'=' -f2)
-        fi
-        
+    # 在备份/卸载之前解析目标版本：降级校验与用户确认都必须基于将要安装的版本，
+    # 不能等到 uninstall 之后 pull_code_on_target 才解析（事故时降级已无法挽回）
+    resolve_update_source
+    local target_version="$RESOLVED_TARGET_VERSION"
+
+    # 检测降级操作：当前版本按 version.txt → .env → git describe 推断，
+    # 不依赖 version.txt 单一来源（缺失时整个保护曾被静默跳过）
+    local current_version=""
+    current_version=$(resolve_project_version "$(get_safe_pwd)" 2>/dev/null || true)
+
+    if [ -n "$target_version" ] && [ "$target_version" != "main" ] && [ "$target_version" != "dev" ]; then
         if [ -n "$current_version" ] && [ "$current_version" != "main" ]; then
-            # 比较版本（去掉v前缀，使用sort -V比较）
-            local target_v=$(echo "$UPDATE_VERSION" | sed 's/^v//')
-            local current_v=$(echo "$current_version" | sed 's/^v//')
-            
-            # 使用sort -V比较版本
+            local target_v=$(normalize_version_string "$target_version")
+            local current_v=$(normalize_version_string "$current_version")
             local lower_version=$(printf "%s\n%s" "$target_v" "$current_v" | sort -V | head -1)
-            
+
             if [ "$lower_version" = "$target_v" ] && [ "$target_v" != "$current_v" ]; then
                 error "不支持版本降级操作！"
                 printf "\n"
                 printf "${YELLOW}当前版本: ${NC}${GREEN}$current_version${NC}\n"
-                printf "${YELLOW}目标版本: ${NC}${RED}$UPDATE_VERSION${NC}\n"
+                printf "${YELLOW}目标版本: ${NC}${RED}$target_version${NC}\n"
                 printf "\n"
                 printf "${RED}降级可能导致数据库兼容性问题，请使用当前版本或更高版本。${NC}\n"
                 printf "\n"
                 exit 1
             fi
+        else
+            warning "无法确定当前部署版本（version.txt/.env/git 均缺失），降级保护不可用"
+            local confirm_unknown=""
+            read -t 30 -rp "确认继续更新到 $target_version？(y/N，30秒后自动取消): " confirm_unknown || true
+            printf "\n"
+            case "$confirm_unknown" in
+                [Yy]|[Yy][Ee][Ss])
+                    info "用户确认继续更新"
+                    ;;
+                *)
+                    info "已取消更新"
+                    exit 0
+                    ;;
+            esac
         fi
     fi
 
@@ -17294,6 +17332,9 @@ run_update() {
     printf "2. 完全卸载当前POETIZE系统\n"
     printf "3. 重新下载并安装最新版本\n"
     printf "4. 恢复您的数据和配置\n"
+    printf "\n"
+    printf "  当前版本: ${GREEN}%s${NC}\n" "${current_version:-未知}"
+    printf "  目标版本: ${GREEN}%s${NC}\n" "$target_version"
     printf "\n"
     printf "${RED}注意：此操作将彻底重建系统！${NC}\n"
     printf "\n"

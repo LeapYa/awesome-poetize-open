@@ -280,12 +280,23 @@ jobs:
           GITEE_REPO: poetize
           GITEE_OWNER: leapya
         run: |
+          set -uo pipefail
+
           TAG="${{ steps.version.outputs.tag }}"
           IS_PRERELEASE="${{ steps.version.outputs.is_prerelease }}"
           NOTES=$(cat release_notes.md)
-          
-          echo " Creating Gitee Release for $TAG..."
-          
+          API="https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases"
+
+          echo "Creating Gitee Release for $TAG..."
+
+          # 幂等：重跑工作流时该 tag 的 Release 已存在则直接跳过
+          EXISTING_CODE=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' \
+            "${API}/tags/${TAG}?access_token=${GITEE_TOKEN}" 2>/dev/null || echo "000")
+          if [ "$EXISTING_CODE" = "200" ]; then
+            echo "✓ Gitee Release for $TAG already exists, skip"
+            exit 0
+          fi
+
           # 构建 JSON payload
           # 注意：为了安全处理多行字符串，使用 jq 来构建 JSON
           jq -n \
@@ -295,18 +306,42 @@ jobs:
             --argjson prerelease "$IS_PRERELEASE" \
             '{access_token: env.GITEE_TOKEN, tag_name: $tag_name, name: $name, body: $body, prerelease: $prerelease}' \
             > gitee_payload.json
-            
-          # 调用 Gitee API
-          RESPONSE=$(curl -X POST -H "Content-Type: application/json" \
-            -d @gitee_payload.json \
-            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases")
-            
-          # 检查结果
-          if echo "$RESPONSE" | grep -q "\"tag_name\":\"$TAG\""; then
-            echo "Successfully created Gitee Release"
-          else
-            echo "Failed to create Gitee Release"
-            echo "Response: $RESPONSE"
-            # 不让整个工作流失败，因为 GitHub Release 已经成功
-            exit 0 
+
+          # 重试 3 次：Gitee 侧偶发 5xx 或限流会让 Release 静默缺失，
+          # 而旧实现失败即 exit 0，导致 Gitee Release 长期停留在 v5.2.9 却无人察觉
+          CREATED=false
+          LAST_RESPONSE=""
+          for attempt in 1 2 3; do
+            LAST_RESPONSE=$(curl -sS -m 30 -X POST -H "Content-Type: application/json" \
+              -d @gitee_payload.json "$API" 2>&1 || true)
+            if echo "$LAST_RESPONSE" | grep -q "\"tag_name\":\"$TAG\""; then
+              echo "✓ Gitee Release created (attempt $attempt)"
+              CREATED=true
+              break
+            fi
+            echo "Attempt $attempt failed: $LAST_RESPONSE"
+            # 不能用 `[ ... ] && sleep`：最后一次判断失败会让最后一个命令的退出码为 1，
+            # 在 bash -e 下直接中断步骤，后面的告警就写不出来
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 10))
+            fi
+          done
+
+          # 不阻断发布：GitHub Release 已成功。但必须在 Actions 里留下可见告警，
+          # 否则 Gitee Release 再次静默缺失也不会有人发现。
+          if [ "$CREATED" != "true" ]; then
+            {
+              echo "## ⚠️ Gitee Release 未创建"
+              echo ""
+              echo "Tag \`${TAG}\` 的 Gitee Release 创建失败（已重试 3 次）。GitHub Release 正常，不影响本次发布。"
+              echo ""
+              echo "请手动在 https://gitee.com/${GITEE_OWNER}/${GITEE_REPO}/releases 补齐，或检查 \`GITEE_TOKEN\` 是否过期。"
+              echo ""
+              echo "最后一次响应："
+              echo ""
+              echo '```json'
+              echo "$LAST_RESPONSE"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Gitee Release 未创建::${TAG} 创建失败，请查看 job summary"
           fi

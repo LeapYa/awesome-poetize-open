@@ -180,6 +180,12 @@ const router = createRouter({
   history: createWebHistory(),
   routes: routes,
   scrollBehavior(to, from, savedPosition) {
+    // 带锚点时才定位到目标元素；否则保持原有的整页回顶行为。
+    // 目录点击已由 article.vue 接管（preventDefault + replaceState），
+    // 这里兜的是直接访问 /article/xxx#anchor 这类链接。
+    if (to.hash) {
+      return { el: to.hash, top: 100, behavior: 'smooth' }
+    }
     return { left: 0, top: 0 }
   },
 })

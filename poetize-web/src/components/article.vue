@@ -899,6 +899,8 @@ export default {
       this.renderMermaid()
       this.renderECharts()
       this.addId()
+      // 必须在 setupLazyArticleFont 之后绑定：它会先 teardown 掉旧的点击监听
+      this.bindAnchorJumpHandling()
       this.getTocbot()
       this.detectAndLoadResources()
       // 异步注入图片宽高，让浏览器提前预留占位，避免目录跳转偏移
@@ -1957,8 +1959,6 @@ export default {
       blocks.forEach((block) => {
         this.fontLazyObserver.observe(block)
       })
-
-      this.bindLazyFontJumpHandling()
     },
 
     getLazyFontRoot() {
@@ -2044,13 +2044,33 @@ export default {
       })
     },
 
-    bindLazyFontJumpHandling() {
+    /**
+     * 接管目录与正文内的页内锚点点击。
+     * <p>不能让浏览器自己去改 location.hash：哈希跳转会触发 popstate，
+     * vue-router 会把它当成一次真实导航（同路径不同 hash），导致 RouterView
+     * 重建 article 组件、重新请求文章并回滚到顶部，表现就是“点目录触发文章刷新”。
+     * <p>这里改为 preventDefault + 自行平滑滚动，再用 replaceState 同步地址栏
+     * （replaceState 不产生历史记录也不触发 popstate）。
+     */
+    bindAnchorJumpHandling() {
       if (this.fontJumpClickHandler) return
       this.fontJumpClickHandler = (event) => {
+        if (
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        ) {
+          return
+        }
         const target = event.target
         const link =
           target && target.closest ? target.closest('a[href^="#"]') : null
         if (!link) return
+        // 只接管目录与正文区域，避免干扰页面其它位置的链接
+        if (!link.closest('.toc') && !link.closest('.entry-content')) return
         const hash = link.getAttribute('href') || ''
         if (hash.length < 2) return
         let anchor = null
@@ -2060,7 +2080,19 @@ export default {
           anchor = null
         }
         if (!anchor) return
+
+        event.preventDefault()
         this.suspendLazyArticleFont()
+
+        // 与 tocbot 的 scrollSmoothOffset 保持一致
+        const top = anchor.getBoundingClientRect().top + window.scrollY - 100
+        if (typeof window.scrollTo === 'function') {
+          window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' })
+        }
+        const history = window.history
+        if (history && typeof history.replaceState === 'function') {
+          history.replaceState(history.state, '', hash)
+        }
       }
       document.addEventListener('click', this.fontJumpClickHandler, true)
     },

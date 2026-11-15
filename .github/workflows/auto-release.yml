@@ -289,13 +289,22 @@ jobs:
 
           echo "Creating Gitee Release for $TAG..."
 
-          # 幂等：重跑工作流时该 tag 的 Release 已存在则直接跳过
-          EXISTING_CODE=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' \
-            "${API}/tags/${TAG}?access_token=${GITEE_TOKEN}" 2>/dev/null || echo "000")
-          if [ "$EXISTING_CODE" = "200" ]; then
+          # 幂等：重跑工作流时该 tag 的 Release 已存在则直接跳过。
+          # 注意 Gitee 对不存在的 Release 也返回 200（body 为 null），只能用 body 内容判断，
+          # 用状态码判断会永远命中「已存在」而不再创建任何 Release。
+          EXISTING=$(curl -sS -m 20 "${API}/tags/${TAG}?access_token=${GITEE_TOKEN}" 2>/dev/null || true)
+          if printf '%s' "$EXISTING" | grep -q "\"tag_name\":\"${TAG}\""; then
             echo "✓ Gitee Release for $TAG already exists, skip"
             exit 0
           fi
+
+          # Gitee 建 Release 必须指定 target_commitish，缺失直接 400
+          # （这正是 v5.2.9 之后 Release 一直没建出来的原因）
+          TARGET_SHA=$(git rev-parse "${TAG}^{commit}" 2>/dev/null || true)
+          if [ -z "$TARGET_SHA" ]; then
+            TARGET_SHA=$(git rev-parse HEAD)
+          fi
+          echo "target_commitish=$TARGET_SHA"
 
           # 构建 JSON payload
           # 注意：为了安全处理多行字符串，使用 jq 来构建 JSON
@@ -303,8 +312,9 @@ jobs:
             --arg tag_name "$TAG" \
             --arg name "$TAG" \
             --arg body "$NOTES" \
+            --arg target "$TARGET_SHA" \
             --argjson prerelease "$IS_PRERELEASE" \
-            '{access_token: env.GITEE_TOKEN, tag_name: $tag_name, name: $name, body: $body, prerelease: $prerelease}' \
+            '{access_token: env.GITEE_TOKEN, tag_name: $tag_name, name: $name, body: $body, prerelease: $prerelease, target_commitish: $target}' \
             > gitee_payload.json
 
           # 重试 3 次：Gitee 侧偶发 5xx 或限流会让 Release 静默缺失，

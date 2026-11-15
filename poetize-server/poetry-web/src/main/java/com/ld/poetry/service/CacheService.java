@@ -291,9 +291,11 @@ public class CacheService {
 
     /**
      * 缓存分类标签树（含 countOfSort/countOfLabel），永久缓存
+     * <p>空列表不写缓存：空库启动/数据导入窗口期查到的空结果一旦永久缓存，
+     * 导入完成后也不会失效，会把全站分类钉死为 null（白屏事故根因）。
      */
     public void cacheSortInfo(List<?> sortInfo) {
-        if (sortInfo != null) {
+        if (sortInfo != null && !sortInfo.isEmpty()) {
             redisUtil.set(CacheConstants.SORT_INFO_KEY, sortInfo, CacheConstants.PERMANENT_EXPIRE_TIME);
             log.info("缓存分类标签树(永久): {} 个分类", sortInfo.size());
         }
@@ -306,7 +308,8 @@ public class CacheService {
     @SuppressWarnings("unchecked")
     public List<?> getCachedSortInfo() {
         Object cached = redisUtil.get(CacheConstants.SORT_INFO_KEY);
-        if (cached instanceof List) {
+        // 空列表视为未命中：历史版本可能已把空结果永久缓存，当作命中会让脏数据无法自愈
+        if (cached instanceof List && !((List<?>) cached).isEmpty()) {
             return (List<?>) cached;
         }
         return null;

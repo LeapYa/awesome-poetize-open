@@ -237,7 +237,7 @@
                 fill="#FFA86A"
               ></path>
             </svg>
-            {{ article.sort.sortName }}
+            {{ article.sort?.sortName }}
           </span>
           <span
             @click.stop="
@@ -261,7 +261,7 @@
                 fill="#FFE37B"
               ></path>
             </svg>
-            {{ article.label.labelName }}
+            {{ article.label?.labelName }}
           </span>
         </div>
       </div>

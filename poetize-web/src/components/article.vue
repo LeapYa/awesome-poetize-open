@@ -76,7 +76,9 @@
                 )
               "
               >{{
-                article.sort.sortName + ' · ' + article.label.labelName
+                [article.sort?.sortName, article.label?.labelName]
+                  .filter(Boolean)
+                  .join(' · ')
               }}</span
             >
           </div>
@@ -1056,7 +1058,9 @@ export default {
       event.dataTransfer.setData('text/plain', sortUrl)
 
       // 设置拖拽时显示的文本
-      const title = `${this.article.sort.sortName} · ${this.article.label.labelName}`
+      const title = [this.article.sort?.sortName, this.article.label?.labelName]
+        .filter(Boolean)
+        .join(' · ')
       event.dataTransfer.setData(
         'text/html',
         `<a href="${sortUrl}">${title}</a>`
@@ -1207,10 +1211,11 @@ export default {
 
     subscribeLabel() {
       // 首先显示确认订阅对话框
+      const labelName = this.article.label?.labelName || ''
       const confirmMessage = this.subscribe
-        ? '确认取消订阅专栏【' + this.article.label.labelName + '】？'
+        ? '确认取消订阅专栏【' + labelName + '】？'
         : '确认订阅专栏【' +
-          this.article.label.labelName +
+          labelName +
           '】？订阅专栏后，该专栏发布新文章将通过邮件通知订阅用户。'
 
       const confirmTitle = this.subscribe ? '取消订阅' : '文章订阅'
@@ -1245,7 +1250,7 @@ export default {
       const subscribeIntent = {
         articleId: this.article.id || this.id,
         labelId: this.article.labelId,
-        labelName: this.article.label.labelName,
+        labelName: this.article.label?.labelName || '',
         action: this.subscribe ? 'unsubscribe' : 'subscribe',
         timestamp: Date.now(),
       }

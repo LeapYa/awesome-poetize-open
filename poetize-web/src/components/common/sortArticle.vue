@@ -175,7 +175,7 @@
                 fill="#FFA86A"
               ></path>
             </svg>
-            <span class="sort-label-text">{{ article.sort.sortName }}</span>
+            <span class="sort-label-text">{{ article.sort?.sortName }}</span>
           </span>
           <span
             class="sort-label-chip sort-label-chip--label"
@@ -200,7 +200,7 @@
                 fill="#FFE37B"
               ></path>
             </svg>
-            <span class="sort-label-text">{{ article.label.labelName }}</span>
+            <span class="sort-label-text">{{ article.label?.labelName }}</span>
           </span>
         </div>
       </div>

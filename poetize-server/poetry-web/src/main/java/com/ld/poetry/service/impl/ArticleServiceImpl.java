@@ -2777,7 +2777,28 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             articleVO.setCommentCount(0);
         }
 
+        applySortFallback(articleVO);
         return articleVO;
+    }
+
+    /**
+     * 分类兜底：并行/预加载查询失败或分类树中无匹配时直查数据库，
+     * 避免 sort 为 null 导致前端渲染崩溃（白屏）。
+     */
+    private void applySortFallback(ArticleVO articleVO) {
+        if (articleVO.getSort() != null || articleVO.getSortId() == null) {
+            return;
+        }
+        try {
+            Sort sort = sortMapper.selectById(articleVO.getSortId());
+            if (sort != null) {
+                sort.setLabels(null);
+                articleVO.setSort(sort);
+                articleVO.setSortName(sort.getSortName());
+            }
+        } catch (Exception e) {
+            log.warn("分类兜底查询失败: sortId={}, error={}", articleVO.getSortId(), e.getMessage());
+        }
     }
 
     /**
@@ -2869,6 +2890,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             }
         }
 
+        applySortFallback(articleVO);
         return articleVO;
     }
 

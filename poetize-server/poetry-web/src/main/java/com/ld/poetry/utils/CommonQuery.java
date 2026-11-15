@@ -97,8 +97,10 @@ public class CommonQuery {
                 return;
             }
 
-            User currentUser = PoetryUtil.getCurrentUser();
-            if (isVisitStatisticsOwner(currentUser)) {
+            // 站长识别必须与下方记录环节走同一条 getUserId() 路径：
+            // getCurrentUser() 在异步上下文缺失时返回 null，会把站长误判为访客计入统计
+            Integer userId = PoetryUtil.getUserId();
+            if (isVisitStatisticsOwner(getUser(userId))) {
                 return;
             }
 
@@ -116,7 +118,6 @@ public class CommonQuery {
                 return;
             }
 
-            Integer userId = PoetryUtil.getUserId();
             String ipUser = normalizedIp + (userId != null ? "_" + userId.toString() : "");
 
             // 记录每次访问 - 使用 LockManager 替代 String.intern()，避免内存泄漏

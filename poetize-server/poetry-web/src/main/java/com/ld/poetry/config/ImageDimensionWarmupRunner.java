@@ -76,23 +76,28 @@ public class ImageDimensionWarmupRunner implements ApplicationRunner {
     }
 
     private void warmupMissingDimensions() {
+        int batchSize = Math.max(1, warmupBatchSize);
         int totalUpdated = 0;
+        int totalSkipped = 0;
+        // 文件缺失的记录永远补不上 width，固定查第 1 页会把同一批记录无限重扫，故用 id 游标强制每轮前进
+        int lastId = 0;
         int round = 0;
 
         while (true) {
             round++;
-            Page<Resource> page = new Page<>(1, Math.max(1, warmupBatchSize), false);
+            Page<Resource> page = new Page<>(1, batchSize, false);
             resourceService.lambdaQuery()
                     .isNull(Resource::getWidth)
                     .eq(Resource::getStoreType, "local")
                     .isNotNull(Resource::getMimeType)
                     .likeRight(Resource::getMimeType, "image/")
+                    .gt(Resource::getId, lastId)
                     .orderByAsc(Resource::getId)
                     .page(page);
 
             List<Resource> records = page.getRecords();
             if (records == null || records.isEmpty()) {
-                log.info("图片尺寸后台补齐完成，共写入 {} 条历史图片记录", totalUpdated);
+                log.info("图片尺寸后台补齐完成：写入 {} 条，跳过 {} 条", totalUpdated, totalSkipped);
                 return;
             }
 
@@ -100,6 +105,7 @@ public class ImageDimensionWarmupRunner implements ApplicationRunner {
 
             try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 for (Resource resource : records) {
+                    lastId = Math.max(lastId, resource.getId());
                     executor.submit(() -> {
                         try {
                             int[] dims = readImageDimensionsFromPath(resource.getPath());
@@ -123,12 +129,13 @@ public class ImageDimensionWarmupRunner implements ApplicationRunner {
             }
 
             totalUpdated += roundUpdated.get();
+            totalSkipped += records.size() - roundUpdated.get();
 
             log.info("图片尺寸后台补齐第 {} 轮完成：扫描 {} 条，成功写入 {} 条",
                     round, records.size(), roundUpdated.get());
 
-            if (records.size() < warmupBatchSize) {
-                log.info("图片尺寸后台补齐结束，共写入 {} 条历史图片记录", totalUpdated);
+            if (records.size() < batchSize) {
+                log.info("图片尺寸后台补齐结束：写入 {} 条，跳过 {} 条", totalUpdated, totalSkipped);
                 return;
             }
 

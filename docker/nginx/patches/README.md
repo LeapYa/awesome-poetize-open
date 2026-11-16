@@ -250,7 +250,7 @@ Dockerfile 已改为从 `openresty.org` 下载源码包、在 `bundle/nginx-<ver
 |---|---|---|
 | Java 请求防护 | 恶意路径、路径遍历、URI 路径内 SQL/XSS 特征、缺参探测，共用 1 小时累计 3 次后封禁 24 小时 | 不重复统计后端响应 |
 | 身份与频率 | 搜索引擎伪装验证、脚本/未验证蜘蛛高 301 守卫、接口 `@RateLimit` 限流 | 复用 never-ban 与最终黑名单键，接口限流本身不升级黑名单 |
-| nginx 解析/协议 | max_headers 与 HTTP/3 补丁拒绝非法流量 | E1/E4/E5 计数；E2/E3 仅观测；E6 可选启用 |
+| nginx 解析/协议 | max_headers 与 HTTP/3 补丁拒绝非法流量 | E1/E4/E5 计数；E2/E3 仅观测；E6 可选启用；E7 计 deny 规则命中 |
 
 设计：每 worker 用 1MiB 原生错误 ring 与 1024 项有界队列；`log_by_lua` 最多消费 128 条日志，按消息开头白名单及 connection/status 关联，热路径不扫描 URI/UA，也不做网络 IO。0.1 秒 timer 每批最多刷 128 个事件，Redis 以自己的 `TIME` 为跨实例时钟；单次 EVAL 完成时间戳 `LPUSH`、`LTRIM`、从尾部剔除窗口外条目、阈值判定和封禁。每个 IP/事件列表最多 threshold+1 项，入队/出队摊销 O(1)；配置阈值上限 4096，单次清理最坏 O(threshold)。正常请求新增工作固定有界，正常负载不产生任何 Redis EVAL（实测 0 次）；Redis 故障丢弃积压、退避 5 秒并放行。`NGINX_ATTACK_ENABLED=false` 时 `collection_enabled()` 直接短路，不再注册 timer、不进 log 阶段函数。
 
@@ -279,13 +279,18 @@ Dockerfile 已改为从 `openresty.org` 下载源码包、在 `bundle/nginx-<ver
 | E4 | `client sent invalid ...` 加 400；本地非法头名触发 | 开；60 秒内第 21 次封 600 秒 |
 | E5 | `client sent too long URI`、`client sent too long header line`；414 或对外 400，内部 494 不直接出现在 access 状态 | 开；60 秒内第 11 次封 600 秒；身份不可得时仅观测 |
 | E6 | 无 upstream 的本地 400/404/405，且未归入其他解析事件 | 关；启用后 60 秒内第 121 次封 600 秒 |
+| E7 | deny location 内 `set $attack_probe 'E7'` 显式标记，出口 403/444；不靠状态码推断 | 开；独立窗口 3600 秒内第 3 次封 86400 秒 |
 
 正常 1/100 头请求均为 200；默认容忍偶发畸形/超限，但共享公网出口仍可能聚合错误，需按运维日志调阈值。E6 易被过期资源触发且与已有后端防护重叠，默认关闭；SPA 改写为 200 的未知路径不可见。
+
+E7 补齐"就地拒绝但不计数"的缺口：安全防护规则原本直接 `return 403/444`，请求既不进 upstream 也不落在 E6 的状态集合里，扫描器换路径即可持续访问。改为在每条 deny location 内打标后，命中经同一套滑动窗口与 `COUNT_AND_BAN` 累计。窗口/时长为按事件覆盖（`ev.window or window`、`ev.ban or ban_ttl`），E1~E6 仍用共享的 60/600。口径对齐 Java `SecurityFilter` 的 `ATTACK_THRESHOLD=3` / `IP_ATTACK_EXPIRE_TIME=3600` / `IP_BLACKLIST_EXPIRE_TIME=86400`，封禁写同一个 `poetize:security:blacklist:<ip>`；Java 侧 `setIfLonger` 只延长、Lua 侧 `SET NX` 不覆盖，双方都不会缩短管理员的长封/永久封禁。空 UA、视频防盗链、`ban_check.lua` 的 403 与 `/internal/monitor/` 健康端点不打标，只拒不计数。标记变量必须在每个能产出 403/444 的 server 块用 `set $attack_probe ''` 声明，且 log 阶段只在 403/444 时读取——否则未初始化变量 WARN 会挤占 1MiB 原生错误 ring，削弱 E1/E4/E5 归因。
 
 归因安全边界：早期 400/414 可能在 rewrite 与身份头读取前结束，不能只读 `$real_client_ip` 的 remote 回退。采集器复用 `core.resolve` 重算并回写统一变量；代理模式缺身份头时仅记 `identity_unavailable`，不能封 CDN 对端。只有显式 `REAL_IP_HEADER=off` 的纯直连模式允许按 remote 计数。E2/E3 的原生日志只有连接对端，即使能够稳定触发也不具备可靠访客身份，因此始终仅观测。前置代理必须覆盖身份头并限制源站回源入口；本框架沿用现有信任链，不为客户端自报头增加新的可信保证。
 
 兼容边界：Lua 与 Java 的 never-ban 均排除非公网、自身 IP/CIDR、可信 IP/CIDR。直接写黑名单的原因必须用 `cjson.encode(reason)` 保存为 JSON String；裸串会使 Java `RedisUtil.get()` 反序列化失败并删键。多实例必须连同一 Redis 数据库，共享 `poetize_runtime` 卷仅共享自身地址探测结果。
 
+生产模板真实流量验收顺带暴露并修复了三处存量缺陷（改动前即存在，与 E7 无关，但会削弱计数可靠性或使豁免失效）：其一，`server_name _` 的 default_server 不执行 `real_ip_resolve.lua`，而 http 级 `map $real_client_ip_resolved $real_client_ip` 与 `log_format` 仍会读该变量，Host 不匹配的请求每次都在 log 阶段产生 `using uninitialized "real_client_ip_resolved"` WARN，按 IP 直连扫描会持续挤占原生错误 ring；现与 `$attack_probe` 一样在这些 server 块显式 `set` 为空。其二，`ban_check.lua` 在 access 阶段读 `$real_client_ip` 会触发上述正则 map，覆盖正则 location 的 `$1`；附件强制下载 location 的 `alias .../$1` 因此退化成 `articleFile` 目录，存在的 `.php/.py/.js/.sh` 附件被 301 到加斜杠的 URL 而下载不到，现改用 `set $article_file_path $1` 隔离（与 `/article/`、`/sort/` 预渲染 location 既有做法一致）。其三，IndexNow 验证 location 的 `proxy_pass http://poetize-java/$1.txt` 同因被覆盖成 `/.txt`，而 `IndexNowController` 对空 key 直接 404，故 keyLocation 回调经此 location 拿不到 key；现改用 `set $indexnow_key $1`。注意口径：IndexNow 提交是同步接受（200/202，202 即"key 校验待定"），Bing 后台 Submitted Urls 只记录提交、不记录所有权校验结果，站点也仍会被普通抓取索引，因此"后台有提交记录、文章有索引"不能反推 key 文件可达；判定要看生产 Java 日志有无 `IndexNow key 验证文件请求命中`，或直接请求 `https://域名/<bing_api_key>.txt` 是否 200。覆盖窗口自 2026-07-12 `ban_check.lua` 在 access 阶段读 `$real_client_ip` 起（此前无 access 阶段 Lua，捕获不被覆盖）；正则 map 本身更早即存在，10-15 只是换了 map 的源变量。后两处说明：正则 location 的捕获组若在 access 阶段之后才消费（`alias`/`proxy_pass`），必须先用 `set` 落到普通变量；`rewrite ... $1 break` 在 rewrite 阶段即时消费，不受影响。
+
 不新增以下专用埋点：CVE-2026-42055（grpc/proxy_protocol）、56434（ssi）、60005（slice）、15176（alias+rewrite）、97205（aio）、48142（charset_map）在当前配置无对应入口；42533 按上述捕获隔离规避，不能再以正则 map 为 0 判定；90439 受影响代码不在二进制内；97629 的 session tickets 已关闭；1642 是 nginx 到上游方向的问题，不能靠客户端攻击事件归因覆盖。已有二进制与补丁保持不变。
 
-复现入口为 `scripts/test_nginx_attack_events.py`（本机 Docker、Python h2，`NGINX_EVENTS_TEST_IMAGE` 可指定现有补丁镜像）与 `scripts/test_nginx_ip_guard.lua`（LuaJIT）。集成入口先渲染生产 HTTP/HTTPS 模板跑 `nginx -t`，再测真实 ALPN h2、E1/E4/E5/E6、E2/E3 观测、跨实例阈值/拒绝、never-ban、TTL、开关和 Redis 故障；结果 JSON 与原始容器日志留在忽略的 `temp/nginx-events-test/`。模板校验只替换测试证书与必要的 referer 渲染，不把最小测试配置当作生产模板校验。部署者开关、日志与精确解封命令见 `docs/排障指南.md` 第 6 节。
+复现入口为 `scripts/test_nginx_attack_events.py`（本机 Docker、Python h2，`NGINX_EVENTS_TEST_IMAGE` 可指定现有补丁镜像）与 `scripts/test_nginx_ip_guard.lua`（LuaJIT）。集成入口先渲染生产 HTTP/HTTPS 模板跑 `nginx -t`，再用整份 HTTP 模板起真实 nginx 与上游桩跑明文流量：同一访客换三条不同 deny 规则的路径必须累计封禁且此后首页/文章页均 403，18 条合法出口（SPA、SEO/RSS、后台、geojson、附件别名、ACME）零 403/444 零计数，脚本附件真正带 `Content-Disposition` 下载，IndexNow 回源路径不被覆盖，健康端点与空 UA/Host 不匹配的拒绝只拒不计数，error_log 无未初始化变量 WARN；随后是最小配置下的真实 ALPN h2、E1/E4/E5/E6、E7 打标与未打标 403/444 区分、E2/E3 观测、跨实例阈值/拒绝、never-ban、TTL、开关和 Redis 故障。结果 JSON 与原始容器日志留在忽略的 `temp/nginx-events-test/`。模板校验只替换测试证书与必要的 referer 渲染，不把最小测试配置当作生产模板校验。部署者开关、日志与精确解封命令见 `docs/排障指南.md` 第 6 节。

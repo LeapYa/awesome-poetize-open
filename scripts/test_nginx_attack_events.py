@@ -23,6 +23,8 @@ WORK = ROOT / "temp" / "nginx-events-test"
 IMAGE = os.environ.get("NGINX_EVENTS_TEST_IMAGE", "poetize-nginx-h2test:latest")
 PREFIX = "poetize-events-test"
 ENV = dict(os.environ, MSYS_NO_PATHCONV="1")
+BROWSER_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/120.0.0.0 Safari/537.36")
 
 
 def docker(*args, check=True):
@@ -73,6 +75,29 @@ def raw_request(port, payload):
             sock.sendall(payload)
             data = sock.recv(65536)
             return int(data.split(b" ", 2)[1]) if data.startswith(b"HTTP/") else "closed"
+
+
+def http_response(port, path="/", ip=None, host="example.com", ua=BROWSER_UA):
+    """生产模板走明文 HTTP/1.1，返回原始响应文本；444 无响应，返回空串。"""
+    lines = [f"GET {path} HTTP/1.1", f"Host: {host}", "Connection: close"]
+    if ua is not None:
+        lines.append(f"User-Agent: {ua}")
+    if ip:
+        lines.append(f"EO-Connecting-IP: {ip}")
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+        sock.sendall(("\r\n".join(lines) + "\r\n\r\n").encode())
+        data = b""
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+    return data.decode("utf-8", "replace")
+
+
+def http_request(port, path="/", ip=None, host="example.com", ua=BROWSER_UA):
+    data = http_response(port, path, ip, host, ua)
+    return int(data.split(" ", 2)[1]) if data.startswith("HTTP/") else "closed"
 
 
 def wait_ready(port):
@@ -135,12 +160,17 @@ http {{
         ssl_certificate /etc/nginx/ssl/default.crt;
         ssl_certificate_key /etc/nginx/ssl/default.key;
         set $real_client_ip_resolved '';
+        set $attack_probe '';
         rewrite_by_lua_file /usr/local/openresty/nginx/lua/real_ip_resolve.lua;
         access_by_lua_file /usr/local/openresty/nginx/lua/ban_check.lua;
         location / {{ content_by_lua_block {{ ngx.say("ok") }} }}
         location /missing/ {{ content_by_lua_block {{ ngx.exit(404) }} }}
         location /app400 {{ content_by_lua_block {{ ngx.exit(400) }} }}
         location /upstream400 {{ proxy_pass http://127.0.0.1:8080; }}
+        # E7：打标与不打标的同状态码出口，验证只认显式标记、不靠 403/444 推断
+        location /probe.key {{ set $attack_probe 'E7'; return 403 "Access to sensitive files denied"; }}
+        location /probe444 {{ set $attack_probe 'E7'; return 444; }}
+        location /plain403 {{ return 403; }}
     }}
     server {{
         listen 8080;
@@ -204,7 +234,9 @@ def integration(names, results=None):
 
     settings = {"NGINX_ATTACK_WINDOW_SECONDS": "3", "NGINX_ATTACK_BAN_SECONDS": "6",
                 "NGINX_ATTACK_E1_THRESHOLD": "2", "NGINX_ATTACK_E4_THRESHOLD": "2",
-                "NGINX_ATTACK_E5_THRESHOLD": "2", "NGINX_ATTACK_E6_THRESHOLD": "2"}
+                "NGINX_ATTACK_E5_THRESHOLD": "2", "NGINX_ATTACK_E6_THRESHOLD": "2",
+                "NGINX_ATTACK_E7_THRESHOLD": "2", "NGINX_ATTACK_E7_WINDOW_SECONDS": "3",
+                "NGINX_ATTACK_E7_BAN_SECONDS": "6"}
     start_nginx(names[0], 18443, False, settings)
     start_nginx(names[1], 18444, False, settings)
     trusted = dict(settings, TRUSTED_PROXY_CIDRS="8.8.8.0/24,9.9.9.9",
@@ -269,6 +301,29 @@ def integration(names, results=None):
     wait_for(lambda: redis_command("EXISTS", "poetize:security:blacklist:1.0.0.1") == "1", "E6 未封禁")
     assert h2_request(18444, ip="1.0.0.1") == 403
     passed("2/3. E6可选启用", "本地404三次触发，另一实例403")
+
+    # E7：只认 deny location 的显式标记，403/444 本身不足以判定探测。
+    for _ in range(3):
+        assert h2_request(18443, ip="1.0.0.7", path="/probe.key") == 403
+    e7_key = "poetize:security:blacklist:1.0.0.7"
+    wait_for(lambda: redis_command("EXISTS", e7_key) == "1", "E7 未封禁")
+    assert json.loads(redis_command("GET", e7_key)).startswith("auto:nginx:E7:")
+    assert h2_request(18444, ip="1.0.0.7") == 403
+    passed("2/3. E7 deny标记闭环", "敏感路径403三次触发，另一实例403")
+
+    probe444 = (b"GET /probe444 HTTP/1.1\r\nHost: events.test\r\n"
+                b"EO-Connecting-IP: 1.0.0.9\r\n\r\n")
+    for _ in range(3):
+        assert raw_request(18443, probe444) == "closed"
+    wait_for(lambda: redis_command("EXISTS", "poetize:security:blacklist:1.0.0.9") == "1",
+             "E7 444 未封禁")
+    passed("2/3. E7 覆盖444", "444断开连接同样计数并封禁")
+
+    for _ in range(5):
+        assert h2_request(18443, ip="1.0.0.8", path="/plain403") == 403
+    assert redis_command("EXISTS", "poetize:security:events:E7:1.0.0.8") == "0"
+    assert h2_request(18443, ip="1.0.0.8") == 200
+    passed("E7 不误计未打标403", "空UA/防盗链类403不计数、不封禁")
 
     # 滑动窗口到期后旧事件不参与判定。
     redis_command("DEL", key)
@@ -336,20 +391,24 @@ def integration(names, results=None):
     assert h2_request(18443, ip="1.1.1.1") == 200
     wait_for(lambda: "redis_unavailable" in all_logs(names[0]), "Redis故障未记录")
     passed("Redis故障降级", "Redis停止后正常请求200，日志含redis_unavailable")
-    (WORK / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def render_production(mode):
+    site = (ROOT / f"docker/nginx/default.{mode}.conf.template").read_text(encoding="utf-8")
+    # 与 poetize:apply_domain_to_nginx_conf 相同的必要渲染，未经渲染的模板有重复 referer。
+    site = re.sub(r"(valid_referers\s+[^;]*server_names)\s+[^;]*;", r"\1;", site)
+    site = site.replace("/etc/letsencrypt/live/example.com/fullchain.pem", "/etc/nginx/ssl/default.crt")
+    site = site.replace("/etc/letsencrypt/live/example.com/privkey.pem", "/etc/nginx/ssl/default.key")
+    site = site.replace("/etc/letsencrypt/live/example.com/chain.pem", "/etc/nginx/ssl/default.crt")
+    path = WORK / f"rendered-{mode}.conf"
+    path.write_text(site, encoding="utf-8")
+    return path
 
 
 def validate_production_config():
     results = []
     for mode in ("http", "https"):
-        site = (ROOT / f"docker/nginx/default.{mode}.conf.template").read_text(encoding="utf-8")
-        # 与 poetize:apply_domain_to_nginx_conf 相同的必要渲染，未经渲染的模板有重复 referer。
-        site = re.sub(r"(valid_referers\s+[^;]*server_names)\s+[^;]*;", r"\1;", site)
-        site = site.replace("/etc/letsencrypt/live/example.com/fullchain.pem", "/etc/nginx/ssl/default.crt")
-        site = site.replace("/etc/letsencrypt/live/example.com/privkey.pem", "/etc/nginx/ssl/default.key")
-        site = site.replace("/etc/letsencrypt/live/example.com/chain.pem", "/etc/nginx/ssl/default.crt")
-        path = WORK / f"rendered-{mode}.conf"
-        path.write_text(site, encoding="utf-8")
+        path = render_production(mode)
         output = docker("run", "--rm", "--entrypoint", "sh", "--add-host", "poetize-java:127.0.0.1",
             "-v", f"{(ROOT / 'docker/nginx/nginx.conf').as_posix()}:/usr/local/openresty/nginx/conf/nginx.conf:ro",
             "-v", f"{path.as_posix()}:/usr/local/openresty/nginx/conf/conf.d/default.conf:ro",
@@ -360,19 +419,154 @@ def validate_production_config():
     return results
 
 
+def production_deny_flow(names, results):
+    """生产模板真实流量：deny 命中必须跨路径累计并封禁，合法出口零误伤。
+
+    最小配置只能证明打标机制本身；这里用整份 default.http.conf.template（含 ^~ /admin、
+    SPA 软 404、附件别名、SEO/RSS 出口）验证 location 优先级与豁免断言的真实结果。
+    """
+    def passed(name, detail):
+        results.append({"name": name, "detail": detail, "status": "PASS"})
+        print(f"PASS {name}: {detail}", flush=True)
+
+    def counter_free(ip):
+        return (redis_command("EXISTS", f"poetize:security:events:E7:{ip}") == "0"
+                and redis_command("EXISTS", f"poetize:security:blacklist:{ip}") == "0")
+
+    prod, java = f"{PREFIX}-prod", f"{PREFIX}-java"
+    site = render_production("http")
+    # 上游 poetize-java:8081 的桩：回源一律 200 并回显实收 URI，
+    # 既能区分"nginx 就地拒绝"与"后端响应"，也能验证 proxy_pass 的捕获组没被 map 覆盖。
+    java_conf = WORK / "java.conf"
+    java_conf.write_text("worker_processes 1;\npid /tmp/java.pid;\nerror_log stderr crit;\n"
+                         "events { worker_connections 64; }\n"
+                         "http { access_log off; server { listen 8081;"
+                         " location / { return 200 \"backend-saw:$request_uri\"; } } }\n", encoding="utf-8")
+    docker("run", "-d", "--name", java, "--network", PREFIX, "--network-alias", "poetize-java",
+           "--entrypoint", "sh", "-v", f"{java_conf.as_posix()}:/test/java.conf:ro",
+           IMAGE, "-c", "exec openresty -c /test/java.conf -g 'daemon off;'")
+    # 不注入任何 NGINX_ATTACK_* 覆盖：E7 必须按生产默认（3 次 / 3600 秒 / 86400 秒）生效。
+    docker("run", "-d", "--name", prod, "--network", PREFIX, "--entrypoint", "sh",
+           "-p", "127.0.0.1:18080:80/tcp",
+           "-v", f"{(ROOT / 'docker/nginx/nginx.conf').as_posix()}:/usr/local/openresty/nginx/conf/nginx.conf:ro",
+           "-v", f"{site.as_posix()}:/usr/local/openresty/nginx/conf/conf.d/default.conf:ro",
+           "-v", f"{(ROOT / 'docker/nginx/lua').as_posix()}:/usr/local/openresty/nginx/lua:ro",
+           "-v", f"{PREFIX}:/app/runtime",
+           "-e", f"REDIS_HOST={PREFIX}-redis", "-e", "REDIS_PASSWORD=", "-e", "REDIS_DB=0",
+           "-e", "REAL_IP_HEADER=EO-Connecting-IP",
+           IMAGE, "-c", "exec openresty -g 'daemon off;'")
+    docker("exec", prod, "sh", "-c",
+           "mkdir -p /usr/share/nginx/html/poetize/static/assets /usr/share/nginx/html/admin/map "
+           "/usr/share/nginx/html/uploads/articleFile/system /usr/share/nginx/html/uploads/articleFile/config "
+           "/usr/share/nginx/html/uploads/articleFile/private /usr/share/nginx/html/uploads/articleFile/demo && "
+           "echo spa > /usr/share/nginx/html/poetize/index.html && "
+           "echo admin > /usr/share/nginx/html/admin/index.html && "
+           "echo '{}' > /usr/share/nginx/html/admin/map/world-cn.json && "
+           "echo js > /usr/share/nginx/html/poetize/static/assets/index.js && "
+           "echo png > /usr/share/nginx/html/uploads/articleFile/system/a.png && "
+           "echo sql > /usr/share/nginx/html/uploads/articleFile/config/b.sql && "
+           "echo php > /usr/share/nginx/html/uploads/articleFile/private/c.php && "
+           "echo py > /usr/share/nginx/html/uploads/articleFile/demo/c.py && "
+           "echo js > /usr/share/nginx/html/uploads/articleFile/demo/c.js && "
+           "echo sh > /usr/share/nginx/html/uploads/articleFile/demo/c.sh")
+
+    def error_log():
+        return docker("exec", prod, "sh", "-c", "cat /var/log/nginx/error.log", check=False)
+
+    deadline = time.monotonic() + 20
+    while True:
+        try:
+            if http_request(18080, "/", ip="192.0.2.1") == 200:
+                break
+        except (OSError, TimeoutError):
+            pass
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"生产模板 nginx 未就绪\n{error_log()}")
+
+    # 同一访客换三条不同 deny 规则的路径：第 3 次必须封禁，之后正常内容页也拒绝。
+    scanner = "1.0.0.21"
+    statuses = [http_request(18080, path, ip=scanner)
+                for path in ("/server.key", "/backup.zip", "/actuator/env")]
+    assert statuses == [403, 403, "closed"], statuses
+    key = f"poetize:security:blacklist:{scanner}"
+    wait_for(lambda: redis_command("EXISTS", key) == "1", "生产模板：换路径未累计封禁")
+    assert json.loads(redis_command("GET", key)) == "auto:nginx:E7:deny_rule_probe"
+    ttl = int(redis_command("TTL", key))
+    assert 86000 < ttl <= 86400, ttl
+    assert http_request(18080, "/", ip=scanner) == 403
+    assert http_request(18080, "/article/1", ip=scanner) == 403
+    passed("生产模板 E7 跨路径累计", f"{statuses} -> 黑名单 TTL={ttl}，首页/文章页均 403")
+
+    # 合法出口：SPA、SEO/RSS、后台、geojson、附件别名（含 system/config/private 子目录与 .php/.sql）。
+    legit = ["/", "/article/1", "/sort/1", "/sitemap.xml", "/rss.xml", "/feed.xml", "/feed",
+             "/robots.txt", "/manifest.json", "/admin/", "/admin/map/world-cn.json",
+             "/assets/index.js", "/api/article/list", "/static/articleFile/system/a.png",
+             "/static/articleFile/config/b.sql", "/static/articleFile/private/c.php",
+             "/static/live2d-widget/dist/model_list.json", "/.well-known/acme-challenge/token"]
+    observed = {}
+    for index, path in enumerate(legit):
+        ip = f"1.0.1.{index + 1}"
+        status = http_request(18080, path, ip=ip)
+        observed[path] = status
+        assert status not in (403, "closed"), (path, status)
+        assert counter_free(ip), (path, ip)
+    passed("生产模板 合法出口零误伤", f"{len(legit)} 条路径无 403/444、无 E7 计数：{observed}")
+
+    # 脚本类附件必须真正下载：$1 若被 access 阶段的正则 map 覆盖，alias 会退化成目录并 301。
+    downloads = {}
+    for index, name in enumerate(("private/c.php", "demo/c.py", "demo/c.js", "demo/c.sh")):
+        path = f"/static/articleFile/{name}"
+        ip = f"1.0.2.{index + 1}"
+        resp = http_response(18080, path, ip=ip)
+        assert resp.startswith("HTTP/1.1 200"), (path, resp.splitlines()[:1])
+        assert "Content-Disposition: attachment" in resp, (path, resp[:400])
+        assert counter_free(ip), (path, ip)
+        downloads[name] = 200
+    passed("生产模板 脚本附件强制下载", f"{downloads}，均带 Content-Disposition: attachment")
+
+    # IndexNow 验证文件：proxy_pass 的 $1 同样会被 access 阶段正则 map 覆盖成 /.txt。
+    indexnow = "/abcdefgh12345678.txt"
+    resp = http_response(18080, indexnow, ip="1.0.2.9")
+    assert resp.startswith("HTTP/1.1 200"), resp.splitlines()[:1]
+    assert resp.endswith(f"backend-saw:{indexnow}"), resp[-200:]
+    assert counter_free("1.0.2.9")
+    passed("生产模板 IndexNow 回源路径", f"后端实收 {indexnow}，未被覆盖成 /.txt")
+
+    # 健康端点被第4条命中但用 ^~ 提前接管：保持 403，外部 uptime 监控不被封。
+    for _ in range(5):
+        assert http_request(18080, "/internal/monitor/health", ip="1.0.0.23") == 403
+    assert counter_free("1.0.0.23")
+    passed("生产模板 健康端点不计数", "/internal/monitor/health 五次 403，无计数无封禁")
+
+    # 未打标的 403/444：空 UA 与 Host 不匹配的 default_server，均不得计入 E7。
+    for _ in range(5):
+        assert http_request(18080, "/", ip="1.0.0.24", ua=None) == 403
+    assert counter_free("1.0.0.24")
+    for _ in range(5):
+        assert http_request(18080, "/", ip="1.0.0.25", host="127.0.0.1") == "closed"
+    assert counter_free("1.0.0.25")
+    passed("生产模板 未打标拒绝不计数", "空UA 403 与 Host不匹配 444 各五次，无计数无封禁")
+
+    # 标记变量必须在每个可能出 403/444 的 server 声明，否则未初始化 WARN 会挤占原生错误 ring。
+    assert "using uninitialized" not in error_log(), error_log()[-2000:]
+    passed("生产模板 无未初始化变量", "error_log 无 using uninitialized 警告")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--probe", action="store_true")
     args = parser.parse_args()
     WORK.mkdir(parents=True, exist_ok=True)
     (WORK / "nginx.conf").write_text(config(args.probe), encoding="utf-8")
-    names = [f"{PREFIX}-a", f"{PREFIX}-b", f"{PREFIX}-trusted", f"{PREFIX}-redis"]
+    names = [f"{PREFIX}-a", f"{PREFIX}-b", f"{PREFIX}-trusted", f"{PREFIX}-prod",
+             f"{PREFIX}-java", f"{PREFIX}-redis"]
     for name in names:
         docker("rm", "-f", name, check=False)
     docker("network", "create", PREFIX, check=False)
     docker("volume", "create", PREFIX)
     docker("run", "-d", "--name", names[-1], "--network", PREFIX,
            "redis:7-alpine", "redis-server", "--save", "", "--appendonly", "no")
+    results = []
     try:
         if args.probe:
             start_nginx(names[0], 18443, True)
@@ -397,12 +591,19 @@ def main():
                 if "PROBE_" in line:
                     print(line[:750])
         else:
-            production_results = validate_production_config()
-            integration(names, production_results)
+            results.extend(validate_production_config())
+            # 先跑生产模板：integration 末尾会停掉 Redis 做降级验证。
+            production_deny_flow(names, results)
+            integration(names, results)
     finally:
         for name in names[:-1]:
             result = subprocess.run(["docker", "logs", name], capture_output=True, env=ENV)
             (WORK / f"{name}.log").write_bytes(result.stdout + result.stderr)
+        (WORK / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 生产 nginx.conf 的 error_log 指向文件而非 stderr，docker logs 取不到结构化事件。
+        (WORK / f"{PREFIX}-prod-error.log").write_text(
+            docker("exec", f"{PREFIX}-prod", "sh", "-c", "cat /var/log/nginx/error.log", check=False),
+            encoding="utf-8")
         for name in names:
             docker("rm", "-f", name, check=False)
         docker("network", "rm", PREFIX, check=False)

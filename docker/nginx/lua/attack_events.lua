@@ -32,6 +32,14 @@ local events = {
     E4 = { on = enabled("E4_ENABLED", true), threshold = number("E4_THRESHOLD", 20, 1, 4096) },
     E5 = { on = enabled("E5_ENABLED", true), threshold = number("E5_THRESHOLD", 10, 1, 4096) },
     E6 = { on = enabled("E6_ENABLED", false), threshold = number("E6_THRESHOLD", 120, 1, 4096) },
+    -- E7：nginx deny 规则就地拒绝的探测路径。由 location 内 `set $attack_probe 'E7'` 显式打标，
+    -- 不靠状态码推断——403/444 同样来自空 UA、视频防盗链和已封禁 IP，不能一律当探测。
+    -- 口径对齐 Java SecurityFilter：ATTACK_THRESHOLD=3 / IP_ATTACK_EXPIRE_TIME=3600 /
+    -- IP_BLACKLIST_EXPIRE_TIME=86400，封禁写入同一个 poetize:security:blacklist:<ip>。
+    -- 执行器判定为 count > threshold，故默认 2 表示第 3 次命中即封。
+    E7 = { on = enabled("E7_ENABLED", true), threshold = number("E7_THRESHOLD", 2, 1, 4096),
+           window = number("E7_WINDOW_SECONDS", 3600, 1, 86400),
+           ban = number("E7_BAN_SECONDS", 86400, 1, 604800) },
 }
 local conf
 local queue, head, tail = {}, 1, 0
@@ -76,9 +84,10 @@ end
 
 local function log(event, ip, action, reason, count)
     -- 结构化结果保持 warn，不依赖全局 error_log info；正常请求不写此类日志。
+    local ev = events[event]
     ngx.log(ngx.WARN, "attack_event ", cjson.encode({event = event, ip = ip or "unknown",
         action = action, reason = reason, count = count or 0,
-        window_seconds = window, ban_seconds = ban_ttl}))
+        window_seconds = (ev and ev.window) or window, ban_seconds = (ev and ev.ban) or ban_ttl}))
 end
 
 local function limited_log(event, ip, action, reason)
@@ -223,9 +232,10 @@ local function flush(premature)
         if not core.is_never_ban(item.ip, conf) then
             -- 与 Java RedisUtil 的 JSON String 序列化兼容，否则后台读黑名单会删除裸字符串。
             local reason = cjson.encode("auto:nginx:" .. item.event .. ":" .. item.reason)
+            local ev = events[item.event]
             local result, eval_err = red:eval(COUNT_AND_BAN, 2,
                 COUNTER_PREFIX .. item.event .. ":" .. item.ip, BLACKLIST_PREFIX .. item.ip,
-                window, events[item.event].threshold, ban_ttl, reason)
+                ev.window or window, ev.threshold, ev.ban or ban_ttl, reason)
             if not result then
                 limited_log("system", nil, "error", "redis_eval_failed:" .. tostring(eval_err))
                 red:close()
@@ -279,10 +289,19 @@ end
 function M.log_request()
     if not active or not conf then return end
     local status = ngx.status
+    -- deny 规则的显式标记优先于状态码推断。变量由各 server 块 `set $attack_probe ''` 声明，
+    -- 只在 403/444 时读取：早期 400/414 在 rewrite 前结束，set 尚未执行，读取会触发
+    -- "using uninitialized variable" WARN 并挤占 1MiB 原生错误 ring。
+    local probe
+    if status == 403 or status == 444 then
+        probe = ngx.var.attack_probe
+    end
     -- 不访问 URI/UA/请求头内容做特征扫描。正常请求只取状态并消费最多 128 条原生日志。
     local native = drain_native(ngx.var.connection)
     local event, reason
-    if native and ((status == 400 and native.event ~= "E1")
+    if probe and probe ~= "" and events[probe] then
+        event, reason = probe, "deny_rule_probe"
+    elseif native and ((status == 400 and native.event ~= "E1")
         or (status == 400 and native.event == "E1" and ngx.var.http2 == "h2")
         or (status == 414 and native.event == "E5")) then
         event, reason = native.event, native.reason

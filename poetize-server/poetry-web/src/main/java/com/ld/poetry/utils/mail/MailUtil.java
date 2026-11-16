@@ -49,6 +49,7 @@ public class MailUtil {
     public static final String loveMail = "你收到来自 %s 的祝福";
     public static final String imMail = "你收到来自 %s 的消息";
     public static final String notificationMail = "你收到来自 %s 的订阅";
+    public static final String friendMail = "你收到来自 %s 的友链申请";
 
     @Autowired
     private MailService mailService;

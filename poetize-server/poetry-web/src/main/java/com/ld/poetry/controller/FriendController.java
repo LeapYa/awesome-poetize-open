@@ -12,7 +12,9 @@ import com.ld.poetry.service.prerender.PrerenderFacade;
 import com.ld.poetry.utils.ExternalUrlUtil;
 import com.ld.poetry.utils.PoetryUtil;
 import com.ld.poetry.utils.XssFilterUtil;
+import com.ld.poetry.utils.mail.MailSendUtil;
 import com.ld.poetry.vo.ResourcePathVO;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.CollectionUtils;
@@ -34,6 +36,7 @@ import java.util.stream.Collectors;
  */
 @RestController
 @RequestMapping("/webInfo")
+@Slf4j
 public class FriendController {
 
     @Autowired
@@ -44,6 +47,9 @@ public class FriendController {
 
     @Autowired
     private CacheService cacheService;
+
+    @Autowired
+    private MailSendUtil mailSendUtil;
 
     /**
      * 保存友链
@@ -80,7 +86,13 @@ public class FriendController {
         friend.setType(CommonConst.RESOURCE_PATH_TYPE_FRIEND);
         friend.setStatus(Boolean.FALSE);
         resourcePathMapper.insert(friend);
-        
+
+        try {
+            mailSendUtil.sendFriendMail(friend);
+        } catch (Exception e) {
+            log.error("发送友链申请邮件失败：", e);
+        }
+
         // 重新渲染友人帐页面（无论审核状态如何都渲染，因为页面会显示申请表单）
         try {
             prerenderFacade.refreshFriendsPage();

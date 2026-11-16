@@ -4,6 +4,7 @@ import com.ld.poetry.constants.CacheConstants;
 import com.ld.poetry.constants.CommonConst;
 import com.ld.poetry.entity.Article;
 import com.ld.poetry.entity.Comment;
+import com.ld.poetry.entity.ResourcePath;
 import com.ld.poetry.entity.User;
 import com.ld.poetry.entity.WebInfo;
 import com.ld.poetry.enums.CommentTypeEnum;
@@ -246,6 +247,53 @@ public class MailSendUtil {
                 String.format(MailUtil.imMail, fromName),
                 fromName,
                 fromContent,
+                "",
+                webName);
+    }
+
+    public void sendFriendMail(ResourcePath friend) {
+        User adminUser = PoetryUtil.getAdminUser();
+        if (adminUser == null || !StringUtils.hasText(adminUser.getEmail())) {
+            return;
+        }
+        if (Objects.equals(PoetryUtil.getUserId(), adminUser.getId())) {
+            return;
+        }
+
+        String mailCountKey = CacheConstants.CACHE_PREFIX + "friend:mail:" + adminUser.getEmail();
+        Object cached = cacheService.get(mailCountKey);
+        int sentCount = 0;
+        if (cached instanceof AtomicInteger) {
+            sentCount = ((AtomicInteger) cached).get();
+        } else if (cached instanceof Integer) {
+            sentCount = (Integer) cached;
+        }
+        if (sentCount >= CommonConst.COMMENT_IM_MAIL_COUNT) {
+            return;
+        }
+
+        WebInfo webInfo = cacheService.getCachedWebInfo();
+        String webName = (webInfo == null ? "POETIZE" : webInfo.getWebName());
+
+        mailUtil.sendMailMessage(List.of(adminUser.getEmail()),
+                "您有一封来自" + webName + "的回执！",
+                getFriendMail(PoetryUtil.getUsername(), friend, webName));
+
+        cacheService.set(mailCountKey, new AtomicInteger(sentCount + 1), CommonConst.CODE_EXPIRE);
+    }
+
+    private String getFriendMail(String fromName, ResourcePath friend, String webName) {
+        String content = "网站名称：" + friend.getTitle() + "<br>"
+                + "网站简介：" + friend.getIntroduction() + "<br>"
+                + "网站地址：<a href=\"" + friend.getUrl() + "\" target=\"_blank\" rel=\"nofollow noopener\">"
+                + friend.getUrl() + "</a><br>"
+                + "请前往后台「资源聚合」审核。";
+
+        return String.format(mailUtil.getMailText(),
+                webName,
+                String.format(MailUtil.friendMail, fromName),
+                fromName,
+                content,
                 "",
                 webName);
     }

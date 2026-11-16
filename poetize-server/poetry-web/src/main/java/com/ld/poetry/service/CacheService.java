@@ -290,6 +290,19 @@ public class CacheService {
     }
 
     /**
+     * 只删除分类标签树缓存，供启动预热强制重建使用
+     * <p>不复用 evictSortArticleList，避免连带清掉文章列表缓存拖慢冷启动。
+     */
+    public void evictSortInfo() {
+        try {
+            redisUtil.del(CacheConstants.SORT_INFO_KEY);
+            log.info("删除分类标签树缓存");
+        } catch (Exception e) {
+            log.error("删除分类标签树缓存失败", e);
+        }
+    }
+
+    /**
      * 缓存分类标签树（含 countOfSort/countOfLabel），永久缓存
      * <p>空列表不写缓存：空库启动/数据导入窗口期查到的空结果一旦永久缓存，
      * 导入完成后也不会失效，会把全站分类钉死为 null（白屏事故根因）。

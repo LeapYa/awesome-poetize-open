@@ -189,10 +189,12 @@ public class PoetryApplicationRunner implements ApplicationRunner {
 
     /**
      * 预热分类标签树缓存
-     * <p>getSortInfo 内部已实现「读缓存未命中则查 DB 并回填」逻辑，预热只需调用一次触发回填。
+     * <p>getSortInfo 内部是「读缓存未命中则查 DB 并回填」，只调用它无法覆盖已有缓存。
+     * 永久缓存 + 升级/恢复数据时 Redis 原样搬运，会让旧快照一直活着，所以启动先 evict 强制重建。
      */
     private void initSortInfoCache() {
         try {
+            cacheService.evictSortInfo();
             commonQuery.getSortInfo();
         } catch (Exception e) {
             log.error("预热分类标签树缓存失败", e);
@@ -201,11 +203,13 @@ public class PoetryApplicationRunner implements ApplicationRunner {
 
     /**
      * 预热侧边栏首屏聚合缓存
-     * <p>loadAsideBootstrapData 内部已实现「读缓存未命中则查 DB 并回填」逻辑，预热只需调用一次触发回填，
-     * 避免首个用户请求承担 3 次 DB 查询延迟。
+     * <p>loadAsideBootstrapData 内部是「读缓存未命中则查 DB 并回填」，只调用它无法覆盖已有缓存。
+     * 空库启动会把空的 quickEntryList 永久写进 Redis（前台退化成默认朋友圈按钮），
+     * 数据恢复后也不会失效，所以启动先 evict 强制重建，让残留旧快照重启即自愈。
      */
     private void initAsideBootstrapCache() {
         try {
+            cacheService.evictAsideBootstrap();
             resourceAggregationController.loadAsideBootstrapData();
         } catch (Exception e) {
             log.error("预热侧边栏首屏聚合缓存失败", e);
@@ -214,11 +218,11 @@ public class PoetryApplicationRunner implements ApplicationRunner {
 
     /**
      * 预热友人帐友链列表缓存
-     * <p>loadFriendListData 内部已实现「读缓存未命中则查 DB 并回填」逻辑，预热只需调用一次触发回填，
-     * 避免首个用户访问友人帐页面时承担 DB 查询延迟。
+     * <p>同 initAsideBootstrapCache：永久缓存必须强制重建，否则升级/恢复数据后的旧快照不会自愈。
      */
     private void initFriendListCache() {
         try {
+            cacheService.evictFriendList();
             friendController.loadFriendListData();
         } catch (Exception e) {
             log.error("预热友人帐友链列表缓存失败", e);

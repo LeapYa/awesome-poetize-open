@@ -91,11 +91,17 @@ local BLACKLIST_PREFIX = "poetize:security:blacklist:"
 -- 明确声明自动化工具/脚本运行时的 UA 关键词（小写，plain contains）。
 -- 只放高置信度标识；浏览器发起的 axios/fetch 请求仍携带浏览器 UA，不会命中。
 local SCRIPT_UA_KEYWORDS = {
-    "curl/", "wget/", "python-requests", "python-urllib", "aiohttp/", "httpx/",
-    "go-http-client", "java/", "okhttp/", "apache-httpclient", "libwww-perl",
-    "lwp-trivial", "node-fetch", "axios/", "powershell/", "postmanruntime/",
+    "curl/", "wget/", "wget2/", "python-requests", "python-urllib", "aiohttp/", "httpx/",
+    "go-http-client", "java-http-client", "okhttp/", "apache-httpclient", "libwww-perl",
+    "node-fetch", "axios/", "powershell/", "postmanruntime/", "http.rb", "scrapy",
     "insomnia/", "nuclei", "sqlmap", "nikto", "masscan", "zgrab", "nmap",
-    "gobuster", "ffuf", "feroxbuster", "dirbuster",
+    "gobuster", "ffuf", "feroxbuster",
+}
+
+-- 必须锚定 UA 开头才算命中：`java/` 用 contains 会命中 `MyApp/2.0 (Java/17)`
+-- 这类正常应用 UA 的括注，把无辜客户端计入封禁计数。
+local SCRIPT_UA_PREFIXES = {
+    "java/",
 }
 
 -- 已知搜索引擎 UA 与 Java SearchEngineVerifier 的 cacheName 对应关系。
@@ -173,6 +179,11 @@ local function is_script_ua(ua)
         return false
     end
     local lower = string.lower(ua)
+    for _, prefix in ipairs(SCRIPT_UA_PREFIXES) do
+        if string.sub(lower, 1, #prefix) == prefix then
+            return true
+        end
+    end
     for _, keyword in ipairs(SCRIPT_UA_KEYWORDS) do
         if string.find(lower, keyword, 1, true) then
             return true

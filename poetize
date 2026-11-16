@@ -7184,7 +7184,8 @@ check_domains_access() {
     
     info "正在检查域名: $domain"
     if command -v curl &>/dev/null; then
-      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://$domain" --connect-timeout 10)
+      # 探活必须自报身份：裸 curl UA 会被前台内容页反爬规则当成脚本抓取，直接 403
+      HTTP_CODE=$(curl -s -A "Poetize-Deploy-Check/1.0" -o /dev/null -w "%{http_code}" "http://$domain" --connect-timeout 10)
       if [[ $HTTP_CODE -lt 200 || $HTTP_CODE -ge 400 ]]; then
         if [[ $HTTP_CODE -eq 000 ]]; then
           error "无法连接到域名 $domain (连接超时)"
@@ -9032,7 +9033,7 @@ verify_https_status() {
 
     if command -v curl &>/dev/null; then
       for domain in "${DOMAINS[@]}"; do
-        HTTPS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$domain" --connect-timeout 10 --max-time 15 2>/dev/null || echo "000")
+        HTTPS_STATUS=$(curl -s -A "Poetize-Deploy-Check/1.0" -o /dev/null -w "%{http_code}" "https://$domain" --connect-timeout 10 --max-time 15 2>/dev/null || echo "000")
 
         if [ "$HTTPS_STATUS" = "200" ] || [ "$HTTPS_STATUS" = "301" ] || [ "$HTTPS_STATUS" = "302" ]; then
           if [ "$domain" = "$PRIMARY_DOMAIN" ]; then
@@ -9049,7 +9050,7 @@ verify_https_status() {
           fi
 
           info "尝试诊断HTTPS问题..."
-          CURL_ERROR=$(curl -v "https://$domain" 2>&1 | head -10 || echo "curl命令失败")
+          CURL_ERROR=$(curl -v -A "Poetize-Deploy-Check/1.0" "https://$domain" 2>&1 | head -10 || echo "curl命令失败")
           echo "连接详情($domain): $CURL_ERROR"
         fi
       done
@@ -9097,7 +9098,7 @@ verify_https_status() {
     if [ "$PRIMARY_DOMAIN" != "localhost" ] && [ "$PRIMARY_DOMAIN" != "127.0.0.1" ] && ! [[ "$PRIMARY_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
       info "检查HTTP到HTTPS重定向..."
       for domain in "${DOMAINS[@]}"; do
-        HTTP_REDIRECT=$(curl -s -o /dev/null -w "%{http_code}" "http://$domain" --connect-timeout 10 2>/dev/null || echo "000")
+        HTTP_REDIRECT=$(curl -s -A "Poetize-Deploy-Check/1.0" -o /dev/null -w "%{http_code}" "http://$domain" --connect-timeout 10 2>/dev/null || echo "000")
         if [ "$HTTP_REDIRECT" = "301" ] || [ "$HTTP_REDIRECT" = "302" ]; then
           if [ "$domain" = "$PRIMARY_DOMAIN" ]; then
             success "✓ HTTP到HTTPS重定向工作正常 ($domain)"

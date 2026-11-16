@@ -14,9 +14,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -343,6 +345,141 @@ class SecurityFilterBanRuleTest {
         filter.doFilter(request, response, chain);
 
         assertEquals(404, response.getStatus());
+        verify(chain, never()).doFilter(request, response);
+    }
+
+    // ================================ 脚本/命令行客户端 UA ================================
+
+    @Test
+    @DisplayName("curl 抓首页应 403，且不写攻击计数、不写 IP 封禁")
+    void httpClientUa_homePage_blocksWithoutBan() throws Exception {
+        MockHttpServletRequest request = newRequest("1.2.3.4", "curl/8.4.0");
+        request.setMethod("GET");
+        MockHttpServletResponse response = newResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(403, response.getStatus());
+        assertTrue(response.getContentAsString().contains("HTTP Client Blocked"));
+        verify(chain, never()).doFilter(request, response);
+        verify(redisUtil, never()).incr(anyString(), anyLong());
+        verify(cacheService, never()).set(anyString(), any(), anyLong());
+    }
+
+    @Test
+    @DisplayName("内置脚本客户端 UA 抓文章页应 403（前缀匹配，大小写不敏感）")
+    void httpClientUa_articlePage_blocksAllBuiltinPrefixes() throws Exception {
+        String[] uaList = {
+                "curl/8.4.0", "Wget/1.21.2", "python-requests/2.31.0", "Python-urllib/3.11",
+                "python-urllib3/2.0.7", "Go-http-client/1.1", "Scrapy/2.11.0 (+https://scrapy.org)",
+                "libwww-perl/6.67", "http.rb/5.1.0", "Java/17.0.1", "Java-http-client/17.0.1"};
+        for (String ua : uaList) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", ua);
+            request.setMethod("GET");
+            request.setRequestURI("/article/123");
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(403, response.getStatus(), "UA 应被拦截: " + ua);
+            verify(chain, never()).doFilter(request, response);
+        }
+    }
+
+    @Test
+    @DisplayName("curl 访问接口/CLI/健康检查/回调/资源/订阅源均放行")
+    void httpClientUa_exemptPaths_passThrough() throws Exception {
+        String[] paths = {
+                "/api/article/1", "/api/api/article/createAsync", "/internal/monitor/health",
+                "/actuator/health", "/admin", "/user/getUserInfo", "/login/github", "/callback/github",
+                "/ws/im", "/media/41f8a21f9be24994b4220cf23bc482e7",
+                "/static/articleFile/2025/01/report.pdf", "/prerender/home/index.html", "/seo/robots.txt",
+                "/assets/index-abc123.js", "/sitemap.xml", "/feed", "/rss.xml", "/robots.txt",
+                "/manifest.json", "/favicon.ico", "/.well-known/acme-challenge/token"};
+        for (String path : paths) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", "curl/8.4.0");
+            request.setMethod("GET");
+            request.setRequestURI(path);
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus(), "路径应放行: " + path);
+        }
+    }
+
+    @Test
+    @DisplayName("HEAD 首页与 POST 支付回调即使用 curl UA 也放行")
+    void httpClientUa_nonGetMethods_passThrough() throws Exception {
+        MockHttpServletRequest head = newRequest("1.2.3.4", "curl/8.4.0");
+        head.setMethod("HEAD");
+        MockHttpServletResponse headResponse = newResponse();
+        FilterChain headChain = mock(FilterChain.class);
+        filter.doFilter(head, headResponse, headChain);
+        verify(headChain).doFilter(head, headResponse);
+
+        MockHttpServletRequest post = newRequest("1.2.3.4", "curl/8.4.0");
+        post.setMethod("POST");
+        post.setRequestURI("/payment/webhook/alipay");
+        MockHttpServletResponse postResponse = newResponse();
+        FilterChain postChain = mock(FilterChain.class);
+        filter.doFilter(post, postResponse, postChain);
+        verify(postChain).doFilter(post, postResponse);
+    }
+
+    @Test
+    @DisplayName("浏览器与应用侧客户端 UA 放行：Apache-HttpClient 内嵌 (Java/...) 不得误伤")
+    void httpClientUa_browserAndAppClients_passThrough() throws Exception {
+        String[] uaList = {
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+                "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+                "Apache-HttpClient/4.5.13 (Java/1.8.0_292)", "okhttp/4.9.0", "axios/1.6.0",
+                "node-fetch/1.0", "python-httpx/0.25.0", "poetize-java/1.0.0",
+                "Poetize-Deploy-Check/1.0", null};
+        for (String ua : uaList) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", ua);
+            request.setMethod("GET");
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus(), "UA 应放行: " + ua);
+        }
+    }
+
+    @Test
+    @DisplayName("管理员禁用内置 curl 硬名单后，curl 抓首页放行")
+    void httpClientUa_disabledByAdmin_passThrough() throws Exception {
+        ReflectionTestUtils.setField(filter, "disabledHttpClientUa", Set.of("curl"));
+
+        MockHttpServletRequest request = newRequest("1.2.3.4", "curl/8.4.0");
+        request.setMethod("GET");
+        MockHttpServletResponse response = newResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("编码绕过仍命中：curl 抓 /%61rticle/123 归一化后按内容页拦截")
+    void httpClientUa_encodedContentPath_blocksRequest() throws Exception {
+        MockHttpServletRequest request = newRequest("1.2.3.4", "curl/8.4.0");
+        request.setMethod("GET");
+        request.setRequestURI("/%61rticle/123");
+        MockHttpServletResponse response = newResponse();
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(403, response.getStatus());
         verify(chain, never()).doFilter(request, response);
     }
 

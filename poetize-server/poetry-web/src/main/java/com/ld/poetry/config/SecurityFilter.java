@@ -101,6 +101,21 @@ public class SecurityFilter extends OncePerRequestFilter {
     // 这些关键词只会出现在自动化工具声明的 UA 中，正常浏览器 UA 不会包含，无需 token 边界匹配
     private static final List<String> AUTOMATION_UA_KEYWORDS = CacheConstants.BUILTIN_AUTOMATION_UA;
 
+    // 脚本/命令行客户端 UA 前缀（小写前缀匹配），单一数据源见 CacheConstants.BUILTIN_HTTP_CLIENT_UA
+    // 用前缀而非 contains：Apache-HttpClient 默认 UA 里带 "(Java/1.8.0_292)"，contains 会误伤不在拦截范围内的应用侧客户端
+    private static final List<String> HTTP_CLIENT_UA_PREFIXES = CacheConstants.BUILTIN_HTTP_CLIENT_UA;
+
+    // HTTP 客户端拦截的豁免路径前缀（Java 侧映射路径）。
+    // Nginx 转发时会剥掉公共 /api/ 前缀，因此这里豁免的是 Java 真实映射；
+    // Lua 层豁免公共 URI（/api/ 一并覆盖前端接口与博客 CLI），两层口径不同但效果一致。
+    private static final Set<String> HTTP_CLIENT_EXEMPT_PREFIXES = Set.of(
+            "/api", "/admin", "/user", "/oauth", "/login", "/callback", "/payment",
+            "/internal", "/actuator", "/ws", "/error", "/.well-known",
+            "/static", "/media", "/prerender", "/seo", "/resource",
+            "/webInfo", "/comment", "/captcha", "/track", "/sysConfig", "/sysPlugin",
+            "/qrcode", "/qiniu", "/fontSubset", "/imageCompress", "/ai", "/family",
+            "/rss", "/feed");
+
     // ================================ 扩展封禁规则内存缓存 ================================
     // volatile 保证多线程可见性；定期从 Redis 刷新，避免每请求扫描 Redis
     private volatile List<Map<String, Object>> uaRules = List.of();
@@ -110,6 +125,8 @@ public class SecurityFilter extends OncePerRequestFilter {
     private volatile Set<String> disabledAiCrawlerUa = Set.of();
     // 被管理员禁用的内置自动化工具 UA 硬名单（小写），命中则在 isAutomationToolUa 中跳过
     private volatile Set<String> disabledAutomationUa = Set.of();
+    // 被管理员禁用的内置 HTTP 客户端 UA 硬名单（小写），命中则在 isHttpClientUa 中跳过
+    private volatile Set<String> disabledHttpClientUa = Set.of();
     private volatile long lastRefreshAt = 0;
     private static final long REFRESH_INTERVAL_MS = 15000;
 
@@ -270,6 +287,18 @@ public class SecurityFilter extends OncePerRequestFilter {
 
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
             response.getWriter().write("404 Not Found");
+            return;
+        }
+
+        // 拦截脚本/命令行客户端抓取前台内容页（curl/wget/python-requests/Go-http-client 等）。
+        // 只拒绝本次请求，不写 IP 封禁：这类 UA 也常被站长自己的监控/部署脚本使用，
+        // 累计封禁会把正常运维挡在门外。放在恶意路径判定之后，保留 404 与管理员规则优先级。
+        if (isFrontendContentPage(request.getMethod(), normalizedUri) && isHttpClientUa(userAgent)) {
+            log.info("拦截脚本客户端抓取内容页: {} {} from IP: {}", request.getMethod(), normalizedUri, clientIP);
+            recordBlockEvent("HTTP_CLIENT_BLOCKED", false, "拦截脚本客户端抓取前台内容页", "HTTP客户端UA",
+                    requestURI, userAgent, clientIP);
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            response.getWriter().write("403 Forbidden - HTTP Client Blocked");
             return;
         }
 
@@ -563,6 +592,47 @@ public class SecurityFilter extends OncePerRequestFilter {
         return false;
     }
 
+    /**
+     * 检查 UA 是否以脚本/命令行客户端的默认 UA 前缀开头（大小写不敏感）。
+     * 管理员已禁用（删除）的内置硬名单跳过，实现"内置 UA 弃用后可删除"。
+     */
+    private boolean isHttpClientUa(String userAgent) {
+        if (userAgent == null || userAgent.isEmpty()) {
+            return false;
+        }
+        String lower = userAgent.toLowerCase(Locale.ROOT);
+        Set<String> disabled = disabledHttpClientUa;
+        for (String prefix : HTTP_CLIENT_UA_PREFIXES) {
+            if (disabled != null && disabled.contains(prefix)) {
+                continue;
+            }
+            if (lower.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 是否为前台内容页请求：GET + 无扩展名 + 不在豁免前缀内。
+     *
+     * <p>只认 GET，HEAD 探针与 POST 回调（如 /payment/webhook）天然放行；
+     * 末段带扩展名的一律视为静态资源或机器可读文件（sitemap.xml/robots.txt/IndexNow key/前端 chunk）。
+     */
+    private boolean isFrontendContentPage(String method, String normalizedUri) {
+        if (!"GET".equalsIgnoreCase(method) || normalizedUri == null || normalizedUri.isEmpty()) {
+            return false;
+        }
+        String lower = normalizedUri.toLowerCase(Locale.ROOT);
+        for (String prefix : HTTP_CLIENT_EXEMPT_PREFIXES) {
+            if (lower.equals(prefix) || lower.startsWith(prefix + "/")) {
+                return false;
+            }
+        }
+        String lastSegment = lower.substring(lower.lastIndexOf('/') + 1);
+        return lastSegment.indexOf('.') < 0;
+    }
+
     // ================================ 扩展封禁规则缓存与匹配 ================================
 
     /**
@@ -590,6 +660,8 @@ public class SecurityFilter extends OncePerRequestFilter {
                 disabledAiCrawlerUa = disabled != null ? disabled : Set.of();
                 Set<String> disabledAutomation = cacheService.loadDisabledAutomationUa();
                 disabledAutomationUa = disabledAutomation != null ? disabledAutomation : Set.of();
+                Set<String> disabledHttpClient = cacheService.loadDisabledHttpClientUa();
+                disabledHttpClientUa = disabledHttpClient != null ? disabledHttpClient : Set.of();
                 lastRefreshAt = System.currentTimeMillis();
             } catch (Exception e) {
                 log.error("加载封禁规则缓存失败，保留旧缓存", e);

@@ -116,6 +116,23 @@ local AUTOMATION_UA_KEYWORDS_FALLBACK = {
     selenium = true, webdriver = true, phantomjs = true,
 }
 
+-- 脚本/命令行客户端 UA 前缀兜底常量：仅在快照未加载时使用。
+-- 运行时从 ban_rules_snapshot.builtin_http_client_ua 读取（由 Java CacheConstants.BUILTIN_HTTP_CLIENT_UA 写入）。
+-- 前缀匹配而非 contains：Apache-HttpClient 默认 UA 形如 "Apache-HttpClient/4.5.13 (Java/1.8.0_292)"，
+-- contains 匹配 "java/" 会误伤明确不在拦截范围内的 httpclient/okhttp 等应用侧客户端。
+local HTTP_CLIENT_UA_PREFIXES_FALLBACK = {
+    "curl", "wget", "python-requests", "python-urllib", "go-http-client",
+    "scrapy", "libwww-perl", "http.rb", "java-http-client", "java/",
+}
+
+-- HTTP 客户端拦截的豁免路径前缀（公共 URI 口径，与 Java 侧映射路径口径不同但效果一致）
+-- /api 同时覆盖前端接口与博客 CLI（CLI 走 /api/api/...），/payment 覆盖支付回调
+local HTTP_CLIENT_EXEMPT_PREFIXES = {
+    "/api", "/admin", "/user", "/python", "/login", "/callback", "/payment",
+    "/internal", "/actuator", "/ws", "/error", "/.well-known",
+    "/static", "/media", "/prerender", "/seo", "/rss", "/feed",
+}
+
 -- 健康检查路径豁免（避免监控探针被误拦截导致服务假死）
 local HEALTH_CHECK_PATHS_ANY_METHOD = {
     -- Actuator 健康检查可能用 GET 或 HEAD，均豁免
@@ -142,6 +159,9 @@ local cached_disabled_ai_ua = nil
 local cached_disabled_automation_ua = nil
 -- 内置自动化工具 UA 硬名单（从快照读取，nil 时使用 FALLBACK 常量）
 local cached_builtin_automation_ua = nil
+local cached_disabled_http_client_ua = nil
+-- 内置脚本/命令行客户端 UA 前缀（从快照读取，nil 时使用 FALLBACK 常量）
+local cached_builtin_http_client_ua = nil
 -- 本 worker 模块缓存的填充时间戳，用于检测其他 worker 是否已刷新 shared dict
 local module_cache_ts = 0
 
@@ -487,6 +507,8 @@ local function refresh_rules_if_needed(red)
         rules_cache:set("disabled_ai_ua", "")
         rules_cache:set("disabled_automation_ua", "")
         rules_cache:set("builtin_automation_ua", "")
+        rules_cache:set("disabled_http_client_ua", "")
+        rules_cache:set("builtin_http_client_ua", "")
         rules_cache:set("last_refresh", now)
         cached_ua_rules = {}
         cached_cidr_rules = {}
@@ -494,6 +516,8 @@ local function refresh_rules_if_needed(red)
         cached_disabled_ai_ua = {}
         cached_disabled_automation_ua = {}
         cached_builtin_automation_ua = nil
+        cached_disabled_http_client_ua = {}
+        cached_builtin_http_client_ua = nil
         return
     end
 
@@ -516,6 +540,10 @@ local function refresh_rules_if_needed(red)
     local disabled_automation_ua = rules.disabled_automation_ua or {}
     -- 内置自动化工具 UA 硬名单（由 Java 单一数据源写入）
     local builtin_automation_ua = rules.builtin_automation_ua or {}
+    -- 被管理员禁用的内置脚本客户端 UA 硬名单（小写字符串数组）
+    local disabled_http_client_ua = rules.disabled_http_client_ua or {}
+    -- 内置脚本客户端 UA 前缀（由 Java 单一数据源写入）
+    local builtin_http_client_ua = rules.builtin_http_client_ua or {}
 
     rules_cache:set("ua_rules", cjson.encode(ua_rules))
     rules_cache:set("cidr_rules", cjson.encode(cidr_rules))
@@ -523,6 +551,8 @@ local function refresh_rules_if_needed(red)
     rules_cache:set("disabled_ai_ua", cjson.encode(disabled_ai_ua))
     rules_cache:set("disabled_automation_ua", cjson.encode(disabled_automation_ua))
     rules_cache:set("builtin_automation_ua", cjson.encode(builtin_automation_ua))
+    rules_cache:set("disabled_http_client_ua", cjson.encode(disabled_http_client_ua))
+    rules_cache:set("builtin_http_client_ua", cjson.encode(builtin_http_client_ua))
     rules_cache:set("last_refresh", now)
 
     -- 同步更新模块级缓存：disabled 列表转为 set（key=小写UA, value=true）
@@ -545,6 +575,20 @@ local function refresh_rules_if_needed(red)
         if type(v) == "string" then builtin_set[string.lower(v)] = true end
     end
     cached_builtin_automation_ua = builtin_set
+    local http_client_disabled_set = {}
+    for _, v in ipairs(disabled_http_client_ua) do
+        if type(v) == "string" then http_client_disabled_set[string.lower(v)] = true end
+    end
+    cached_disabled_http_client_ua = http_client_disabled_set
+    -- 前缀列表保持数组语义；字段缺失或为空时置 nil 回退兜底常量，
+    -- 使 Nginx 先于 Java 升级时边缘拦截依然生效
+    local http_client_prefixes = {}
+    for _, v in ipairs(builtin_http_client_ua) do
+        if type(v) == "string" then
+            http_client_prefixes[#http_client_prefixes + 1] = string.lower(v)
+        end
+    end
+    cached_builtin_http_client_ua = (#http_client_prefixes > 0) and http_client_prefixes or nil
     module_cache_ts = now
 end
 
@@ -588,6 +632,9 @@ local function load_rules_from_cache()
     local builtin_arr = decode(rules_cache:get("builtin_automation_ua"))
     cached_builtin_automation_ua = (type(builtin_arr) == "table" and #builtin_arr > 0)
         and to_set(builtin_arr) or nil
+    cached_disabled_http_client_ua = to_set(decode(rules_cache:get("disabled_http_client_ua")))
+    local http_client_arr = decode(rules_cache:get("builtin_http_client_ua"))
+    cached_builtin_http_client_ua = (#http_client_arr > 0) and http_client_arr or nil
 
     module_cache_ts = shared_ts
     return ua, cidr, region
@@ -778,6 +825,79 @@ local function is_automation_tool_ua(ua_lower, disabled)
     return false
 end
 
+-- 读取被禁用的内置脚本客户端 UA 硬名单，返回 set（小写 => true）
+-- 优先走模块级缓存；冷启动 fallback 到 shared dict
+local function load_disabled_http_client_ua()
+    if cached_disabled_http_client_ua ~= nil then
+        return cached_disabled_http_client_ua
+    end
+    local s = rules_cache:get("disabled_http_client_ua")
+    if not s or s == "" then
+        cached_disabled_http_client_ua = {}
+        return cached_disabled_http_client_ua
+    end
+    local t = cjson.decode(s)
+    if not t or type(t) ~= "table" then
+        cached_disabled_http_client_ua = {}
+        return cached_disabled_http_client_ua
+    end
+    local set = {}
+    for _, v in ipairs(t) do
+        if type(v) == "string" then
+            set[string.lower(v)] = true
+        end
+    end
+    cached_disabled_http_client_ua = set
+    return set
+end
+
+-- 获取生效的脚本客户端 UA 前缀列表（优先快照，兜底 FALLBACK 常量）
+local function get_http_client_ua_prefixes()
+    if cached_builtin_http_client_ua ~= nil then
+        return cached_builtin_http_client_ua
+    end
+    -- 冷启动 fallback：从 shared dict 解码
+    local raw = rules_cache:get("builtin_http_client_ua")
+    if raw and raw ~= "" then
+        local t = cjson.decode(raw)
+        if t and type(t) == "table" and #t > 0 then
+            cached_builtin_http_client_ua = t
+            return t
+        end
+    end
+    -- 快照未加载，使用本地兜底常量
+    return HTTP_CLIENT_UA_PREFIXES_FALLBACK
+end
+
+-- 脚本/命令行客户端 UA 检查（前缀匹配，与 Java isHttpClientUa 逻辑一致）
+-- 不需要 Redis，纯字符串匹配，放在 Redis 连接之前以节省资源
+local function is_http_client_ua(ua_lower, disabled)
+    if not ua_lower or ua_lower == "" then return false end
+    for _, prefix in ipairs(get_http_client_ua_prefixes()) do
+        if not (disabled and disabled[prefix]) then
+            if string.sub(ua_lower, 1, #prefix) == prefix then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- 是否为前台内容页请求：GET + 末段无扩展名 + 不在豁免前缀内
+-- 与 Java isFrontendContentPage 逻辑一致：HEAD 探针与 POST 回调天然放行，
+-- 末段带扩展名的一律视为静态资源或机器可读文件（sitemap.xml/robots.txt/IndexNow key/前端 chunk）
+local function is_frontend_content_page(method, uri)
+    if method ~= "GET" or not uri or uri == "" then return false end
+    local uri_lower = string.lower(uri)
+    for _, prefix in ipairs(HTTP_CLIENT_EXEMPT_PREFIXES) do
+        if uri_lower == prefix or string.sub(uri_lower, 1, #prefix + 1) == prefix .. "/" then
+            return false
+        end
+    end
+    local last_segment = string.match(uri_lower, "([^/]*)$")
+    return not string.find(last_segment, ".", 1, true)
+end
+
 -- UA 封禁检查
 local function check_ua(ua_rules, ua, ip)
     local matched = ua_match(ua_rules, ua)
@@ -844,6 +964,14 @@ local function main()
     local disabled_automation = load_disabled_automation_ua()
     if is_automation_tool_ua(ua_lower, disabled_automation) then
         ngx.log(ngx.WARN, "ban_check: blocked automation tool UA=", ua, " IP=", ip)
+        return block_403()
+    end
+
+    -- 脚本/命令行客户端抓取前台内容页检查（纯 UA + 路径匹配，不需要 Redis）
+    -- 只拒绝本次请求，不写 IP 封禁：站长自己的监控/部署脚本也常用这类 UA
+    if is_frontend_content_page(method, uri)
+        and is_http_client_ua(ua_lower, load_disabled_http_client_ua()) then
+        ngx.log(ngx.WARN, "ban_check: blocked http client UA=", ua, " uri=", uri, " IP=", ip)
         return block_403()
     end
 

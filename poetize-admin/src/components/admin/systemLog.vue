@@ -308,7 +308,7 @@
                       type="danger"
                       disable-transitions
                       style="margin-left: 6px;"
-                      title="内置 AI 爬虫硬名单，可删除">
+                      title="内置硬名单，可删除">
                       内置
                     </el-tag>
                   </template>
@@ -332,7 +332,7 @@
               </el-table>
               <div class="blacklist-hint">
                 <i class="el-icon-info"></i>
-                安全黑名单由 SecurityFilter 在请求入口直接拦截（返回 403），来源：管理员手动拉黑 / 攻击阈值自动拉黑。默认 24 小时，可设永久。支持 IP / UA / IP 网段 / 省份 / 国家 多类型规则。带「内置」标签的为 AI 爬虫硬名单（永久生效），如对应 UA 弃用可直接删除。
+                安全黑名单由 SecurityFilter 在请求入口直接拦截（返回 403），来源：管理员手动拉黑 / 攻击阈值自动拉黑。默认 24 小时，可设永久。支持 IP / UA / IP 网段 / 省份 / 国家 多类型规则。带「内置」标签的为内置硬名单（永久生效），如对应 UA 弃用可直接删除。
               </div>
             </div>
           </el-tab-pane>
@@ -1274,7 +1274,7 @@ export default {
       }
       const typeLabel = this.getRuleTypeLabel(row);
       const confirmMsg = row.builtin
-        ? `「${row.value}」是内置 AI 爬虫硬名单，删除后 Nginx 与后端将不再自动拦截该爬虫（最多约 15 秒后生效）。确定删除？`
+        ? `「${row.value}」是内置硬名单，删除后 Nginx 与后端将不再自动拦截该 UA（最多约 15 秒后生效）。确定删除？`
         : `确定要解除该${typeLabel}封禁规则吗？规则值：${row.value}`;
       this.$confirm(
         confirmMsg,

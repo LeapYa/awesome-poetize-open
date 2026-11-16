@@ -47,6 +47,28 @@ public class CacheConstants {
     public static final String DISABLED_AUTOMATION_UA_KEY = "poetize:security:disabled_automation_ua";
 
     /**
+     * 内置非浏览器 HTTP 客户端 UA 硬名单（脚本/命令行类，只拦截前台内容页的 GET 请求）。
+     * <p>作为唯一数据源被 {@link com.ld.poetry.config.SecurityFilter} 引用；
+     * 同时通过 {@link com.ld.poetry.service.CacheService#refreshBanRulesSnapshot()} 写入
+     * ban_rules_snapshot 的 {@code builtin_http_client_ua} 字段，供 Nginx Lua 读取。
+     * <p>匹配口径是「UA 前缀」而非 contains：Apache-HttpClient 默认 UA 形如
+     * {@code Apache-HttpClient/4.5.13 (Java/1.8.0_292)}，用 contains 匹配 "java/" 会连带误伤
+     * 明确不在拦截范围内的 httpclient/okhttp 等应用侧客户端。
+     * <p>命中只拒绝本次请求（403），不写入 IP 封禁；管理员可单独删除
+     * （删除即写入 {@link #DISABLED_HTTP_CLIENT_UA_KEY} 禁用集合，匹配时跳过）。
+     */
+    public static final List<String> BUILTIN_HTTP_CLIENT_UA = List.of(
+            "curl", "wget", "python-requests", "python-urllib", "go-http-client",
+            "scrapy", "libwww-perl", "http.rb", "java-http-client", "java/");
+
+    /**
+     * 已被管理员禁用的内置 HTTP 客户端 UA 硬名单集合缓存键（存 JSON 字符串数组，永久有效）。
+     * <p>命中该集合的内置硬名单在 Java / Nginx 匹配时跳过，并从封禁列表中隐藏。
+     * 格式: poetize:security:disabled_http_client_ua
+     */
+    public static final String DISABLED_HTTP_CLIENT_UA_KEY = "poetize:security:disabled_http_client_ua";
+
+    /**
      * 访问统计忽略 IP 列表缓存键。
      * <p>存储 JSON 字符串数组（小写已规范化 IP），永久有效，由后台管理接口维护。
      * 命中该集合的 IP 不参与站点访问统计。

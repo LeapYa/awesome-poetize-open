@@ -1,7 +1,6 @@
 package com.ld.poetry.controller;
 
 import cn.hutool.core.util.StrUtil;
-import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ld.poetry.aop.LoginCheck;
@@ -23,11 +22,11 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -42,6 +41,10 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/webInfo")
 public class ResourceAggregationController {
+
+    /** listResourcePath 允许的排序列，order 参数会拼进 ORDER BY，必须先过白名单 */
+    private static final Set<String> RESOURCE_PATH_ORDER_COLUMNS = Set.of(
+            "id", "title", "classify", "type", "status", "priority", "create_time");
 
     @Autowired
     private ResourcePathMapper resourcePathMapper;
@@ -422,16 +425,20 @@ public class ResourceAggregationController {
             wrapper.eq(baseRequestVO.getStatus() != null, ResourcePath::getStatus, baseRequestVO.getStatus());
         }
 
-        OrderItem orderItem = new OrderItem();
-        orderItem.setColumn(StringUtils.hasText(baseRequestVO.getOrder()) ? StrUtil.toUnderlineCase(baseRequestVO.getOrder()) : "create_time");
-        orderItem.setAsc(!baseRequestVO.isDesc());
-        List<OrderItem> orderItemList = new ArrayList<>();
-        orderItemList.add(orderItem);
-        
         // 创建Page对象并设置排序
         Page<ResourcePath> page = new Page<>(baseRequestVO.getCurrent(), baseRequestVO.getSize());
-        page.setOrders(orderItemList);
-        
+        // 优先级始终是第一排序关键字，请求的排序列只作为同优先级内的兜底：
+        // 趣味页固定传 order=title，若让它独占 ORDER BY 会把手动排序完全顶掉。
+        // 排序列走白名单后才拼进 SQL，非法值退回默认口径。
+        String orderColumn = StrUtil.toUnderlineCase(
+                baseRequestVO.getOrder() == null ? "" : baseRequestVO.getOrder().trim());
+        if (RESOURCE_PATH_ORDER_COLUMNS.contains(orderColumn)) {
+            wrapper.last(CommonConst.RESOURCE_PATH_ORDER_PRIORITY_PREFIX + orderColumn
+                    + (baseRequestVO.isDesc() ? " DESC" : " ASC"));
+        } else {
+            wrapper.last(CommonConst.RESOURCE_PATH_ORDER_PRIORITY_CREATE_TIME);
+        }
+
         // 执行分页查询
         Page<ResourcePath> resultPage = wrapper.page(page);
         
@@ -521,7 +528,7 @@ public class ResourceAggregationController {
             List<ResourcePath> contacts = new LambdaQueryChainWrapper<>(resourcePathMapper)
                 .eq(ResourcePath::getType, CommonConst.RESOURCE_PATH_TYPE_CONTACT)
                 .eq(ResourcePath::getStatus, Boolean.TRUE)
-                .orderByAsc(ResourcePath::getCreateTime)
+                .last(CommonConst.RESOURCE_PATH_ORDER_PRIORITY_CREATE_TIME)
                 .list();
             result.put("contactList", contacts.stream().map(this::toResourcePathVO).collect(Collectors.toList()));
         } catch (Exception e) {
@@ -532,7 +539,7 @@ public class ResourceAggregationController {
             List<ResourcePath> quickEntries = new LambdaQueryChainWrapper<>(resourcePathMapper)
                 .eq(ResourcePath::getType, CommonConst.RESOURCE_PATH_TYPE_QUICK_ENTRY)
                 .eq(ResourcePath::getStatus, Boolean.TRUE)
-                .orderByAsc(ResourcePath::getCreateTime)
+                .last(CommonConst.RESOURCE_PATH_ORDER_PRIORITY_CREATE_TIME)
                 .list();
             result.put("quickEntryList", quickEntries.stream().map(this::toResourcePathVO).collect(Collectors.toList()));
         } catch (Exception e) {

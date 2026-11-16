@@ -77,6 +77,13 @@ public class ResourcePath implements Serializable {
     private String introduction;
 
     /**
+     * 排序优先级：数字小的在前面，未填写的按原有顺序排在后面。
+     * ALWAYS 策略让清空排序号能写回 NULL，默认 NOT_NULL 会跳过 null 字段导致清不掉。
+     */
+    @TableField(value = "priority", updateStrategy = FieldStrategy.ALWAYS)
+    private Integer priority;
+
+    /**
      * 创建时间
      */
     @TableField("create_time")

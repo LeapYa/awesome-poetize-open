@@ -262,6 +262,22 @@ public class CommonConst {
     public static final String RESOURCE_PATH_TYPE_ASIDE_BACKGROUND = "asideBackground";
 
     /**
+     * 资源聚合排序前缀：优先级小的在前，未填写(NULL)的排最后，后面接同优先级内的兜底排序列。
+     * 走 last() 而非 orderBy，因为"NULL 排最后"需要表达式，Lambda 排序列表达不了。
+     */
+    public static final String RESOURCE_PATH_ORDER_PRIORITY_PREFIX = "ORDER BY (priority IS NULL), priority, ";
+
+    /**
+     * 资源聚合排序：同优先级按创建时间兜底
+     */
+    public static final String RESOURCE_PATH_ORDER_PRIORITY_CREATE_TIME = RESOURCE_PATH_ORDER_PRIORITY_PREFIX + "create_time";
+
+    /**
+     * 资源聚合排序：同优先级按标题兜底（收藏夹、趣味原有口径）
+     */
+    public static final String RESOURCE_PATH_ORDER_PRIORITY_TITLE = RESOURCE_PATH_ORDER_PRIORITY_PREFIX + "title";
+
+    /**
      * 微言
      */
     public static final String WEIYAN_TYPE_FRIEND = "friend";

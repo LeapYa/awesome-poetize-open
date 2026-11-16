@@ -55,6 +55,11 @@ public class ResourcePathVO {
     private String introduction;
 
     /**
+     * 排序优先级：数字小的在前面，未填写的按原有顺序排在后面
+     */
+    private Integer priority;
+
+    /**
      * 创建时间
      */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")

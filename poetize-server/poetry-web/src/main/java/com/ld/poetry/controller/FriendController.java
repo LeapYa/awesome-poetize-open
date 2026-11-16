@@ -130,7 +130,7 @@ public class FriendController {
         LambdaQueryChainWrapper<ResourcePath> wrapper = new LambdaQueryChainWrapper<>(resourcePathMapper);
         List<ResourcePath> resourcePaths = wrapper.eq(ResourcePath::getType, CommonConst.RESOURCE_PATH_TYPE_FRIEND)
                 .eq(ResourcePath::getStatus, Boolean.TRUE)
-                .orderByAsc(ResourcePath::getCreateTime)
+                .last(CommonConst.RESOURCE_PATH_ORDER_PRIORITY_CREATE_TIME)
                 .list();
         Map<String, List<ResourcePathVO>> collect = new HashMap<>();
         if (!CollectionUtils.isEmpty(resourcePaths)) {

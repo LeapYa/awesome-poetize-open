@@ -52,7 +52,7 @@ public class CollectController {
         LambdaQueryChainWrapper<ResourcePath> wrapper = new LambdaQueryChainWrapper<>(resourcePathMapper);
         List<ResourcePath> resourcePaths = wrapper.eq(ResourcePath::getType, CommonConst.RESOURCE_PATH_TYPE_FAVORITES)
                 .eq(ResourcePath::getStatus, Boolean.TRUE)
-                .orderByAsc(ResourcePath::getTitle)
+                .last(CommonConst.RESOURCE_PATH_ORDER_PRIORITY_TITLE)
                 .list();
         Map<String, List<ResourcePathVO>> collect = new HashMap<>();
         if (!CollectionUtils.isEmpty(resourcePaths)) {

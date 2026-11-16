@@ -23,6 +23,7 @@
       </div>
       <el-table :data="filteredResourcePaths" border class="table" header-cell-class-name="table-header">
         <el-table-column prop="id" label="ID" width="55" align="center"></el-table-column>
+        <el-table-column prop="priority" label="优先级" width="80" align="center"></el-table-column>
         <el-table-column prop="title" label="标题" align="center"></el-table-column>
         <el-table-column prop="classify" label="分类" align="center"></el-table-column>
         <el-table-column prop="introduction" label="简介" align="center"></el-table-column>
@@ -294,8 +295,17 @@
             </span>
           </div>
           <el-input :disabled="resourcePath.type === 'quickEntry' || resourcePath.type === 'contact' || resourcePath.type === 'asideBackground'"
-                    maxlength="1000" v-model="resourcePath.remark" type="textarea" 
+                    maxlength="1000" v-model="resourcePath.remark" type="textarea"
                     :placeholder="(resourcePath.type === 'quickEntry' || resourcePath.type === 'contact' || resourcePath.type === 'asideBackground') ? '自动生成，请勿手动填写' : ''"></el-input>
+          <template v-if="!['siteInfo', 'asideBackground'].includes(resourcePath.type)">
+            <div style="margin-top: 10px;margin-bottom: 5px">
+              优先级：
+              <span style="color: #909399; font-size: 12px;">
+                （可选，数字小的在前面，留空则排在已填写的后面）
+              </span>
+            </div>
+            <el-input type="number" v-model="resourcePath.priority" placeholder="请输入整数，数字小的在前面"></el-input>
+          </template>
         </div>
         <div style="display: flex;margin-top: 30px" class="myCenter">
           <proButton :info="'提交'"
@@ -352,6 +362,7 @@
           url: "",
           type: "",
           remark: "",
+          priority: null,
           btnWidth: "",
           btnHeight: "",
           btnRadius: "",
@@ -563,6 +574,9 @@
         if (payload.type === 'asideBackground') {
           payload.title = '侧边栏背景';
         }
+        // type=number 的 v-model 是字符串，留空或非法值统一转 null，表示不参与手动排序
+        const priority = parseInt(payload.priority, 10);
+        payload.priority = Number.isNaN(priority) ? null : priority;
         this.$http.post(this.$constant.baseURL + "/webInfo/" + (this.isUpdate ? "updateResourcePath" : "saveResourcePath"), payload, true)
           .then((res) => {
             this.$message({
@@ -687,6 +701,7 @@
           url: "",
           type: "",
           remark: "",
+          priority: null,
           btnWidth: "",
           btnHeight: "",
           btnRadius: "",

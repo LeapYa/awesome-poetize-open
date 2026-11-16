@@ -213,6 +213,7 @@ CREATE TABLE `poetize`.`resource_path` (
   `type` varchar(32) NOT NULL COMMENT '资源类型',
   `status` tinyint(1) NOT NULL DEFAULT 1 COMMENT '是否启用[0:否，1:是]',
   `remark` text DEFAULT NULL COMMENT '备注',
+  `priority` int DEFAULT NULL COMMENT '排序优先级：数字小的在前面，未填写的按原有顺序排在后面',
 
   `create_time` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
 

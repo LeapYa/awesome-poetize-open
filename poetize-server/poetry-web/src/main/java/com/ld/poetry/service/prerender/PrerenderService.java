@@ -902,9 +902,9 @@ public class PrerenderService {
         wrapper.eq(ResourcePath::getType, type)
                 .eq(ResourcePath::getStatus, Boolean.TRUE);
         if (orderByCreateTime) {
-            wrapper.orderByAsc(ResourcePath::getCreateTime);
+            wrapper.last(CommonConst.RESOURCE_PATH_ORDER_PRIORITY_CREATE_TIME);
         } else {
-            wrapper.orderByAsc(ResourcePath::getTitle);
+            wrapper.last(CommonConst.RESOURCE_PATH_ORDER_PRIORITY_TITLE);
         }
 
         List<ResourcePath> resourcePaths = wrapper.list();

@@ -571,6 +571,7 @@ class SecurityFilterBanRuleTest {
         String[] paths = {"/static/articleFile/2025/01/backup.zip", "/static/articleFile/config/b.sql",
                 "/static/articleFile/demo/server.key", "/static/articleFile/demo/cert.pem",
                 "/static/articleFile/demo/app.js.map", "/static/articleFile/demo/dump.tar.gz",
+                "/static/articleFile/demo/pack.tgz", "/static/articleFile/demo/app.jar",
                 "/static/articleFile/2025/01/report.pdf"};
         for (String path : paths) {
             MockHttpServletRequest request = newRequest("1.2.3.4", BROWSER_UA);
@@ -582,6 +583,80 @@ class SecurityFilterBanRuleTest {
 
             assertEquals(200, response.getStatus(), "附件应放行: " + path);
             verify(chain).doFilter(request, response);
+        }
+    }
+
+    @Test
+    @DisplayName("尾点与 /. 段变体仍命中：换尾巴不能绕过精确集合与后缀检测")
+    void maliciousPaths_trailingDotVariants_return404() throws Exception {
+        String[] paths = {"/backup.zip.", "/backup.zip/.", "/backup.zip/./", "/server.key/.",
+                "/dump.sql.", "/dump.tar.gz/.", "/app.js.map.", "/id_rsa.pem/.",
+                "/.well-known/jwks.json.", "/.well-known/jwks.json/.",
+                "/webhooks.", "/webhooks/.", "/server-status/.", "/server-info.",
+                "/openapi.json.", "/v1/graphql/.", "/api/graphql.", "/actuator/env/."};
+        for (String path : paths) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", BROWSER_UA);
+            request.setRequestURI(path);
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(404, response.getStatus(), "尾点变体应拦截: " + path);
+            verify(chain, never()).doFilter(request, response);
+        }
+    }
+
+    @Test
+    @DisplayName("归档后缀与 nginx 名单对齐：tgz/tar/rar/7z/bz2/jar/war 均拦截")
+    void sensitiveExtensions_archiveSuffixes_return404() throws Exception {
+        String[] paths = {"/backup.tgz", "/backup.tar", "/backup.rar", "/backup.7z",
+                "/backup.bz2", "/backup.jar", "/backup.war"};
+        for (String path : paths) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", BROWSER_UA);
+            request.setRequestURI(path);
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(404, response.getStatus(), "归档后缀应拦截: " + path);
+            verify(chain, never()).doFilter(request, response);
+        }
+    }
+
+    @Test
+    @DisplayName("预压缩静态产物必须放行：.gz 不得进入敏感后缀名单")
+    void precompressedAssets_mustNotBeBlocked() throws Exception {
+        String[] paths = {"/assets/index-abc123.js.gz", "/assets/app-def456.css.gz",
+                "/admin/map/world-cn.json.gz", "/assets/app.js.map.gz", "/sitemap.xml.gz"};
+        for (String path : paths) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", BROWSER_UA);
+            request.setRequestURI(path);
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(200, response.getStatus(), "预压缩资源应放行: " + path);
+            verify(chain).doFilter(request, response);
+        }
+    }
+
+    @Test
+    @DisplayName("剥尾点不得吞掉 .. ：路径遍历特征仍被拦截")
+    void trailingDotStrip_mustPreserveTraversalDetection() throws Exception {
+        String[] paths = {"/foo/..", "/static/..", "/backup.zip..", "/static/../.env"};
+        for (String path : paths) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", BROWSER_UA);
+            request.setRequestURI(path);
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(404, response.getStatus(), "遍历特征应拦截: " + path);
+            verify(chain, never()).doFilter(request, response);
         }
     }
 

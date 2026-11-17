@@ -98,9 +98,11 @@ public class SecurityFilter extends OncePerRequestFilter {
     private static final int MAX_PATH_DECODE_ROUNDS = 5;
 
     // 敏感文件扩展名（精确匹配后缀）
+    // 刻意不含 .gz：nginx 显式放行 .json.gz/.js.gz/.map.gz 等预压缩静态产物，封 .gz 会打断 gzip 资源
     private static final Set<String> SENSITIVE_EXTENSIONS = Set.of(
             ".sql", ".bak", ".backup", ".old", ".tmp", ".log",
-            ".key", ".pem", ".map", ".zip", ".tar.gz");
+            ".key", ".pem", ".map", ".zip", ".tar.gz",
+            ".tgz", ".tar", ".rar", ".7z", ".bz2", ".jar", ".war");
 
     // 用户上传的编辑器附件目录（小写）：nginx 的后缀封禁规则同样显式排除该前缀，
     // 且 location /static 对存在的上传文件 proxy_pass 到 Java 做资源状态门控，
@@ -352,7 +354,7 @@ public class SecurityFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 路径归一化：反复做百分号解码，折叠重复斜杠，去掉末尾斜杠。
+     * 路径归一化：反复做百分号解码，折叠重复斜杠，去掉末尾斜杠与点段。
      *
      * <p>使用 {@link URLDecoder} 前先把字面量 '+' 编码为 %2B，避免路径中的 '+' 被
      * 表单语义错误地还原成空格。非法百分号编码会抛出 {@link IllegalArgumentException}，
@@ -377,10 +379,32 @@ public class SecurityFilter extends OncePerRequestFilter {
         current = collapseSlashes(current);
         current = stripPathParams(current);
         current = truncateAtControlChar(current);
-        while (current.length() > 1 && current.endsWith("/")) {
-            current = current.substring(0, current.length() - 1);
+        return stripTrailingSlashesAndDots(current);
+    }
+
+    /**
+     * 去掉末尾的斜杠、{@code /.} 段与单个尾点：{@code /backup.zip/}、{@code /backup.zip/.}、
+     * {@code /backup.zip.} 都必须按 {@code /backup.zip} 参与匹配，否则换尾巴即可绕过精确集合与后缀检测。
+     *
+     * <p>只剥单个尾点：{@code ..} 原样保留，交给 {@link #isPathTraversal} 判定，
+     * 避免 {@code /foo/..} 被归一化后丢掉攻击特征。
+     */
+    private static String stripTrailingSlashesAndDots(String value) {
+        String current = value;
+        while (current.length() > 1) {
+            if (current.endsWith("/")) {
+                current = current.substring(0, current.length() - 1);
+            } else if (current.endsWith("/.")) {
+                current = current.substring(0, current.length() - 2);
+            } else if (current.endsWith(".")
+                    && current.charAt(current.length() - 2) != '.'
+                    && current.charAt(current.length() - 2) != '/') {
+                current = current.substring(0, current.length() - 1);
+            } else {
+                break;
+            }
         }
-        return current;
+        return current.isEmpty() ? "/" : current;
     }
 
     /**

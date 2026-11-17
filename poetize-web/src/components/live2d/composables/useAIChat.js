@@ -5,6 +5,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useAIChatStore } from '@/stores/aiChat'
 import { loadMarkdownResources } from '@/utils/resourceLoaders/resourceLoader'
+import router from '@/router'
 
 export function useAIChat() {
   const store = useAIChatStore()
@@ -96,8 +97,13 @@ export function useAIChat() {
         // 其余错误——本地校验（消息过长/内容过滤/本地限频）与后端返回的精细原因
         // （超时/限流/内容审核/上下文超限/网络等）——一律以 system 提示条呈现
         if (result.error === 'require_login') {
+          // 携带当前页面路径作为 redirect，登录成功后回到原页面而非首页
+          const currentPath =
+            router.currentRoute?.value?.fullPath ||
+            window.location.pathname + window.location.search
+          const loginUrl = `/user?redirect=${encodeURIComponent(currentPath)}`
           store.addMessage(
-            `💡 提示：这个功能需要登录后才能使用哦～ [点击这里登录](/user) 就能体验所有功能啦！✨`,
+            `💡 提示：这个功能需要登录后才能使用哦～ [点击这里登录](${loginUrl}) 就能体验所有功能啦！✨`,
             'assistant'
           )
         } else {

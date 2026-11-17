@@ -72,7 +72,8 @@ public class QQOAuthProvider extends OAuth2Provider {
             headers.add("Accept", "text/html");
 
             HttpEntity<String> request = new HttpEntity<>(headers);
-            ResponseEntity<String> response = restTemplate.exchange(tokenUrl, HttpMethod.GET, request, String.class);
+            ResponseEntity<String> response = executeWithNetworkRetry(
+                    () -> restTemplate.exchange(tokenUrl, HttpMethod.GET, request, String.class));
 
             if (response.getStatusCode() == HttpStatus.OK) {
                 String responseBody = response.getBody();

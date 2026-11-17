@@ -296,3 +296,6 @@ oauth:
     domain: ${OAUTH_PROXY_DOMAIN:}  # 可选的代理域名（用于海外平台）
   state:
     ttl: 600  # State token有效期（秒），默认10分钟
+  http:
+    connect-timeout: ${OAUTH_HTTP_CONNECT_TIMEOUT:3000}  # 连接超时（毫秒）
+    read-timeout: ${OAUTH_HTTP_READ_TIMEOUT:8000}  # 读取超时（毫秒），走代理的海外平台可调大

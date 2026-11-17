@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.UriUtils;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -40,6 +41,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/oauth")
 public class OAuthLoginController {
+
+    private static final String AUTO_REAUTH_SESSION_PREFIX = "oauth_auto_reauth_";
 
     @Autowired
     private OAuthProviderFactory providerFactory;
@@ -177,9 +180,16 @@ public class OAuthLoginController {
             Map<String, Object> stateData = stateService.verifyAndConsumeState(state, provider);
             if (stateData == null) {
                 log.warn("state验证失败: provider={}", provider);
+                // token超时后用户刷新会重放已消费的state，自动重新授权一次避免次生错误
+                if (StringUtils.hasText(code) && markAutoReauth(request, provider)) {
+                    log.info("state失效，自动重新发起授权: provider={}", provider);
+                    response.sendRedirect("/oauth/login/" + UriUtils.encodePathSegment(provider, StandardCharsets.UTF_8));
+                    return;
+                }
                 redirectToError(response, "安全验证失败，请重新授权", provider);
                 return;
             }
+            clearAutoReauth(request, provider);
 
             // 验证授权码
             if (!StringUtils.hasText(code)) {
@@ -399,6 +409,27 @@ public class OAuthLoginController {
     private String getSessionId(HttpServletRequest request) {
         HttpSession session = request.getSession(true);
         return session.getId();
+    }
+
+    /**
+     * 标记自动重新授权，同一session仅允许一次，防止失效state循环重定向
+     */
+    private boolean markAutoReauth(HttpServletRequest request, String provider) {
+        HttpSession session = request.getSession(true);
+        String key = AUTO_REAUTH_SESSION_PREFIX + provider;
+        if (session.getAttribute(key) != null) {
+            session.removeAttribute(key);
+            return false;
+        }
+        session.setAttribute(key, Boolean.TRUE);
+        return true;
+    }
+
+    private void clearAutoReauth(HttpServletRequest request, String provider) {
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.removeAttribute(AUTO_REAUTH_SESSION_PREFIX + provider);
+        }
     }
 
     /**

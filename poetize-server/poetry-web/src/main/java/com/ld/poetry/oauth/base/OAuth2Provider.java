@@ -13,6 +13,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -20,6 +21,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.function.Supplier;
 
 /**
  * OAuth 2.0 提供商抽象基类
@@ -118,7 +120,8 @@ public abstract class OAuth2Provider implements BaseOAuthProvider {
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
 
             log.debug("获取访问令牌: provider={}, tokenUrl={}", getProviderName(), tokenUrl);
-            ResponseEntity<String> response = restTemplate.postForEntity(tokenUrl, request, String.class);
+            ResponseEntity<String> response = executeWithNetworkRetry(
+                    () -> restTemplate.postForEntity(tokenUrl, request, String.class));
 
             if (response.getStatusCode() == HttpStatus.OK) {
                 String responseBody = response.getBody();
@@ -153,6 +156,25 @@ public abstract class OAuth2Provider implements BaseOAuthProvider {
         } catch (RestClientException e) {
             log.error("获取访问令牌网络错误: provider={}", getProviderName(), e);
             throw new TokenException("网络请求失败", getProviderName(), e);
+        }
+    }
+
+    /**
+     * 执行token请求，仅网络层异常（连接/读超时）时500ms后重试一次。
+     * 读超时后授权码可能已被平台消费，重试会快速失败，仍优于让游客干等超时。
+     */
+    protected ResponseEntity<String> executeWithNetworkRetry(Supplier<ResponseEntity<String>> request) {
+        try {
+            return request.get();
+        } catch (ResourceAccessException e) {
+            log.warn("token请求网络异常，500ms后重试一次: provider={}", getProviderName(), e);
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw e;
+            }
+            return request.get();
         }
     }
 

@@ -1,6 +1,7 @@
 package com.ld.poetry.config;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.ClientHttpRequestFactory;
@@ -18,6 +19,12 @@ import java.net.Proxy;
 @Configuration
 public class OAuthRestTemplateConfig {
 
+    @Value("${oauth.http.connect-timeout:3000}")
+    private int connectTimeout;
+
+    @Value("${oauth.http.read-timeout:8000}")
+    private int readTimeout;
+
     /**
      * 创建OAuth专用的RestTemplate
      * 配置适当的超时时间和网络设置
@@ -26,7 +33,7 @@ public class OAuthRestTemplateConfig {
     public RestTemplate oauthRestTemplate() {
         RestTemplate restTemplate = new RestTemplate();
         restTemplate.setRequestFactory(createRequestFactory());
-        
+
         log.info("OAuth RestTemplate配置完成");
         return restTemplate;
     }
@@ -37,16 +44,14 @@ public class OAuthRestTemplateConfig {
     private ClientHttpRequestFactory createRequestFactory() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
 
-        // 优化超时设置：减少连接超时，避免长时间等待
-        factory.setConnectTimeout(10000);  // 10秒连接超时
-
-        // 优化读取超时：GitHub API通常响应很快
-        factory.setReadTimeout(15000);     // 15秒读取超时
+        // 默认收紧超时让瞬时抖动快速失败；走代理的海外平台可通过配置调大
+        factory.setConnectTimeout(connectTimeout);
+        factory.setReadTimeout(readTimeout);
 
         // 检查是否需要配置代理
         configureProxy(factory);
 
-        log.info("OAuth HTTP请求工厂配置: connectTimeout=10s, readTimeout=15s");
+        log.info("OAuth HTTP请求工厂配置: connectTimeout={}ms, readTimeout={}ms", connectTimeout, readTimeout);
         return factory;
     }
 

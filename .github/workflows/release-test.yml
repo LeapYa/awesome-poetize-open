@@ -169,7 +169,7 @@ jobs:
           docker ps -a
           
           # 健康检查
-          curl -f http://localhost:80/ || echo "Frontend check completed"
+          curl -f -A "Poetize-Deploy-Check/1.0" http://localhost:80/ || echo "Frontend check completed"
           curl -f http://localhost:80/internal/monitor/health || echo "Backend health check completed"
 
       - name: Test fresh install (if no previous version)
@@ -182,7 +182,7 @@ jobs:
           
           sleep 60
           docker ps -a
-          curl -f http://localhost:80/ || echo "Frontend check completed"
+          curl -f -A "Poetize-Deploy-Check/1.0" http://localhost:80/ || echo "Frontend check completed"
 
       - name: Delete tag on failure
         if: failure()

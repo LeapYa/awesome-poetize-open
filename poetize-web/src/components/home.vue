@@ -986,7 +986,8 @@ export default {
 
             // 文章页、分类页、友人帐页自行管理标题，避免异步配置覆盖页面标题
             const path = this.$route.path
-            const selfManaged = path.startsWith('/article/') || path.startsWith('/sort/') || path === '/friends'
+            const selfManaged = path.startsWith('/article/') || path.startsWith('/sort/')
+              || path === '/friends' || path.startsWith('/friends/')
             if (originalWebTitle && !selfManaged) {
               document.title = originalWebTitle
               window.OriginTitile = originalWebTitle
@@ -1029,7 +1030,8 @@ export default {
 
             // 更新浏览器标签栏标题；文章页、分类页和友人帐页自行管理
             const path = this.$route.path
-            const selfManaged = path.startsWith('/article/') || path.startsWith('/sort/') || path === '/friends'
+            const selfManaged = path.startsWith('/article/') || path.startsWith('/sort/')
+              || path === '/friends' || path.startsWith('/friends/')
             if (originalWebTitle && !selfManaged) {
               document.title = originalWebTitle
               // 同时更新title.js中保存的原始标题

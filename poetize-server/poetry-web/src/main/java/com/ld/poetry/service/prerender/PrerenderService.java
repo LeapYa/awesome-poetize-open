@@ -361,14 +361,13 @@ public class PrerenderService {
 
         String friendsContent = "<div class=\"friends-prerender\"><h1>" + text(friendsPageName) + "</h1><p>留下你的网站吧，让我们建立友谊的桥梁</p>"
                 + renderFriendGroup("🌟青出于蓝", eliteFriendsKey == null ? List.of() : friends.get(eliteFriendsKey))
-                + renderFriendGroup("🥇友情链接", regularFriendsKey == null ? List.of() : friends.get(regularFriendsKey))
+                + renderRegularFriendGroup("🥇友情链接", regularFriendsKey == null ? List.of() : friends.get(regularFriendsKey))
                 + "<h2>✉️ 申请方式</h2><div><p>1. 添加本站链接</p><p>首先将本站链接添加至您的网站，信息如下：</p><p>网站名称："
                 + text(firstNonBlank(siteInfo.getTitle(), siteName))
                 + "</p><p>网站地址：" + text(baseUrl)
                 + "</p><p>网站描述：" + text(firstNonBlank(siteInfo.getIntroduction(), webInfo.getWebTitle(), siteName))
                 + "</p><p>网站封面：" + text(firstNonBlank(siteInfo.getRemark(), siteInfo.getCover(), ""))
                 + "</p></div><div><p>2. 提交申请</p><p>点击下方信封 📮 填写您的网站信息提交申请</p></div><div><p>3. 等待审核</p><p>审核通过后将会添加至该页面中，请耐心等待</p></div><h2>⚠️ 温馨提示</h2><ul><li>不会添加带有广告营销和没有实质性内容的友链</li><li>申请之前请将本网站添加为您的友链</li><li>审核时间一般在一周内，请耐心等待</li></ul>"
-                + (eliteFriendsKey == null && regularFriendsKey == null ? "<p>暂无友链，欢迎交换友链</p>" : "")
                 + "<div id=\"dynamic-content-placeholder\" style=\"display:none;\"><script>window.PRERENDER_DATA = {type: 'friends',lang: '" + sourceLanguage + "',timestamp: "
                 + System.currentTimeMillis() + "};</script></div></div>";
 
@@ -970,8 +969,7 @@ public class PrerenderService {
             return "";
         }
 
-        StringBuilder sb = new StringBuilder("<h2>").append(title).append("</h2><ul>");
-        for (ResourcePathVO friend : friends) {
+        StringBuilder sb = new StringBuilder("<h2>").append(title).append("</h2><ul>");        for (ResourcePathVO friend : friends) {
             String label = text(friend.getTitle()) + " - " + text(friend.getIntroduction());
             // 历史数据里可能残留 javascript:/data: 等伪协议，预渲染时降级为纯文本，不写入 href
             String url = ExternalUrlUtil.normalizeHttpUrl(friend.getUrl());
@@ -983,6 +981,16 @@ public class PrerenderService {
                     .append(attr(friend.getIntroduction())).append("\">").append(label).append("</a></li>");
         }
         return sb.append("</ul>").toString();
+    }
+
+    /**
+     * 常驻分组：友情链接板块始终输出标题，空列表时给占位文案，与前端 friend.vue 行为一致。
+     */
+    private String renderRegularFriendGroup(String title, List<ResourcePathVO> friends) {
+        if (CollectionUtils.isEmpty(friends)) {
+            return "<h2>" + title + "</h2><p>暂无友链，欢迎交换友链</p>";
+        }
+        return renderFriendGroup(title, friends);
     }
 
     private String getNavigationName(WebInfo webInfo, String link, String fallback) {

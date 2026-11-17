@@ -2,19 +2,29 @@
   <div>
     <div class="friend-wrap">
       <div class="friend-main">
-        <h2 style="font-size: 24px">🌟青出于蓝</h2>
-        <card
-          :resourcePathList="eliteFriends"
-        ></card>
+        <!-- 分组下没有友链时整块隐藏，避免出现空标题 -->
+        <div v-if="eliteFriends.length">
+          <h2 style="font-size: 24px">🌟青出于蓝</h2>
+          <card
+            :resourcePathList="eliteFriends"
+          ></card>
+          <hr />
+        </div>
 
-        <hr />
-
-        <h2 style="font-size: 24px; margin-top: 60px">🥇友情链接</h2>
-        <card
-          :resourcePathList="regularFriends"
-        ></card>
-
-        <hr />
+        <!-- 友情链接板块常驻：没有友链时保留标题并显示占位提示 -->
+        <div>
+          <h2 style="font-size: 24px; margin-top: 60px">🥇友情链接</h2>
+          <card
+            :resourcePathList="regularFriends"
+          ></card>
+          <p
+            v-if="!regularFriends.length"
+            style="font-size: 14px; color: var(--greyFont); margin: 0"
+          >
+            暂无友链，欢迎交换友链
+          </p>
+          <hr />
+        </div>
 
         <div style="font-size: 24px; font-weight: bold; margin-top: 60px">
           ✉️ 申请方式

@@ -232,6 +232,34 @@ class PrerenderServiceTest {
     }
 
     @Test
+    void renderFriendsPageShouldHideEmptyEliteGroupAndKeepRegularGroup() {
+        WebInfo webInfo = new WebInfo();
+        webInfo.setWebTitle("Example Site");
+        webInfo.setSiteAddress("https://example.com");
+        stubRenderFriendsPageDependencies(webInfo);
+
+        service.renderFriendsPage();
+
+        // 精选组为空时整块隐藏；友情链接组常驻，空列表给占位文案，与前端 friend.vue 对齐
+        PrerenderPageData pageData = captureFriendsPageBuildPageArgument();
+        assertFalse(pageData.getContent().contains("🌟青出于蓝"), pageData.getContent());
+        assertTrue(pageData.getContent().contains("<h2>🥇友情链接</h2>"), pageData.getContent());
+        assertTrue(pageData.getContent().contains("暂无友链，欢迎交换友链"), pageData.getContent());
+        // 申请方式一节始终保留，页面不是空的
+        assertTrue(pageData.getContent().contains("✉️ 申请方式"), pageData.getContent());
+    }
+
+    @Test
+    void renderRegularFriendGroupShouldKeepHeadingWhenEmpty() {
+        String html = ReflectionTestUtils.invokeMethod(
+                service, "renderRegularFriendGroup", "🥇友情链接", List.of());
+
+        assertTrue(html.contains("<h2>🥇友情链接</h2>"), html);
+        assertTrue(html.contains("暂无友链，欢迎交换友链"), html);
+        assertFalse(html.contains("<a "), html);
+    }
+
+    @Test
     void renderFriendsPageShouldFallbackWhenNavigationConfigIsInvalid() {
         WebInfo webInfo = new WebInfo();
         webInfo.setWebTitle("Example Site");

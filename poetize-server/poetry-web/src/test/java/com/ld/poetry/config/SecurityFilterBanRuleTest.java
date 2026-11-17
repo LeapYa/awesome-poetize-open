@@ -393,7 +393,7 @@ class SecurityFilterBanRuleTest {
     void httpClientUa_exemptPaths_passThrough() throws Exception {
         String[] paths = {
                 "/api/article/1", "/api/api/article/createAsync", "/internal/monitor/health",
-                "/actuator/health", "/admin", "/user/getUserInfo", "/login/github", "/callback/github",
+                "/admin", "/user/getUserInfo", "/login/github", "/callback/github",
                 "/ws/im", "/media/41f8a21f9be24994b4220cf23bc482e7",
                 "/static/articleFile/2025/01/report.pdf", "/prerender/home/index.html", "/seo/robots.txt",
                 "/assets/index-abc123.js", "/sitemap.xml", "/feed", "/rss.xml", "/robots.txt",
@@ -483,7 +483,112 @@ class SecurityFilterBanRuleTest {
         verify(chain, never()).doFilter(request, response);
     }
 
+    // ================================ 恶意路径与敏感后缀 ================================
+
+    @Test
+    @DisplayName("新增扫描路径黑名单命中返回 404，含同族前缀变体")
+    void maliciousPaths_scannerProbes_return404() throws Exception {
+        String[] paths = {
+                "/actuator", "/actuator/env", "/actuator/heapdump", "/actuator/configprops",
+                "/actuator/mappings", "/actuator/loggers", "/actuator/beans", "/actuator/health",
+                "/graphql", "/v1/graphql", "/api/graphql", "/graphql/console",
+                "/swagger", "/swagger-ui", "/swagger-ui/index.html", "/swagger-resources",
+                "/api-docs", "/v2/api-docs", "/v3/api-docs", "/v3/api-docs/swagger-config",
+                "/openapi.json", "/.well-known/jwks.json", "/webhooks",
+                "/_vti_pvt", "/_vti_pvt/service.cnf", "/server-status", "/server-info",
+                "/phpinfo.php", "/info.php"};
+        for (String path : paths) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", BROWSER_UA);
+            request.setRequestURI(path);
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(404, response.getStatus(), "路径应拦截: " + path);
+            verify(chain, never()).doFilter(request, response);
+        }
+    }
+
+    @Test
+    @DisplayName("大小写与编码绕过仍命中新增黑名单")
+    void maliciousPaths_caseAndEncodingBypass_return404() throws Exception {
+        String[] paths = {"/Actuator/ENV", "/%61ctuator/heapdump", "//actuator/env",
+                "/actuator;/env", "/SWAGGER-UI/index.html", "/%2eenv"};
+        for (String path : paths) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", BROWSER_UA);
+            request.setRequestURI(path);
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(404, response.getStatus(), "路径应拦截: " + path);
+            verify(chain, never()).doFilter(request, response);
+        }
+    }
+
+    @Test
+    @DisplayName("新增敏感后缀命中返回 404")
+    void sensitiveExtensions_keyPemMapZip_return404() throws Exception {
+        String[] paths = {"/server.key", "/id_rsa.pem", "/assets/index-abc123.js.map",
+                "/backup.zip", "/dump.tar.gz", "/database.sql", "/backup.bak"};
+        for (String path : paths) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", BROWSER_UA);
+            request.setRequestURI(path);
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(404, response.getStatus(), "后缀应拦截: " + path);
+            verify(chain, never()).doFilter(request, response);
+        }
+    }
+
+    @Test
+    @DisplayName("真实路由不得误封：/admin、/login、/settings 与 ACME/IndexNow/健康检查")
+    void realRoutes_mustNotBeBlocked() throws Exception {
+        String[] paths = {"/admin", "/admin/", "/admin/map/world-cn.json", "/login", "/settings",
+                "/.well-known/acme-challenge/token", "/internal/monitor/health",
+                "/abcdefgh12345678.txt", "/fontSubset/download", "/sitemap.xml", "/manifest.json"};
+        for (String path : paths) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", BROWSER_UA);
+            request.setRequestURI(path);
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(200, response.getStatus(), "真实路由应放行: " + path);
+            verify(chain).doFilter(request, response);
+        }
+    }
+
+    @Test
+    @DisplayName("用户上传附件不按后缀封禁：nginx 会把存在的上传文件转发到 Java")
+    void uploadedAttachments_sensitiveExtensions_passThrough() throws Exception {
+        String[] paths = {"/static/articleFile/2025/01/backup.zip", "/static/articleFile/config/b.sql",
+                "/static/articleFile/demo/server.key", "/static/articleFile/demo/cert.pem",
+                "/static/articleFile/demo/app.js.map", "/static/articleFile/demo/dump.tar.gz",
+                "/static/articleFile/2025/01/report.pdf"};
+        for (String path : paths) {
+            MockHttpServletRequest request = newRequest("1.2.3.4", BROWSER_UA);
+            request.setRequestURI(path);
+            MockHttpServletResponse response = newResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            assertEquals(200, response.getStatus(), "附件应放行: " + path);
+            verify(chain).doFilter(request, response);
+        }
+    }
+
     // ================================ 辅助方法 ================================
+
+    private static final String BROWSER_UA =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
     @SuppressWarnings("unchecked")
     private void setUaRules(Map<String, Object>... rules) {

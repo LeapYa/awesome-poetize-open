@@ -73,7 +73,22 @@ public class SecurityFilter extends OncePerRequestFilter {
             "/build.sh", "/index.html",
             "/translation/test-summary",
             "/translation/definite_notexist_path",
-            "/definite_notexist_path");
+            "/definite_notexist_path",
+            // Actuator 真实 base-path 是 /internal/monitor 且只暴露 health，/actuator/* 全为探测
+            "/actuator", "/actuator/env", "/actuator/heapdump", "/actuator/configprops",
+            "/actuator/mappings", "/actuator/loggers",
+            "/graphql", "/v1/graphql", "/api/graphql",
+            "/swagger", "/swagger-ui", "/api-docs", "/openapi.json", "/v3/api-docs",
+            // 只封 jwks.json 这一个文件：/.well-known/acme-challenge/ 与 IndexNow 必须放行
+            "/.well-known/jwks.json", "/webhooks",
+            "/_vti_pvt", "/server-status", "/server-info");
+
+    // 整族均无合法映射的路径前缀，按路径段边界匹配（prefix、prefix/、prefix.）。
+    // 精确集合挡不住 /actuator/beans、/swagger-ui/index.html、/v3/api-docs/swagger-config 这类变体。
+    // 严禁把 /admin、/login、/settings 放进来：它们是真实前台/后台路由。
+    private static final Set<String> MALICIOUS_PATH_PREFIXES = Set.of(
+            "/actuator", "/graphql", "/swagger", "/swagger-ui", "/swagger-resources",
+            "/api-docs", "/v2/api-docs", "/v3/api-docs", "/_vti_pvt");
 
     // 敏感隐藏文件的路径前缀：/.env.production、/.git/config、/.aws/credentials 等变体
     private static final Set<String> SENSITIVE_DOT_PATH_PREFIXES = Set.of(
@@ -84,7 +99,13 @@ public class SecurityFilter extends OncePerRequestFilter {
 
     // 敏感文件扩展名（精确匹配后缀）
     private static final Set<String> SENSITIVE_EXTENSIONS = Set.of(
-            ".sql", ".bak", ".backup", ".old", ".tmp", ".log");
+            ".sql", ".bak", ".backup", ".old", ".tmp", ".log",
+            ".key", ".pem", ".map", ".zip", ".tar.gz");
+
+    // 用户上传的编辑器附件目录（小写）：nginx 的后缀封禁规则同样显式排除该前缀，
+    // 且 location /static 对存在的上传文件 proxy_pass 到 Java 做资源状态门控，
+    // 请求会真实到达本过滤器。按后缀封这里会断掉 .zip/.sql 等附件的正常下载。
+    private static final String ARTICLE_FILE_PREFIX = "/static/articlefile/";
 
     // 常见 CMS / 框架路径特征（包含匹配）
     private static final Set<String> CMS_PATTERNS = Set.of(
@@ -309,12 +330,18 @@ public class SecurityFilter extends OncePerRequestFilter {
      * 判断解码后的路径是否命中明确的恶意路径。
      *
      * <p>除精确集合外，还覆盖隐藏文件的常见变体（/.env.production、/.git/config、
-     * /.aws/credentials 等），避免扫描器换一个后缀就绕过。
+     * /.aws/credentials 等），以及整族无合法映射的前缀（/actuator/*、/swagger-ui/* 等），
+     * 避免扫描器换一个后缀就绕过。
      */
     private boolean isMaliciousPath(String normalizedUri) {
         String lower = normalizedUri.toLowerCase(Locale.ROOT);
         if (MALICIOUS_PATHS.contains(lower)) {
             return true;
+        }
+        for (String prefix : MALICIOUS_PATH_PREFIXES) {
+            if (lower.equals(prefix) || lower.startsWith(prefix + "/") || lower.startsWith(prefix + ".")) {
+                return true;
+            }
         }
         for (String prefix : SENSITIVE_DOT_PATH_PREFIXES) {
             if (lower.equals(prefix) || lower.startsWith(prefix + ".") || lower.startsWith(prefix + "/")) {
@@ -433,8 +460,11 @@ public class SecurityFilter extends OncePerRequestFilter {
         return decoded.contains("..") || decoded.contains("./");
     }
 
-    /** 敏感文件扩展名检测（.sql/.bak/.log 等备份/日志文件） */
+    /** 敏感文件扩展名检测（.sql/.bak/.log/.key/.zip 等备份、日志与密钥文件），用户上传附件除外 */
     private boolean hasSensitiveExtension(String lower) {
+        if (lower.startsWith(ARTICLE_FILE_PREFIX)) {
+            return false;
+        }
         return SENSITIVE_EXTENSIONS.stream().anyMatch(lower::endsWith);
     }
 

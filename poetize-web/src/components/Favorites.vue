@@ -3,23 +3,8 @@
     <div class="favorites-container">
       <!-- 封面 -->
       <div class="favorites-header my-animation-slide-top">
-        <!-- 背景图片 -->
-        <video
-          class="index-video"
-          autoplay="autoplay"
-          muted="muted"
-          loop="loop"
-          preload="auto"
-          playsinline="true"
-          webkit-playsinline="true"
-          x5-video-player-type="h5"
-          x5-video-player-fullscreen="true"
-          style="pointer-events: none;"
-          :src="
-            mainStore.sysConfig['webStaticResourcePrefix'] +
-            'assets/backgroundVideo.mp4'
-          "
-        ></video>
+        <!-- 背景视频（含慢网骨架与淡入） -->
+        <indexVideo></indexVideo>
         <div class="favorites-header-content">
           <!-- 标题 -->
           <div style="color: var(--white); margin: 0 10px">
@@ -35,8 +20,18 @@
 
       <!-- 内容 -->
       <div class="favorites-content">
+        <div v-if="loading" class="empty-state" role="status" aria-live="polite">
+          <div class="empty-text">收藏内容加载中...</div>
+        </div>
+
+        <div v-else-if="loadError" class="empty-state" role="alert">
+          <div class="empty-text">收藏内容加载失败</div>
+          <div class="empty-desc">{{ loadError }}</div>
+          <button class="retry-button" type="button" @click="getCollect">重试</button>
+        </div>
+
         <!-- 收藏夹 -->
-        <div v-if="!$common.isEmpty(collects)" class="my-animation-hideToShow">
+        <div v-else-if="!$common.isEmpty(collects)" class="my-animation-hideToShow">
           <div
             v-for="(value, key) in collects"
             :key="key"
@@ -92,16 +87,20 @@
 <script>
 import { defineAsyncComponent } from 'vue'
 import { useMainStore } from '@/stores/main'
+import indexVideo from './common/indexVideo'
 
 
 export default {
   components: {
     myFooter: defineAsyncComponent(() => import('./common/myFooter')),
+    indexVideo,
   },
 
   data() {
     return {
       collects: {},
+      loading: true,
+      loadError: '',
     }
   },
 
@@ -129,18 +128,22 @@ export default {
       }
     },
     getCollect() {
-      this.$http
+      this.loading = true
+      this.loadError = ''
+      return this.$http
         .get(this.$constant.baseURL + '/webInfo/listCollect')
         .then((res) => {
-          if (!this.$common.isEmpty(res.data)) {
-            this.collects = res.data
-          }
+          this.collects = res.data || {}
         })
         .catch((error) => {
+          this.loadError = error.message || '请检查网络后重试'
           this.$message({
-            message: error.message,
+            message: this.loadError,
             type: 'error',
           })
+        })
+        .finally(() => {
+          this.loading = false
         })
     },
   },
@@ -159,11 +162,6 @@ export default {
   overflow: hidden;
   border-radius: 20px;
   max-width: 1200px;
-}
-.index-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .favorites-header-content {
   position: absolute;
@@ -259,6 +257,18 @@ export default {
 .empty-desc {
   font-size: 14px;
   opacity: 0.7;
+}
+.retry-button {
+  margin-top: 16px;
+  padding: 8px 18px;
+  color: var(--white);
+  background: var(--lightGreen);
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.retry-button:hover {
+  filter: brightness(0.95);
 }
 @media screen and (max-width: 906px) {
   .favorites-header {

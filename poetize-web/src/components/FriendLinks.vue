@@ -3,28 +3,13 @@
     <div class="friend-links-container">
       <!-- 封面 -->
       <div class="friend-links-header my-animation-slide-top">
-        <!-- 背景图片 -->
-        <video
-          class="index-video"
-          autoplay="autoplay"
-          muted="muted"
-          loop="loop"
-          preload="auto"
-          playsinline="true"
-          webkit-playsinline="true"
-          x5-video-player-type="h5"
-          x5-video-player-fullscreen="true"
-          style="pointer-events: none;"
-          :src="
-            mainStore.sysConfig['webStaticResourcePrefix'] +
-            'assets/backgroundVideo.mp4'
-          "
-        ></video>
+        <!-- 背景视频（含慢网骨架与淡入） -->
+        <indexVideo></indexVideo>
         <div class="friend-links-header-content">
           <!-- 标题 -->
           <div style="color: var(--white); margin: 0 10px">
             <div style="font-size: 30px; font-weight: bold; line-height: 2">
-              友人帐
+              {{ friendsPageTitle }}
             </div>
             <div style="font-size: 16px; opacity: 0.8; margin-top: 10px">
               留下你的网站吧，让我们建立友谊的桥梁
@@ -49,12 +34,14 @@
 <script>
 import { defineAsyncComponent } from 'vue'
 import { useMainStore } from '@/stores/main'
+import indexVideo from './common/indexVideo'
 
 
 export default {
   components: {
     myFooter: defineAsyncComponent(() => import('./common/myFooter')),
     friend: defineAsyncComponent(() => import('./friend')),
+    indexVideo,
   },
 
   data() {
@@ -65,9 +52,35 @@ export default {
     mainStore() {
       return useMainStore()
     },
+    friendsPageTitle() {
+      try {
+        const navConfig = this.mainStore.webInfo.navConfig
+        const navItems = navConfig ? JSON.parse(navConfig) : []
+        const friendsNav = Array.isArray(navItems)
+          ? navItems.find((item) => item.link === '/friends')
+          : null
+        return friendsNav && friendsNav.name && friendsNav.name.trim()
+          ? friendsNav.name.trim()
+          : '友人帐'
+      } catch (error) {
+        return '友人帐'
+      }
+    },
+    pageTitle() {
+      const siteTitle = this.mainStore.homePageTitle
+      return siteTitle ? `${this.friendsPageTitle} - ${siteTitle}` : this.friendsPageTitle
+    },
   },
 
-  watch: {},
+  watch: {
+    pageTitle: {
+      immediate: true,
+      handler(title) {
+        document.title = title
+        window.OriginTitile = title
+      },
+    },
+  },
 
   created() {
     // 设置页面标题（注：setTitle 方法已移除，页面标题由路由或组件自行管理）
@@ -92,11 +105,6 @@ export default {
   overflow: hidden;
   border-radius: 20px;
   max-width: 1200px;
-}
-.index-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .friend-links-header-content {
   position: absolute;

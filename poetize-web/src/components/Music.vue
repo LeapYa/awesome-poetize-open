@@ -3,23 +3,8 @@
     <div class="music-container">
       <!-- 封面 -->
       <div class="music-header my-animation-slide-top">
-        <!-- 背景图片 -->
-        <video
-          class="index-video"
-          autoplay="autoplay"
-          muted="muted"
-          loop="loop"
-          preload="auto"
-          playsinline="true"
-          webkit-playsinline="true"
-          x5-video-player-type="h5"
-          x5-video-player-fullscreen="true"
-          style="pointer-events: none;"
-          :src="
-            mainStore.sysConfig['webStaticResourcePrefix'] +
-            'assets/backgroundVideo.mp4'
-          "
-        ></video>
+        <!-- 背景视频（含慢网骨架与淡入） -->
+        <indexVideo></indexVideo>
         <div class="music-header-content">
           <!-- 标题 -->
           <div style="color: var(--white); margin: 0 10px">
@@ -49,12 +34,14 @@
 <script>
 import { defineAsyncComponent } from 'vue'
 import { useMainStore } from '@/stores/main'
+import indexVideo from './common/indexVideo'
 
 
 export default {
   components: {
     myFooter: defineAsyncComponent(() => import('./common/myFooter')),
     funny: defineAsyncComponent(() => import('./funny')),
+    indexVideo,
   },
 
   data() {
@@ -92,11 +79,6 @@ export default {
   overflow: hidden;
   border-radius: 20px;
   max-width: 1200px;
-}
-.index-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .music-header-content {
   position: absolute;

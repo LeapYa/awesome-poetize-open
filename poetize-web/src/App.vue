@@ -67,8 +67,8 @@ export default {
       }
     },
     '$route.path': function (newPath) {
-      // 部分页面自行管理标题（如分类页、文章页），跳过全局覆盖
-      const selfManagedTitlePaths = ['/sort', '/article']
+      // 部分页面自行管理标题（如分类页、文章页和友人帐页），跳过全局覆盖
+      const selfManagedTitlePaths = ['/sort', '/article', '/friends']
       const isSelfManaged = selfManagedTitlePaths.some(p => newPath === p || newPath.startsWith(p + '/'))
       if (!isSelfManaged) {
         const homePageTitle = this.mainStore.homePageTitle

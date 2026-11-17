@@ -348,7 +348,8 @@ public class PrerenderService {
 
         String siteName = getSiteName(webInfo);
         String baseUrl = getBaseUrl(webInfo);
-        String title = "友人帐 - " + siteName;
+        String friendsPageName = getNavigationName(webInfo, "/friends", "友人帐");
+        String title = friendsPageName + " - " + siteName;
         String description = "留下你的网站吧，让我们建立友谊的桥梁";
         String keywords = firstNonBlank(stringValue(seoConfig.get("site_keywords")), "博客,个人网站,技术分享") + ",友人帐,友链,朋友,网站交换";
         String ogImage = ensureAbsoluteImageUrl(firstNonBlank(webInfo.getAvatar(), stringValue(seoConfig.get("og_image"))), baseUrl);
@@ -358,7 +359,7 @@ public class PrerenderService {
         String eliteFriendsKey = friends.containsKey("🌟青出于蓝") ? "🌟青出于蓝" : (friends.containsKey("♥️青出于蓝") ? "♥️青出于蓝" : null);
         String regularFriendsKey = friends.containsKey("🥇友情链接") ? "🥇友情链接" : null;
 
-        String friendsContent = "<div class=\"friends-prerender\"><h1>友人帐</h1><p>留下你的网站吧，让我们建立友谊的桥梁</p>"
+        String friendsContent = "<div class=\"friends-prerender\"><h1>" + text(friendsPageName) + "</h1><p>留下你的网站吧，让我们建立友谊的桥梁</p>"
                 + renderFriendGroup("🌟青出于蓝", eliteFriendsKey == null ? List.of() : friends.get(eliteFriendsKey))
                 + renderFriendGroup("🥇友情链接", regularFriendsKey == null ? List.of() : friends.get(regularFriendsKey))
                 + "<h2>✉️ 申请方式</h2><div><p>1. 添加本站链接</p><p>首先将本站链接添加至您的网站，信息如下：</p><p>网站名称："
@@ -982,6 +983,26 @@ public class PrerenderService {
                     .append(attr(friend.getIntroduction())).append("\">").append(label).append("</a></li>");
         }
         return sb.append("</ul>").toString();
+    }
+
+    private String getNavigationName(WebInfo webInfo, String link, String fallback) {
+        if (webInfo == null || !StringUtils.hasText(webInfo.getNavConfig())) {
+            return fallback;
+        }
+
+        try {
+            JsonNode navItems = jsonMapper.readTree(webInfo.getNavConfig());
+            if (navItems != null && navItems.isArray()) {
+                for (JsonNode navItem : navItems) {
+                    if (link.equals(navItem.path("link").asText())) {
+                        return firstNonBlank(navItem.path("name").asText(), fallback);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("解析导航栏配置失败，预渲染标题回退默认名称: {}", e.getMessage());
+        }
+        return fallback;
     }
 
     private String getSiteName(WebInfo webInfo) {

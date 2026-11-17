@@ -29,30 +29,27 @@
           </div>
 
           <div class="site-info-box">
-            <div class="info-item">
-              <span class="info-label">网站名称</span>
-              <span class="info-value">{{
-                siteInfo.title || $constant.friendWebName
-              }}</span>
+            <div v-if="!siteInfoLoaded" class="info-item">
+              <span class="info-value">{{ siteInfoError ? '本站信息加载失败，请刷新页面重试' : '本站信息加载中...' }}</span>
             </div>
-            <div class="info-item">
-              <span class="info-label">网站地址</span>
-              <span class="info-value">{{
-                siteInfo.url || $constant.friendUrl
-              }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">网站描述</span>
-              <span class="info-value">{{
-                siteInfo.introduction || $constant.friendIntroduction
-              }}</span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">网站封面</span>
-              <span class="info-value">{{
-                siteInfo.cover || $constant.friendCover
-              }}</span>
-            </div>
+            <template v-else>
+              <div class="info-item">
+                <span class="info-label">网站名称</span>
+                <span class="info-value">{{ siteInfo.title || $constant.friendWebName }}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">网站地址</span>
+                <span class="info-value">{{ siteInfo.url || $constant.friendUrl }}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">网站描述</span>
+                <span class="info-value">{{ siteInfo.introduction || $constant.friendIntroduction }}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">网站封面</span>
+                <span class="info-value">{{ siteInfo.cover || $constant.friendCover }}</span>
+              </div>
+            </template>
           </div>
 
           <div class="guide-step">
@@ -188,6 +185,8 @@ export default {
     return {
       friendList: {},
       siteInfo: {},
+      siteInfoLoaded: false,
+      siteInfoError: false,
       friend: {
         title: '',
         introduction: '',
@@ -337,8 +336,11 @@ export default {
           if (!this.$common.isEmpty(res.data)) {
             this.siteInfo = res.data
           }
+          this.siteInfoLoaded = true
+          this.siteInfoError = false
         })
         .catch((error) => {
+          this.siteInfoError = true
           this.$message({
             message: error.message,
             type: 'error',

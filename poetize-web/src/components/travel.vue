@@ -3,23 +3,8 @@
     <div class="travel-container">
       <!-- 封面 -->
       <div class="travel-header my-animation-slide-top">
-        <!-- 背景图片 -->
-        <video
-          class="index-video"
-          autoplay="autoplay"
-          muted="muted"
-          loop="loop"
-          preload="auto"
-          playsinline="true"
-          webkit-playsinline="true"
-          x5-video-player-type="h5"
-          x5-video-player-fullscreen="true"
-          style="pointer-events: none;"
-          :src="
-            mainStore.sysConfig['webStaticResourcePrefix'] +
-            'assets/backgroundVideo.mp4'
-          "
-        ></video>
+        <!-- 背景视频（含慢网骨架与淡入） -->
+        <indexVideo></indexVideo>
         <div style="position: absolute; left: 20px; top: 20px">
           <!-- 标题 -->
           <div style="margin: 10px">
@@ -89,6 +74,7 @@
 <script>
 import { defineAsyncComponent } from 'vue'
 import { useMainStore } from '@/stores/main'
+import indexVideo from './common/indexVideo'
 
 
 export default {
@@ -96,6 +82,7 @@ export default {
     photo: defineAsyncComponent(() => import('./common/photo')),
     proTag: defineAsyncComponent(() => import('./common/proTag')),
     myFooter: defineAsyncComponent(() => import('./common/myFooter')),
+    indexVideo,
   },
 
   data() {
@@ -204,12 +191,6 @@ export default {
   max-width: 1200px;
   color: var(--white);
   user-select: none;
-}
-.index-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  background: var(--lightGreen);
 }
 .travel-content {
   margin: 0 auto;

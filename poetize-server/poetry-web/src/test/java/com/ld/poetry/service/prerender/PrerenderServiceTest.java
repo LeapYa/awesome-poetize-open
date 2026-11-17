@@ -29,6 +29,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import org.springframework.test.util.ReflectionTestUtils;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -209,6 +210,56 @@ class PrerenderServiceTest {
     }
 
     private PrerenderPageData captureHomePageBuildPageArgument() {
+        ArgumentCaptor<PrerenderPageData> captor = ArgumentCaptor.forClass(PrerenderPageData.class);
+        verify(engine).buildPage(captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    void renderFriendsPageShouldUseConfiguredNavigationNameInTitleAndContent() {
+        WebInfo webInfo = new WebInfo();
+        webInfo.setWebTitle("Example Site");
+        webInfo.setSiteAddress("https://example.com");
+        webInfo.setNavConfig("[{\"name\":\"友链\",\"link\":\"/friends\"}]");
+        stubRenderFriendsPageDependencies(webInfo);
+
+        service.renderFriendsPage();
+
+        PrerenderPageData pageData = captureFriendsPageBuildPageArgument();
+        assertEquals("友链 - Example Site", pageData.getTitle());
+        assertTrue(pageData.getContent().contains("<h1>友链</h1>"), pageData.getContent());
+        assertFalse(pageData.getContent().contains("<h1>友人帐</h1>"), pageData.getContent());
+    }
+
+    @Test
+    void renderFriendsPageShouldFallbackWhenNavigationConfigIsInvalid() {
+        WebInfo webInfo = new WebInfo();
+        webInfo.setWebTitle("Example Site");
+        webInfo.setSiteAddress("https://example.com");
+        webInfo.setNavConfig("not-json");
+        stubRenderFriendsPageDependencies(webInfo);
+
+        service.renderFriendsPage();
+
+        PrerenderPageData pageData = captureFriendsPageBuildPageArgument();
+        assertEquals("友人帐 - Example Site", pageData.getTitle());
+        assertTrue(pageData.getContent().contains("<h1>友人帐</h1>"), pageData.getContent());
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubRenderFriendsPageDependencies(WebInfo webInfo) {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), ResourcePath.class);
+        when(cacheService.getCachedWebInfo()).thenReturn(webInfo);
+        when(seoConfigService.getSeoConfigAsJson()).thenReturn(new LinkedHashMap<>());
+        when(languageSupport.getSourceLanguage()).thenReturn("zh");
+        when(mailUtil.getSiteUrl()).thenReturn("https://example.com");
+        when(resourcePathMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        when(resourcePathMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        ReflectionTestUtils.setField(service, "jsonMapper", JsonMapper.builder().build());
+        when(engine.buildPage(any())).thenReturn("<html></html>");
+    }
+
+    private PrerenderPageData captureFriendsPageBuildPageArgument() {
         ArgumentCaptor<PrerenderPageData> captor = ArgumentCaptor.forClass(PrerenderPageData.class);
         verify(engine).buildPage(captor.capture());
         return captor.getValue();

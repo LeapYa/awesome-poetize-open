@@ -49,7 +49,11 @@ def h2_request(port, ip="8.8.8.8", headers=1, path="/", bomb=False):
             if bomb:
                 pairs.extend(("cookie", "x" * 4096) for _ in range(5000))
             conn.send_headers(1, pairs, end_stream=True)
-            sock.sendall(conn.data_to_send())
+            try:
+                sock.sendall(conn.data_to_send())
+            except (BrokenPipeError, ConnectionResetError):
+                # 服务端在接收途中 GOAWAY 并断开（cookie bomb 的预期行为），继续读已到达的帧。
+                pass
             status = None
             while True:
                 data = sock.recv(65536)
@@ -64,7 +68,10 @@ def h2_request(port, ip="8.8.8.8", headers=1, path="/", bomb=False):
                         return f"goaway:{int(event.error_code)}"
                 pending = conn.data_to_send()
                 if pending:
-                    sock.sendall(pending)
+                    try:
+                        sock.sendall(pending)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
 
 
 def raw_request(port, payload):
@@ -234,7 +241,8 @@ def integration(names, results=None):
 
     settings = {"NGINX_ATTACK_WINDOW_SECONDS": "3", "NGINX_ATTACK_BAN_SECONDS": "6",
                 "NGINX_ATTACK_E1_THRESHOLD": "2", "NGINX_ATTACK_E4_THRESHOLD": "2",
-                "NGINX_ATTACK_E5_THRESHOLD": "2", "NGINX_ATTACK_E6_THRESHOLD": "2",
+                "NGINX_ATTACK_E5_THRESHOLD": "2", "NGINX_ATTACK_E6_ENABLED": "false",
+                "NGINX_ATTACK_E6_THRESHOLD": "2",
                 "NGINX_ATTACK_E7_THRESHOLD": "2", "NGINX_ATTACK_E7_WINDOW_SECONDS": "3",
                 "NGINX_ATTACK_E7_BAN_SECONDS": "6"}
     start_nginx(names[0], 18443, False, settings)
@@ -287,7 +295,9 @@ def integration(names, results=None):
     wait_for(lambda: '"reason":"never_ban"' in all_logs(names[2]), "缺少豁免日志")
     passed("4. never-ban", "可信/自身CIDR、可信裸IP、非公网均不封，正常请求200，日志含never_ban")
 
-    # E6 默认关闭；开启时只统计本地失败，排除真正 upstream 400。
+    # E6 显式关闭；开启时只统计本地失败，排除真正 upstream 400。
+    # 这里是最小自建配置，没有 nginx.conf 的 map $is_static_asset，Lua 用 pcall 兜底
+    # 视为“非静态”，所以 /missing/random 照旧计数；静态资源排除由 production_deny_flow 验证。
     for _ in range(3):
         assert h2_request(18443, ip="1.0.0.1", path="/missing/random") == 404
         assert h2_request(18443, ip="1.0.0.1", path="/app400") == 400
@@ -295,7 +305,7 @@ def integration(names, results=None):
     assert redis_command("EXISTS", "poetize:security:events:E6:1.0.0.1") == "0"
     assert redis_command("EXISTS", "poetize:security:events:E6:1.1.1.1") == "0"
     assert h2_request(18443, ip="1.0.0.1") == 200
-    passed("默认关闭与去重", "E6关闭无计数；开启后upstream400也无计数；普通应用400不计E1/E4")
+    passed("显式关闭与去重", "E6关闭无计数；开启后upstream400也无计数；普通应用400不计E1/E4")
     for _ in range(3):
         assert h2_request(18445, ip="1.0.0.1", path="/missing/random") == 404
     wait_for(lambda: redis_command("EXISTS", "poetize:security:blacklist:1.0.0.1") == "1", "E6 未封禁")
@@ -419,11 +429,29 @@ def validate_production_config():
     return results
 
 
+def check_e6_default():
+    """E6 默认关闭：未知路径真 404 的正确性已由状态码兑现，不再靠频率封禁。
+
+    三处默认值必须一致（Lua 兜底、compose 透传、.env.example 模板），任一处被改回
+    true 都会让“默认不封”这条承诺失效，所以在这里断掉。下面 production_deny_flow 里
+    的 E6 断言是显式 `NGINX_ATTACK_E6_ENABLED=true` 打开的，与默认值无关。
+    """
+    lua = (ROOT / "docker/nginx/lua/attack_events.lua").read_text(encoding="utf-8")
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    assert 'enabled("E6_ENABLED", false)' in lua, "attack_events.lua 里 E6 默认值不是 false"
+    assert "${NGINX_ATTACK_E6_ENABLED:-false}" in compose, "docker-compose.yml 里 E6 默认值不是 false"
+    assert "NGINX_ATTACK_E6_ENABLED=false" in example.splitlines(), ".env.example 里 E6 默认值不是 false"
+    detail = "attack_events.lua / docker-compose.yml / .env.example 三处默认值一致为 false"
+    print(f"PASS E6 默认关闭: {detail}", flush=True)
+    return [{"name": "E6 默认关闭", "detail": detail, "status": "PASS"}]
+
+
 def production_deny_flow(names, results):
     """生产模板真实流量：deny 命中必须跨路径累计并封禁，合法出口零误伤。
 
     最小配置只能证明打标机制本身；这里用整份 default.http.conf.template（含 ^~ /admin、
-    SPA 软 404、附件别名、SEO/RSS 出口）验证 location 优先级与豁免断言的真实结果。
+    SPA 真 404、附件别名、SEO/RSS 出口）验证 location 优先级与豁免断言的真实结果。
     """
     def passed(name, detail):
         results.append({"name": name, "detail": detail, "status": "PASS"})
@@ -445,7 +473,8 @@ def production_deny_flow(names, results):
     docker("run", "-d", "--name", java, "--network", PREFIX, "--network-alias", "poetize-java",
            "--entrypoint", "sh", "-v", f"{java_conf.as_posix()}:/test/java.conf:ro",
            IMAGE, "-c", "exec openresty -c /test/java.conf -g 'daemon off;'")
-    # 不注入任何 NGINX_ATTACK_* 覆盖：E7 必须按生产默认（3 次 / 3600 秒 / 86400 秒）生效。
+    # E7 不注入覆盖，必须按生产默认（3 次 / 3600 秒 / 86400 秒）生效；E6 生产默认关闭，
+    # 这里显式打开，用于验证计数阈值与静态资源/已知路由两类排除。
     docker("run", "-d", "--name", prod, "--network", PREFIX, "--entrypoint", "sh",
            "-p", "127.0.0.1:18080:80/tcp",
            "-v", f"{(ROOT / 'docker/nginx/nginx.conf').as_posix()}:/usr/local/openresty/nginx/conf/nginx.conf:ro",
@@ -454,6 +483,8 @@ def production_deny_flow(names, results):
            "-v", f"{PREFIX}:/app/runtime",
            "-e", f"REDIS_HOST={PREFIX}-redis", "-e", "REDIS_PASSWORD=", "-e", "REDIS_DB=0",
            "-e", "REAL_IP_HEADER=EO-Connecting-IP",
+           # E6 默认关闭（见 check_e6_default），这里显式打开，覆盖计数与两类排除逻辑。
+           "-e", "NGINX_ATTACK_E6_ENABLED=true",
            IMAGE, "-c", "exec openresty -g 'daemon off;'")
     docker("exec", prod, "sh", "-c",
            "mkdir -p /usr/share/nginx/html/poetize/static/assets /usr/share/nginx/html/admin/map "
@@ -547,6 +578,73 @@ def production_deny_flow(names, results):
     assert counter_free("1.0.0.25")
     passed("生产模板 未打标拒绝不计数", "空UA 403 与 Host不匹配 444 各五次，无计数无封禁")
 
+    # 真 404：未知路径 404 且响应体仍为 SPA shell；合法路由（含尾斜杠变体）保持 200。
+    unknown = ["/definitely-not-a-page", "/assets/missing-chunk.js", "/im/unknown-subpath"]
+    for index, path in enumerate(unknown):
+        resp = http_response(18080, path, ip=f"1.0.3.{index + 1}")
+        assert resp.startswith("HTTP/1.1 404"), (path, resp.splitlines()[:1])
+        assert resp.rstrip().endswith("spa"), (path, resp[-200:])
+    spa_routes = ["/user", "/oauth-callback", "/verify", "/payment-return", "/403", "/404",
+                  "/about/", "/sort/1/", "/article/1/", "/im", "/im/"]
+    for index, path in enumerate(spa_routes):
+        ip = f"1.0.4.{index + 1}"
+        resp = http_response(18080, path, ip=ip)
+        assert resp.startswith("HTTP/1.1 200"), (path, resp.splitlines()[:1])
+        assert resp.rstrip().endswith("spa"), (path, resp[-200:])
+        assert redis_command("EXISTS", f"poetize:security:events:E6:{ip}") == "0", path
+    passed("生产模板 真404", f"{unknown} 均404+SPA shell；{len(spa_routes)} 条合法路由200且无E6计数")
+
+    # E6 显式开启（生产默认关闭）：高频未知路径扫描第 121 次触发封禁。
+    e6_scanner = "1.0.0.30"
+    for i in range(121):
+        assert http_request(18080, f"/scan-{i}", ip=e6_scanner) == 404
+    e6_key = f"poetize:security:blacklist:{e6_scanner}"
+    wait_for(lambda: redis_command("EXISTS", e6_key) == "1", "E6 显式开启后未封禁")
+    assert json.loads(redis_command("GET", e6_key)) == "auto:nginx:E6:local_invalid_path"
+    e6_ttl = int(redis_command("TTL", e6_key))
+    assert 500 < e6_ttl <= 600, e6_ttl
+    assert http_request(18080, "/", ip=e6_scanner) == 403
+    assert http_request(18080, "/", ip="1.0.0.31") == 200
+    passed("生产模板 E6显式开启", f"121次本地404 -> 封禁 TTL={e6_ttl}，其他访客不受影响")
+
+    # 静态资源 404 不进 E6：磁盘/挂载丢失、发版后旧页面引用旧 chunk、CDN 回源失败
+    # 都会在同一访客 IP 上成批出现，按频率封禁等于把正常用户全封掉。
+    static_visitor = "1.0.0.32"
+    for i in range(130):
+        status = http_request(18080, f"/assets/missing-{i}.js", ip=static_visitor)
+        assert status == 404, (i, status)
+    # 含无扩展名的一条：证明排除靠的是目录前缀，不只是后缀。
+    for path in ("/missing.png", "/im/static/missing.woff2", "/admin/static/missing-noext"):
+        assert http_request(18080, path, ip=static_visitor) == 404, path
+    static_e6_key = f"poetize:security:events:E6:{static_visitor}"
+    assert redis_command("EXISTS", static_e6_key) == "0", redis_command("GET", static_e6_key)
+    assert redis_command("EXISTS", f"poetize:security:blacklist:{static_visitor}") == "0"
+    assert http_request(18080, "/", ip=static_visitor) == 200
+    # 同一 IP 换成无扩展名的未知路径必须照旧计数，证明排除范围只到静态资源。
+    for i in range(3):
+        assert http_request(18080, f"/probe-control-{i}", ip=static_visitor) == 404
+    wait_for(lambda: redis_command("EXISTS", static_e6_key) == "1", "E6 负相对照未计数")
+    passed("静态资源404不进E6",
+           "130次 .js 缺失 + 图片/字体均不计数不封禁；同 IP 未知路径仍计数")
+
+    # 整站故障：index.html 自身缺失时合法路由也会 404，这批 404 同样不能进 E6，
+    # 否则一次挂载/构建故障会把在线访客全封 10 分钟，恢复后还要等封禁过期。
+    outage_visitor = "1.0.0.34"
+    docker("exec", prod, "sh", "-c",
+           "mv /usr/share/nginx/html/poetize/index.html /tmp/index.html.bak")
+    try:
+        for path in ("/user", "/about/", "/article/1", "/im"):
+            for _ in range(40):
+                status = http_request(18080, path, ip=outage_visitor)
+                assert status == 404, (path, status)
+        assert redis_command("EXISTS", f"poetize:security:events:E6:{outage_visitor}") == "0"
+        assert redis_command("EXISTS", f"poetize:security:blacklist:{outage_visitor}") == "0"
+    finally:
+        docker("exec", prod, "sh", "-c",
+               "mv /tmp/index.html.bak /usr/share/nginx/html/poetize/index.html")
+    assert http_request(18080, "/", ip="1.0.0.35") == 200
+    passed("整站故障不误封", "index.html 缺失时 4 条合法路由 ×40 次 404 均不计数不封禁，恢复后首页 200")
+
     # 标记变量必须在每个可能出 403/444 的 server 声明，否则未初始化 WARN 会挤占原生错误 ring。
     assert "using uninitialized" not in error_log(), error_log()[-2000:]
     passed("生产模板 无未初始化变量", "error_log 无 using uninitialized 警告")
@@ -592,6 +690,7 @@ def main():
                     print(line[:750])
         else:
             results.extend(validate_production_config())
+            results.extend(check_e6_default())
             # 先跑生产模板：integration 末尾会停掉 Redis 做降级验证。
             production_deny_flow(names, results)
             integration(names, results)

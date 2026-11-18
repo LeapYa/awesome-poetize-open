@@ -31,6 +31,10 @@ local events = {
            threshold = number("E3_THRESHOLD", 20, 1, 4096) },
     E4 = { on = enabled("E4_ENABLED", true), threshold = number("E4_THRESHOLD", 20, 1, 4096) },
     E5 = { on = enabled("E5_ENABLED", true), threshold = number("E5_THRESHOLD", 10, 1, 4096) },
+    -- E6：nginx 本地 400/404/405（排除 upstream 响应、静态资源、已知 SPA 路由）。
+    -- 默认关闭：未知路径已由 @handle_404 返回真 404，正确性目标已经达到；再按频率
+    -- 封禁会引入 NAT 出口聚合与爬虫回抓失效链接的误伤，收益不成比例。需要时显式打开，
+    -- 阈值 120 次/60 秒对共用公网出口留了余量。排除逻辑见 e6_exempt()。
     E6 = { on = enabled("E6_ENABLED", false), threshold = number("E6_THRESHOLD", 120, 1, 4096) },
     -- E7：nginx deny 规则就地拒绝的探测路径。由 location 内 `set $attack_probe 'E7'` 显式打标，
     -- 不靠状态码推断——403/444 同样来自空 UA、视频防盗链和已封禁 IP，不能一律当探测。
@@ -43,6 +47,11 @@ local events = {
 }
 local conf
 local queue, head, tail = {}, 1, 0
+-- flush 计时器与请求 log 阶段共享同一 worker 的捕获环：drain_native 消费环里所有行，
+-- 计时器可能先拿走属于在途请求的原生错误行（客户端 RST 时错误写入与 log 阶段读取
+-- 会隔一个事件循环）。按连接号暂存供该请求取回，避免 E1/E4/E5 漏计、或被 E6 当普通
+-- 400 误计。连接号 worker 内单调递增，不会串号；TTL 清理无 log 阶段的孤儿条目。
+local pending_native = {}
 local QUEUE_LIMIT, BATCH_SIZE = 1024, 128
 local COUNTER_PREFIX = "poetize:security:events:"
 local BLACKLIST_PREFIX = "poetize:security:blacklist:"
@@ -117,6 +126,8 @@ local function drain_native(connection)
             elseif id == connection then
                 -- 关闭某类采集后仍保留分类，避免被 E6 当作普通 400 再次计数。
                 matched = {event = event, reason = reason}
+            elseif id then
+                pending_native[id] = {event = event, reason = reason, expires = ngx.now() + 5}
             end
         end
     end
@@ -214,6 +225,10 @@ end
 
 local function flush(premature)
     if premature then return end
+    local now = ngx.now()
+    for id, item in pairs(pending_native) do
+        if item.expires <= now then pending_native[id] = nil end
+    end
     -- 无请求的连接层错误也要定期消费；不从这里对任何 client: 地址计数。
     drain_native(nil)
     if head > tail or ngx.now() < backoff_until then return end
@@ -286,6 +301,24 @@ function M.init_worker()
     end
 end
 
+local function flag(name)
+    -- 读 nginx 侧声明式分类变量（map 输出），分类逻辑全在配置里，Lua 不解析 URI。
+    -- 最小自建配置（测试脚本生成的那份）可能没有对应 map，读取会抛 variable not found，
+    -- pcall 兜底按“未命中”处理，不影响其余判定。
+    local ok, value = pcall(function() return ngx.var[name] end)
+    return ok and value == "1"
+end
+
+local function e6_exempt()
+    -- 两类本地 404/405 不是探测信号，不计 E6：
+    -- 1) 静态资源（$is_static_asset）：磁盘或挂载丢失时静态处理器对 ENOENT 返回 404，
+    --    发版后旧页面引用旧 chunk、CDN 回源失败也会成批产生；
+    -- 2) 已知 SPA 路由（$spa_known_route）：正常由 @handle_404 返回 200 shell，只有
+    --    index.html 自身缺失（挂载整体丢失、构建产物没进镜像）才会 404，即整站故障。
+    -- 两者都是运维故障而非攻击，按频率封禁等于把正常访客整站封掉。
+    return flag("is_static_asset") or flag("spa_known_route")
+end
+
 function M.log_request()
     if not active or not conf then return end
     local status = ngx.status
@@ -297,7 +330,15 @@ function M.log_request()
         probe = ngx.var.attack_probe
     end
     -- 不访问 URI/UA/请求头内容做特征扫描。正常请求只取状态并消费最多 128 条原生日志。
-    local native = drain_native(ngx.var.connection)
+    local conn = ngx.var.connection
+    local native = drain_native(conn)
+    if conn then
+        local stashed = pending_native[conn]
+        pending_native[conn] = nil
+        if not native and stashed and stashed.expires > ngx.now() then
+            native = stashed
+        end
+    end
     local event, reason
     if probe and probe ~= "" and events[probe] then
         event, reason = probe, "deny_rule_probe"
@@ -308,9 +349,11 @@ function M.log_request()
     elseif status == 414 and events.E5.on then
         event, reason = "E5", "uri_too_long"
     elseif events.E6.on and (status == 400 or status == 404 or status == 405)
-       and not native and (not ngx.var.upstream_status or ngx.var.upstream_status == "") then
+       and not native and not e6_exempt()
+       and (not ngx.var.upstream_status or ngx.var.upstream_status == "") then
         -- Java 已有恶意路径/注入检测，所有 upstream 响应排除，避免同一攻击重复建设。
-        -- 被 SPA 改写成 200 的无效路径不可见，不猜测。
+        -- 未知路径由 @handle_404 返回真 404（SPA shell 仅作响应体），本地失败可见。
+        -- 静态资源缺失、已知 SPA 路由的 404 是运维故障而非探测，见 e6_exempt()。
         event, reason = "E6", "local_invalid_path"
     end
     if not event or not events[event].on or events[event].observe then return end

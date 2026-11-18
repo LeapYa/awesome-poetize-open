@@ -13,7 +13,12 @@
 
         <!-- 友情链接板块常驻：没有友链时保留标题并显示占位提示 -->
         <div>
-          <h2 style="font-size: 24px; margin-top: 60px">🥇友情链接</h2>
+          <h2
+            :style="{
+              fontSize: '24px',
+              marginTop: eliteFriends.length ? '60px' : '0',
+            }"
+          >🥇友情链接</h2>
           <card
             :resourcePathList="regularFriends"
           ></card>

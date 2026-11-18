@@ -54,6 +54,48 @@
 | CVE-2026-42530 | 1.31.0–1.31.1 | 1.29.2 没有对应代码 |
 | CVE-2026-42926 | 1.29.4–1.30.0 | 1.29.2 早于 1.29.4 |
 
+### 四、2026-11-18 nginx2root 批次（5 条，Xint.io 披露，修复于 1.31.9 / 1.30.7）
+
+披露 2026-11-18，补丁 release 2026-11-19。生成本目录补丁时 nginx.org 下载页仍是 1.31.8 / 1.30.6，
+diff 取自 GitHub nginx/nginx master 上 nginx-1.31.9-RELEASE（c2c44702）所含的修复 commit。
+1.29.x 已停 backport，本批次逐条判定：
+
+| CVE | 触发前置 | 本项目可达性 | 处理 |
+|---|---|---|---|
+| **CVE-2026-123007**（HTTP/2 send_window 回绕成负、堆 OOB，CVSS 4.0 9.2） | `http2 on` | **是**：default.https.conf:155 | **已打补丁** |
+| **CVE-2026-123633**（HTTP/2 连接复用列表 UAF） | `http2 on` + 反代 + worker 空闲连接少 | **是**：HTTPS 模板 + 全量 proxy_pass 到 poetize-java，`worker_connections 1024` | **已打补丁** |
+| **CVE-2026-121810**（QUIC 主流被当可复用连接回收 UAF） | http3/quic + 反代 | **是**：default.https.conf:154 `listen 443 quic`、158 `http3 on` | **已打补丁** |
+| CVE-2026-123634（resolver 非当前 resolve 被提前终结 UAF） | 请求派生主机变量的 proxy_pass + resolver + 子请求 | 否：proxy_pass 主机全部固定 upstream；变量仅在 URI（`$indexnow_key`）；upstream server 无 `resolve` 参数；mirror / ssi / auth_request / addition 指令 0 | 不打 |
+| CVE-2026-113425（mail auth_http 处理期连接池化 UAF） | mail 块 `proxy on` + `auth_http` | 否：mail 块 0；configure 已 `--without-mail_pop3/imap/smtp` | 不打 |
+
+`resolver 127.0.0.11`（nginx.conf:88）存在，但没有任何请求派生名字喂入它，不构成 123634 前置。
+配置若新增变量主机 proxy_pass、mirror / ssi / auth_request / addition 指令或 mail 块，须重判后两条；
+未采用的上游 diff 存档在仓库根 `nginx2root-patches/upstream-1.31.9/`，重做版在同目录 `rebased-1.29.2/`。
+
+补丁 ↔ 上游 commit ↔ 分叉评估（规矩 3 要求分叉文件单独评估）：
+
+| 补丁文件 | 上游 commit | 1.29.2 分叉评估 |
+|---|---|---|
+| CVE-2026-123007-http2-window-update.patch | e27f5fa84fe6 | 分叉：v2.h 结构体上下文与 filter 两处 hunk 在 1.29.2 上需 fuzz1。已重生成 1.29.2 精确 diff（应用零 fuzz）。落点核对：`send_queued` 紧邻 `send_window`；三处记账分别在 send_chain 入队、data_frame_handler 实发、filter_cleanup 清理 |
+| CVE-2026-123633-http2-reusable.patch | 2df48a501d0f | 分叉：create_stream 上下文需 fuzz2。已重生成精确 diff。落点在 `h2c->processing++` 之后、读定时器删除之前 |
+| CVE-2026-121810-quic-reuse.patch | b5252dae1ca0 | 上下文逐字节一致，零 fuzz |
+
+验证（2026-11-19，本机 Windows，GNU patch）：
+
+- 三条新补丁 + 存量 49975 / 95101 按 Dockerfile 的文件名序，在 bundle/nginx-1.29.2 上
+  `patch -p1 -F0 --no-backup-if-mismatch` 全部 exit 0；49975 仅行偏移（+2/+10/-1/-6），无 fuzz。
+- 单独回验：nginx2root 全 7 条 diff（含未采用的 123634 / 113425）在全新副本 `git apply` 全部干净，
+  6 个被改文件归一化行尾后 SHA256 与基准树逐一相同。
+- ABI：123007 往 `ngx_http_v2_connection_s` 插入 `send_queued`，是 v2 内部结构，不动
+  `ngx_http_request_t`；brotli 编译阶段按 Dockerfile 既有逻辑应用同一份 `patches/*.patch`，布局一致。
+- **未做容器内编译与运行验证**。构建后按规矩 5 核对 `nginx -V`（排除 geoip/image_filter/xslt）、
+  `nginx -t`、Lua 与动态模块加载。
+
+同批披露还有一个 Linux 内核 SCTP UAF / double-free（4.15 引入，暂无 CVE 编号），可与上述任一
+nginx 漏洞链式提权到宿主机 root，含 Docker 逃逸演示。不在 nginx 补丁范围：宿主机执行
+`echo 'install sctp /bin/false' > /etc/modprobe.d/disable-sctp.conf`，已加载需 rmmod 或重启；
+容器共享宿主机内核，容器内禁模块无效。
+
 ### 判定所依据的配置实测（三个配置文件合计）
 
 此前将正则 map 记为 0 处不准确：`nginx.conf` 有访客 IP、日志筛选等正则 map，两套站点模板也有 `$label_id`、`$is_api_request` 等正则 map。CVE-2026-42533 的配置级规避在模板：article/sort 的 `$1`、`$2` 先单独 `set` 到普通变量，再与 map 输出变量组合；当前表达式没有先引用数字捕获、再触发 map 覆盖捕获的用法。后续修改这类表达式必须重新复核。
@@ -73,6 +115,12 @@ listen ... quic                      1     ← 仅 HTTPS 模板
 http2 on                             1     ← 仅 HTTPS 模板（default.https.conf:131）
 alias location 总数                  16
 其中同时含 rewrite                    0
+proxy_pass 主机含变量                 0     ← 变量仅在 URI（$indexnow_key）
+upstream server resolve 参数         0
+mirror / auth_request 指令           0
+add_before_body / add_after_body     0
+mail 块 / auth_http                  0
+resolver                             1     ← nginx.conf:88，Docker DNS，无请求派生名字喂入
 ```
 
 ## 结论一句话
@@ -80,6 +128,8 @@ alias location 总数                  16
 命中面有两条：**CVE-2026-95101**（仅自建 HTTPS + HTTP/3 时可达）与 **CVE-2026-49975**
 （只要 HTTPS 模板的 `http2 on` 生效就可达，即所有真实域名部署，影响面比 95101 大得多）。
 均已打补丁，其余 9 条全部不可达，另 13 条由 OpenResty 上游回补。
+2026-11-18 nginx2root 批次新增命中三条（123007 / 123633 / 121810），已打补丁；
+123634 / 113425 在当前配置不可达，不打，判定与分叉评估见第四节。
 
 **注意**：这个结论绑定当前配置。若将来去掉 map 相关数字捕获的 `set` 隔离、开启 `ssi` / `slice` / `aio`、
 改用 gRPC 上游，或把 `ssl_session_tickets` 打开，对应的 CVE 前置条件可能成立，必须重新评估。

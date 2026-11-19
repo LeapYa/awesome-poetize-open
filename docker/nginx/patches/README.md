@@ -54,22 +54,34 @@
 | CVE-2026-42530 | 1.31.0–1.31.1 | 1.29.2 没有对应代码 |
 | CVE-2026-42926 | 1.29.4–1.30.0 | 1.29.2 早于 1.29.4 |
 
-### 四、2026-11-18 nginx2root 批次（5 条，Xint.io 披露，修复于 1.31.9 / 1.30.7）
+### 四、2026-11-18 批次（10 条，nginx.org 公告；修复于 1.31.9 / 1.30.7）
 
 披露 2026-11-18，补丁 release 2026-11-19。生成本目录补丁时 nginx.org 下载页仍是 1.31.8 / 1.30.6，
 diff 取自 GitHub nginx/nginx master 上 nginx-1.31.9-RELEASE（c2c44702）所含的修复 commit。
 1.29.x 已停 backport，本批次逐条判定：
+
+> **清单来源规矩（2026-11-19 补正）**：本表第一版只列了 5 条，来源是 Xint.io 的 NGINX2Root 文章，
+> 而那一篇只覆盖 RCE 链上的 5 条。nginx.org 的 security advisories 页对 1.31.9 / 1.30.7 明确列了
+> **10 条**，其中 TLS 1.3 请求体死循环（118899，major）和 alias + try_files 越界（125283）在本项目
+> 可达，漏审后由 v5.2.22 补上。**以后漏洞清单只以 nginx.org 公告页为准**，第三方文章只能当线索，
+> 不能当清单；每次按公告页把「同版本修复的全部条目」逐条过一遍再判可达性。
 
 | CVE | 触发前置 | 本项目可达性 | 处理 |
 |---|---|---|---|
 | **CVE-2026-123007**（HTTP/2 send_window 回绕成负、堆 OOB，CVSS 4.0 9.2） | `http2 on` | **是**：default.https.conf:155 | **已打补丁** |
 | **CVE-2026-123633**（HTTP/2 连接复用列表 UAF） | `http2 on` + 反代 + worker 空闲连接少 | **是**：HTTPS 模板 + 全量 proxy_pass 到 poetize-java，`worker_connections 1024` | **已打补丁** |
 | **CVE-2026-121810**（QUIC 主流被当可复用连接回收 UAF） | http3/quic + 反代 | **是**：default.https.conf:154 `listen 443 quic`、158 `http3 on` | **已打补丁** |
+| **CVE-2026-118899**（TLS 1.3 读请求体死循环，worker 停止收发，CVSS 4.0 8.7） | `listen ... ssl` + `ssl_protocols` 含 TLSv1.3 + 接受请求体 | **是**：两套模板均 `ssl_protocols TLSv1.2 TLSv1.3`（default.https.conf:525），`/api/` 有大量带 body 的 POST；单连接未认证即可打挂一个 worker | **已打补丁（v5.2.22）** |
+| **CVE-2026-125283**（`try_files` + `alias` 下脚本产出短于预估长度，整数下溢致缓冲区越界，6.9） | `try_files` + `alias` + 脚本（变量 / 正则捕获）产出字符串短于预估 | **按可达处理**：`/admin`、`/assets/`、`/im/static/`、`/static` 四处是 `alias` + `try_files`，`/static/articleFile/*` 是 `alias` + `$1` 捕获。四处 try_files 参数目前都是 `$uri`（长度精确，理论上不易触发），但 `/admin` 那条混排了字面量与变量；这类"长度预估偏大"的写法在模板里随处可见，单行修复零成本，直接打 | **已打补丁（v5.2.22）** |
 | CVE-2026-123634（resolver 非当前 resolve 被提前终结 UAF） | 请求派生主机变量的 proxy_pass + resolver + 子请求 | 否：proxy_pass 主机全部固定 upstream；变量仅在 URI（`$indexnow_key`）；upstream server 无 `resolve` 参数；mirror / ssi / auth_request / addition 指令 0 | 不打 |
 | CVE-2026-113425（mail auth_http 处理期连接池化 UAF） | mail 块 `proxy on` + `auth_http` | 否：mail 块 0；configure 已 `--without-mail_pop3/imap/smtp` | 不打 |
+| CVE-2026-120993（PROXY protocol v2 + 动态证书空指针，6.9） | `proxy_protocol` + 动态加载证书 | 否：受影响范围只有 1.31.4–1.31.8，1.29.2 不在其中 | 不需 |
+| CVE-2026-123640（stream ssl_preread 校验不足，6.9） | `stream` 块 + `ssl_preread on` | 否：无 stream 块（`--with-stream_ssl_preread_module` 编进了镜像，但没有 stream 配置） | 不打 |
+| CVE-2026-120967（stream 客户端证书验证绕过，6.3） | `stream` 块 + `ssl_verify_client` + 多 SNI 虚拟主机 | 否：无 stream 块，也未启用客户端证书校验 | 不打 |
 
 `resolver 127.0.0.11`（nginx.conf:88）存在，但没有任何请求派生名字喂入它，不构成 123634 前置。
-配置若新增变量主机 proxy_pass、mirror / ssi / auth_request / addition 指令或 mail 块，须重判后两条；
+配置若新增变量主机 proxy_pass、mirror / ssi / auth_request / addition 指令、mail 块、`stream` 块，
+或把 `try_files` 与带正则捕获的 `alias` 放到同一 location，须重判 123634 / 123640 / 120967 / 125283；
 未采用的上游 diff 存档在仓库根 `nginx2root-patches/upstream-1.31.9/`，重做版在同目录 `rebased-1.29.2/`。
 
 补丁 ↔ 上游 commit ↔ 分叉评估（规矩 3 要求分叉文件单独评估）：
@@ -79,17 +91,27 @@ diff 取自 GitHub nginx/nginx master 上 nginx-1.31.9-RELEASE（c2c44702）所�
 | CVE-2026-123007-http2-window-update.patch | e27f5fa84fe6 | 分叉：v2.h 结构体上下文与 filter 两处 hunk 在 1.29.2 上需 fuzz1。已重生成 1.29.2 精确 diff（应用零 fuzz）。落点核对：`send_queued` 紧邻 `send_window`；三处记账分别在 send_chain 入队、data_frame_handler 实发、filter_cleanup 清理 |
 | CVE-2026-123633-http2-reusable.patch | 2df48a501d0f | 分叉：create_stream 上下文需 fuzz2。已重生成精确 diff。落点在 `h2c->processing++` 之后、读定时器删除之前 |
 | CVE-2026-121810-quic-reuse.patch | b5252dae1ca0 | 上下文逐字节一致，零 fuzz |
+| CVE-2026-118899-tls13-request-body-loop.patch | 2b129b9363 | 上下文一致（仅行偏移 +2），零 fuzz。落点：`n = NGX_AGAIN` 初始化放在 `flush = 1` 之后；判据改成 `n == NGX_AGAIN \|\| !c->read->ready \|\| rb->rest == 0`，避免 SSL 的 `c->read->ready` 仍置位但 recv 返回 `NGX_AGAIN`（SSL_ERROR_WANT_WRITE）时空转 |
+| CVE-2026-125283-try-files-alias-overflow.patch | d1ffe6fa89 | 上下文一致（仅行偏移），零 fuzz。落点：在 `path.len = e.pos - path.data` 之前重算 `len = e.pos - name + 1`；`len` 原是 lengths 脚本的**预估**长度，脚本实际产出更短时 `ngx_memmove(name, name + alias, len - alias)` 会下溢越界 |
 
 验证（2026-11-19，本机 Windows，GNU patch）：
 
-- 三条新补丁 + 存量 49975 / 95101 按 Dockerfile 的文件名序，在 bundle/nginx-1.29.2 上
+- 五条采用补丁 + 存量 49975 / 95101 按 Dockerfile 的文件名序，在 bundle/nginx-1.29.2 上
   `patch -p1 -F0 --no-backup-if-mismatch` 全部 exit 0；49975 仅行偏移（+2/+10/-1/-6），无 fuzz。
+- 118899 / 125283 两条在全新 1.29.2 副本上 `-F0` 应用后，被改文件与目标副本逐字节相同。
 - 单独回验：nginx2root 全 7 条 diff（含未采用的 123634 / 113425）在全新副本 `git apply` 全部干净，
   6 个被改文件归一化行尾后 SHA256 与基准树逐一相同。
 - ABI：123007 往 `ngx_http_v2_connection_s` 插入 `send_queued`，是 v2 内部结构，不动
-  `ngx_http_request_t`；brotli 编译阶段按 Dockerfile 既有逻辑应用同一份 `patches/*.patch`，布局一致。
-- **未做容器内编译与运行验证**。构建后按规矩 5 核对 `nginx -V`（排除 geoip/image_filter/xslt）、
-  `nginx -t`、Lua 与动态模块加载。
+  `ngx_http_request_t`；118899 / 125283 只改单文件函数体，不新增外部符号。brotli 编译阶段按
+  Dockerfile 既有逻辑应用同一份 `patches/*.patch`，布局一致。
+- 容器内编译与冒烟（2026-11-19，本机 Docker Desktop / WSL2，普通增量构建 3m46s）：
+  `nginx-patch` 阶段的产物时间戳为构建当日 04:11，说明 nginx 确实按新补丁重编，不是命中缓存；
+  `openresty -t` 对 http / https 两套模板均 `test is successful`（需 `--add-host poetize-java:127.0.0.1`，
+  否则 upstream 解析失败，与补丁无关）；冒烟结果为 `/` 200、未知路径 404、`/server.key` 403、
+  缺失静态资源 404；`Accept-Encoding: br` 请求 `/assets/app.js` 返回 `Content-Encoding: br` 与
+  `application/javascript`，证明 11-13 缓存的 brotli filter / static 两个 `.so` 与新二进制 ABI 兼容
+  （两个补丁只改函数体，不新增符号、不动结构体布局）；POST 200KB body 到 `/api/` 在 14ms 内返回 502，
+  请求体读取路径无卡死；error.log 只有 Redis 与 upstream 的连接拒绝，无 Lua 报错、无 worker 异常退出。
 
 同批披露还有一个 Linux 内核 SCTP UAF / double-free（4.15 引入，暂无 CVE 编号），可与上述任一
 nginx 漏洞链式提权到宿主机 root，含 Docker 逃逸演示。不在 nginx 补丁范围：宿主机执行
@@ -115,21 +137,29 @@ listen ... quic                      1     ← 仅 HTTPS 模板
 http2 on                             1     ← 仅 HTTPS 模板（default.https.conf:131）
 alias location 总数                  16
 其中同时含 rewrite                    0
+其中同时含 try_files                  4     ← /admin、/assets/、/im/static/、/static（125283 前置）
+alias + 正则捕获（$1/$2）             1     ← /static/articleFile/*（脚本捕获，已用 set 保存）
 proxy_pass 主机含变量                 0     ← 变量仅在 URI（$indexnow_key）
 upstream server resolve 参数         0
 mirror / auth_request 指令           0
 add_before_body / add_after_body     0
 mail 块 / auth_http                  0
+stream 块                            0     ← 123640 / 120967 的前置
+ssl_protocols                        2     ← 两套模板均为 TLSv1.2 TLSv1.3（118899 前置）
 resolver                             1     ← nginx.conf:88，Docker DNS，无请求派生名字喂入
 ```
 
 ## 结论一句话
 
-命中面有两条：**CVE-2026-95101**（仅自建 HTTPS + HTTP/3 时可达）与 **CVE-2026-49975**
+命中面原有两条：**CVE-2026-95101**（仅自建 HTTPS + HTTP/3 时可达）与 **CVE-2026-49975**
 （只要 HTTPS 模板的 `http2 on` 生效就可达，即所有真实域名部署，影响面比 95101 大得多）。
 均已打补丁，其余 9 条全部不可达，另 13 条由 OpenResty 上游回补。
-2026-11-18 nginx2root 批次新增命中三条（123007 / 123633 / 121810），已打补丁；
-123634 / 113425 在当前配置不可达，不打，判定与分叉评估见第四节。
+2026-11-18 批次（官方 10 条）命中五条，均已打补丁：**123007 / 123633 / 121810**（RCE 链）、
+**118899**（TLS 1.3 请求体死循环，major，v5.2.22 补）、**125283**（alias + try_files 越界，v5.2.22 补）；
+123634 / 113425 / 123640 / 120967 在当前配置不可达，120993 不影响 1.29.2，判定与分叉评估见第四节。
+
+**注意**：本文件第一版把 2026-11-18 批次记成 5 条，只审了 RCE 链、漏了 118899 与 125283，
+v5.2.21 因此少打两个补丁，v5.2.22 修正。漏洞清单以 nginx.org 公告页为准，第三方文章只作线索。
 
 **注意**：这个结论绑定当前配置。若将来去掉 map 相关数字捕获的 `set` 隔离、开启 `ssi` / `slice` / `aio`、
 改用 gRPC 上游，或把 `ssl_session_tickets` 打开，对应的 CVE 前置条件可能成立，必须重新评估。

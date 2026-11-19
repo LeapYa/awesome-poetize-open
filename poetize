@@ -8200,7 +8200,9 @@ EOF
   info "更新Java服务JVM内存参数..."
   # GC 策略由各内存档位的 JAVA_GC_FLAGS 决定（very-low 用 G1，其余用 ZGC）
   # 全局移除 ExitOnOutOfMemoryError（小堆 OOM 会触发无限重启），改用 HeapDump 留 dump 诊断
-  local JAVA_OPTS="-Xmx$JAVA_XMX -Xms$JAVA_XMS -XX:MaxMetaspaceSize=$JAVA_METASPACE -XX:CompressedClassSpaceSize=$JAVA_CLASS_SPACE -Xss$JAVA_XSS $JAVA_GC_FLAGS -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/logs -XX:ReservedCodeCacheSize=$JAVA_CODE_CACHE -XX:MaxDirectMemorySize=$JAVA_DIRECT_MEM -XX:CICompilerCount=$JAVA_CI_COMPILER_COUNT"
+  # -XX:-UseBASE64Intrinsics：临时缓解 CVE-2026-114938（Java4Shell）。硬件加速 Base64 解码在
+  # AVX-512 VBMI 平台上存在堆越界写，未认证可达；Temurin 出 25.0.5.1 镜像后升基础镜像并删掉此项。
+  local JAVA_OPTS="-Xmx$JAVA_XMX -Xms$JAVA_XMS -XX:MaxMetaspaceSize=$JAVA_METASPACE -XX:CompressedClassSpaceSize=$JAVA_CLASS_SPACE -Xss$JAVA_XSS $JAVA_GC_FLAGS -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/logs -XX:ReservedCodeCacheSize=$JAVA_CODE_CACHE -XX:MaxDirectMemorySize=$JAVA_DIRECT_MEM -XX:CICompilerCount=$JAVA_CI_COMPILER_COUNT -XX:-UseBASE64Intrinsics"
   
   if [ -f "lib/config.sh" ]; then
     # 新版本：更新 .env 文件中的 JVM 参数和容器内存限制
@@ -8693,13 +8695,19 @@ classify_last_compose_failure() {
     return 0
   fi
 
-  if echo "$log_text" | grep -Eiq 'failed to bind host port|address already in use|port is already allocated'; then
+  # 启动竞争：healthy 检查失败 / 依赖启动失败 / 连库被拒，多为慢启动（如 MariaDB 入口脚本的
+  # 临时实例→正式实例切换），重试通常即可恢复。必须排在 permission denied 之前，否则构建日志里
+  # 无关的 permission denied 噪音会把整次失败判成确定性错误，直接跳过重试。
+  if echo "$log_text" | grep -Eiq 'dependency failed to start|container .* is unhealthy|is unhealthy|Connection refused|Communications link failure|SQLNonTransientConnectionException'; then
+    LAST_DOCKER_COMPOSE_ERROR_KIND="startup_race"
+    LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=true
+  elif echo "$log_text" | grep -Eiq 'failed to bind host port|address already in use|port is already allocated'; then
     LAST_DOCKER_COMPOSE_ERROR_KIND="port_conflict"
     LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=false
   elif echo "$log_text" | grep -Eiq 'Cannot connect to the Docker daemon|Got permission denied while trying to connect to the Docker daemon socket'; then
     LAST_DOCKER_COMPOSE_ERROR_KIND="docker_daemon"
     LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=false
-  elif echo "$log_text" | grep -Eiq 'permission denied'; then
+  elif echo "$log_text" | grep -Ei 'permission denied' | grep -Eiq 'docker|\.sock|bind|mount|volume|/var/lib'; then
     LAST_DOCKER_COMPOSE_ERROR_KIND="permission"
     LAST_DOCKER_COMPOSE_ERROR_RECOVERABLE=false
   elif echo "$log_text" | grep -Eiq 'no space left on device|ENOSPC'; then
